@@ -1263,6 +1263,15 @@ class LiveAuthoringClosureTests(unittest.TestCase):
         for token in retired_tokens:
             self.assertNotIn(f'"{token}"', text, f"retired outcome token {token} is still authorable")
         self.assertNotIn("decision_record", text)
+        # The work pin replays stored predicates unchanged, so it keeps the
+        # retained vocabulary and decision record that authoring narrows away.
+        retained = defs["workflow_retained_outcome"]["properties"]
+        self.assertEqual(retained["allowed"]["maxItems"], 8)
+        self.assertTrue(retired_tokens <= set(retained["allowed"]["items"]["enum"]))
+        self.assertIn("decision_record", retained)
+        criterion = json.dumps(defs["work_pin_verified_criterion"], sort_keys=True)
+        self.assertIn('"#/$defs/workflow_retained_outcome"', criterion)
+        self.assertNotIn('"#/$defs/workflow_outcome_outcome"', criterion)
 
     def test_the_frozen_decoder_keeps_the_retired_vocabulary(self):
         frozen = json.loads(generator.HISTORICAL_DECODER.read_text())["$defs"]
@@ -2885,10 +2894,21 @@ class ResearchContextProjectionTests(unittest.TestCase):
                              ("lane_work_context_research_finding_view", "work_context_research_finding_view")):
             self.assertEqual(self.projected["$defs"][shared], self._remapped_def(lane))
         # The current public view carries the same projected member the
-        # canonical view declares, under the shared def names.
+        # canonical view declares, under the shared def names. Its retained
+        # twin replays stored selections, so its items name the retained twin.
         lane_member = packet_schema["$defs"]["lane_work_context_view"]["properties"]["research_findings"]
         self.assertEqual(self.projected["$defs"]["work_context_view"]["properties"]["research_findings"],
                          self._remap(lane_member))
+        retained = self._remap(lane_member)
+        retained["items"]["$ref"] = "#/$defs/" + generator.retained_twin_name("work_context_research_finding_view")
+        twin = self.projected["$defs"][generator.retained_twin_name("work_context_view")]
+        self.assertEqual(twin["properties"]["research_findings"], retained)
+        # Packet dispatch keeps the lane's bounded scope id; only the retained
+        # read twin carries the store's wider knowledge ids.
+        retained_scopes = self.projected["$defs"][generator.retained_twin_name("research_scopes")]
+        for kind in ("product_ids", "project_ids", "domain_ids", "tag_ids"):
+            self.assertEqual(self.projected["$defs"]["research_scopes"]["properties"][kind]["items"], {"$ref": "#/$defs/id"})
+            self.assertEqual(retained_scopes["properties"][kind]["items"], {"$ref": "#/$defs/knowledge_id"})
 
     def _project_with_lane_packet(self, lane_document):
         """Project against a temporary canonical lane packet on disk: the

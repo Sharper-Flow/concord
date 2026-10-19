@@ -127,7 +127,13 @@ func TestHistoryEvidenceBoundAdmitsEveryActionEvidenceList(t *testing.T) {
 	evidence, _ := event["properties"].(map[string]any)["evidence"].(map[string]any)
 	bound, ok := evidence["maxItems"].(float64)
 	if !ok {
-		t.Fatalf("work_event_page events[].evidence carries no maxItems: %v", evidence)
+		// An uncapped read admits every stored list; the output bound
+		// ledger proves the stored count has no finite producer and names
+		// the typed refusal that bounds the result instead.
+		if _, items := evidence["items"].(map[string]any); !items || evidence["type"] != "array" {
+			t.Fatalf("work_event_page events[].evidence is not an evidence array: %v", evidence)
+		}
+		return
 	}
 	var document map[string]any
 	if err := json.Unmarshal([]byte(payloadschema.GeneratedPayloadSchemaDocument), &document); err != nil {

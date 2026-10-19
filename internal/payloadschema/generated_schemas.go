@@ -4,7 +4,7 @@ package payloadschema
 const GeneratedPayloadSchemaDocument = `{
   "$defs": {
     "absolute_path": {
-      "maxLength": 4096,
+      "description": "Output readback absolute path. The store joins operator filesystem text with no length guard, so the readback carries no maximum.",
       "minLength": 1,
       "type": "string"
     },
@@ -29,7 +29,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "path": {
-          "maxLength": 512,
           "minLength": 1,
           "type": "string"
         },
@@ -224,7 +223,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         },
         "nodes": {
           "items": {
@@ -253,7 +252,6 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "locator": {
-          "maxLength": 2048,
           "type": [
             "string",
             "null"
@@ -1052,7 +1050,7 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "array"
             },
             "next_cursor": {
-              "$ref": "#/$defs/cursor"
+              "$ref": "#/$defs/cursor_output"
             },
             "watermark": {
               "$ref": "#/$defs/id"
@@ -1074,7 +1072,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "$ref": "#/$defs/id"
               },
               "recorded_at": {
-                "maxLength": 40,
+                "maxLength": 58,
                 "minLength": 10,
                 "type": "string"
               },
@@ -1210,7 +1208,7 @@ const GeneratedPayloadSchemaDocument = `{
               ]
             },
             "law_context": {
-              "$ref": "#/$defs/workflow_law_context"
+              "$ref": "#/$defs/retained_workflow_law_context"
             },
             "pending_operator_decision": {
               "oneOf": [
@@ -1242,7 +1240,6 @@ const GeneratedPayloadSchemaDocument = `{
               "items": {
                 "$ref": "#/$defs/worker_packet_worker_job"
               },
-              "maxItems": 256,
               "type": "array"
             },
             "spec_mandate": {
@@ -1289,7 +1286,7 @@ const GeneratedPayloadSchemaDocument = `{
               ]
             },
             "work_context": {
-              "$ref": "#/$defs/work_context_view",
+              "$ref": "#/$defs/retained_work_context_view",
               "description": "The available work-context view. An evaluated over-bound view emits work_context_unavailable instead. An evaluated absent context emits neither member."
             },
             "work_context_unavailable": {
@@ -1359,6 +1356,13 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "cursor": {
       "maxLength": 4096,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cursor_output": {
+      "description": "Output readback continuation cursor. The store mints cursors with no encode-time length guard, so the readback carries no maximum; authored page input keeps the bounded cursor definition.",
       "type": [
         "string",
         "null"
@@ -1622,7 +1626,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/domain_law_record"
           },
-          "maxItems": 100,
+          "maxItems": 1000,
           "type": "array"
         },
         "domain": {
@@ -1642,7 +1646,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/domain_relation"
           },
-          "maxItems": 100,
+          "maxItems": 4096,
           "type": "array"
         }
       },
@@ -1965,7 +1969,7 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "applies_to": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/knowledge_id"
           },
           "maxItems": 100,
           "type": "array"
@@ -1982,7 +1986,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "law_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/knowledge_id"
         },
         "path": {
           "maxLength": 512,
@@ -2129,7 +2133,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/id"
           },
-          "maxItems": 32,
+          "maxItems": 64,
           "minItems": 0,
           "type": "array"
         },
@@ -2237,9 +2241,9 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "governing_law_ids": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/knowledge_id"
           },
-          "maxItems": 32,
+          "maxItems": 64,
           "type": "array"
         },
         "kind": {
@@ -2251,7 +2255,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "source_domain_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/domain_id"
         },
         "state": {
           "enum": [
@@ -2265,7 +2269,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "target_domain_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/domain_id"
         }
       },
       "required": [
@@ -2280,7 +2284,7 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "domain_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/domain_id"
         },
         "home_domain": {
           "type": "boolean"
@@ -2291,7 +2295,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "parent_domain_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/domain_id"
         },
         "purpose": {
           "maxLength": 4096,
@@ -2394,7 +2398,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "captured_at": {
-                "maxLength": 64,
                 "minLength": 20,
                 "type": "string"
               },
@@ -2426,7 +2429,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "observed_universe": {
-                "$ref": "#/$defs/observed_universe"
+                "$ref": "#/$defs/observed_universe_output"
               },
               "reporting_authority_ref": {
                 "maxLength": 256,
@@ -2469,7 +2472,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "verified_at": {
-                "maxLength": 64,
                 "minLength": 20,
                 "type": "string"
               },
@@ -2530,6 +2532,12 @@ const GeneratedPayloadSchemaDocument = `{
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
       "type": "string"
     },
+    "knowledge_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
+      "type": "string"
+    },
     "knowledge_page": {
       "additionalProperties": false,
       "properties": {
@@ -2565,7 +2573,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "$ref": "#/$defs/id"
               },
               "locator": {
-                "maxLength": 2048,
                 "minLength": 1,
                 "type": "string"
               },
@@ -2592,7 +2599,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         },
         "source_watermarks": {
           "description": "CD-0200: one freshness verdict per registered knowledge source in a Product-wide answer, home first. Absent from a single-source answer.",
@@ -2625,7 +2632,6 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 32,
           "type": "array"
         },
         "watermark": {
@@ -2872,7 +2878,7 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 16,
+          "maxItems": 25,
           "type": "array"
         },
         "operation_id": {
@@ -4204,7 +4210,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string"
                 },
                 "detail": {
-                  "maxLength": 4096,
                   "type": "string"
                 },
                 "files": {
@@ -4252,7 +4257,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string"
                 },
                 "project_id": {
-                  "maxLength": 128,
                   "minLength": 1,
                   "type": "string"
                 },
@@ -4313,7 +4317,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string"
                 },
                 "toolchain_identity": {
-                  "maxLength": 512,
                   "minLength": 1,
                   "type": "string"
                 },
@@ -4497,7 +4500,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string"
                 },
                 "detail": {
-                  "maxLength": 4096,
                   "type": "string"
                 },
                 "files": {
@@ -4545,7 +4547,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string"
                 },
                 "project_id": {
-                  "maxLength": 128,
                   "minLength": 1,
                   "type": "string"
                 },
@@ -4627,7 +4628,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string"
                 },
                 "toolchain_identity": {
-                  "maxLength": 512,
                   "minLength": 1,
                   "type": "string"
                 },
@@ -4771,7 +4771,6 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string"
             },
             "detail": {
-              "maxLength": 4096,
               "type": "string"
             },
             "files": {
@@ -4819,7 +4818,6 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string"
             },
             "project_id": {
-              "maxLength": 128,
               "minLength": 1,
               "type": "string"
             },
@@ -4915,7 +4913,6 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string"
             },
             "toolchain_identity": {
-              "maxLength": 512,
               "minLength": 1,
               "type": "string"
             },
@@ -5071,7 +5068,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string"
                 },
                 "detail": {
-                  "maxLength": 4096,
                   "type": "string"
                 },
                 "files": {
@@ -5145,7 +5141,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string"
                 },
                 "project_id": {
-                  "maxLength": 128,
                   "minLength": 1,
                   "type": "string"
                 },
@@ -5212,7 +5207,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string"
                 },
                 "toolchain_identity": {
-                  "maxLength": 512,
                   "minLength": 1,
                   "type": "string"
                 },
@@ -5426,7 +5420,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string"
                 },
                 "detail": {
-                  "maxLength": 4096,
                   "type": "string"
                 },
                 "files": {
@@ -5500,7 +5493,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string"
                 },
                 "project_id": {
-                  "maxLength": 128,
                   "minLength": 1,
                   "type": "string"
                 },
@@ -5588,7 +5580,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "string"
                 },
                 "toolchain_identity": {
-                  "maxLength": 512,
                   "minLength": 1,
                   "type": "string"
                 },
@@ -5762,7 +5753,6 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string"
             },
             "detail": {
-              "maxLength": 4096,
               "type": "string"
             },
             "files": {
@@ -5836,7 +5826,6 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string"
             },
             "project_id": {
-              "maxLength": 128,
               "minLength": 1,
               "type": "string"
             },
@@ -5938,7 +5927,6 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string"
             },
             "toolchain_identity": {
-              "maxLength": 512,
               "minLength": 1,
               "type": "string"
             },
@@ -6259,6 +6247,97 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "anchor_token": {
           "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "applied_scope": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "canonical_identity_key": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "completion_evidence": {
+          "enum": [
+            "authoritative_item_read",
+            "end_signal",
+            "closed_structure_digest",
+            "exhaustive_local"
+          ],
+          "type": "string"
+        },
+        "coverage": {
+          "enum": [
+            "complete",
+            "partial",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "observed_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observed_refs": {
+          "items": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "omissions": {
+          "items": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "shape": {
+          "enum": [
+            "item",
+            "collection",
+            "stream"
+          ],
+          "type": "string"
+        },
+        "structure_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "total_kind": {
+          "enum": [
+            "eq",
+            "gte",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "total_value": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "shape",
+        "applied_scope",
+        "coverage",
+        "total_kind",
+        "canonical_identity_key"
+      ],
+      "type": "object"
+    },
+    "observed_universe_output": {
+      "additionalProperties": false,
+      "description": "Output readback of an observed universe. The capture fold admits any anchor token length when coverage is partial or unknown, so the readback carries no anchor_token maximum; authored observation input keeps the bounded observed_universe definition.",
+      "properties": {
+        "anchor_token": {
           "minLength": 1,
           "type": "string"
         },
@@ -6669,12 +6748,11 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/id"
           },
-          "maxItems": 20,
           "type": "array",
           "uniqueItems": true
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         },
         "product_id": {
           "$ref": "#/$defs/id"
@@ -6703,7 +6781,6 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 100,
           "type": "array"
         },
         "stage": {
@@ -6734,7 +6811,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "blocked_since": {
-          "maxLength": 40,
+          "maxLength": 58,
           "minLength": 10,
           "type": "string"
         },
@@ -6754,7 +6831,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "directory": {
-          "maxLength": 4096,
           "minLength": 1,
           "type": "string"
         },
@@ -6762,7 +6838,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "worktree": {
-          "maxLength": 4096,
           "minLength": 1,
           "type": "string"
         }
@@ -7005,7 +7080,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/next_valid_intent"
           },
-          "maxItems": 16,
+          "maxItems": 25,
           "type": "array"
         },
         "work_id": {
@@ -7049,7 +7124,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/next_valid_intent"
           },
-          "maxItems": 16,
+          "maxItems": 25,
           "type": "array"
         },
         "work_id": {
@@ -7080,7 +7155,6 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "blockers": {
           "items": {
-            "maxLength": 512,
             "minLength": 1,
             "type": "string"
           },
@@ -7210,7 +7284,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "finding_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/research_record_id"
         },
         "freshness": {
           "enum": [
@@ -7238,17 +7312,15 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "scopes": {
-          "$ref": "#/$defs/research_scopes"
+          "$ref": "#/$defs/retained_research_scopes"
         },
         "source_ids": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/research_record_id"
           },
-          "maxItems": 32,
           "type": "array"
         },
         "statement": {
-          "maxLength": 8192,
           "minLength": 1,
           "type": "string"
         },
@@ -7338,7 +7410,7 @@ const GeneratedPayloadSchemaDocument = `{
             "additionalProperties": false,
             "properties": {
               "accepted_at": {
-                "maxLength": 40,
+                "maxLength": 58,
                 "minLength": 1,
                 "type": "string"
               },
@@ -7375,11 +7447,11 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 100,
+          "maxItems": 1000,
           "type": "array"
         },
         "created_at": {
-          "maxLength": 40,
+          "maxLength": 58,
           "minLength": 1,
           "type": "string"
         },
@@ -7409,11 +7481,11 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/research_revision"
           },
-          "maxItems": 100,
+          "maxItems": 1000,
           "type": "array"
         },
         "updated_at": {
-          "maxLength": 40,
+          "maxLength": 58,
           "minLength": 1,
           "type": "string"
         }
@@ -7433,7 +7505,7 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "created_at": {
-          "maxLength": 40,
+          "maxLength": 58,
           "minLength": 1,
           "type": "string"
         },
@@ -7460,7 +7532,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "updated_at": {
-          "maxLength": 40,
+          "maxLength": 58,
           "minLength": 1,
           "type": "string"
         }
@@ -7507,7 +7579,7 @@ const GeneratedPayloadSchemaDocument = `{
               "items": {
                 "$ref": "#/$defs/research_pack_descriptor"
               },
-              "maxItems": 100,
+              "maxItems": 1000,
               "type": "array"
             },
             "result_version": {
@@ -7528,7 +7600,7 @@ const GeneratedPayloadSchemaDocument = `{
             "additionalProperties": false,
             "properties": {
               "accepted_at": {
-                "maxLength": 40,
+                "maxLength": 58,
                 "minLength": 1,
                 "type": "string"
               },
@@ -7565,11 +7637,11 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 100,
+          "maxItems": 1000,
           "type": "array"
         },
         "created_at": {
-          "maxLength": 40,
+          "maxLength": 58,
           "minLength": 1,
           "type": "string"
         },
@@ -7602,7 +7674,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/research_pack_descriptor"
           },
-          "maxItems": 100,
+          "maxItems": 1000,
           "type": "array"
         },
         "result_version": {
@@ -7613,16 +7685,21 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/research_revision"
           },
-          "maxItems": 100,
+          "maxItems": 1000,
           "type": "array"
         },
         "updated_at": {
-          "maxLength": 40,
+          "maxLength": 58,
           "minLength": 1,
           "type": "string"
         }
       },
       "type": "object"
+    },
+    "research_record_id": {
+      "description": "Output readback research record identity (finding or source). Raw retained research IDs legitimately exceed the shared id bound, so this carries no maximum and no ASCII pattern; authored research input keeps its own bounded definitions.",
+      "minLength": 1,
+      "type": "string"
     },
     "research_retire_result": {
       "additionalProperties": false,
@@ -7701,7 +7778,7 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "created_at": {
-          "maxLength": 40,
+          "maxLength": 58,
           "minLength": 1,
           "type": "string"
         },
@@ -7712,7 +7789,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/research_finding"
           },
-          "maxItems": 100,
+          "maxItems": 1000,
           "type": "array"
         },
         "freshness": {
@@ -7730,7 +7807,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "question": {
-          "maxLength": 2048,
           "minLength": 1,
           "type": "string"
         },
@@ -7746,9 +7822,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "sources": {
           "items": {
-            "$ref": "#/$defs/research_source"
+            "$ref": "#/$defs/retained_research_source"
           },
-          "maxItems": 100,
+          "maxItems": 1000,
           "type": "array"
         }
       },
@@ -8006,7 +8082,7 @@ const GeneratedPayloadSchemaDocument = `{
             "additionalProperties": false,
             "properties": {
               "claimed_at": {
-                "maxLength": 40,
+                "maxLength": 58,
                 "minLength": 10,
                 "type": "string"
               },
@@ -8025,12 +8101,12 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "released_at": {
-                "maxLength": 40,
+                "maxLength": 58,
                 "minLength": 10,
                 "type": "string"
               },
               "resource_key": {
-                "maxLength": 160,
+                "maxLength": 161,
                 "minLength": 3,
                 "pattern": "^[a-z][a-z0-9_-]{1,31}:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$",
                 "type": "string"
@@ -8081,7 +8157,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "items": {
                   "$ref": "#/$defs/resource_product_link"
                 },
-                "maxItems": 100,
                 "type": "array"
               },
               "display_name": {
@@ -8227,6 +8302,1547 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "retained_native_oracle_preparation": {
+      "additionalProperties": false,
+      "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, and uv+check: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. No Vitest or pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The pure-Go family: the legacy selected test names and case map, with no target-runner host property.",
+          "if": {
+            "properties": {
+              "qualification": {
+                "const": "ready"
+              }
+            },
+            "required": [
+              "qualification"
+            ]
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "recipe_kind"
+                ]
+              },
+              {
+                "required": [
+                  "target_materializer"
+                ]
+              },
+              {
+                "required": [
+                  "target_runner"
+                ]
+              },
+              {
+                "required": [
+                  "selected_witness_ids"
+                ]
+              },
+              {
+                "required": [
+                  "case_to_witness_map"
+                ]
+              }
+            ]
+          },
+          "properties": {
+            "build_environment_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "bundle_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "case_to_test_map": {
+              "additionalProperties": false,
+              "maxProperties": 64,
+              "minProperties": 1,
+              "patternProperties": {
+                "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_test_name"
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "type": "object"
+            },
+            "contract_version": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "files": {
+              "items": {
+                "$ref": "#/$defs/native_oracle_file"
+              },
+              "maxItems": 32,
+              "minItems": 1,
+              "type": "array"
+            },
+            "logical_argv_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "logical_cwd": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "manifest_blob": {
+              "maxLength": 64,
+              "minLength": 40,
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "type": "string"
+            },
+            "manifest_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "native_plan_sha256": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "phase": {
+              "const": "prepare",
+              "type": "string"
+            },
+            "project_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "protocol": {
+              "const": "native_oracle_v2",
+              "type": "string"
+            },
+            "qualification": {
+              "enum": [
+                "ready",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            "recipe_source": {
+              "$ref": "#/$defs/work_context_reading_source_repository_file"
+            },
+            "run_ref": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "selected_distinct_count": {
+              "maximum": 40,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "selected_test_names": {
+              "items": {
+                "$ref": "#/$defs/native_oracle_test_name"
+              },
+              "maxItems": 40,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "stderr": {
+              "$ref": "#/$defs/native_oracle_stream"
+            },
+            "stdout": {
+              "$ref": "#/$defs/native_oracle_stream"
+            },
+            "streams_complete": {
+              "type": "boolean"
+            },
+            "subject_commit": {
+              "maxLength": 64,
+              "minLength": 40,
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "type": "string"
+            },
+            "toolchain_identity": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "work_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "protocol",
+            "phase",
+            "qualification",
+            "run_ref",
+            "work_id",
+            "project_id",
+            "contract_version",
+            "subject_commit",
+            "bundle_digest",
+            "logical_argv_digest",
+            "logical_cwd",
+            "recipe_source",
+            "manifest_blob",
+            "manifest_digest",
+            "files",
+            "toolchain_identity",
+            "build_environment_digest",
+            "selected_test_names",
+            "case_to_test_map",
+            "selected_distinct_count",
+            "native_plan_sha256",
+            "stdout",
+            "stderr",
+            "streams_complete"
+          ],
+          "then": {
+            "properties": {
+              "stderr": {
+                "properties": {
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  },
+                  "stream": {
+                    "const": "stderr"
+                  }
+                }
+              },
+              "stdout": {
+                "properties": {
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  },
+                  "stream": {
+                    "const": "stdout"
+                  }
+                }
+              },
+              "streams_complete": {
+                "const": true
+              }
+            }
+          },
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The target_runner_v1 family: the closed materializer/runner pair and the real selected witness population, never fabricated Go test names. Exactly three pairs are admitted; every other combination refuses as unsupported.",
+          "if": {
+            "properties": {
+              "qualification": {
+                "const": "ready"
+              }
+            },
+            "required": [
+              "qualification"
+            ]
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "selected_test_names"
+                ]
+              },
+              {
+                "required": [
+                  "case_to_test_map"
+                ]
+              }
+            ]
+          },
+          "oneOf": [
+            {
+              "description": "uv materializes the pinned dependencies offline; pytest collects the pinned node IDs.",
+              "properties": {
+                "target_materializer": {
+                  "const": "uv"
+                },
+                "target_runner": {
+                  "const": "pytest"
+                }
+              }
+            },
+            {
+              "description": "none declares a dependency-free recipe; check grades each declared check's host-observed exit status.",
+              "properties": {
+                "target_materializer": {
+                  "const": "none"
+                },
+                "target_runner": {
+                  "const": "check"
+                }
+              }
+            },
+            {
+              "description": "uv materializes the pinned dependencies offline; check grades each declared check's host-observed exit status.",
+              "properties": {
+                "target_materializer": {
+                  "const": "uv"
+                },
+                "target_runner": {
+                  "const": "check"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "build_environment_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "bundle_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "case_to_witness_map": {
+              "additionalProperties": false,
+              "maxProperties": 64,
+              "minProperties": 1,
+              "patternProperties": {
+                "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                  "items": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[^\\x00-\\x1f\\x7f]*$",
+                    "type": "string"
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "type": "object"
+            },
+            "contract_version": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "files": {
+              "items": {
+                "$ref": "#/$defs/native_oracle_file"
+              },
+              "maxItems": 32,
+              "minItems": 1,
+              "type": "array"
+            },
+            "logical_argv_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "logical_cwd": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "manifest_blob": {
+              "maxLength": 64,
+              "minLength": 40,
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "type": "string"
+            },
+            "manifest_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "native_plan_sha256": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "phase": {
+              "const": "prepare",
+              "type": "string"
+            },
+            "project_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "protocol": {
+              "const": "native_oracle_v2",
+              "type": "string"
+            },
+            "qualification": {
+              "enum": [
+                "ready",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            "recipe_kind": {
+              "const": "target_runner_v1",
+              "type": "string"
+            },
+            "recipe_source": {
+              "$ref": "#/$defs/work_context_reading_source_repository_file"
+            },
+            "run_ref": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "selected_distinct_count": {
+              "maximum": 40,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "selected_witness_ids": {
+              "items": {
+                "maxLength": 256,
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f]*$",
+                "type": "string"
+              },
+              "maxItems": 40,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "stderr": {
+              "$ref": "#/$defs/native_oracle_stream"
+            },
+            "stdout": {
+              "$ref": "#/$defs/native_oracle_stream"
+            },
+            "streams_complete": {
+              "type": "boolean"
+            },
+            "subject_commit": {
+              "maxLength": 64,
+              "minLength": 40,
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "type": "string"
+            },
+            "target_materializer": {
+              "enum": [
+                "none",
+                "uv"
+              ],
+              "type": "string"
+            },
+            "target_runner": {
+              "enum": [
+                "pytest",
+                "check"
+              ],
+              "type": "string"
+            },
+            "toolchain_identity": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "work_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "protocol",
+            "phase",
+            "qualification",
+            "run_ref",
+            "work_id",
+            "project_id",
+            "contract_version",
+            "subject_commit",
+            "bundle_digest",
+            "logical_argv_digest",
+            "logical_cwd",
+            "recipe_source",
+            "manifest_blob",
+            "manifest_digest",
+            "files",
+            "toolchain_identity",
+            "build_environment_digest",
+            "recipe_kind",
+            "target_materializer",
+            "target_runner",
+            "selected_witness_ids",
+            "case_to_witness_map",
+            "selected_distinct_count",
+            "native_plan_sha256",
+            "stdout",
+            "stderr",
+            "streams_complete"
+          ],
+          "then": {
+            "properties": {
+              "stderr": {
+                "properties": {
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  },
+                  "stream": {
+                    "const": "stderr"
+                  }
+                }
+              },
+              "stdout": {
+                "properties": {
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  },
+                  "stream": {
+                    "const": "stdout"
+                  }
+                }
+              },
+              "streams_complete": {
+                "const": true
+              }
+            }
+          },
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "build_environment_digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "bundle_digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "case_to_test_map": {
+          "additionalProperties": false,
+          "maxProperties": 64,
+          "minProperties": 1,
+          "patternProperties": {
+            "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+              "items": {
+                "$ref": "#/$defs/native_oracle_test_name"
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "type": "object"
+        },
+        "case_to_witness_map": {
+          "additionalProperties": false,
+          "description": "Each control case maps to 1 to 8 selected witness IDs; the map covers exactly the control's cases, and the union of its values is exactly selected_witness_ids.",
+          "maxProperties": 64,
+          "minProperties": 1,
+          "patternProperties": {
+            "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+              "items": {
+                "maxLength": 256,
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f]*$",
+                "type": "string"
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "type": "object"
+        },
+        "contract_version": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/native_oracle_file"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array"
+        },
+        "logical_argv_digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "logical_cwd": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "manifest_blob": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        },
+        "manifest_digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "native_plan_sha256": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "phase": {
+          "const": "prepare",
+          "type": "string"
+        },
+        "project_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "protocol": {
+          "const": "native_oracle_v2",
+          "type": "string"
+        },
+        "qualification": {
+          "enum": [
+            "ready",
+            "unavailable"
+          ],
+          "type": "string"
+        },
+        "recipe_kind": {
+          "const": "target_runner_v1",
+          "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it.",
+          "type": "string"
+        },
+        "recipe_source": {
+          "$ref": "#/$defs/work_context_reading_source_repository_file"
+        },
+        "run_ref": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "selected_distinct_count": {
+          "maximum": 40,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "selected_test_names": {
+          "description": "The nominal maximum derives from floor((256-13)/6), not an independent test allowance. Every rendered selector still obeys sum(name bytes)+N+13 <= 256. No truncation or omitted witness.",
+          "items": {
+            "$ref": "#/$defs/native_oracle_test_name"
+          },
+          "maxItems": 40,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "selected_witness_ids": {
+          "description": "The runner-defined exact witness identities the qualified preparation selected: unique bounded visible strings of at most 256 bytes. The rendered selector still obeys the bounded verify command shape, so the nominal maximum derives from the shared witness allowance, not an independent one. No truncation or omitted witness.",
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f]*$",
+            "type": "string"
+          },
+          "maxItems": 40,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "stderr": {
+          "$ref": "#/$defs/native_oracle_stream"
+        },
+        "stdout": {
+          "$ref": "#/$defs/native_oracle_stream"
+        },
+        "streams_complete": {
+          "type": "boolean"
+        },
+        "subject_commit": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        },
+        "target_materializer": {
+          "description": "The closed materializer axis. It owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled scripts, and the runtime fingerprints. none declares a dependency-free recipe.",
+          "enum": [
+            "none",
+            "uv"
+          ],
+          "type": "string"
+        },
+        "target_runner": {
+          "description": "The closed runner axis. It owns collection, the exact witness population, and the result grammar; check pins each declared check's full bounded argv and grades the host-observed exit status.",
+          "enum": [
+            "pytest",
+            "check"
+          ],
+          "type": "string"
+        },
+        "toolchain_identity": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "work_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol",
+        "phase",
+        "qualification",
+        "run_ref",
+        "work_id",
+        "project_id",
+        "contract_version",
+        "subject_commit",
+        "bundle_digest",
+        "logical_argv_digest",
+        "logical_cwd",
+        "recipe_source",
+        "manifest_blob",
+        "manifest_digest",
+        "files",
+        "toolchain_identity",
+        "build_environment_digest",
+        "selected_distinct_count",
+        "native_plan_sha256",
+        "stdout",
+        "stderr",
+        "streams_complete"
+      ],
+      "type": "object"
+    },
+    "retained_project_id": {
+      "description": "Output readback of retained stored Project identity echoed in work project memberships. The project.created fold stores the event subject verbatim as projects.id with a presence-only check and projects carries no id CHECK, so the readback carries no maximum; authored Project identifiers keep the bounded id definition.",
+      "type": "string"
+    },
+    "retained_research_scopes": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_ids": {
+          "items": {
+            "$ref": "#/$defs/knowledge_id"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "home",
+            "explicit"
+          ],
+          "type": "string"
+        },
+        "product_ids": {
+          "items": {
+            "$ref": "#/$defs/knowledge_id"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "project_ids": {
+          "items": {
+            "$ref": "#/$defs/knowledge_id"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "tag_ids": {
+          "items": {
+            "$ref": "#/$defs/knowledge_id"
+          },
+          "maxItems": 100,
+          "type": "array"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "type": "object"
+    },
+    "retained_research_source": {
+      "additionalProperties": false,
+      "properties": {
+        "accessed_at": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "official_doc",
+            "source_code",
+            "issue",
+            "paper",
+            "web",
+            "local_evidence"
+          ],
+          "type": "string"
+        },
+        "locator": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "pack_id": {
+          "$ref": "#/$defs/id"
+        },
+        "published_at": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "publisher_or_author": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "source_id": {
+          "$ref": "#/$defs/research_record_id"
+        },
+        "title": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "pack_id",
+        "revision",
+        "source_id",
+        "kind",
+        "locator",
+        "title",
+        "publisher_or_author",
+        "accessed_at"
+      ],
+      "type": "object"
+    },
+    "retained_work_context_finding_view": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "evidence_refs": {
+          "description": "The evidence that supports the finding. A ranked finding without an oracle tie projects null; the core reader owns that wire shape.",
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "finding_id": {
+          "description": "Core-derived from the source event sequence and ordinal; never authored.",
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "type": "string"
+        },
+        "kind": {
+          "description": "The generic claim vocabulary of an authored finding. A ranked oracle finding projects the empty kind: its identity is the oracle tie, never a generic claim class.",
+          "enum": [
+            "",
+            "observation",
+            "inference",
+            "hypothesis",
+            "rejected_approach",
+            "open_question",
+            "contradiction",
+            "direction"
+          ],
+          "type": "string"
+        },
+        "oracle": {
+          "$ref": "#/$defs/retained_worker_oracle_finding",
+          "description": "The typed oracle tie of a ranked review finding: classification plus the owner, predicate/law, case, and control references that bind it."
+        },
+        "ordinal": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "origin": {
+          "enum": [
+            "declaration",
+            "worker_report"
+          ],
+          "type": "string"
+        },
+        "product_wide_rationale": {
+          "maxLength": 512,
+          "type": "string"
+        },
+        "source_event_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "source_event_seq": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "source_kind": {
+          "description": "Present only on a ranked review finding: the entry carries an oracle tie and rides the open-set lineage, never the generic worker-claim notebook.",
+          "enum": [
+            "review_finding"
+          ],
+          "type": "string"
+        },
+        "statement": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "description": "A finding is a reported claim, never acceptance. The open status names a ranked review finding the lineage currently holds open: still a claim, and open.",
+          "enum": [
+            "reported",
+            "open"
+          ],
+          "type": "string"
+        },
+        "subject_ref": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "finding_id",
+        "kind",
+        "statement",
+        "subject_ref",
+        "evidence_refs",
+        "domain_id",
+        "origin",
+        "status",
+        "source_event_id",
+        "source_event_seq",
+        "ordinal"
+      ],
+      "type": "object"
+    },
+    "retained_work_context_research_finding": {
+      "additionalProperties": false,
+      "description": "The native research finding a resolved context entry carries: the research authority's own vocabulary, never mapped to generic worker observations or invented evidence refs.",
+      "properties": {
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        "finding_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "type": "string"
+        },
+        "freshness": {
+          "enum": [
+            "current",
+            "stale",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "observation",
+            "inference",
+            "hypothesis",
+            "conclusion",
+            "recommendation"
+          ],
+          "type": "string"
+        },
+        "pack_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "scopes": {
+          "$ref": "#/$defs/retained_research_scopes",
+          "description": "The finding's own applicability scopes, carried unchanged from the research authority. The Go reader always serializes this member, so the context projection requires it."
+        },
+        "source_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "type": "string"
+          },
+          "minItems": 0,
+          "type": "array"
+        },
+        "statement": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "contradicted",
+            "superseded"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "pack_id",
+        "revision",
+        "finding_id",
+        "kind",
+        "statement",
+        "confidence",
+        "freshness",
+        "status",
+        "scopes"
+      ],
+      "type": "object"
+    },
+    "retained_work_context_research_finding_view": {
+      "description": "One selected research entry of the shared work-context view. Exactly the resolved state carries the native finding and its linked source descriptors; every other state carries the closed selection tuple and provenance only.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "finding": {
+              "$ref": "#/$defs/retained_work_context_research_finding"
+            },
+            "ordinal": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "required": {
+              "description": "Derived from the consuming work's present binding; an absent binding is fail-closed required because absence cannot establish optional reliance.",
+              "type": "boolean"
+            },
+            "selection": {
+              "$ref": "#/$defs/work_context_research_selection"
+            },
+            "selection_event_id": {
+              "description": "The event that authored the reference, never a claim that the research body came from that event.",
+              "minLength": 1,
+              "type": "string"
+            },
+            "selection_event_seq": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sources": {
+              "description": "Every linked source descriptor once, sorted by source id, and no unrelated source. An unsourced finding stays an empty array.",
+              "items": {
+                "$ref": "#/$defs/retained_research_source"
+              },
+              "minItems": 0,
+              "type": "array"
+            },
+            "state": {
+              "const": "resolved",
+              "type": "string"
+            },
+            "view_id": {
+              "description": "Core-derived from the selection event sequence and ordinal; a separate namespace from the generic finding ids, never authored.",
+              "maxLength": 64,
+              "minLength": 11,
+              "pattern": "^research:[0-9]+:[0-9]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "selection",
+            "view_id",
+            "selection_event_id",
+            "selection_event_seq",
+            "ordinal",
+            "required",
+            "state",
+            "finding",
+            "sources"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ordinal": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "required": {
+              "description": "Derived from the consuming work's present binding; an absent binding is fail-closed required because absence cannot establish optional reliance.",
+              "type": "boolean"
+            },
+            "selection": {
+              "$ref": "#/$defs/work_context_research_selection"
+            },
+            "selection_event_id": {
+              "description": "The event that authored the reference, never a claim that the research body came from that event.",
+              "minLength": 1,
+              "type": "string"
+            },
+            "selection_event_seq": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "state": {
+              "description": "The typed drift states: an unresolved entry carries references and provenance only, no finding and no sources.",
+              "enum": [
+                "missing",
+                "stale",
+                "rebound",
+                "inactive"
+              ],
+              "type": "string"
+            },
+            "view_id": {
+              "description": "Core-derived from the selection event sequence and ordinal; a separate namespace from the generic finding ids, never authored.",
+              "maxLength": 64,
+              "minLength": 11,
+              "pattern": "^research:[0-9]+:[0-9]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "selection",
+            "view_id",
+            "selection_event_id",
+            "selection_event_seq",
+            "ordinal",
+            "required",
+            "state"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "retained_work_context_view": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_groups": {
+          "items": {
+            "$ref": "#/$defs/work_context_domain_group"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
+        "findings": {
+          "items": {
+            "$ref": "#/$defs/retained_work_context_finding_view"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array"
+        },
+        "oracle_preparations": {
+          "description": "Only native preparation records selected by the immutable job's readiness refs. No raw output or alternative readiness authority.",
+          "items": {
+            "$ref": "#/$defs/retained_native_oracle_preparation"
+          },
+          "maxItems": 512,
+          "minItems": 0,
+          "type": "array"
+        },
+        "oracle_receipts": {
+          "description": "The prior typed control-execution receipts this work retained, in log order: reported regression baselines with their exact identities, never current-subject acceptance.",
+          "items": {
+            "$ref": "#/$defs/worker_oracle_receipt"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
+        "required_reading": {
+          "items": {
+            "$ref": "#/$defs/work_context_reading"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array"
+        },
+        "research_findings": {
+          "description": "The selected research entries the latest declaration anchor resolved, in authored order, beside the generic findings under the shared 32-finding bound. Omitted when the declaration selects nothing.",
+          "items": {
+            "$ref": "#/$defs/retained_work_context_research_finding_view"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array"
+        },
+        "source_event_frontier": {
+          "description": "The work item's maximum event sequence at read time, so a packet built from this view can be compared against current state before spawn.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "subject_commit": {
+          "description": "The sole core-derived current subject, as a raw commit OID. Native receipt subject_ref remains commit:OID and the store normalizes that reference once.",
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_event_frontier",
+        "required_reading",
+        "findings",
+        "domain_groups"
+      ],
+      "type": "object"
+    },
+    "retained_work_id": {
+      "description": "Output readback of retained stored work identity and workflow-type reference text. The work.created fold stores the event subject verbatim as work_items.id and the workflow-type ref inside intent_json with presence-only checks, the message, relation, and observation folds store endpoint work identities the same way, and work_items carries no id CHECK, so the readback carries no maximum and no pattern; authored work and workflow-type identifiers keep the bounded id definition.",
+      "type": "string"
+    },
+    "retained_work_text": {
+      "description": "Output readback of retained work intent text: title, value_statement, and tag items the summary and pin echo. The work.created and work.intent_revised folds copy these fields verbatim with presence-only checks, work_items.title carries no length CHECK, and intent_json is unbounded text, so the readback carries no maximum; authored intent text keeps the bounded short definition.",
+      "type": "string"
+    },
+    "retained_worker_oracle_finding": {
+      "additionalProperties": false,
+      "description": "The typed oracle tie of one review finding: a closed classification plus the owner, predicate/law, case, and control references that bind it. Classification and severity are different dimensions; the tie records no acceptance.",
+      "properties": {
+        "case_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 6,
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "classification": {
+          "description": "delivery_blocker: a failed obligation of a declared owner. uncovered_case: a legitimate new entry path the inventory omitted — a real blocker, not a rejection. follow_up: outside the approved owner/contract; never an open repair criterion. oracle_defect: the harness itself is obsolete, inconsistent, or unsound; it blocks readiness, not a fabricated repair.",
+          "enum": [
+            "delivery_blocker",
+            "uncovered_case",
+            "follow_up",
+            "oracle_defect"
+          ],
+          "type": "string"
+        },
+        "continues_finding_id": {
+          "description": "The earlier ranked finding of this work that this finding continues. Same failure, same canonical open identity; an uncertain join becomes a new finding and earns no shrink credit.",
+          "maxLength": 64,
+          "minLength": 11,
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "type": "string"
+        },
+        "control_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 9,
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "entry_point": {
+          "description": "For an uncovered_case: the explicit new entry path or transition the inventory omitted.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "evidence_refs": {
+          "description": "The reproducible evidence that supports the finding. A known control failure names that control's receipt.",
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "failure_family": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "law_bindings": {
+          "items": {
+            "$ref": "#/$defs/worker_oracle_law_binding"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "owner_id": {
+          "maxLength": 133,
+          "minLength": 7,
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        },
+        "predicate_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 11,
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "variant_of": {
+          "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding.",
+          "maxLength": 64,
+          "minLength": 11,
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "classification"
+      ],
+      "type": "object"
+    },
+    "retained_workflow_correction_context": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_count": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "attempt_limit": {
+          "$ref": "#/$defs/version"
+        },
+        "diagnosis": {
+          "type": "string"
+        },
+        "disposition": {
+          "enum": [
+            "failed",
+            "rejected",
+            "verification"
+          ],
+          "type": "string"
+        },
+        "escalated": {
+          "type": "boolean"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 64,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "failed_attempt_epoch": {
+          "$ref": "#/$defs/version"
+        },
+        "failed_attempt_id": {
+          "$ref": "#/$defs/id"
+        },
+        "failure_detail": {
+          "type": "string"
+        },
+        "failure_kind": {
+          "maxLength": 64,
+          "type": "string"
+        },
+        "predicate_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 8,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_event_id": {
+          "$ref": "#/$defs/id",
+          "description": "The durable failure, rejection, or correction-request event that opened this correction; its diagnosis and strategy are that event's directions."
+        },
+        "source_event_seq": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "strategy": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "disposition",
+        "attempt_count",
+        "attempt_limit",
+        "escalated",
+        "predicate_ids",
+        "evidence_refs",
+        "source_event_id",
+        "source_event_seq"
+      ],
+      "type": "object"
+    },
+    "retained_workflow_law_context": {
+      "additionalProperties": false,
+      "description": "The approved contract's binding law and Domains, resolved at continuity read time from the law_subjects and domains projections. Absent when the contract binds no law and no Domain.",
+      "properties": {
+        "domains": {
+          "items": {
+            "$ref": "#/$defs/workflow_law_context_domain"
+          },
+          "maxItems": 65,
+          "type": "array"
+        },
+        "laws": {
+          "items": {
+            "$ref": "#/$defs/retained_workflow_law_context_law"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        "registry_path": {
+          "description": "The repository path of the Domain registry shard. Present when the context binds at least one Domain, so a dispatched lane reads Domain structure from the file instead of a Concord tool.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "laws",
+        "domains"
+      ],
+      "type": "object"
+    },
+    "retained_workflow_law_context_law": {
+      "additionalProperties": false,
+      "properties": {
+        "criteria": {
+          "description": "The law's acceptance criteria bound to the reading work item's own outcome predicates (CD-0180). Present only when at least one criterion binds this work item.",
+          "items": {
+            "$ref": "#/$defs/workflow_law_context_criterion"
+          },
+          "maxItems": 1000,
+          "minItems": 1,
+          "type": "array"
+        },
+        "kind": {
+          "description": "The law_subjects record kind. Constitution records are law-bearing and project into law_subjects, so a contract can mandate them.",
+          "enum": [
+            "constitution",
+            "decision",
+            "spec"
+          ],
+          "type": "string"
+        },
+        "law_id": {
+          "$ref": "#/$defs/law_id"
+        },
+        "obligation_ids": {
+          "description": "The contract's verification obligations that name the law, sorted and deduplicated. Present only when roles carries obligation.",
+          "items": {
+            "$ref": "#/$defs/obligation_id"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "roles": {
+          "description": "Every binding role the approved contract gives the law, sorted and deduplicated.",
+          "items": {
+            "enum": [
+              "mandated",
+              "modified",
+              "added",
+              "obligation"
+            ],
+            "type": "string"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "status": {
+          "enum": [
+            "accepted",
+            "superseded"
+          ],
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "roles",
+        "law_id"
+      ],
+      "type": "object"
+    },
     "rigor_class": {
       "enum": [
         "prototype_internal",
@@ -8333,7 +9949,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/next_valid_intent"
           },
-          "maxItems": 16,
+          "maxItems": 25,
           "type": "array"
         },
         "project_id": {
@@ -10434,7 +12050,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "items": {
                   "$ref": "#/$defs/evidence"
                 },
-                "maxItems": 64,
                 "type": "array"
               },
               "kind": {
@@ -10466,7 +12081,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         },
         "workflow": {
           "$ref": "#/$defs/workflow_read"
@@ -10553,13 +12168,13 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "recipient_work_id": {
-                "$ref": "#/$defs/id"
+                "$ref": "#/$defs/retained_work_id"
               },
               "sender_work_id": {
-                "$ref": "#/$defs/id"
+                "$ref": "#/$defs/retained_work_id"
               },
               "sent_at": {
-                "maxLength": 40,
+                "maxLength": 58,
                 "minLength": 10,
                 "type": "string"
               },
@@ -10571,7 +12186,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "withdrawn_at": {
-                "maxLength": 40,
+                "maxLength": 58,
                 "minLength": 10,
                 "type": "string"
               }
@@ -10627,7 +12242,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "recorded_at": {
-                "maxLength": 40,
+                "maxLength": 58,
                 "minLength": 20,
                 "type": "string"
               },
@@ -10655,7 +12270,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "array"
               },
               "work_id": {
-                "$ref": "#/$defs/id"
+                "$ref": "#/$defs/retained_work_id"
               }
             },
             "required": [
@@ -10691,7 +12306,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         },
         "readiness_evidence": {
           "items": {
@@ -10807,7 +12422,7 @@ const GeneratedPayloadSchemaDocument = `{
         "correction": {
           "oneOf": [
             {
-              "$ref": "#/$defs/workflow_correction_context"
+              "$ref": "#/$defs/retained_workflow_correction_context"
             },
             {
               "type": "null"
@@ -10864,7 +12479,7 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 16,
+          "maxItems": 25,
           "type": "array"
         },
         "obligations": {
@@ -10934,7 +12549,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "title": {
-          "$ref": "#/$defs/short"
+          "$ref": "#/$defs/retained_work_text"
         },
         "verdict_evidence": {
           "items": {
@@ -10964,7 +12579,7 @@ const GeneratedPayloadSchemaDocument = `{
           "description": "The available work-context view. An evaluated over-bound view emits work_context_unavailable instead. An evaluated absent context emits neither member.",
           "oneOf": [
             {
-              "$ref": "#/$defs/work_context_view"
+              "$ref": "#/$defs/retained_work_context_view"
             },
             {
               "type": "null"
@@ -10975,7 +12590,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/work_context_unavailable"
         },
         "work_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/retained_work_id"
         },
         "workflow_definition_digest": {
           "$ref": "#/$defs/digest",
@@ -11049,7 +12664,9 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/reference"
         },
         "session_ref": {
-          "$ref": "#/$defs/reference"
+          "maxLength": 128,
+          "minLength": 2,
+          "type": "string"
         }
       },
       "required": [
@@ -11142,7 +12759,7 @@ const GeneratedPayloadSchemaDocument = `{
               "$ref": "#/$defs/workflow_outcome_absent"
             },
             {
-              "$ref": "#/$defs/workflow_outcome_outcome"
+              "$ref": "#/$defs/workflow_retained_outcome"
             },
             {
               "$ref": "#/$defs/workflow_outcome_check"
@@ -11547,7 +13164,7 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 16,
+          "maxItems": 25,
           "type": "array"
         },
         "product_version": {
@@ -11712,7 +13329,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "integer"
               },
               "from": {
-                "$ref": "#/$defs/id"
+                "$ref": "#/$defs/retained_work_id"
               },
               "kind": {
                 "$ref": "#/$defs/relation_query_label"
@@ -11721,7 +13338,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "$ref": "#/$defs/id"
               },
               "to": {
-                "$ref": "#/$defs/id"
+                "$ref": "#/$defs/retained_work_id"
               }
             },
             "required": [
@@ -11733,7 +13350,6 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 200,
           "type": "array"
         },
         "nodes": {
@@ -11865,19 +13481,18 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 100,
           "minItems": 1,
           "type": "array"
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         },
         "verdict": {
           "additionalProperties": false,
           "description": "CD-0023: recorded acceptance verdict. Absent with a redaction omission when the reader is the recorded executing actor.",
           "properties": {
             "completed_at": {
-              "maxLength": 40,
+              "maxLength": 58,
               "minLength": 20,
               "type": "string"
             },
@@ -12033,7 +13648,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/defect_classification"
         },
         "id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/retained_work_id"
         },
         "kind": {
           "$ref": "#/$defs/stored_work_kind"
@@ -12045,7 +13660,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/work_liveness"
         },
         "narrative": {
-          "maxLength": 16384,
           "type": "string"
         },
         "priority": {
@@ -12055,9 +13669,8 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "project_ids": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/retained_project_id"
           },
-          "maxItems": 100,
           "type": "array",
           "uniqueItems": true
         },
@@ -12069,9 +13682,8 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "tags": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/retained_work_text"
           },
-          "maxItems": 32,
           "type": "array",
           "uniqueItems": true
         },
@@ -12088,13 +13700,13 @@ const GeneratedPayloadSchemaDocument = `{
           ]
         },
         "title": {
-          "$ref": "#/$defs/short"
+          "$ref": "#/$defs/retained_work_text"
         },
         "urgency": {
           "$ref": "#/$defs/urgency"
         },
         "value_statement": {
-          "$ref": "#/$defs/short"
+          "$ref": "#/$defs/retained_work_text"
         },
         "version": {
           "$ref": "#/$defs/version"
@@ -12103,7 +13715,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/work_pin"
         },
         "workflow_type_ref": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/retained_work_id"
         }
       },
       "required": [
@@ -21036,7 +22648,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "$ref": "#/$defs/short"
               },
               "outcome_payload": {
-                "maxLength": 16384,
+                "maxLength": 65536,
                 "type": "string"
               },
               "predicate_id": {
@@ -21787,7 +23399,6 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/id"
           },
-          "maxItems": 100,
           "type": "array"
         },
         "candidate_ids": {
@@ -21801,7 +23412,6 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/short"
           },
-          "maxItems": 32,
           "type": "array"
         },
         "conditions": {
@@ -21994,7 +23604,6 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/id"
           },
-          "maxItems": 100,
           "type": "array"
         },
         "unresolved_conditions": {
@@ -22005,7 +23614,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "work_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/retained_work_id"
         }
       },
       "required": [
@@ -22020,6 +23629,165 @@ const GeneratedPayloadSchemaDocument = `{
         "blocking_conditions",
         "impact_notices",
         "completion_warnings"
+      ],
+      "type": "object"
+    },
+    "workflow_retained_decision_record": {
+      "additionalProperties": false,
+      "properties": {
+        "consequences": {
+          "items": {
+            "maxLength": 65536,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "decision": {
+          "enum": [
+            "accepted_decision",
+            "insufficient_evidence"
+          ],
+          "type": "string"
+        },
+        "inputs": {
+          "items": {
+            "maxLength": 65536,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array"
+        },
+        "operator_approval_ref": {
+          "minLength": 9,
+          "pattern": "^approval:[a-z0-9][a-z0-9_.:/-]{1,127}$",
+          "type": "string"
+        },
+        "options_considered": {
+          "items": {
+            "maxLength": 65536,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "poc_findings": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "question": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "rationale": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "required_to_decide": {
+          "items": {
+            "maxLength": 65536,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "minItems": 0,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "reviewer_actor_ref": {
+          "maxLength": 70,
+          "minLength": 70,
+          "pattern": "^actor:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "superseded_by": {
+          "maxLength": 65536,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "supersedes": {
+          "maxLength": 65536,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unknowns": {
+          "items": {
+            "maxLength": 65536,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "minItems": 0,
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "question",
+        "options_considered",
+        "decision",
+        "rationale",
+        "consequences",
+        "inputs",
+        "poc_findings",
+        "reviewer_actor_ref",
+        "operator_approval_ref"
+      ],
+      "type": "object"
+    },
+    "workflow_retained_outcome": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "items": {
+            "enum": [
+              "no_change",
+              "accepted_decision",
+              "insufficient_evidence",
+              "resolved",
+              "remediated",
+              "report_recorded",
+              "completed",
+              "operator_defined"
+            ],
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "decision_record": {
+          "description": "The retained decision record the stored predicate carries; a null decodes to nil.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/workflow_retained_decision_record"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "const": "outcome"
+        }
+      },
+      "required": [
+        "kind",
+        "allowed"
       ],
       "type": "object"
     },
@@ -22167,7 +23935,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "$ref": "#/$defs/lifecycle"
               },
               "path": {
-                "maxLength": 4096,
                 "minLength": 1,
                 "type": "string"
               },
@@ -22190,12 +23957,10 @@ const GeneratedPayloadSchemaDocument = `{
               },
               "retained_tip": {
                 "description": "CD-0212 D3: the tip the reclamation observed when it retained the ref named by retained_branch.",
-                "maxLength": 64,
                 "minLength": 40,
                 "type": "string"
               },
               "risk": {
-                "maxLength": 64,
                 "minLength": 1,
                 "type": "string"
               },
@@ -22219,7 +23984,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "root": {
-          "maxLength": 4096,
           "minLength": 1,
           "type": "string"
         }
@@ -22292,7 +24056,7 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 16,
+          "maxItems": 25,
           "type": "array"
         },
         "report_only": {
@@ -22341,7 +24105,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "$ref": "#/$defs/lifecycle"
               },
               "path": {
-                "maxLength": 4096,
                 "minLength": 1,
                 "type": "string"
               },
@@ -22364,12 +24127,10 @@ const GeneratedPayloadSchemaDocument = `{
               },
               "retained_tip": {
                 "description": "CD-0212 D3: the tip the reclamation observed when it retained the ref named by retained_branch.",
-                "maxLength": 64,
                 "minLength": 40,
                 "type": "string"
               },
               "risk": {
-                "maxLength": 64,
                 "minLength": 1,
                 "type": "string"
               },
@@ -22393,7 +24154,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "root": {
-          "maxLength": 4096,
           "minLength": 1,
           "type": "string"
         },
@@ -22402,7 +24162,6 @@ const GeneratedPayloadSchemaDocument = `{
             "additionalProperties": false,
             "properties": {
               "detail": {
-                "maxLength": 512,
                 "minLength": 1,
                 "type": "string"
               },
@@ -22417,7 +24176,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "path": {
-                "maxLength": 4096,
                 "minLength": 1,
                 "type": "string"
               },
@@ -22445,7 +24203,6 @@ const GeneratedPayloadSchemaDocument = `{
                       "type": "string"
                     },
                     "tip": {
-                      "maxLength": 64,
                       "minLength": 40,
                       "type": "string"
                     }
@@ -22509,7 +24266,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/next_valid_intent"
           },
-          "maxItems": 16,
+          "maxItems": 25,
           "type": "array"
         },
         "path": {

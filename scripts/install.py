@@ -144,6 +144,7 @@ ADAPTER_FILES = (
     "manifest-pin.ts",
     "move-notice.ts",
     "move-session.ts",
+    "native-subtask-refusal.ts",
     "oracle-readiness.ts",
     "packet.ts",
     "primary-role.ts",

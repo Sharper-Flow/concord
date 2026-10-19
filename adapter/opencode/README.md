@@ -182,6 +182,15 @@ native worker card, child session, progress, and cancellation. See
 The adapter selects the registered `concord-<lane>` agent. OpenCode resolves
 its model and provider from the operator's host configuration. The
 [native Task queue](move-session.ts) supplies no worker model override.
+If a stale native subtask is replayed, the authorization guard still refuses
+it. [Refusal cleanup](native-subtask-refusal.ts) uses the host part-update API
+to mark the Task failed and replace its executable subtask with visible refusal
+text. The original subtask stays in that text part's metadata. Matching unfinished
+replays are repaired too, so the next prompt does not retry them. A retained
+in-flight worker is left alone. The host may leave the old assistant message
+unfinished; cleanup does not invent a message-completion API or change workflow
+state. A host read or write failure is logged and the original refusal remains.
+
 The worker returns its closed `agent-lane-report.v1` report as its final text
 part. [Completion](dispatch.ts) reads the child through the host session API,
 verifies its authorized opening and executing identity, and supplies canonical

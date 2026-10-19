@@ -2,8 +2,12 @@ package store
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func workflowProvingGoReceipt(check FootprintCheck) *WorktreeVerifyResult {
@@ -173,5 +177,92 @@ func TestWorkflowFootprintProofsBindExactCommandProjectCommitAndFrontier(t *test
 	}
 	if proof := read(basis)[0]; proof.OperationRef != "" {
 		t.Fatalf("a lease without a watermark proved %+v", proof)
+	}
+}
+
+func TestWorkflowFootprintProofsConsumeRealGoVerifyReceipts(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
+	defer cancel()
+	const workID = "footprint-real-go"
+	s, git, _, _ := verifyEvidenceFixture(t, workID)
+	defer s.Close()
+	checks := []FootprintCheck{
+		{Kind: "go_test", Value: "pkg.TestBody"},
+		{Kind: "go_package", Value: "./pkg"},
+		{Kind: "go_package", Value: "./compileonly"},
+	}
+	recordWorktreeGoSuiteFootprint(t, s, workID, checks)
+	entry, err := activeWorktreeEntryForProject(ctx, s.DatabaseForTesting(), "fixture", workID, "project-w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The fixture supplies a synthetic claim. Its on-disk subject and every
+	// verify probe, source-closure read, and Go test execution below are real.
+	for name, content := range map[string]string{
+		"go.mod":           "module example.test/receipt\n\ngo 1.26.0\n",
+		"pkg/body_test.go": "package pkg\nimport \"testing\"\nfunc TestBody(t *testing.T) { t.Log(\"body executed\") }\n",
+		"compileonly/p.go": "package compileonly\nfunc Value() int { return 7 }\n",
+	} {
+		path := filepath.Join(entry.Path, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runTestGit(t, entry.Path, "init", "-q", "-b", entry.Branch)
+	runTestGit(t, entry.Path, "add", "-A")
+	runTestGit(t, entry.Path, "commit", "-q", "-m", "Go receipt fixture")
+	commit := runTestGit(t, entry.Path, "rev-parse", "HEAD")
+	var frontier int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT MAX(seq) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&frontier); err != nil || frontier <= 0 {
+		t.Fatalf("fixture frontier=%d, %v", frontier, err)
+	}
+	basis := workflowFootprintProofBasis{WorkID: workID, ProjectID: "project-w", Commit: commit, Frontier: frontier}
+	read := func(t *testing.T) []workflowFootprintProof {
+		t.Helper()
+		proofs, err := readWorkflowFootprintProofs(ctx, s.DatabaseForTesting(), basis, checks)
+		if err != nil || len(proofs) != len(checks) {
+			t.Fatalf("proofs=%+v, %v", proofs, err)
+		}
+		return proofs
+	}
+	for _, proof := range read(t) {
+		if !proof.Supported || proof.OperationRef != "" {
+			t.Fatalf("check had proof before its execution: %+v", proof)
+		}
+	}
+	operations := make([]string, 0, len(checks))
+	for index, check := range checks {
+		t.Run(check.Kind+":"+check.Value, func(t *testing.T) {
+			command, ok := workflowFootprintCheckCommand(check)
+			if !ok {
+				t.Fatalf("check did not derive a command: %+v", check)
+			}
+			leaseID := "sha256:" + strings.Repeat(strconv.Itoa(index), 64) + ":worktree-verify:" + workID
+			req := verifyEvidenceRun(git, workID, leaseID, 0)
+			req.Command, req.Runner, req.RunCommand = command, ExecGitRunner{}, nil
+			req.RequestID += "-" + strconv.Itoa(index)
+			result, err := s.VerifyWorktree(ctx, req)
+			if err != nil || result.ExitCode != 0 || result.SubjectRef != "commit:"+commit {
+				t.Fatalf("real Go verify=%+v, %v", result, err)
+			}
+			proofs := read(t)
+			if proof := proofs[index]; proof.OperationRef != result.OperationRef || proof.PrincipalRef != req.PrincipalRef {
+				t.Fatalf("real Go receipt did not prove its check: %+v; verify=%+v", proof, result)
+			}
+			operations = append(operations, result.OperationRef)
+			for earlier, proof := range proofs[:index] {
+				if proof.OperationRef != operations[earlier] {
+					t.Fatalf("a later run displaced an earlier check's own proof: %+v, want %s", proof, operations[earlier])
+				}
+			}
+			for _, unrun := range proofs[index+1:] {
+				if unrun.OperationRef != "" {
+					t.Fatalf("another command's run proved an unexecuted check: %+v", unrun)
+				}
+			}
+		})
 	}
 }

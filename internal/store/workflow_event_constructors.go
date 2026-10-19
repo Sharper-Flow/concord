@@ -216,10 +216,17 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 	if decisionDomains != nil {
 		contract["decision_domains"] = decisionDomains
 	}
+	lawChange, lawChangeErr := deriveWorkflowLawChangeTx(ctx, tx, definition, request.WorkID, fields, lawModifies, productBinding(productChanging, binding), decisionDomains)
+	if lawChangeErr != nil {
+		return nil, lawChangeErr
+	}
+	if lawChange != nil {
+		contract["law_change"] = lawChange
+	}
 	contract["law_revisions"] = revisions
 	contract["law_boundary_version"] = 1
 	approvalEvent := workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)
-	approvalEvent.PayloadVersion = 5
+	approvalEvent.PayloadVersion = workflowContractLawChangePayloadVersion
 	return []Event{approvalEvent}, nil
 }
 
@@ -351,6 +358,13 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 	}
 	if decisionDomains != nil {
 		successor["decision_domains"] = decisionDomains
+	}
+	lawChange, lawChangeErr := deriveWorkflowLawChangeTx(ctx, tx, definition, request.WorkID, fields, lawModifies, productBinding(productChanging, binding), decisionDomains)
+	if lawChangeErr != nil {
+		return nil, lawChangeErr
+	}
+	if lawChange != nil {
+		successor["law_change"] = lawChange
 	}
 	if productChanging {
 		successor["architecture_binding"] = binding

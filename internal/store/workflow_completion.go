@@ -163,6 +163,9 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		if err := checkMandatedLawsTx(ctx, tx, event.SubjectID, mandated, contract.LawModifies, false); err != nil {
 			return workflowClauseError(err, 3)
 		}
+		if err := checkWorkflowLawChangeEnactmentTx(ctx, tx, event.SubjectID, contract.LawChange, contract.DecisionDomains, contract.LawModifies, contract.ArchitectureBinding); err != nil {
+			return workflowClauseError(err, 3)
+		}
 	}
 
 	// Clause 4: every approved predicate has one latest verdict at this contract
@@ -320,6 +323,7 @@ type workflowCompletionContractData struct {
 	OutcomePayload          string
 	ArchitectureBinding     *WorkflowArchitectureBinding
 	VerificationObligations []WorkflowVerificationObligation
+	LawChange               *WorkflowLawChange
 }
 
 // workflowPremiseConfirmationAuthority holds one stored confirmation to the
@@ -428,8 +432,8 @@ func workflowCompletionContractRows(ctx context.Context, tx queryer, workID stri
 		}
 		return result, activeErr
 	}
-	var decisionDomains sql.NullString
-	if err := tx.QueryRowContext(ctx, `SELECT required_evidence,spec_mandate,law_modifies,law_boundary_version,decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, result.Version).Scan(&required, &mandates, &modifies, &result.LawBoundaryVersion, &decisionDomains); err != nil {
+	var decisionDomains, lawChange sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT required_evidence,spec_mandate,law_modifies,law_boundary_version,decision_domains,law_change FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, result.Version).Scan(&required, &mandates, &modifies, &result.LawBoundaryVersion, &decisionDomains, &lawChange); err != nil {
 		if err == sql.ErrNoRows {
 			return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract is missing or ambiguous", false, "reread_entities")
 		}
@@ -451,6 +455,12 @@ func workflowCompletionContractRows(ctx context.Context, tx queryer, workID stri
 		return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract decision domains are malformed", false, "rebuild projections from the event log")
 	}
 	result.DecisionDomainsPresent, result.DecisionDomains = domainsPresent, domains
+	if lawChange.Valid {
+		result.LawChange = &WorkflowLawChange{}
+		if err := json.Unmarshal([]byte(lawChange.String), result.LawChange); err != nil {
+			return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract law change is malformed", false, "rebuild projections from the event log")
+		}
+	}
 	result.OutcomeKind = result.Predicates[0].OutcomeKind
 	result.OutcomePayload = result.Predicates[0].OutcomePayload
 	var bindingErr error

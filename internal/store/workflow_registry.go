@@ -2070,26 +2070,37 @@ func currentActionDefinition(id string, payloadContracts bool) WorkflowActionDef
 	return WorkflowActionDefinition{ID: id, Consequence: policy.Consequence, Approval: policy.Approval, ExecutionMode: policy.ExecutionMode, Payload: payload, PublicPayload: publicPayload}
 }
 
-// workflowDecisionFactPayloadFields selects the copied decision-fact
-// declaration onto one contract payload: a consequence_v1 definition copies
+// workflowDecisionFactPayloadFields selects the copied consequence_v1 fact
+// declarations onto one contract payload: a consequence_v1 definition copies
 // the supplied fields, replaces a declared decision_domains field with the
-// one canonical fact at its position, or appends the fact when none is
-// declared, so the selection never duplicates it; a legacy definition keeps
-// the supplied fields byte-identical. The copy leaves every builtin policy
-// slice, pinned declaration, and released field list unmutated.
+// one canonical fact at its position or appends it, and appends each
+// CD-0230 D4 law-change field it does not already declare, so the selection
+// never duplicates a field; a legacy definition keeps the supplied fields
+// byte-identical. The copy leaves every builtin policy slice, pinned
+// declaration, and released field list unmutated.
 func workflowDecisionFactPayloadFields(definition WorkflowDefinition, fields []WorkflowPayloadField) []WorkflowPayloadField {
 	if !workflowApprovalPolicyRequiresDecisionFact(definition) {
 		return fields
 	}
-	selected := make([]WorkflowPayloadField, len(fields), len(fields)+1)
+	lawChange := workflowLawChangeFields()
+	selected := make([]WorkflowPayloadField, len(fields), len(fields)+1+len(lawChange))
 	copy(selected, fields)
+	declared := false
 	for index := range selected {
 		if selected[index].Name == "decision_domains" {
 			selected[index] = workflowDecisionFactField()
-			return selected
+			declared = true
 		}
 	}
-	return append(selected, workflowDecisionFactField())
+	if !declared {
+		selected = append(selected, workflowDecisionFactField())
+	}
+	for _, field := range lawChange {
+		if !slices.ContainsFunc(fields, func(existing WorkflowPayloadField) bool { return existing.Name == field.Name }) {
+			selected = append(selected, field)
+		}
+	}
+	return selected
 }
 
 // workflowDecisionFactInitialActionDefinition selects the initial

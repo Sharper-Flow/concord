@@ -495,6 +495,13 @@ func F() Event {
 	version++
 	return Event{Kind: "thing.a", PayloadVersion: version}
 }`, nil, []string{"thing.a v*"}},
+		"concatenation in a loop": {`func F(n int) Event {
+	kind := "thing.a"
+	for range n {
+		kind = kind + ".x"
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, nil, []string{"* v1"}},
 		"tuple declaration": {`func F() Event {
 	var event, err = pairEvent()
 	_ = err
@@ -581,6 +588,22 @@ func F() Event {
 	}
 	return Event{Kind: kind, PayloadVersion: 1}
 }`, []string{"thing.a v1"}},
+		"interface comparison": {`func F() Event {
+	var mode any = int64(1)
+	kind := "thing.a"
+	if mode != 1 {
+		kind = "thing.c"
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, []string{"thing.a v1", "thing.c v1"}},
+		"read in an if init": {`func F() Event {
+	kind := "thing.c"
+	if first := kind; true {
+		kind = "thing.a"
+		return Event{Kind: first, PayloadVersion: 1}
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, []string{"thing.a v1", "thing.c v1"}},
 		"overwritten": {`func F() Event {
 	kind := "thing.c"
 	kind = "thing.a"

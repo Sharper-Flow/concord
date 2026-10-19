@@ -32,12 +32,13 @@ import (
 //
 // Each site's (kind, version) pairs resolve through constants and locals,
 // flow-insensitively: a local is the union of every value assigned to it,
-// except an assignment in an if arm whose condition is constantly false, and
-// one that a later statement of its own list overwrites before anything reads
-// it. Overwriting applies only to a local no closure captures, and only across
-// statements with no branch or label. A
-// parameter, result, receiver, global, call result, or local whose address
-// escapes is "*". A site whose pairs all resolve to finite values adds them to
+// except an assignment in an if arm that never runs, and one that a later
+// statement of its own list overwrites before anything reads it. An arm never
+// runs when its condition constantly selects the other arm; a condition whose
+// resolution cut a cycle is never constant. Overwriting applies only to a
+// local no closure captures, and only across statements with no branch
+// statement. A parameter, result, receiver, global, call result, or local
+// whose address escapes is "*". A site whose pairs all resolve to finite values adds them to
 // the release's writes; any other site is open. Pairs are "kind vVERSION",
 // and "*" is any value. A zero kind or version is a value like any other: a
 // recognized insert can write an Event that append never validated.
@@ -1008,8 +1009,13 @@ func (a *analyzer) resolve(p *checkedPackage, expr ast.Expr, seen map[seenKey]bo
 }
 
 // resolveBinary resolves a comparison or boolean operator over finite
-// operands to the results any pair of operand values gives.
+// operands to the results any pair of operand values gives. Any other
+// operator is "*", and so is a comparison through an interface, which also
+// compares the dynamic types the values drop.
 func (a *analyzer) resolveBinary(p *checkedPackage, v *ast.BinaryExpr, seen map[seenKey]bool) []string {
+	if !slices.Contains([]token.Token{token.EQL, token.NEQ, token.LAND, token.LOR}, v.Op) || types.IsInterface(p.info.Types[v.X].Type) || types.IsInterface(p.info.Types[v.Y].Type) {
+		return anyValue
+	}
 	x, y := a.resolve(p, v.X, seen), a.resolve(p, v.Y, seen)
 	if slices.Contains(x, "*") || slices.Contains(y, "*") {
 		return anyValue
@@ -1026,8 +1032,6 @@ func (a *analyzer) resolveBinary(p *checkedPackage, v *ast.BinaryExpr, seen map[
 				set[strconv.FormatBool(l == "true" && r == "true")] = true
 			case token.LOR:
 				set[strconv.FormatBool(l == "true" || r == "true")] = true
-			default:
-				return anyValue
 			}
 		}
 	}
@@ -1124,7 +1128,7 @@ func (a *analyzer) reaches(assign assignment, obj types.Object, field string, se
 
 // overwrites reports whether stmts assign obj (or obj.field) before anything
 // reads it, on the only path: the scan stops at a statement that holds a
-// branch or label, or that mentions obj other than to set another field.
+// branch statement, or that mentions obj other than to set another field.
 func (a *analyzer) overwrites(p *checkedPackage, stmts []ast.Stmt, obj types.Object, field string, seen map[seenKey]bool) bool {
 	for _, stmt := range stmts {
 		switch {
@@ -1146,13 +1150,13 @@ func (a *analyzer) overwrites(p *checkedPackage, stmts []ast.Stmt, obj types.Obj
 	return false
 }
 
-// jumps reports whether stmt holds a branch statement or a label outside a
-// closure.
+// jumps reports whether stmt holds a branch statement outside a closure. A
+// label only lets other paths in.
 func jumps(stmt ast.Stmt) bool {
 	found := false
 	ast.Inspect(stmt, func(n ast.Node) bool {
 		switch n.(type) {
-		case *ast.BranchStmt, *ast.LabeledStmt:
+		case *ast.BranchStmt:
 			found = true
 		case *ast.FuncLit:
 			return false

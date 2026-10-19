@@ -437,7 +437,7 @@ func TestEscalatedWindowKeepsContractCorrectionAfterProductiveAccept(t *testing.
 			"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
 			"law_modifies": []string{}, "rigor_class": "prototype_internal", "supersede_reason": reason,
 			"audit_evidence":       []string{"evidence:escalated-window-correction"},
-			"architecture_binding": json.RawMessage(approved.ArchitectureBinding),
+			"architecture_binding": approved.ArchitectureBinding,
 		}
 		raw, err := json.Marshal(payload)
 		if err != nil {

@@ -29,8 +29,8 @@
   affects more than one Domain.
 - **Amended:** 2026-10-19, pending the operator's approval of the exact text
   for [Concord (CON) issue 1200](https://linear.app/sharper-flow/issue/CON-1200).
-  D4's P12 Domain test counts the child Domains of the laws a change adds or
-  modifies, not its footprint record. The change is serious under P12 because
+  D4's P12 Domain test counts the child Domains of the laws a change adds,
+  modifies, or removes, not its footprint record. The change is serious under P12 because
   it narrows when an operator approval applies, which removes behavior the
   operator sees.
 
@@ -222,12 +222,12 @@ Every change to `goals.md` moves its content hash, so the change that edits
   `applies_to_domain_ids` count toward the test, that a change removing or
   superseding laws homed in two child Domains requires approval, that a law
   whose `applies_to_domain_ids` the same change narrows still counts the
-  Domain it dropped, that a change modifying laws
-  homed in one child Domain and in the root Domain, with code in
-  `internal/agent` and `internal/store`, counts one Domain, that an amendment
-  of one law homed in `agent-surface` that also edits `scripts/install.py`
-  counts one Domain, that every law change at `crucial` size requires
-  approval, and that a governed scope cut requires it at every size.
+  Domain it dropped, that a change modifying laws homed in one child Domain
+  and in the root Domain, with code in `internal/agent` and `internal/store`,
+  counts one Domain, that an amendment of one law homed in `agent-surface`
+  that also edits `scripts/install.py` counts one Domain, that every law
+  change at `crucial` size requires approval, and that a governed scope cut
+  requires it at every size.
 - `go test ./internal/store` must prove that each operator approval point
   carries one of the four D5 classes or stays an operator approval as a listed
   gap, and that a conflict record names its rule ID, size, and outcome.

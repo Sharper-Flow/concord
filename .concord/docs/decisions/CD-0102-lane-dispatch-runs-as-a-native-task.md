@@ -10,6 +10,9 @@
   [issue #938](https://github.com/Sharper-Flow/concord/issues/938).
   On 2026-10-17, the operator approved program-owned native scheduling and
   host-derived report model identity in the [Concord (CON) issue 1059 amendment batch](https://linear.app/sharper-flow/issue/CON-1059/move-lane-capability-enforcement-report-metadata-and-dispatch).
+  On 2026-10-18, the operator approved the exact D2/D3 text admitting ordinary
+  host Tasks beside registered lanes in
+  [CON-1189](https://linear.app/sharper-flow/issue/CON-1189/subagent-task-calls-are-refused-in-a-concord-claimed-worktree-for-a).
 - **Related:** CD-0059, CD-0088, CD-0092, CD-0093, CD-0096, issue #689
 - **Amends:** CD-0059 D1 for the worker execution route, not for its
   authorize-before-start rule
@@ -78,41 +81,55 @@ readback before the Concord operation proceeds. A failed enrollment refuses
 that operation. A later bootstrap or dispatch refusal does not clear recorded
 participation.
 
-The hook refuses any `task` call from a managed session without an authorized
-window. With a window, it overwrites the agent selection and prompt from the
-recorded packet, removes a worker-resume target, and consumes the window once.
-The caller cannot widen, rename, or re-aim the authorized work.
+The hook binds an authorized window only to a Task selecting a registered
+Concord lane. A registered lane requires an open window belonging to the calling
+session. The hook takes the lane, prompt, and description from the recorded
+packet, removes a resume target, and consumes the window once. The caller cannot
+widen, rename, or re-aim that attempt.
 
-An ordinary Task from an unmanaged session retains its arguments and host
-permission checks. It creates no Concord attempt or evidence. Unmanaged calls
-cannot start a registered Concord lane without a window or resume a managed
-session. A missing unmanaged resume target keeps the native host behavior.
+After any resume target passes the checks below, an ordinary host Task from a
+caller with no managed parent retains its arguments and host permission checks,
+whether the caller is enrolled or unmanaged. It creates no Concord attempt or
+evidence and cannot consume a lane window. Generated utilities use this host
+path. A caller with a managed parent cannot start or resume another child
+through Task.
 
-Generated utilities are a narrow exception. A coordinator may call one without
-a dispatch window when its session has no managed parent. The hook passes the
-call through unchanged. A lane session has a managed parent, so the hook
-refuses the utility call before the host starts it.
-An admitted utility never consumes a queued lane's authorization window.
+Managed ancestry alone does not make an ordinary host child a lane. The adapter
+uses authenticated host parentage and the original host-recorded agent selection
+to distinguish native children from registered lanes before matching a packet
+or binding an attempt's child. An original lane child must still satisfy its
+live attempt, packet, unique-child, directory, and capability checks. A later
+agent selection cannot remove that boundary or grant a lane attempt. A native
+child uses host tool permissions, not lane capabilities. Copying packet text or
+a report frame does not make it a lane. No managed descendant gains Concord
+tool or workflow authority through this distinction.
 
-The scope decision uses host session identity and recorded participation, not
-agent names, prompts, repository names, or path conventions. Invalid metadata,
-broken ancestry, or unavailable scope refuses the Task call rather than
-guessing that the caller is unmanaged. Other host tools remain outside this
-Task hook. The refusal fails one tool call, not the whole session.
+An enrolled caller with no managed parent may resume an existing session only
+when its authenticated host parent is that caller and its original host-recorded
+agent is not a lane. Every other existing target is refused, including foreign
+unmanaged sessions. Generated utility calls follow the same rule. An unmanaged
+caller cannot resume a managed session. Authoritatively missing native resume
+targets retain the host's behavior. Unavailable or malformed target identity
+does not authorize a resume.
+
+Participation still follows host identity and recorded enrollment. Agent names,
+prompts, repository names, and path conventions cannot clear enrollment or grant
+an attempt. Invalid metadata, broken ancestry, or unavailable scope refuses the
+Task call rather than guessing that the caller is unmanaged. Ordinary host tools
+remain outside this Task hook; lane tool checks still apply. A refusal fails one
+tool call, not the whole session.
 
 An existing unmarked session enters managed scope through `work_start` before
 it resumes managed work, or through an admitted public dispatch. Installing the
 adapter alone does not enroll every host session.
 
-### D3. The coordinator ruleset keeps the tool visible and lane-scoped
+### D3. Host permissions and lane authorization remain separate
 
-A blanket deny hides the tool, and a hidden tool cannot reach the hook. The
-coordinator posture therefore orders its rules so that a lane pattern is last.
-Visibility follows the last rule matching the permission name. The decision at
-call time follows the last rule matching both the permission and the agent name.
-
-That ordering keeps the tool visible, allows the lane agents, and refuses every
-other agent type before the hook runs.
+The host owns Task visibility and which agents a caller may invoke. Its rules
+may permit ordinary host agents and generated utilities alongside registered
+lanes. A host denial stays a denial. Host permission alone never authorizes a
+Concord lane: the adapter still requires the D2 window. Concord does not expand
+host permissions or select models to admit a native Task or a lane.
 
 ### D4. Lanes cannot nest workers
 
@@ -188,9 +205,10 @@ worker cannot run in a worktree the work item does not own.*
 
 - The operator sees the standard worker card, opens the worker session, and
   cancels it from the terminal. Cancellation cancels the attempt.
-- The coordinator posture changes from a blanket deny to an ordered ruleset.
-  That posture is host configuration outside this repository, so this record
-  states the required shape and the host applies it.
+- Host configuration outside this repository owns Task visibility and agent
+  permissions. Host-permitted ordinary agents, including authoring agents that
+  may edit files, can run beside registered lanes. Their results are not lane
+  evidence and carry no Concord workflow authority.
 - Concord no longer parses a child process. One failure class, the detached
   worker, is removed with the route that produced it.
 - The program queues the authorized lane. The window binds one native Task
@@ -226,15 +244,18 @@ authorization has nothing to bind.
 
 - `TestDispatchOpensSingleUseAuthorizationWindow` proves D1: one action opens one
   window, and a second worker start finds none.
-- The adapter test `dispatch hook refuses an unauthorized task call` proves D2
-  for the closed-window case.
-- The adapter test `dispatch hook replaces caller arguments with the packet`
-  proves D2 for the open-window case, including a caller that names another
-  agent.
+- `adapter/opencode/dispatch-window.test.ts` proves D2 window binding: a call
+  with no window refuses, and an open window replaces caller arguments with
+  the recorded packet once.
 - `adapter/opencode/session-scope.test.ts` exercises D2 through the plugin hook:
-  unmanaged Tasks, managed refusals, parent inheritance, agent changes, plugin
-  recreation, utility admission, resume-target admission, enrollment readback,
-  and invalid scope.
+  ordinary Tasks from enrolled and unmanaged callers, registered-lane refusal
+  without a window, window non-interference, nested-Task refusal, parent
+  inheritance, agent changes, plugin recreation, resume-target ownership,
+  enrollment readback, and invalid scope.
+- `adapter/opencode/lane_capabilities.test.ts` proves that original host
+  provenance separates native children from lane children, that copied packet
+  bytes cannot take a lane's child slot, and that malformed openings or
+  ancestry grant nothing.
 - `adapter/opencode/concord.test.ts` verifies capture and resume enrollment and
   refusal before core effects when the host cannot persist participation.
 - `adapter/opencode/lane_dispatch.test.ts` verifies that failed enrollment cannot

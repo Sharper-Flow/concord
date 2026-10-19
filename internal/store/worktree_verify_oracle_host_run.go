@@ -58,20 +58,30 @@ func (s *Store) runNativeTargetOracle(ctx context.Context, r GitRunner, entry Wo
 	if err := nativeTargetOverlayHarness(ctx, r, entry.Path, snapshot, p); err != nil {
 		return err
 	}
-	digest, err := nativeTargetInputDigest(p, snapshot, true)
+	baseline, err := nativeTargetInputInventory(p, snapshot, true)
 	if err != nil {
 		return err
 	}
-	result.InputManifestDigest = digest
+	result.InputManifestDigest = nativeTargetInventoryDigest(baseline)
 	env := nativeTargetControlledEnv(t, root)
 	cwd := filepath.Join(snapshot, filepath.FromSlash(m.Root))
 	if !nativeContained(snapshot, cwd) {
 		return nativeUnavailable("effective cwd escapes candidate snapshot")
 	}
+	if pair.Materializer == nativeTargetMaterializerBun {
+		// The bun materializer runs in-process after the strict source
+		// inventory and before any stage, so the verified tree, the pinned
+		// bun link, and the empty private install cache exist before the
+		// runner-digest baseline below, which is never reset.
+		if err := materializeNativeBunRun(ctx, t, root, cwd); err != nil {
+			return err
+		}
+	}
 	binaryDigest := ""
-	if pair.Materializer == nativeTargetMaterializerNone {
-		// Check runners without a materializer consume only the pinned
-		// interpreters; their closure is digested once up front.
+	if pair.Materializer == nativeTargetMaterializerNone || pair.Materializer == nativeTargetMaterializerBun {
+		// Check runners without a subprocess materializer consume the
+		// pinned interpreters (and, for bun, the materialized tree); their
+		// closure is digested once up front.
 		binaryDigest, err = nativeTargetRunnerDigest(t, root)
 		if err != nil {
 			return err
@@ -88,13 +98,15 @@ func (s *Store) runNativeTargetOracle(ctx context.Context, r GitRunner, entry Wo
 			return nativeUnavailable("disposable scratch no longer realizes the leased plan slot")
 		}
 		if stage.Name == "test" {
-			actual, err := nativeTargetInputDigest(p, snapshot, false)
-			if err != nil || actual != digest {
-				return nativeUnavailable("candidate inputs changed before test launch")
+			if err := nativeTargetInputsUnchanged(p, snapshot, baseline, "candidate inputs changed before test launch"); err != nil {
+				return err
 			}
 			if binaryDigest != "" {
 				current, err := nativeTargetRunnerDigest(t, root)
-				if err != nil || current != binaryDigest {
+				if err != nil {
+					return err
+				}
+				if current != binaryDigest {
 					return nativeUnavailable("consumed dependency closure changed before launch")
 				}
 			}
@@ -185,12 +197,14 @@ func (s *Store) runNativeTargetOracle(ctx context.Context, r GitRunner, entry Wo
 			result.ObservedWitnessIDs = append(result.ObservedWitnessIDs, witnesses...)
 		}
 	}
-	actual, err := nativeTargetInputDigest(p, snapshot, false)
-	if err != nil || actual != digest {
-		return nativeUnavailable("consumed candidate inputs changed during execution")
+	if err := nativeTargetInputsUnchanged(p, snapshot, baseline, "consumed candidate inputs changed during execution"); err != nil {
+		return err
 	}
 	current, err := nativeTargetRunnerDigest(t, root)
-	if err != nil || current != binaryDigest {
+	if err != nil {
+		return err
+	}
+	if current != binaryDigest {
 		return nativeUnavailable("consumed dependency closure changed during execution")
 	}
 	if req.Oracle.Phase == "prepare" {
@@ -259,11 +273,25 @@ func nativeTargetStageArgv(t *nativeTargetOraclePlan, root string, argv []string
 func nativeTargetControlledEnv(t *nativeTargetOraclePlan, root string) []string {
 	var env []string
 	for _, key := range []string{"PATH", "LANG", "LC_ALL"} {
-		if value, ok := os.LookupEnv(key); ok {
+		value, ok := os.LookupEnv(key)
+		if key == "PATH" && t.Environment.Materializer == nativeTargetMaterializerBun {
+			// The pinned bun link precedes the inherited PATH, so a
+			// harness's bare bun is the fingerprinted executable.
+			value = strings.Join(slices.DeleteFunc([]string{nativeBunBinDir(root), value}, func(s string) bool { return s == "" }), string(os.PathListSeparator))
+			ok = true
+		}
+		if ok {
 			env = append(env, key+"="+value)
 		}
 	}
 	env = append(env, "HOME="+filepath.Join(root, "home"), "TMPDIR="+filepath.Join(root, "tmp"))
+	if t.Environment.Materializer == nativeTargetMaterializerBun {
+		env = append(env,
+			"BUN_RUNTIME_TRANSPILER_CACHE_PATH=0",
+			"DO_NOT_TRACK=1",
+			"BUN_INSTALL_CACHE_DIR="+nativeBunInstallCacheDir(root),
+		)
+	}
 	if t.Environment.Materializer == nativeTargetMaterializerUV {
 		env = append(env,
 			"PYTHONDONTWRITEBYTECODE=1",
@@ -297,7 +325,14 @@ func nativeTargetOverlayHarness(ctx context.Context, r GitRunner, repo, root str
 	}
 	rootDir := filepath.Join(root, filepath.FromSlash(m.Root))
 	if m.Runner == nativeTargetRunnerPytest {
-		if err := removeNamedFiles(rootDir, "conftest.py"); err != nil {
+		if err := removeMatchingFiles(rootDir, func(name string) bool { return name == "conftest.py" }); err != nil {
+			return err
+		}
+	}
+	if m.Materializer == nativeTargetMaterializerBun {
+		// Bun loads bunfig files as runner configuration and .env files as
+		// process environment; only pinned copies, written below, remain.
+		if err := removeMatchingFiles(rootDir, nativeBunAutoloadedName); err != nil {
 			return err
 		}
 	}
@@ -319,7 +354,7 @@ func nativeTargetOverlayHarness(ctx context.Context, r GitRunner, repo, root str
 	return nil
 }
 
-func removeNamedFiles(dir, name string) error {
+func removeMatchingFiles(dir string, match func(name string) bool) error {
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
 		return nil
@@ -329,12 +364,12 @@ func removeNamedFiles(dir, name string) error {
 	}
 	for _, entry := range entries {
 		if entry.IsDir() {
-			if err := removeNamedFiles(filepath.Join(dir, entry.Name()), name); err != nil {
+			if err := removeMatchingFiles(filepath.Join(dir, entry.Name()), match); err != nil {
 				return err
 			}
 			continue
 		}
-		if entry.Name() == name {
+		if match(entry.Name()) {
 			if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil && !os.IsNotExist(err) {
 				return err
 			}
@@ -348,22 +383,69 @@ func removeNamedFiles(dir, name string) error {
 // cache tree would shadow the materialized environment.
 var nativeTargetScratchDirs = []string{".venv", "__pycache__", ".pytest_cache"}
 
-// nativeTargetInputDigest fingerprints every regular file in the consumed
+func nativeTargetInventoryDigest(inventory []NativeOracleFile) string {
+	return nativeDigest([]byte(workflowJSON(inventory)))
+}
+
+// nativeTargetInputsUnchanged rechecks the consumed snapshot against its
+// baseline inventory. A change names its first changed path; a change under
+// node_modules adds the materializer route.
+func nativeTargetInputsUnchanged(p nativeOraclePlan, snapshot string, baseline []NativeOracleFile, refusal string) error {
+	current, err := nativeTargetInputInventory(p, snapshot, false)
+	if err != nil {
+		return err
+	}
+	changed := nativeTargetFirstInputChange(baseline, current)
+	if changed == "" {
+		return nil
+	}
+	detail := refusal + ": " + changed
+	if slices.Contains(strings.Split(changed, "/"), "node_modules") {
+		detail += "; the run created or changed " + changed + " inside the candidate tree; a recipe that needs dependencies declares a dependency materializer"
+	}
+	return nativeUnavailable(detail)
+}
+
+// nativeTargetFirstInputChange names the first path, in sorted order, that
+// was added, removed, or changed between two sorted inventories.
+func nativeTargetFirstInputChange(before, after []NativeOracleFile) string {
+	i, j := 0, 0
+	for i < len(before) || j < len(after) {
+		switch {
+		case j >= len(after) || i < len(before) && before[i].Path < after[j].Path:
+			return before[i].Path
+		case i >= len(before) || after[j].Path < before[i].Path:
+			return after[j].Path
+		case before[i].SHA256 != after[j].SHA256:
+			return before[i].Path
+		}
+		i++
+		j++
+	}
+	return ""
+}
+
+// nativeTargetInputInventory inventories every regular file in the consumed
 // snapshot. Declared harness, support, and dependency files must byte-match
 // their pins; every other input owns its identity as a typed immutable
 // source byte — docs, data, and configuration included — with no extension
 // filter. Symlinks and nonregular files refuse. With strict set, the
 // producer-owned scratch directories refuse; afterwards the dependency
-// materialization inside the snapshot is skipped by the digest walk.
-func nativeTargetInputDigest(p nativeOraclePlan, root string, strict bool) (string, error) {
+// materialization inside the snapshot is skipped by the walk. For the bun
+// materializer, the only admitted node_modules directory is the producer's
+// own tree at the manifest root, and only after materialization: any other,
+// empty or not and even inside a skipped scratch subtree, refuses.
+func nativeTargetInputInventory(p nativeOraclePlan, root string, strict bool) ([]NativeOracleFile, error) {
 	t := p.Target
+	bun := t.Recipe.Materializer == nativeTargetMaterializerBun
+	producerTree := path.Join(t.Recipe.Root, "node_modules")
 	pinned := map[string]string{}
 	for _, f := range append(slices.Clone(p.Files), t.DependencyFiles...) {
 		pinned[f.Path] = f.SHA256
 	}
 	rooted, err := os.OpenRoot(root)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer func() { _ = rooted.Close() }()
 	var inventory []NativeOracleFile
@@ -372,9 +454,20 @@ func nativeTargetInputDigest(p nativeOraclePlan, root string, strict bool) (stri
 			return walkErr
 		}
 		if d.IsDir() {
+			if bun && d.Name() == "node_modules" {
+				if !strict && name == producerTree {
+					return fs.SkipDir
+				}
+				return nativeUnavailable("candidate carries a materialized dependency or cache tree: " + name)
+			}
 			if slices.Contains(nativeTargetScratchDirs, d.Name()) {
 				if strict {
 					return nativeUnavailable("candidate carries a materialized dependency or cache tree: " + name)
+				}
+				if bun {
+					if hidden := nativeBunHiddenTree(rooted.FS(), name); hidden != "" {
+						return nativeUnavailable("candidate carries a materialized dependency or cache tree: " + hidden)
+					}
 				}
 				return fs.SkipDir
 			}
@@ -399,10 +492,10 @@ func nativeTargetInputDigest(p nativeOraclePlan, root string, strict bool) (stri
 		return nil
 	})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	slices.SortFunc(inventory, func(a, b NativeOracleFile) int { return strings.Compare(a.Path, b.Path) })
-	return nativeDigest([]byte(workflowJSON(inventory))), nil
+	return inventory, nil
 }
 
 // nativeTargetVerifyMaterialization proves the just-materialized dependency
@@ -631,6 +724,13 @@ func nativeTargetRunnerDigest(t *nativeTargetOraclePlan, root string) (string, e
 			}
 			parts = append(parts, []byte(slot.name+"\x00"), binary)
 		}
+	}
+	if t.Environment.Materializer == nativeTargetMaterializerBun {
+		bun, err := nativeBunRunnerParts(t, root)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, bun...)
 	}
 	site, err := nativeTargetSiteDigest(t, root)
 	if err != nil {

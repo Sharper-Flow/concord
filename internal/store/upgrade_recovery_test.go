@@ -114,6 +114,9 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	if _, err := db.ExecContext(context.Background(), `ALTER TABLE worktree_verify_leases DROP COLUMN event_watermark`); err != nil {
 		t.Fatalf("cannot restore the pre-127 verify lease: %v", err)
 	}
+	if _, err := db.ExecContext(context.Background(), `ALTER TABLE workflow_contracts DROP COLUMN law_change`); err != nil {
+		t.Fatalf("cannot restore the pre-135 workflow contract: %v", err)
+	}
 	if _, err := db.ExecContext(context.Background(), `ALTER TABLE workflow_contracts DROP COLUMN decision_domains`); err != nil {
 		t.Fatalf("cannot restore the pre-133 workflow contract: %v", err)
 	}

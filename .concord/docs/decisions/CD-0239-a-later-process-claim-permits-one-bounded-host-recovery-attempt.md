@@ -23,10 +23,14 @@
   bare cancellation proves no cause
 - **Approval:** Pending. The operator approves the exact text of this
   record and of the amendments it makes (CD-0230 D4).
-- **P12 declaration:** Serious. The footprint spans the workflow-engine,
-  agent-surface, and durable-authority Domains. The change adds an execution
-  authorization basis; it changes no UI/UX, removes no user-visible behavior,
-  and changes no secrets or destructive data operation.
+- **P12 declaration:** Serious. It removes behavior the operator sees: a host
+  failure at the escalation wall no longer needs an operator-approved contract
+  supersession for one more attempt, which narrows an operator approval point
+  (CD-0230 D5). It touches security: a caller-supplied process claim, which an
+  authorized agent with shell access can arrange, authorizes that attempt. The
+  Domain test counts one child Domain, `workflow-engine`; CD-0148 and CD-0178
+  are root-homed and no amended law declares applicability. It changes no
+  UI/UX.
 
 ## Context
 

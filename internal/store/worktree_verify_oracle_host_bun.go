@@ -537,7 +537,7 @@ func nativeBunMissing(cacheDir string, installs []nativeBunInstall) error {
 // nativeBunBudget bounds one run's whole extraction.
 type nativeBunBudget struct {
 	entries, files int
-	bytes                    int64
+	bytes          int64
 }
 
 func nativeBunLimit(what string) error {

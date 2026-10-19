@@ -77,8 +77,12 @@ request = json.load(sys.stdin)
 db = sqlite3.connect(os.environ["CONCORD_DB_PATH"])
 db.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)")
 db.execute("INSERT OR IGNORE INTO schema_migrations VALUES (7)")
-db.execute("CREATE TABLE IF NOT EXISTS domain_events (seq INTEGER PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL)")
-db.execute("INSERT INTO domain_events (kind, payload) VALUES (?, ?)", (sys.argv[1], json.dumps(request, sort_keys=True)))
+db.execute("CREATE TABLE IF NOT EXISTS domain_events (seq INTEGER PRIMARY KEY, event_id TEXT, kind TEXT NOT NULL, payload_version INTEGER, payload TEXT NOT NULL)")
+db.execute("INSERT INTO domain_events (event_id, kind, payload_version, payload) VALUES (?, ?, 1, ?)",
+           (sys.argv[1] + "-" + str(db.execute("SELECT COUNT(*) FROM domain_events").fetchone()[0]), sys.argv[1], json.dumps(request, sort_keys=True)))
+for table, key, subject in (("products", "id", "gate-product"), ("projects", "id", "gate-project"), ("managed_resources", "resource_id", "gate-resource")):
+    db.execute(f"CREATE TABLE IF NOT EXISTS {{table}} ({{key}} TEXT PRIMARY KEY, display_name TEXT, version INTEGER)")
+    db.execute(f"INSERT INTO {{table}} ({{key}}, version) VALUES (?, 1) ON CONFLICT({{key}}) DO UPDATE SET version = version + 1", (subject,))
 db.commit()
 print(json.dumps({{"ok": True}}))
 """
@@ -109,7 +113,7 @@ source.close()
 if MODE == "rewrite-event":
     target.execute("UPDATE domain_events SET payload = '{{}}' WHERE seq = 1")
 if MODE == "drop-event":
-    target.execute("DELETE FROM domain_events WHERE seq = 2")
+    target.execute("DELETE FROM domain_events WHERE seq = (SELECT MAX(seq) FROM domain_events)")
 elif MODE == "rebuild-drift" or not second:
     target.execute("INSERT INTO domain_events (kind, payload) VALUES ('migration.appended', '{{}}')")
 for table, columns in (("products", "id, display_name"), ("projects", "id, display_name"), ("product_projects", "product_id, project_id, role"),
@@ -117,8 +121,8 @@ for table, columns in (("products", "id, display_name"), ("projects", "id, displ
     target.execute(f"CREATE TABLE IF NOT EXISTS {{table}} ({{columns}})")
 if not second:
     value = "https://example.invalid/other.git" if MODE == "lose-effect" else "https://example.invalid/gate/project.git"
-    target.execute("INSERT INTO products VALUES ('gate-product', 'Gate Product')")
-    target.execute("INSERT INTO projects VALUES ('gate-project', 'Gate Project')")
+    target.execute("INSERT OR REPLACE INTO products (id, display_name) VALUES ('gate-product', 'Gate Product')")
+    target.execute("INSERT OR REPLACE INTO projects (id, display_name) VALUES ('gate-project', 'Gate Project')")
     target.execute("INSERT INTO product_projects VALUES ('gate-product', 'gate-project', 'primary')")
     target.execute("INSERT INTO project_locators VALUES ('gate-project', 'gate-remote', 'git_remote', ?)", (value,))
 target.commit()
@@ -202,8 +206,52 @@ class CaseTests(unittest.TestCase):
     def test_a_writer_restores_twice_and_its_case_is_removed(self) -> None:
         row = self.case(self.fixture.publish("v1.0.0"), self.fixture.candidate())
         self.assertCase(row, "pass", "complete")
-        self.assertEqual((row["source"]["event_watermark"], row["restored"]["appended_events"], row["rebuilt"]["appended_events"]), (2, 1, 0))
+        steps = len(gate.recipe_for("v1.0.0"))
+        self.assertEqual((row["source"]["event_watermark"], row["restored"]["appended_events"], row["rebuilt"]["appended_events"]), (steps, 1, 0))
         self.assertFalse((self.fixture.root / "work" / "v1.0.0").exists())
+
+    def test_a_passing_case_witnesses_every_writer_row_with_its_provenance(self) -> None:
+        writer = self.fixture.publish("v1.0.0")
+        row = self.case(writer, self.fixture.candidate())
+        steps = gate.recipe_for("v1.0.0")
+        self.assertEqual([(w["seq"], w["kind"]) for w in row["witnesses"]], [(seq, verb) for seq, (verb, _) in enumerate(steps, start=1)])
+        provenance = {"tag": "v1.0.0", "asset_digest": writer.asset_digest, "recipe": gate.RECIPE_ID,
+                      "recipe_sha256": gate.recipe_sha256(steps), "snapshot_sha256": row["source"]["db_checksum"]}
+        self.assertEqual({json.dumps(w["writer"], sort_keys=True) for w in row["witnesses"]}, {json.dumps(provenance, sort_keys=True)})
+        self.assertEqual(json.loads(row["witnesses"][0]["payload"]), gate.PRODUCT)
+        # Versions come from the writer's own store, before each step.
+        self.assertEqual(json.loads(row["witnesses"][2]["payload"])["expected_version"], 2)
+
+    def test_only_passing_cases_emit_witnesses(self) -> None:
+        real = gate.run_writer_case
+
+        def late_failure(*args):
+            row = real(*args)
+            return row | {"status": "unknown", "stage": "budget"} if row["tag"] == "v1.2.0" else row
+
+        writers = (self.fixture.publish("v1.0.0"), self.fixture.publish("v1.2.0"))
+        with patch.object(gate, "run_writer_case", late_failure):
+            report, _ = self.gate_run(self.fixture.candidate(), *writers)
+        emitted = [json.loads(line) for line in (self.fixture.root / "out" / "witnesses.jsonl").read_text().splitlines()]
+        self.assertEqual(({w["writer"]["tag"] for w in emitted}, report["witnesses"]), ({"v1.0.0"}, len(gate.recipe_for("v1.0.0"))))
+
+    def test_recipe_steps_start_at_their_release(self) -> None:
+        verbs = lambda tag: [verb for verb, _ in gate.recipe_for(tag)]
+        self.assertEqual(verbs("v0.37.1"), ["product-create", "project-locator-add"])
+        self.assertNotIn("product-knowledge-home-designate", verbs("v4.2.9"))
+        self.assertIn("product-knowledge-home-designate", verbs("v4.3.0"))
+        self.assertNotIn("product-knowledge-source-register", verbs("v11.58.9"))
+        self.assertEqual(len(verbs("v11.59.0")), len(gate.RECIPE))
+        self.assertNotEqual(gate.recipe_sha256(gate.recipe_for("v4.3.0")), gate.recipe_sha256(gate.recipe_for("v4.7.0")))
+
+    def test_a_missing_versioned_subject_is_a_named_recipe_failure(self) -> None:
+        store = self.fixture.root / "empty.db"
+        sqlite3.connect(store).execute("CREATE TABLE products (id TEXT, version INTEGER)").connection.commit()
+        with self.assertRaises(gate.CaseFailure) as raised:
+            gate.resolve({"expected_version": gate.PRODUCT_VERSION}, store, self.fixture.root, time.monotonic() + 10)
+        self.assertEqual((raised.exception.status, raised.exception.stage), ("unknown", "recipe"))
+        resolved = gate.resolve({"value": gate.repository("home")}, store, self.fixture.root, time.monotonic() + 10)
+        self.assertTrue(Path(resolved["value"]).is_dir())
 
     def test_writer_environment_is_constructed(self) -> None:
         self.case(self.fixture.publish("v1.0.0", mode="refuse"), self.fixture.candidate())
@@ -247,7 +295,7 @@ class CaseTests(unittest.TestCase):
     def test_a_writer_that_never_reads_stdin_meets_its_budget(self) -> None:
         started = time.monotonic()
         row = self.case(self.fixture.publish("v1.0.0", mode="deaf"), self.fixture.candidate(), case_seconds=2)
-        self.assertCase(row, "unknown", "product-create")
+        self.assertCase(row, "unknown", "step-0-product-create")
         self.assertLess(time.monotonic() - started, 10)
 
     def test_exhausted_wall_budget_is_unknown(self) -> None:
@@ -282,6 +330,10 @@ class CaseTests(unittest.TestCase):
         releases = [release_of(writer, index) for index, writer in enumerate(writers, start=1)]
         report, status = gate.run_gate(args, releases, tag_map(*(writer.tag for writer in writers)))
         self.assertEqual((status, report["result"], report["coverage"]), (0, "pass", {"status": "closed", "writers": 2, "shapes": 1}))
+        emitted = [json.loads(line) for line in (Path(args.output_dir) / "witnesses.jsonl").read_text().splitlines()]
+        self.assertEqual(len(emitted), report["witnesses"])
+        self.assertEqual(sorted({w["writer"]["tag"] for w in emitted}), ["v1.0.0", "v1.2.0"])
+        self.assertFalse(any("witnesses" in row for row in report["rows"]))
 
     def test_coverage_holds_on_every_census_gap(self) -> None:
         writers = [gate.Writer(**{**dataclasses.asdict(self.fixture.publish("v1.0.0")), "tag": tag}) for tag in ("v1.0.0", "v1.2.0")]
@@ -370,6 +422,7 @@ class CaseTests(unittest.TestCase):
             gate.run_gate(self.args(self.fixture.candidate(version="v8.0.0")), [], {})
         with self.assertRaisesRegex(gate.GateError, "changed during the run"):
             self.gate_run(self.fixture.candidate("self-modify"), self.fixture.publish("v1.0.0"))
+        self.assertFalse((self.fixture.root / "out" / "witnesses.jsonl").exists())
 
     def test_main_refuses_bad_identity_and_reused_output(self) -> None:
         output = self.fixture.root / "used"

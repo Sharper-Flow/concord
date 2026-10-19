@@ -4,7 +4,7 @@ package payloadschema
 const GeneratedPayloadSchemaDocument = `{
   "$defs": {
     "absolute_path": {
-      "maxLength": 4096,
+      "description": "Output readback absolute path. The store joins operator filesystem text with no length guard, so the readback carries no maximum.",
       "minLength": 1,
       "type": "string"
     },
@@ -29,7 +29,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "path": {
-          "maxLength": 512,
           "minLength": 1,
           "type": "string"
         },
@@ -224,7 +223,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         },
         "nodes": {
           "items": {
@@ -253,7 +252,6 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "locator": {
-          "maxLength": 2048,
           "type": [
             "string",
             "null"
@@ -1052,7 +1050,7 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "array"
             },
             "next_cursor": {
-              "$ref": "#/$defs/cursor"
+              "$ref": "#/$defs/cursor_output"
             },
             "watermark": {
               "$ref": "#/$defs/id"
@@ -1074,7 +1072,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "$ref": "#/$defs/id"
               },
               "recorded_at": {
-                "maxLength": 40,
+                "maxLength": 58,
                 "minLength": 10,
                 "type": "string"
               },
@@ -1242,7 +1240,6 @@ const GeneratedPayloadSchemaDocument = `{
               "items": {
                 "$ref": "#/$defs/worker_packet_worker_job"
               },
-              "maxItems": 256,
               "type": "array"
             },
             "spec_mandate": {
@@ -1359,6 +1356,13 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "cursor": {
       "maxLength": 4096,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cursor_output": {
+      "description": "Output readback continuation cursor. The store mints cursors with no encode-time length guard, so the readback carries no maximum; authored page input keeps the bounded cursor definition.",
       "type": [
         "string",
         "null"
@@ -1622,7 +1626,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/domain_law_record"
           },
-          "maxItems": 100,
+          "maxItems": 1000,
           "type": "array"
         },
         "domain": {
@@ -1642,7 +1646,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/domain_relation"
           },
-          "maxItems": 100,
+          "maxItems": 4096,
           "type": "array"
         }
       },
@@ -1965,7 +1969,7 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "applies_to": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/knowledge_id"
           },
           "maxItems": 100,
           "type": "array"
@@ -1982,7 +1986,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "law_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/knowledge_id"
         },
         "path": {
           "maxLength": 512,
@@ -2129,7 +2133,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/id"
           },
-          "maxItems": 32,
+          "maxItems": 64,
           "minItems": 0,
           "type": "array"
         },
@@ -2237,9 +2241,9 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "governing_law_ids": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/knowledge_id"
           },
-          "maxItems": 32,
+          "maxItems": 64,
           "type": "array"
         },
         "kind": {
@@ -2251,7 +2255,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "source_domain_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/domain_id"
         },
         "state": {
           "enum": [
@@ -2265,7 +2269,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "target_domain_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/domain_id"
         }
       },
       "required": [
@@ -2280,7 +2284,7 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "domain_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/domain_id"
         },
         "home_domain": {
           "type": "boolean"
@@ -2291,7 +2295,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "parent_domain_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/domain_id"
         },
         "purpose": {
           "maxLength": 4096,
@@ -2394,7 +2398,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "captured_at": {
-                "maxLength": 64,
                 "minLength": 20,
                 "type": "string"
               },
@@ -2426,7 +2429,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "observed_universe": {
-                "$ref": "#/$defs/observed_universe"
+                "$ref": "#/$defs/observed_universe_output"
               },
               "reporting_authority_ref": {
                 "maxLength": 256,
@@ -2469,7 +2472,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "verified_at": {
-                "maxLength": 64,
                 "minLength": 20,
                 "type": "string"
               },
@@ -2530,6 +2532,12 @@ const GeneratedPayloadSchemaDocument = `{
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
       "type": "string"
     },
+    "knowledge_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
+      "type": "string"
+    },
     "knowledge_page": {
       "additionalProperties": false,
       "properties": {
@@ -2565,7 +2573,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "$ref": "#/$defs/id"
               },
               "locator": {
-                "maxLength": 2048,
                 "minLength": 1,
                 "type": "string"
               },
@@ -2592,7 +2599,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         },
         "source_watermarks": {
           "description": "CD-0200: one freshness verdict per registered knowledge source in a Product-wide answer, home first. Absent from a single-source answer.",
@@ -2625,7 +2632,6 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 32,
           "type": "array"
         },
         "watermark": {
@@ -2872,7 +2878,7 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 16,
+          "maxItems": 25,
           "type": "array"
         },
         "operation_id": {
@@ -6345,6 +6351,97 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "observed_universe_output": {
+      "additionalProperties": false,
+      "description": "Output readback of an observed universe. The capture fold admits any anchor token length when coverage is partial or unknown, so the readback carries no anchor_token maximum; authored observation input keeps the bounded observed_universe definition.",
+      "properties": {
+        "anchor_token": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "applied_scope": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "canonical_identity_key": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "completion_evidence": {
+          "enum": [
+            "authoritative_item_read",
+            "end_signal",
+            "closed_structure_digest",
+            "exhaustive_local"
+          ],
+          "type": "string"
+        },
+        "coverage": {
+          "enum": [
+            "complete",
+            "partial",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "observed_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observed_refs": {
+          "items": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "omissions": {
+          "items": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "shape": {
+          "enum": [
+            "item",
+            "collection",
+            "stream"
+          ],
+          "type": "string"
+        },
+        "structure_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "total_kind": {
+          "enum": [
+            "eq",
+            "gte",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "total_value": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "shape",
+        "applied_scope",
+        "coverage",
+        "total_kind",
+        "canonical_identity_key"
+      ],
+      "type": "object"
+    },
     "operator_choice": {
       "additionalProperties": false,
       "properties": {
@@ -6669,12 +6766,11 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/id"
           },
-          "maxItems": 20,
           "type": "array",
           "uniqueItems": true
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         },
         "product_id": {
           "$ref": "#/$defs/id"
@@ -6703,7 +6799,6 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 100,
           "type": "array"
         },
         "stage": {
@@ -6734,7 +6829,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "blocked_since": {
-          "maxLength": 40,
+          "maxLength": 58,
           "minLength": 10,
           "type": "string"
         },
@@ -6754,7 +6849,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "directory": {
-          "maxLength": 4096,
           "minLength": 1,
           "type": "string"
         },
@@ -6762,7 +6856,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "worktree": {
-          "maxLength": 4096,
           "minLength": 1,
           "type": "string"
         }
@@ -7005,7 +7098,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/next_valid_intent"
           },
-          "maxItems": 16,
+          "maxItems": 25,
           "type": "array"
         },
         "work_id": {
@@ -7049,7 +7142,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/next_valid_intent"
           },
-          "maxItems": 16,
+          "maxItems": 25,
           "type": "array"
         },
         "work_id": {
@@ -7080,7 +7173,6 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "blockers": {
           "items": {
-            "maxLength": 512,
             "minLength": 1,
             "type": "string"
           },
@@ -7210,7 +7302,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "finding_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/research_record_id"
         },
         "freshness": {
           "enum": [
@@ -7242,13 +7334,11 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "source_ids": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/research_record_id"
           },
-          "maxItems": 32,
           "type": "array"
         },
         "statement": {
-          "maxLength": 8192,
           "minLength": 1,
           "type": "string"
         },
@@ -7338,7 +7428,7 @@ const GeneratedPayloadSchemaDocument = `{
             "additionalProperties": false,
             "properties": {
               "accepted_at": {
-                "maxLength": 40,
+                "maxLength": 58,
                 "minLength": 1,
                 "type": "string"
               },
@@ -7375,11 +7465,11 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 100,
+          "maxItems": 1000,
           "type": "array"
         },
         "created_at": {
-          "maxLength": 40,
+          "maxLength": 58,
           "minLength": 1,
           "type": "string"
         },
@@ -7409,11 +7499,11 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/research_revision"
           },
-          "maxItems": 100,
+          "maxItems": 1000,
           "type": "array"
         },
         "updated_at": {
-          "maxLength": 40,
+          "maxLength": 58,
           "minLength": 1,
           "type": "string"
         }
@@ -7433,7 +7523,7 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "created_at": {
-          "maxLength": 40,
+          "maxLength": 58,
           "minLength": 1,
           "type": "string"
         },
@@ -7460,7 +7550,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "updated_at": {
-          "maxLength": 40,
+          "maxLength": 58,
           "minLength": 1,
           "type": "string"
         }
@@ -7507,7 +7597,7 @@ const GeneratedPayloadSchemaDocument = `{
               "items": {
                 "$ref": "#/$defs/research_pack_descriptor"
               },
-              "maxItems": 100,
+              "maxItems": 1000,
               "type": "array"
             },
             "result_version": {
@@ -7528,7 +7618,7 @@ const GeneratedPayloadSchemaDocument = `{
             "additionalProperties": false,
             "properties": {
               "accepted_at": {
-                "maxLength": 40,
+                "maxLength": 58,
                 "minLength": 1,
                 "type": "string"
               },
@@ -7565,11 +7655,11 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 100,
+          "maxItems": 1000,
           "type": "array"
         },
         "created_at": {
-          "maxLength": 40,
+          "maxLength": 58,
           "minLength": 1,
           "type": "string"
         },
@@ -7602,7 +7692,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/research_pack_descriptor"
           },
-          "maxItems": 100,
+          "maxItems": 1000,
           "type": "array"
         },
         "result_version": {
@@ -7613,16 +7703,21 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/research_revision"
           },
-          "maxItems": 100,
+          "maxItems": 1000,
           "type": "array"
         },
         "updated_at": {
-          "maxLength": 40,
+          "maxLength": 58,
           "minLength": 1,
           "type": "string"
         }
       },
       "type": "object"
+    },
+    "research_record_id": {
+      "description": "Output readback research record identity (finding or source). Raw retained research IDs legitimately exceed the shared id bound, so this carries no maximum and no ASCII pattern; authored research input keeps its own bounded definitions.",
+      "minLength": 1,
+      "type": "string"
     },
     "research_retire_result": {
       "additionalProperties": false,
@@ -7701,7 +7796,7 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "created_at": {
-          "maxLength": 40,
+          "maxLength": 58,
           "minLength": 1,
           "type": "string"
         },
@@ -7712,7 +7807,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/research_finding"
           },
-          "maxItems": 100,
+          "maxItems": 1000,
           "type": "array"
         },
         "freshness": {
@@ -7730,7 +7825,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "question": {
-          "maxLength": 2048,
           "minLength": 1,
           "type": "string"
         },
@@ -7748,7 +7842,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/research_source"
           },
-          "maxItems": 100,
+          "maxItems": 1000,
           "type": "array"
         }
       },
@@ -7800,9 +7894,9 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "domain_ids": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/knowledge_id"
           },
-          "maxItems": 32,
+          "maxItems": 100,
           "type": "array"
         },
         "mode": {
@@ -7814,23 +7908,23 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "product_ids": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/knowledge_id"
           },
-          "maxItems": 32,
+          "maxItems": 100,
           "type": "array"
         },
         "project_ids": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/knowledge_id"
           },
-          "maxItems": 32,
+          "maxItems": 100,
           "type": "array"
         },
         "tag_ids": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/knowledge_id"
           },
-          "maxItems": 32,
+          "maxItems": 100,
           "type": "array"
         }
       },
@@ -7887,7 +7981,6 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "accessed_at": {
-          "maxLength": 40,
           "minLength": 1,
           "type": "string"
         },
@@ -7903,7 +7996,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "locator": {
-          "maxLength": 2048,
           "minLength": 1,
           "type": "string"
         },
@@ -7911,12 +8003,10 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "published_at": {
-          "maxLength": 40,
           "minLength": 1,
           "type": "string"
         },
         "publisher_or_author": {
-          "maxLength": 256,
           "minLength": 1,
           "type": "string"
         },
@@ -7925,10 +8015,9 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "source_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/research_record_id"
         },
         "title": {
-          "maxLength": 512,
           "minLength": 1,
           "type": "string"
         }
@@ -8006,7 +8095,7 @@ const GeneratedPayloadSchemaDocument = `{
             "additionalProperties": false,
             "properties": {
               "claimed_at": {
-                "maxLength": 40,
+                "maxLength": 58,
                 "minLength": 10,
                 "type": "string"
               },
@@ -8025,12 +8114,12 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "released_at": {
-                "maxLength": 40,
+                "maxLength": 58,
                 "minLength": 10,
                 "type": "string"
               },
               "resource_key": {
-                "maxLength": 160,
+                "maxLength": 161,
                 "minLength": 3,
                 "pattern": "^[a-z][a-z0-9_-]{1,31}:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$",
                 "type": "string"
@@ -8081,7 +8170,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "items": {
                   "$ref": "#/$defs/resource_product_link"
                 },
-                "maxItems": 100,
                 "type": "array"
               },
               "display_name": {
@@ -8333,7 +8421,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/next_valid_intent"
           },
-          "maxItems": 16,
+          "maxItems": 25,
           "type": "array"
         },
         "project_id": {
@@ -9141,7 +9229,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "source_event_id": {
-          "maxLength": 128,
           "minLength": 1,
           "type": "string"
         },
@@ -10434,7 +10521,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "items": {
                   "$ref": "#/$defs/evidence"
                 },
-                "maxItems": 64,
                 "type": "array"
               },
               "kind": {
@@ -10466,7 +10552,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         },
         "workflow": {
           "$ref": "#/$defs/workflow_read"
@@ -10559,7 +10645,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "$ref": "#/$defs/id"
               },
               "sent_at": {
-                "maxLength": 40,
+                "maxLength": 58,
                 "minLength": 10,
                 "type": "string"
               },
@@ -10571,7 +10657,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "withdrawn_at": {
-                "maxLength": 40,
+                "maxLength": 58,
                 "minLength": 10,
                 "type": "string"
               }
@@ -10627,7 +10713,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "recorded_at": {
-                "maxLength": 40,
+                "maxLength": 58,
                 "minLength": 20,
                 "type": "string"
               },
@@ -10691,7 +10777,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         },
         "readiness_evidence": {
           "items": {
@@ -10864,7 +10950,7 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 16,
+          "maxItems": 25,
           "type": "array"
         },
         "obligations": {
@@ -11049,7 +11135,9 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/reference"
         },
         "session_ref": {
-          "$ref": "#/$defs/reference"
+          "maxLength": 128,
+          "minLength": 2,
+          "type": "string"
         }
       },
       "required": [
@@ -11547,7 +11635,7 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 16,
+          "maxItems": 25,
           "type": "array"
         },
         "product_version": {
@@ -11733,7 +11821,6 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 200,
           "type": "array"
         },
         "nodes": {
@@ -11865,19 +11952,18 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 100,
           "minItems": 1,
           "type": "array"
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         },
         "verdict": {
           "additionalProperties": false,
           "description": "CD-0023: recorded acceptance verdict. Absent with a redaction omission when the reader is the recorded executing actor.",
           "properties": {
             "completed_at": {
-              "maxLength": 40,
+              "maxLength": 58,
               "minLength": 20,
               "type": "string"
             },
@@ -12045,7 +12131,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/work_liveness"
         },
         "narrative": {
-          "maxLength": 16384,
           "type": "string"
         },
         "priority": {
@@ -12057,7 +12142,6 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/id"
           },
-          "maxItems": 100,
           "type": "array",
           "uniqueItems": true
         },
@@ -12071,7 +12155,6 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/id"
           },
-          "maxItems": 32,
           "type": "array",
           "uniqueItems": true
         },
@@ -19476,7 +19559,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "owner_id": {
-          "maxLength": 128,
+          "maxLength": 133,
           "minLength": 7,
           "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
           "type": "string"
@@ -19887,7 +19970,6 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "context": {
               "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it.",
-              "maxLength": 16384,
               "minLength": 0,
               "type": "string"
             },
@@ -19915,7 +19997,6 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string"
             },
             "task": {
-              "maxLength": 4096,
               "minLength": 1,
               "type": "string"
             },
@@ -20002,7 +20083,6 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "context": {
               "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it.",
-              "maxLength": 16384,
               "minLength": 0,
               "type": "string"
             },
@@ -20030,7 +20110,6 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string"
             },
             "task": {
-              "maxLength": 4096,
               "minLength": 1,
               "type": "string"
             },
@@ -20286,7 +20365,6 @@ const GeneratedPayloadSchemaDocument = `{
       "description": "The work item's recorded value statement, task, and narrative, each verbatim and present exactly when the recorded text is not blank. The core refuses a dispatch whose packet member differs from the recorded work item.",
       "properties": {
         "narrative": {
-          "maxLength": 16384,
           "minLength": 1,
           "type": "string"
         },
@@ -20296,7 +20374,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "value_statement": {
-          "maxLength": 256,
           "minLength": 1,
           "type": "string"
         }
@@ -21036,7 +21113,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "$ref": "#/$defs/short"
               },
               "outcome_payload": {
-                "maxLength": 16384,
+                "maxLength": 65536,
                 "type": "string"
               },
               "predicate_id": {
@@ -21120,7 +21197,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/version"
         },
         "diagnosis": {
-          "maxLength": 4096,
           "type": "string"
         },
         "disposition": {
@@ -21138,7 +21214,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/reference"
           },
-          "maxItems": 32,
+          "maxItems": 64,
           "type": "array",
           "uniqueItems": true
         },
@@ -21149,7 +21225,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "failure_detail": {
-          "maxLength": 4096,
           "type": "string"
         },
         "failure_kind": {
@@ -21444,7 +21519,6 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "registry_path": {
           "description": "The repository path of the Domain registry shard. Present when the context binds at least one Domain, so a dispatched lane reads Domain structure from the file instead of a Concord tool.",
-          "maxLength": 1024,
           "minLength": 1,
           "type": "string"
         }
@@ -21505,7 +21579,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/workflow_law_context_criterion"
           },
-          "maxItems": 128,
+          "maxItems": 1000,
           "minItems": 1,
           "type": "array"
         },
@@ -21532,7 +21606,6 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "path": {
-          "maxLength": 1024,
           "minLength": 1,
           "type": "string"
         },
@@ -21787,7 +21860,6 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/id"
           },
-          "maxItems": 100,
           "type": "array"
         },
         "candidate_ids": {
@@ -21801,7 +21873,6 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/short"
           },
-          "maxItems": 32,
           "type": "array"
         },
         "conditions": {
@@ -21994,7 +22065,6 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/id"
           },
-          "maxItems": 100,
           "type": "array"
         },
         "unresolved_conditions": {
@@ -22167,7 +22237,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "$ref": "#/$defs/lifecycle"
               },
               "path": {
-                "maxLength": 4096,
                 "minLength": 1,
                 "type": "string"
               },
@@ -22190,12 +22259,10 @@ const GeneratedPayloadSchemaDocument = `{
               },
               "retained_tip": {
                 "description": "CD-0212 D3: the tip the reclamation observed when it retained the ref named by retained_branch.",
-                "maxLength": 64,
                 "minLength": 40,
                 "type": "string"
               },
               "risk": {
-                "maxLength": 64,
                 "minLength": 1,
                 "type": "string"
               },
@@ -22219,7 +22286,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "root": {
-          "maxLength": 4096,
           "minLength": 1,
           "type": "string"
         }
@@ -22292,7 +22358,7 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 16,
+          "maxItems": 25,
           "type": "array"
         },
         "report_only": {
@@ -22341,7 +22407,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "$ref": "#/$defs/lifecycle"
               },
               "path": {
-                "maxLength": 4096,
                 "minLength": 1,
                 "type": "string"
               },
@@ -22364,12 +22429,10 @@ const GeneratedPayloadSchemaDocument = `{
               },
               "retained_tip": {
                 "description": "CD-0212 D3: the tip the reclamation observed when it retained the ref named by retained_branch.",
-                "maxLength": 64,
                 "minLength": 40,
                 "type": "string"
               },
               "risk": {
-                "maxLength": 64,
                 "minLength": 1,
                 "type": "string"
               },
@@ -22393,7 +22456,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "root": {
-          "maxLength": 4096,
           "minLength": 1,
           "type": "string"
         },
@@ -22402,7 +22464,6 @@ const GeneratedPayloadSchemaDocument = `{
             "additionalProperties": false,
             "properties": {
               "detail": {
-                "maxLength": 512,
                 "minLength": 1,
                 "type": "string"
               },
@@ -22417,7 +22478,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "path": {
-                "maxLength": 4096,
                 "minLength": 1,
                 "type": "string"
               },
@@ -22445,7 +22505,6 @@ const GeneratedPayloadSchemaDocument = `{
                       "type": "string"
                     },
                     "tip": {
-                      "maxLength": 64,
                       "minLength": 40,
                       "type": "string"
                     }
@@ -22509,7 +22568,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/next_valid_intent"
           },
-          "maxItems": 16,
+          "maxItems": 25,
           "type": "array"
         },
         "path": {

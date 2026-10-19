@@ -6,9 +6,9 @@
   "additionalProperties": false,
   "$defs": {
     "absolute_path": {
+      "description": "Output readback absolute path. The store joins operator filesystem text with no length guard, so the readback carries no maximum.",
       "type": "string",
-      "minLength": 1,
-      "maxLength": 4096
+      "minLength": 1
     },
     "mutation_changed_ref": {
       "type": "object",
@@ -82,6 +82,12 @@
       "maxLength": 256,
       "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
     },
+    "knowledge_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
+    },
     "obligation_id": {
       "type": "string",
       "minLength": 1,
@@ -109,6 +115,13 @@
         "null"
       ],
       "maxLength": 4096
+    },
+    "cursor_output": {
+      "description": "Output readback continuation cursor. The store mints cursors with no encode-time length guard, so the readback carries no maximum; authored page input keeps the bounded cursor definition.",
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "limit": {
       "type": "integer",
@@ -423,7 +436,9 @@
       ],
       "properties": {
         "session_ref": {
-          "$ref": "#/$defs/reference"
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128
         },
         "last_action_id": {
           "$ref": "#/$defs/reference"
@@ -551,15 +566,14 @@
         },
         "evidence_refs": {
           "type": "array",
-          "maxItems": 32,
+          "maxItems": 64,
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/reference"
           }
         },
         "diagnosis": {
-          "type": "string",
-          "maxLength": 4096
+          "type": "string"
         },
         "strategy": {
           "type": "string",
@@ -570,8 +584,7 @@
           "maxLength": 64
         },
         "failure_detail": {
-          "type": "string",
-          "maxLength": 4096
+          "type": "string"
         },
         "failed_attempt_id": {
           "$ref": "#/$defs/id"
@@ -854,7 +867,7 @@
         },
         "next_valid_intents": {
           "type": "array",
-          "maxItems": 16,
+          "maxItems": 25,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -1249,7 +1262,6 @@
         },
         "tags": {
           "type": "array",
-          "maxItems": 32,
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/id"
@@ -1274,7 +1286,6 @@
         },
         "project_ids": {
           "type": "array",
-          "maxItems": 100,
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/id"
@@ -1284,8 +1295,7 @@
           "type": "boolean"
         },
         "narrative": {
-          "type": "string",
-          "maxLength": 16384
+          "type": "string"
         },
         "terminal_at": {
           "type": [
@@ -1444,7 +1454,7 @@
               },
               "outcome_payload": {
                 "type": "string",
-                "maxLength": 16384
+                "maxLength": 65536
               }
             }
           }
@@ -1755,7 +1765,6 @@
         },
         "unreadable_conditions": {
           "type": "array",
-          "maxItems": 100,
           "items": {
             "$ref": "#/$defs/id"
           }
@@ -1765,7 +1774,6 @@
         },
         "blocking_conditions": {
           "type": "array",
-          "maxItems": 100,
           "items": {
             "$ref": "#/$defs/id"
           }
@@ -1820,7 +1828,6 @@
         },
         "completion_warnings": {
           "type": "array",
-          "maxItems": 32,
           "items": {
             "$ref": "#/$defs/short"
           }
@@ -1909,7 +1916,7 @@
           }
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         },
         "readiness_evidence": {
           "type": "array",
@@ -2825,8 +2832,7 @@
         "registry_path": {
           "description": "The repository path of the Domain registry shard. Present when the context binds at least one Domain, so a dispatched lane reads Domain structure from the file instead of a Concord tool.",
           "type": "string",
-          "minLength": 1,
-          "maxLength": 1024
+          "minLength": 1
         }
       }
     },
@@ -2890,14 +2896,13 @@
         },
         "path": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 1024
+          "minLength": 1
         },
         "criteria": {
           "description": "The law's acceptance criteria bound to the reading work item's own outcome predicates (CD-0180). Present only when at least one criterion binds this work item.",
           "type": "array",
           "minItems": 1,
-          "maxItems": 128,
+          "maxItems": 1000,
           "items": {
             "$ref": "#/$defs/workflow_law_context_criterion"
           }
@@ -3204,8 +3209,7 @@
         },
         "source_event_id": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 128
+          "minLength": 1
         },
         "source_event_seq": {
           "type": "integer",
@@ -3811,7 +3815,6 @@
             "ready_worker_jobs": {
               "description": "CD-0205: the work's dispatch-ready worker-job revisions in the exact inputs.worker_job packet shape, so a dispatcher selects one by job_id and binds its recorded content verbatim. Readiness is the one predicate dispatch admission applies. Absent when no revision is ready.",
               "type": "array",
-              "maxItems": 256,
               "items": {
                 "$ref": "#/$defs/worker_packet_worker_job"
               }
@@ -3859,7 +3862,7 @@
               }
             },
             "next_cursor": {
-              "$ref": "#/$defs/cursor"
+              "$ref": "#/$defs/cursor_output"
             },
             "watermark": {
               "$ref": "#/$defs/id"
@@ -3927,7 +3930,7 @@
               "recorded_at": {
                 "type": "string",
                 "minLength": 10,
-                "maxLength": 40
+                "maxLength": 58
               }
             }
           }
@@ -4347,7 +4350,6 @@
         },
         "projects": {
           "type": "array",
-          "maxItems": 100,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -4374,14 +4376,13 @@
         },
         "candidates": {
           "type": "array",
-          "maxItems": 20,
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/id"
           }
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         }
       }
     },
@@ -4482,7 +4483,7 @@
           }
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         }
       }
     },
@@ -4499,7 +4500,6 @@
         "memberships": {
           "type": "array",
           "minItems": 1,
-          "maxItems": 100,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -4529,7 +4529,7 @@
           }
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         },
         "verdict": {
           "type": "object",
@@ -4574,7 +4574,7 @@
             "completed_at": {
               "type": "string",
               "minLength": 20,
-              "maxLength": 40
+              "maxLength": 58
             }
           },
           "description": "CD-0023: recorded acceptance verdict. Absent with a redaction omission when the reader is the recorded executing actor."
@@ -4639,7 +4639,6 @@
               },
               "evidence": {
                 "type": "array",
-                "maxItems": 64,
                 "items": {
                   "$ref": "#/$defs/evidence"
                 }
@@ -4654,7 +4653,7 @@
           }
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         },
         "workflow": {
           "$ref": "#/$defs/workflow_read"
@@ -4721,7 +4720,7 @@
               "recorded_at": {
                 "type": "string",
                 "minLength": 20,
-                "maxLength": 40
+                "maxLength": 58
               }
             }
           }
@@ -4784,8 +4783,7 @@
               },
               "captured_at": {
                 "type": "string",
-                "minLength": 20,
-                "maxLength": 64
+                "minLength": 20
               },
               "reporting_authority_ref": {
                 "type": "string",
@@ -4797,7 +4795,7 @@
                 "pattern": "^sha256:[0-9a-f]{64}$"
               },
               "observed_universe": {
-                "$ref": "#/$defs/observed_universe"
+                "$ref": "#/$defs/observed_universe_output"
               },
               "freshness_policy_ref": {
                 "type": "string",
@@ -4828,8 +4826,7 @@
               },
               "verified_at": {
                 "type": "string",
-                "minLength": 20,
-                "maxLength": 64
+                "minLength": 20
               },
               "verifying_authority_ref": {
                 "type": "string",
@@ -4869,7 +4866,6 @@
         },
         "edges": {
           "type": "array",
-          "maxItems": 200,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -4948,8 +4944,7 @@
               },
               "locator": {
                 "type": "string",
-                "minLength": 1,
-                "maxLength": 2048
+                "minLength": 1
               },
               "commit_oid": {
                 "$ref": "#/$defs/id"
@@ -4978,7 +4973,7 @@
           }
         },
         "next_cursor": {
-          "$ref": "#/$defs/cursor"
+          "$ref": "#/$defs/cursor_output"
         },
         "watermark": {
           "type": "string",
@@ -4987,7 +4982,6 @@
         "source_watermarks": {
           "description": "CD-0200: one freshness verdict per registered knowledge source in a Product-wide answer, home first. Absent from a single-source answer.",
           "type": "array",
-          "maxItems": 32,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -5040,8 +5034,7 @@
           "type": [
             "string",
             "null"
-          ],
-          "maxLength": 2048
+          ]
         },
         "candidates": {
           "type": "array",
@@ -6617,7 +6610,7 @@
         },
         "next_valid_intents": {
           "type": "array",
-          "maxItems": 16,
+          "maxItems": 25,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -6828,7 +6821,7 @@
         },
         "next_valid_intents": {
           "type": "array",
-          "maxItems": 16,
+          "maxItems": 25,
           "items": {
             "$ref": "#/$defs/next_valid_intent"
           }
@@ -6866,7 +6859,7 @@
         },
         "next_valid_intents": {
           "type": "array",
-          "maxItems": 16,
+          "maxItems": 25,
           "items": {
             "$ref": "#/$defs/next_valid_intent"
           }
@@ -7564,23 +7557,23 @@
         "created_at": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 40
+          "maxLength": 58
         },
         "updated_at": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 40
+          "maxLength": 58
         },
         "revisions": {
           "type": "array",
-          "maxItems": 100,
+          "maxItems": 1000,
           "items": {
             "$ref": "#/$defs/research_revision"
           }
         },
         "consumers": {
           "type": "array",
-          "maxItems": 100,
+          "maxItems": 1000,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -7618,7 +7611,7 @@
               "accepted_at": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 40
+                "maxLength": 58
               }
             }
           }
@@ -7663,12 +7656,12 @@
         "created_at": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 40
+          "maxLength": 58
         },
         "updated_at": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 40
+          "maxLength": 58
         }
       }
     },
@@ -7702,23 +7695,23 @@
         "created_at": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 40
+          "maxLength": 58
         },
         "updated_at": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 40
+          "maxLength": 58
         },
         "revisions": {
           "type": "array",
-          "maxItems": 100,
+          "maxItems": 1000,
           "items": {
             "$ref": "#/$defs/research_revision"
           }
         },
         "consumers": {
           "type": "array",
-          "maxItems": 100,
+          "maxItems": 1000,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -7756,7 +7749,7 @@
               "accepted_at": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 40
+                "maxLength": 58
               }
             }
           }
@@ -7770,7 +7763,7 @@
         },
         "packs": {
           "type": "array",
-          "maxItems": 100,
+          "maxItems": 1000,
           "items": {
             "$ref": "#/$defs/research_pack_descriptor"
           }
@@ -7811,7 +7804,7 @@
             },
             "packs": {
               "type": "array",
-              "maxItems": 100,
+              "maxItems": 1000,
               "items": {
                 "$ref": "#/$defs/research_pack_descriptor"
               }
@@ -7839,8 +7832,7 @@
         },
         "question": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 2048
+          "minLength": 1
         },
         "scope_in": {
           "type": "string"
@@ -7857,18 +7849,18 @@
         "created_at": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 40
+          "maxLength": 58
         },
         "findings": {
           "type": "array",
-          "maxItems": 100,
+          "maxItems": 1000,
           "items": {
             "$ref": "#/$defs/research_finding"
           }
         },
         "sources": {
           "type": "array",
-          "maxItems": 100,
+          "maxItems": 1000,
           "items": {
             "$ref": "#/$defs/research_source"
           }
@@ -7899,33 +7891,38 @@
         },
         "product_ids": {
           "type": "array",
-          "maxItems": 32,
+          "maxItems": 100,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/knowledge_id"
           }
         },
         "project_ids": {
           "type": "array",
-          "maxItems": 32,
+          "maxItems": 100,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/knowledge_id"
           }
         },
         "domain_ids": {
           "type": "array",
-          "maxItems": 32,
+          "maxItems": 100,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/knowledge_id"
           }
         },
         "tag_ids": {
           "type": "array",
-          "maxItems": 32,
+          "maxItems": 100,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/knowledge_id"
           }
         }
       }
+    },
+    "research_record_id": {
+      "description": "Output readback research record identity (finding or source). Raw retained research IDs legitimately exceed the shared id bound, so this carries no maximum and no ASCII pattern; authored research input keeps its own bounded definitions.",
+      "type": "string",
+      "minLength": 1
     },
     "research_finding": {
       "type": "object",
@@ -7949,7 +7946,7 @@
           "minimum": 1
         },
         "finding_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/research_record_id"
         },
         "kind": {
           "type": "string",
@@ -7963,8 +7960,7 @@
         },
         "statement": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 8192
+          "minLength": 1
         },
         "confidence": {
           "type": "string",
@@ -7992,9 +7988,8 @@
         },
         "source_ids": {
           "type": "array",
-          "maxItems": 32,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/research_record_id"
           }
         },
         "scopes": {
@@ -8024,7 +8019,7 @@
           "minimum": 1
         },
         "source_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/research_record_id"
         },
         "kind": {
           "type": "string",
@@ -8039,28 +8034,23 @@
         },
         "locator": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 2048
+          "minLength": 1
         },
         "title": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 512
+          "minLength": 1
         },
         "publisher_or_author": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 256
+          "minLength": 1
         },
         "published_at": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 40
+          "minLength": 1
         },
         "accessed_at": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 40
+          "minLength": 1
         }
       }
     },
@@ -8106,13 +8096,11 @@
         },
         "worktree": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
+          "minLength": 1
         },
         "directory": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
+          "minLength": 1
         },
         "consequence": {
           "type": "string",
@@ -8132,7 +8120,7 @@
         "blocked_since": {
           "type": "string",
           "minLength": 10,
-          "maxLength": 40
+          "maxLength": 58
         },
         "block_age_seconds": {
           "type": "integer",
@@ -8281,7 +8269,7 @@
               "resource_key": {
                 "type": "string",
                 "minLength": 3,
-                "maxLength": 160,
+                "maxLength": 161,
                 "pattern": "^[a-z][a-z0-9_-]{1,31}:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$"
               },
               "holder_work_id": {
@@ -8308,12 +8296,12 @@
               "claimed_at": {
                 "type": "string",
                 "minLength": 10,
-                "maxLength": 40
+                "maxLength": 58
               },
               "released_at": {
                 "type": "string",
                 "minLength": 10,
-                "maxLength": 40
+                "maxLength": 58
               }
             }
           }
@@ -8465,12 +8453,12 @@
               "sent_at": {
                 "type": "string",
                 "minLength": 10,
-                "maxLength": 40
+                "maxLength": 58
               },
               "withdrawn_at": {
                 "type": "string",
                 "minLength": 10,
-                "maxLength": 40
+                "maxLength": 58
               }
             }
           }
@@ -8508,8 +8496,7 @@
       "properties": {
         "root": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
+          "minLength": 1
         },
         "drift": {
           "type": "array",
@@ -8546,8 +8533,7 @@
               },
               "path": {
                 "type": "string",
-                "minLength": 1,
-                "maxLength": 4096
+                "minLength": 1
               },
               "claim_state": {
                 "type": "string",
@@ -8570,8 +8556,7 @@
               },
               "risk": {
                 "type": "string",
-                "minLength": 1,
-                "maxLength": 64
+                "minLength": 1
               },
               "commits_ahead": {
                 "type": "integer",
@@ -8602,8 +8587,7 @@
               "retained_tip": {
                 "description": "CD-0212 D3: the tip the reclamation observed when it retained the ref named by retained_branch.",
                 "type": "string",
-                "minLength": 40,
-                "maxLength": 64
+                "minLength": 40
               }
             }
           }
@@ -9409,7 +9393,7 @@
       ],
       "properties": {
         "domain_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/domain_id"
         },
         "name": {
           "type": "string",
@@ -9421,7 +9405,7 @@
           "maxLength": 4096
         },
         "parent_domain_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/domain_id"
         },
         "status": {
           "type": "string",
@@ -9466,7 +9450,7 @@
       ],
       "properties": {
         "law_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/knowledge_id"
         },
         "kind": {
           "type": "string",
@@ -9493,7 +9477,7 @@
           "type": "array",
           "maxItems": 100,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/knowledge_id"
           }
         },
         "scanned_commit_oid": {
@@ -9520,10 +9504,10 @@
           ]
         },
         "source_domain_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/domain_id"
         },
         "target_domain_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/domain_id"
         },
         "state": {
           "type": "string",
@@ -9538,9 +9522,9 @@
         },
         "governing_law_ids": {
           "type": "array",
-          "maxItems": 32,
+          "maxItems": 64,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/knowledge_id"
           }
         }
       }
@@ -9564,14 +9548,14 @@
         },
         "current_law": {
           "type": "array",
-          "maxItems": 100,
+          "maxItems": 1000,
           "items": {
             "$ref": "#/$defs/domain_law_record"
           }
         },
         "relations": {
           "type": "array",
-          "maxItems": 100,
+          "maxItems": 4096,
           "items": {
             "$ref": "#/$defs/domain_relation"
           }
@@ -9763,7 +9747,7 @@
         "shared_domain_ids": {
           "type": "array",
           "minItems": 0,
-          "maxItems": 32,
+          "maxItems": 64,
           "items": {
             "$ref": "#/$defs/id"
           }
@@ -9846,6 +9830,97 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 2048
+        },
+        "structure_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "coverage": {
+          "enum": [
+            "complete",
+            "partial",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "observed_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observed_refs": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        },
+        "total_kind": {
+          "enum": [
+            "eq",
+            "gte",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "total_value": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completion_evidence": {
+          "enum": [
+            "authoritative_item_read",
+            "end_signal",
+            "closed_structure_digest",
+            "exhaustive_local"
+          ],
+          "type": "string"
+        },
+        "canonical_identity_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "omissions": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        }
+      }
+    },
+    "observed_universe_output": {
+      "description": "Output readback of an observed universe. The capture fold admits any anchor token length when coverage is partial or unknown, so the readback carries no anchor_token maximum; authored observation input keeps the bounded observed_universe definition.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "shape",
+        "applied_scope",
+        "coverage",
+        "total_kind",
+        "canonical_identity_key"
+      ],
+      "properties": {
+        "shape": {
+          "enum": [
+            "item",
+            "collection",
+            "stream"
+          ],
+          "type": "string"
+        },
+        "applied_scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "anchor_token": {
+          "type": "string",
+          "minLength": 1
         },
         "structure_digest": {
           "type": "string",
@@ -10322,8 +10397,7 @@
         },
         "path": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 512
+          "minLength": 1
         },
         "command": {
           "description": "The pinned argv the lease holds for retry honesty.",
@@ -10383,8 +10457,7 @@
       "properties": {
         "root": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
+          "minLength": 1
         },
         "rows": {
           "type": "array",
@@ -10408,8 +10481,7 @@
               },
               "path": {
                 "type": "string",
-                "minLength": 1,
-                "maxLength": 4096
+                "minLength": 1
               },
               "lifecycle": {
                 "$ref": "#/$defs/lifecycle"
@@ -10431,8 +10503,7 @@
               },
               "detail": {
                 "type": "string",
-                "minLength": 1,
-                "maxLength": 512
+                "minLength": 1
               },
               "retained_refs": {
                 "description": "CD-0212 D3: branch refs the reclamation proved it must not delete and retained instead, visible after directory removal.",
@@ -10453,8 +10524,7 @@
                     },
                     "tip": {
                       "type": "string",
-                      "minLength": 40,
-                      "maxLength": 64
+                      "minLength": 40
                     },
                     "reason": {
                       "type": "string",
@@ -10502,8 +10572,7 @@
               },
               "path": {
                 "type": "string",
-                "minLength": 1,
-                "maxLength": 4096
+                "minLength": 1
               },
               "claim_state": {
                 "type": "string",
@@ -10526,8 +10595,7 @@
               },
               "risk": {
                 "type": "string",
-                "minLength": 1,
-                "maxLength": 64
+                "minLength": 1
               },
               "commits_ahead": {
                 "type": "integer",
@@ -10558,8 +10626,7 @@
               "retained_tip": {
                 "description": "CD-0212 D3: the tip the reclamation observed when it retained the ref named by retained_branch.",
                 "type": "string",
-                "minLength": 40,
-                "maxLength": 64
+                "minLength": 40
               }
             }
           }
@@ -10590,7 +10657,7 @@
         },
         "next_valid_intents": {
           "type": "array",
-          "maxItems": 16,
+          "maxItems": 25,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -10803,7 +10870,6 @@
               },
               "consumers": {
                 "type": "array",
-                "maxItems": 100,
                 "items": {
                   "$ref": "#/$defs/resource_product_link"
                 }
@@ -11911,7 +11977,7 @@
         },
         "next_valid_intents": {
           "type": "array",
-          "maxItems": 16,
+          "maxItems": 25,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -12406,7 +12472,7 @@
         },
         "next_valid_intents": {
           "type": "array",
-          "maxItems": 16,
+          "maxItems": 25,
           "items": {
             "$ref": "#/$defs/next_valid_intent"
           }
@@ -12450,7 +12516,7 @@
         },
         "next_valid_intents": {
           "type": "array",
-          "maxItems": 16,
+          "maxItems": 25,
           "items": {
             "$ref": "#/$defs/next_valid_intent"
           }
@@ -12523,8 +12589,7 @@
           "maxItems": 16,
           "items": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 512
+            "minLength": 1
           }
         }
       }
@@ -13200,7 +13265,7 @@
         "owner_id": {
           "type": "string",
           "minLength": 7,
-          "maxLength": 128,
+          "maxLength": 133,
           "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
         },
         "failure_family": {
@@ -18300,8 +18365,7 @@
       "properties": {
         "value_statement": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 256
+          "minLength": 1
         },
         "task": {
           "type": "string",
@@ -18310,8 +18374,7 @@
         },
         "narrative": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 16384
+          "minLength": 1
         }
       }
     },
@@ -21870,8 +21933,7 @@
           "properties": {
             "task": {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 4096
+              "minLength": 1
             },
             "binding": {
               "$ref": "#/$defs/worker_packet_binding"
@@ -21887,7 +21949,6 @@
             "context": {
               "type": "string",
               "minLength": 0,
-              "maxLength": 16384,
               "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it."
             },
             "law_context": {
@@ -22195,8 +22256,7 @@
           "properties": {
             "task": {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 4096
+              "minLength": 1
             },
             "binding": {
               "$ref": "#/$defs/worker_packet_binding"
@@ -22212,7 +22272,6 @@
             "context": {
               "type": "string",
               "minLength": 0,
-              "maxLength": 16384,
               "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it."
             },
             "law_context": {

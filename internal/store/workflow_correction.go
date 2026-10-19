@@ -481,7 +481,7 @@ func workflowCorrectionWindowBoundary(ctx context.Context, q queryer, workID str
 // projections use this history's obligation discharge rule (CD-0205 D4), not
 // the current attempt lifecycle, so historical reads keep replay parity.
 func workflowCorrectionWalk(ctx context.Context, q queryer, workID string, prefix int64, subject string) (*workflowCorrectionHistory, error) {
-	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.kind, COALESCE(json_extract(e.payload,'$.attempt_id'),''), COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''), COALESCE(json_extract(e.payload,'$.action_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.job_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.revision'),0), COALESCE(json_extract(e.payload,'$.worker_job.digest'),''), e.payload FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? AND ((e.kind=? AND json_extract(e.payload,'$.attempt_id') IS NOT NULL) OR (e.kind=? AND json_extract(e.payload,'$.action_id') IN ('record_worker_failure','reject_worker_result','request_correction','accept_worker_result','dispatch_worker')) OR e.kind=? OR e.kind=? OR e.kind=?) ORDER BY e.seq`, string(SubjectWorkItem), workID, prefix, WorkerDispatched, WorkflowActionCompleted, WorkerJobRecorded, WorkerFailed, WorkerCompleted)
+	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.kind, COALESCE(json_extract(e.payload,'$.attempt_id'),''), COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''), COALESCE(json_extract(e.payload,'$.action_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.job_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.revision'),0), COALESCE(json_extract(e.payload,'$.worker_job.digest'),''), e.payload FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? AND ((e.kind=? AND json_extract(e.payload,'$.attempt_id') IS NOT NULL) OR (e.kind=? AND json_extract(e.payload,'$.action_id') IN ('record_worker_failure','reject_worker_result','request_correction','accept_worker_result','dispatch_worker')) OR e.kind=? OR e.kind=? OR e.kind=? OR e.kind=?) ORDER BY e.seq`, string(SubjectWorkItem), workID, prefix, WorkerDispatched, WorkflowActionCompleted, WorkerJobRecorded, WorkerFailed, WorkerCompleted, WorkerJobSplit)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot read the correction window history", true, "retry once the workflow event log is readable", err)
 	}
@@ -564,6 +564,12 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 		if err := json.Unmarshal([]byte(row.payload), &recorded); err == nil {
 			h.obligations[workerJobKey(recorded.JobID, recorded.Revision)] = workflowJobObligationState{base: workerJobObligationKey(recorded), oracle: recorded.AcceptanceOracle, contractVersion: recorded.ContractVersion}
 		}
+	case string(WorkerJobSplit):
+		var split WorkerJobSplitPayload
+		if err := json.Unmarshal([]byte(row.payload), &split); err != nil {
+			return newFailure(KindInvariantViolation, subject, "worker job split payload is malformed", false, "rebuild workflow projections from the event log")
+		}
+		h.unresolved[workerJobKey(split.Predecessor.JobID, split.Predecessor.Revision)] = true
 	}
 	if row.kind != string(WorkflowActionCompleted) {
 		return nil
@@ -722,8 +728,9 @@ func workerJobObligationKey(payload WorkerJobRecordedPayload) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// workflowNonProgressAttemptCount counts distinct failed, rejected, or no_ship
-// attempts across the work item. Authorization and dispatch evidence name the
+// workflowNonProgressAttemptCount counts distinct failed, rejected, no_ship,
+// or split-replaced overrun attempts across the work item. Authorization and
+// dispatch evidence name the
 // same attempt, so they consume one slot. Only productive acceptance that
 // discharges the correction window renews the budget.
 func workflowNonProgressAttemptCount(ctx context.Context, q queryer, workID, subject string) (int64, error) {
@@ -732,14 +739,15 @@ func workflowNonProgressAttemptCount(ctx context.Context, q queryer, workID, sub
 		return 0, err
 	}
 	var count int64
-	args := []any{string(SubjectWorkItem), WorkflowActionCompleted, WorkerDispatched, workID, anchor, WorkflowActionCompleted, WorkerCompleted}
+	args := []any{string(SubjectWorkItem), WorkflowActionCompleted, WorkerDispatched, workID, anchor, WorkflowActionCompleted, WorkerCompleted, WorkerJobSplit}
 	population := ` FROM worker_attempts a JOIN domain_events dc ON dc.subject_type=? AND dc.subject_id=a.work_id
 		AND ((dc.kind=? AND json_extract(dc.payload,'$.action_id')='dispatch_worker' AND json_extract(dc.payload,'$.worker_attempt_id')=a.attempt_id)
 		OR (dc.kind=? AND json_extract(dc.payload,'$.attempt_id')=a.attempt_id))
 		WHERE a.work_id=? AND dc.seq>? AND (a.lifecycle_state='failed' OR EXISTS (
 		SELECT 1 FROM domain_events r WHERE r.subject_type=dc.subject_type AND r.subject_id=a.work_id
 		AND ((r.kind=? AND json_extract(r.payload,'$.action_id')='reject_worker_result' AND json_extract(r.payload,'$.worker_attempt_id')=a.attempt_id)
-		OR (r.kind=? AND json_extract(r.payload,'$.attempt_id')=a.attempt_id AND json_extract(r.payload,'$.review.verdict')='no_ship'))))`
+		OR (r.kind=? AND json_extract(r.payload,'$.attempt_id')=a.attempt_id AND json_extract(r.payload,'$.review.verdict')='no_ship')
+		OR (r.kind=? AND json_extract(r.payload,'$.replaced_attempt.attempt_id')=a.attempt_id))))`
 	if err := q.QueryRowContext(ctx, `SELECT count(DISTINCT a.attempt_id)`+population, args...).Scan(&count); err != nil {
 		return 0, wrapFailure(KindUnavailable, subject, "cannot count non-progress attempts", true, "retry once the worker attempt projection is readable", err)
 	}

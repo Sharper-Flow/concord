@@ -223,8 +223,15 @@ class CaseTests(unittest.TestCase):
         self.assertEqual(json.loads(row["witnesses"][2]["payload"])["expected_version"], 2)
 
     def test_only_passing_cases_emit_witnesses(self) -> None:
-        writers = (self.fixture.publish("v1.0.0"), self.fixture.publish("v1.2.0", mode="refuse"))
-        report, _ = self.gate_run(self.fixture.candidate(), *writers)
+        real = gate.run_writer_case
+
+        def late_failure(*args):
+            row = real(*args)
+            return row | {"status": "unknown", "stage": "budget"} if row["tag"] == "v1.2.0" else row
+
+        writers = (self.fixture.publish("v1.0.0"), self.fixture.publish("v1.2.0"))
+        with patch.object(gate, "run_writer_case", late_failure):
+            report, _ = self.gate_run(self.fixture.candidate(), *writers)
         emitted = [json.loads(line) for line in (self.fixture.root / "out" / "witnesses.jsonl").read_text().splitlines()]
         self.assertEqual(({w["writer"]["tag"] for w in emitted}, report["witnesses"]), ({"v1.0.0"}, len(gate.recipe_for("v1.0.0"))))
 

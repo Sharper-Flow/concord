@@ -7,6 +7,9 @@
 - **Approval:** The operator approved host ownership with repository examples.
 - **Amendment reason:** Concord is the self-sufficient primary agent; a user
   may choose an optional release train engineer for concurrent work.
+  A profile-level allow-all shell rule overrode the host's shell denials, so
+  the profiles deny only named unsafe commands and leave every other command
+  to the host.
 - **Revision choice:** In-place amendment under CD-0036. Existing workflow pins
   and stored contracts keep their meaning; the managed profile name changes
   through the installer's existing retirement transaction.

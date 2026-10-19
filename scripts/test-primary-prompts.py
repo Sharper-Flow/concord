@@ -148,8 +148,10 @@ class PrimaryPromptCheckTests(unittest.TestCase):
 
     def test_named_profiles_cannot_reallow_host_bash_denials(self) -> None:
         for name in check_primary_prompts.NAMED_PROFILE_FILES:
-            self.rewrite(name, lambda text: text.replace('  bash:\n', '  bash:\n    "git *": allow\n', 1))
-            self.assertTrue(any(name in finding and "bash rules must only deny named commands" in finding for finding in self.findings()))
+            for rule in ('    "git *": allow\n', '    "git *": "ask"\n'):
+                self.setUp()
+                self.rewrite(name, lambda text: text.replace('  bash:\n', '  bash:\n' + rule, 1))
+                self.assertTrue(any(name in finding and "bash rules must only deny named commands" in finding for finding in self.findings()), rule)
 
     def test_resume_cannot_accept_a_project_selector(self) -> None:
         self.rewrite("Concord.md", lambda text: text.replace('with `work_id` alone', 'with `work_id` and `project_id`', 1))

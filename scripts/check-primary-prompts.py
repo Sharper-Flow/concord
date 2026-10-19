@@ -227,7 +227,7 @@ def check_named_profiles(root: Path) -> list[str]:
         if '\n  task:\n    "*": allow' not in "\n" + frontmatter:
             findings.append(f"{name} frontmatter does not allow task by default")
         bash = re.search(r'\n  bash:\n((?:    .*\n?)*)', "\n" + frontmatter)
-        if not bash or re.search(r'^    "\*":|: (?:allow|ask)\s*$', bash[1], re.MULTILINE):
+        if not bash or re.search(r'^    "\*":|: "?(?:allow|ask)"?\s*$', bash[1], re.MULTILINE):
             findings.append(f"{name} bash rules must only deny named commands; the host governs other commands")
         findings.extend(
             f"{name} frontmatter denies Concord tool {tool}"

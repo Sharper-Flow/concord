@@ -1129,10 +1129,9 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
         self.assertNotIn("concord_ci_watch", frontmatter)
         self.assertEqual(self.profile("Concord-RTE")["denied_concord_tools"], [])
 
-    def test_rte_grants_shell_and_unrestricted_tasks_with_shell_safety_denials(self):
+    def test_rte_keeps_shell_safety_denials_and_unrestricted_tasks(self):
         frontmatter = self.frontmatter(self.projection("Concord-RTE"))
         bash = frontmatter.split("\n  bash:\n", 1)[1].split("\n  task:\n", 1)[0]
-        self.assertNotIn(': allow', bash)
         self.assertIn('    "sudo *": deny', bash)
         self.assertIn('    "rm -rf / *": deny', bash)
         task = frontmatter.split("\n  task:\n", 1)[1]
@@ -1150,10 +1149,9 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
         self.assertNotIn("concord_ci_watch", frontmatter)
         self.assertEqual(self.profile("Concord")["denied_concord_tools"], [])
 
-    def test_concord_grants_shell_and_unrestricted_tasks_with_shell_safety_denials(self):
+    def test_concord_keeps_shell_safety_denials_and_unrestricted_tasks(self):
         frontmatter = self.frontmatter(self.projection("Concord"))
         bash = frontmatter.split("\n  bash:\n", 1)[1].split("\n  task:\n", 1)[0]
-        self.assertNotIn(': allow', bash)
         self.assertIn('    "sudo *": deny', bash)
         self.assertIn('    "rm -rf / *": deny', bash)
         task = frontmatter.split("\n  task:\n", 1)[1]

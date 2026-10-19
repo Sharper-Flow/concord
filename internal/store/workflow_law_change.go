@@ -22,14 +22,14 @@ import (
 // a Product-changing definition the item's first law-change approval snapshots
 // the Domain registry; any other definition edits no registry and records no
 // registry before-state. The first approval that names a law snapshots that
-// law. Every successor carries both. A law is changed only when it differs from its before-state. LawIDs
-// holds the laws the contract declares and every other law the item changed,
-// so a successor drops a declared law only while that law is unchanged.
-// Seriousness carries forward once the item has made a change. A serious
-// change also pins the exact text the operator approves: the after-state
-// content hash of every law in LawIDs, and the Domain registry's after-state
-// content hash when the item edits the registry. Completion refuses an
-// enacted state that differs.
+// law. Every successor carries both. A law is changed only when it differs
+// from its before-state. LawIDs holds the laws the contract declares and every
+// other law the item changed, so a successor drops a declared law only while
+// that law is unchanged. Seriousness carries forward once the item has made a
+// change. A serious change also pins the exact text the operator approves: the
+// after-state content hash of every law in LawIDs, and the Domain registry's
+// after-state content hash when the item edits the registry. Completion
+// refuses an enacted state that differs.
 type WorkflowLawChange struct {
 	Reason                     string                       `json:"reason"`
 	RemovesUserVisibleBehavior bool                         `json:"removes_user_visible_behavior"`
@@ -626,13 +626,12 @@ func validateLiveWorkflowLawChangeTx(ctx context.Context, tx *sql.Tx, workID str
 // active contract: each changed law is in LawIDs, and on a Product-changing
 // definition each changed registry Domain is one the contract's binding
 // declares. No merged edit of another item is excluded, because nothing
-// records which item made it. A serious
-// change must then enact exactly the text the operator approved. A
-// non-serious change must still be non-serious once enacted: the work is not
-// crucial, the child Domains the counted laws hold now, joined with those
-// recorded at approval and every registry difference, number at most one,
-// and each counted law revision carries the derived tier, whatever tier it
-// held before, including a D5 cohort default.
+// records which item made it. A serious change must then enact exactly the
+// text the operator approved. A non-serious change must still be non-serious
+// once enacted: the work is not crucial, the child Domains the counted laws
+// hold now, joined with those recorded at approval and every registry
+// difference, number at most one, and each counted law revision carries the
+// derived tier, whatever tier it held before, including a D5 cohort default.
 func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID string, change *WorkflowLawChange, binding *WorkflowArchitectureBinding) error {
 	if change == nil {
 		return nil

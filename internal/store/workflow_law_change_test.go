@@ -1083,7 +1083,21 @@ func TestLawChangeLiveGuardHoldsTheBaseline(t *testing.T) {
 func lawChangeConstructorFixture(t *testing.T, workID string) (*Store, WorkflowDefinition, DefinitionRegistry, string) {
 	t.Helper()
 	s := seedLawChangeFixture(t, workID)
-	live, err := LiveWorkflowDefinitionForRef("workflow.break_fix")
+	definition, registry, ownerRef := lawChangeConstructorItem(t, s, workID, true)
+	return s, definition, registry, ownerRef
+}
+
+// lawChangeConstructorItem initializes one consequence_v1 item on a copy of
+// the live break-fix or frozen generic definition.
+func lawChangeConstructorItem(t *testing.T, s *Store, workID string, productChanging bool) (WorkflowDefinition, DefinitionRegistry, string) {
+	t.Helper()
+	ref := "workflow.break_fix"
+	lookup := LiveWorkflowDefinitionForRef
+	if !productChanging {
+		ref = "workflow.generic_one_off"
+		lookup = BuiltinWorkflowDefinitionForRef
+	}
+	live, err := lookup(ref)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1096,8 +1110,11 @@ func lawChangeConstructorFixture(t *testing.T, workID string) (*Store, WorkflowD
 		t.Fatal(err)
 	}
 	definition.Ref, definition.Version, definition.ApprovalPolicy = "workflow.law-change-constructor-test", 1, WorkflowApprovalPolicyConsequenceV1
-	if definition.ChangesProductTruth == nil || !*definition.ChangesProductTruth {
-		t.Fatal("the constructor fixture needs a Product-changing definition")
+	if !productChanging {
+		definition.Ref = "workflow.law-change-generic-constructor-test"
+	}
+	if definition.ChangesProductTruth == nil || *definition.ChangesProductTruth != productChanging {
+		t.Fatal("the constructor fixture's Product-changing classification does not match")
 	}
 	registry, registered := newResolutionRegistry(t, definition)
 	actor := WorkflowActor{PrincipalRef: "principal:law", ClientRef: "client:law", AgentRef: "agent:law", SessionRef: "session:law", ActorClass: ActorAgent}
@@ -1106,7 +1123,7 @@ func lawChangeConstructorFixture(t *testing.T, workID string) (*Store, WorkflowD
 	}); err != nil {
 		t.Fatal(err)
 	}
-	return s, registered.Definition, registry, ownerRefForTest(t, actor)
+	return registered.Definition, registry, ownerRefForTest(t, actor)
 }
 
 // lawChangeConstructorFields composes contract fields with the fixture
@@ -1182,16 +1199,88 @@ func constructLawChangeContract(t *testing.T, s *Store, definition WorkflowDefin
 	if err := json.Unmarshal([]byte(changeJSON.String), &change); err != nil {
 		t.Fatalf("the active contract recorded no law change: %v", err)
 	}
-	binding, err := parseWorkflowArchitectureBinding(fields["architecture_binding"])
+	raw, present := fields["architecture_binding"]
+	if !present {
+		return &change, nil
+	}
+	binding, err := parseWorkflowArchitectureBinding(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return &change, binding
 }
 
+// completeLawChangeContract seeds the unrelated evidence and evaluation gates,
+// then runs the real completion constructor, gate, and live fold.
+func completeLawChangeContract(t *testing.T, s *Store, definition WorkflowDefinition, registry DefinitionRegistry, workID, ownerRef string) {
+	t.Helper()
+	ctx := context.Background()
+	reviewer := WorkflowActor{PrincipalRef: "principal:law", ClientRef: "client:review", AgentRef: "agent:review", SessionRef: "session:review", ActorClass: ActorAgent}
+	reviewerRef := ownerRefForTest(t, reviewer)
+	expected := readWorkVersion(t, s, workID)
+	version := expected
+	var events []Event
+	appendEvent := func(kind string, actor string, values map[string]any) {
+		events = append(events, workflowTypedEvent(fmt.Sprintf("%s-ready-%d", workID, version), kind, workID, actor, time.Unix(13, 0).UTC(), version, values))
+		version++
+	}
+	appendEvent(WorkflowActorRecorded, reviewerRef, map[string]any{"actor_ref": reviewerRef, "principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef, "agent_ref": reviewer.AgentRef, "session_ref": reviewer.SessionRef, "actor_class": "agent"})
+	tx := lawChangeTx(t, s)
+	contract, err := workflowCompletionContractRows(ctx, tx, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = tx.Rollback()
+	requirements := workflowEvidenceRequirementDefinitions(contract.RequiredEvidence, contract.SpecMandate, definition, contract.VerificationObligations)
+	for _, rule := range definition.StalenessRules {
+		requirements = append(requirements, workflowEvidenceRequirement{Reference: rule.InputRef})
+	}
+	for i, requirement := range requirements {
+		kind, ref := requirement.Kind, requirement.Reference
+		if kind == "" {
+			kind = "artifact"
+		}
+		if ref == "" {
+			ref = "evidence:" + kind
+		}
+		runRef := fmt.Sprintf("%s-evidence-%d", workID, i)
+		seedWorkflowAuthority(t, s, runRef, workID, "principal:law", runRef, []string{ref})
+		appendEvent(WorkflowEvidenceBound, ownerRef, map[string]any{"evidence_kind": kind, "immutable_subject_ref": ref, "producer_id": "principal:law", "producer_run_ref": runRef, "producer_watermark": runRef, "observed_at": "2026-10-19T00:00:00Z"})
+	}
+	appendEvent(WorkflowVerdictRecorded, reviewerRef, map[string]any{"contract_version": contract.Version, "predicate_id": "predicate:primary", "verdict_kind": "ok", "verdict_actor_ref": reviewerRef, "evaluation_evidence": []string{"law-agent"}, "incomparable_with_approved": false})
+	if err := tryAppendWorkflowEventsWithRegistry(s, registry, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}}); err != nil {
+		t.Fatalf("seed completion evidence and independent verdict: %v", err)
+	}
+	lawChangeFold(t, s, `INSERT INTO workflow_premise_confirmations(work_id,contract_version,confirmed_by,confirmed_at) VALUES(?,1,?,'2026-10-19T00:00:00Z')`, workID, ownerRef)
+	for _, step := range definition.StepGraph.Steps {
+		if slices.Contains(step.Actions, "complete") {
+			setWorkflowStepForOperatorVerdictTest(t, s, workID, step.ID)
+		}
+	}
+	tx = lawChangeTx(t, s)
+	request := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, OperationID: workID + "-complete", Now: time.Unix(14, 0).UTC()}
+	completion, err := workflowCompletionEventForDefinition(ctx, tx, registry, definition, request, ownerRef, json.RawMessage(`{"impact_verdict":"non-breaking"}`))
+	if err != nil {
+		t.Fatalf("construct completion: %v", err)
+	}
+	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, completion, newFoldScope(tx)); err != nil {
+		t.Fatalf("complete the non-Product-changing item over another item's registry edit: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var state, lifecycle string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT i.instance_state,w.lifecycle FROM workflow_instances i JOIN work_items w ON w.id=i.work_id WHERE i.work_id=?`, workID).Scan(&state, &lifecycle); err != nil {
+		t.Fatal(err)
+	}
+	if state != "completed" || lifecycle != "completed" {
+		t.Fatalf("instance state = %q, lifecycle = %q; want both completed", state, lifecycle)
+	}
+}
+
 // TestLawChangeThroughTheRealConstructors drives the approve_contract and
-// supersede_contract constructors and the live fold of a Product-changing
-// item, then the completion check on the recorded contract.
+// supersede_contract constructors and the live fold, then checks completion
+// against the recorded contracts of Product-changing and law-only items.
 func TestLawChangeThroughTheRealConstructors(t *testing.T) {
 	t.Parallel()
 
@@ -1231,5 +1320,29 @@ func TestLawChangeThroughTheRealConstructors(t *testing.T) {
 		if strings.Contains(err.Error(), "changed without") {
 			t.Fatalf("the refusal calls the unchanged law changed: %v", err)
 		}
+	})
+
+	t.Run("a non-Product-changing item completes over another item's registry edit", func(t *testing.T) {
+		t.Parallel()
+		workID := "law-change-ctor-generic"
+		s := seedLawChangeFixture(t, workID)
+		seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
+		generic, genericRegistry, genericOwner := lawChangeConstructorItem(t, s, workID, false)
+		fields := lawChangeConstructorFields(t, s, 1, []string{"law-agent"}, []string{})
+		delete(fields, "architecture_binding")
+		constructLawChangeContract(t, s, generic, genericRegistry, workID, genericOwner, fields)
+		const moverID = "law-change-ctor-registry-mover"
+		seedWork(t, s, moverID)
+		mover, moverRegistry, moverOwner := lawChangeConstructorItem(t, s, moverID, true)
+		moved, _ := constructLawChangeContract(t, s, mover, moverRegistry, moverID, moverOwner, lawChangeConstructorFields(t, s, 1, []string{}, []string{"agent-surface"}))
+		if !moved.EditsRegistry || moved.RegistryBefore == nil {
+			t.Fatalf("mover = %+v; want a declared registry edit with its before-state", moved)
+		}
+		// The other item's registry edit and this item's law edit both reach
+		// the Git projection before this item completes.
+		lawChangeFold(t, s, `UPDATE domains SET purpose='amended' WHERE domain_id='agent-surface'`)
+		editLawChangeLaw(t, s, "law-agent")
+
+		completeLawChangeContract(t, s, generic, genericRegistry, workID, genericOwner)
 	})
 }

@@ -76,6 +76,7 @@ type workerDispatchProof struct {
 	// delivery anchor. The repeat dispatch admission revalidates it.
 	correctionBase     string
 	correctionAncestry reviewSubjectAncestry
+	splitOverruns      []workerSplitOverrunAncestry
 	acceptance         bool
 	pinReceipt         *WorktreeVerifyResult
 
@@ -164,6 +165,7 @@ type workerDispatchSample struct {
 	// correctionBase is the dispatched job's retained original base; empty
 	// before the job's first implementation dispatch or when unnamed.
 	correctionBase string
+	splitOverruns  []string
 }
 
 // sampleWorkerDispatchStateInto samples the dispatch state into the
@@ -255,6 +257,10 @@ func sampleWorkerDispatchState(ctx context.Context, q queryer, request PrepareWo
 		if err != nil {
 			return sample, err
 		}
+		sample.splitOverruns, err = workerJobSplitOverrunCommitsTx(ctx, q, request.WorkID, binding.JobID)
+		if err != nil {
+			return sample, err
+		}
 	}
 	return sample, nil
 }
@@ -324,6 +330,9 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 		proof.probePath = probePath
 	}
 	proof.correctionBase = sample.correctionBase
+	for _, commit := range sample.splitOverruns {
+		proof.splitOverruns = append(proof.splitOverruns, workerSplitOverrunAncestry{commit: commit})
+	}
 	proof.anchor = selectReviewDeliveryAnchor(sample.anchors, proof.sessionIdentity)
 	if acceptance && sample.pinReceipt != nil && (!claimFound || entry.Path != sample.pinReceipt.Path || entry.ProjectID != sample.pinReceipt.ProjectID) {
 		return nil, newFailure(KindStaleRequiresReview, workerDispatchFreshnessOp, "terminal acceptance cannot establish the current subject's claimed worktree", false, "claim and verify the subject's worktree")
@@ -364,7 +373,7 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 		// preparation for an editing/recovery lane.
 		anchorCommit, _ = proof.anchor.cleanCommit()
 	}
-	observation, ancestry, correctionAncestry, err := observeDispatchSubject(ctx, runner, probePath, anchorCommit, proof.correctionBase)
+	observation, ancestry, correctionAncestry, err := observeDispatchSubject(ctx, runner, probePath, anchorCommit, proof.correctionBase, proof.splitOverruns)
 	if err != nil {
 		return nil, err
 	}
@@ -404,7 +413,7 @@ func selectDispatchClaimEntry(entries []WorktreeEntry, sessionWorktree string) (
 // observeDispatchSubject runs the read-only Git observation of one claimed
 // worktree under the single fixed probe deadline. A failed command or the
 // deadline produces a typed refusal before any effect.
-func observeDispatchSubject(ctx context.Context, runner GitRunner, path, anchorCommit, correctionBase string) (*WorkerObservedDelivery, reviewSubjectAncestry, reviewSubjectAncestry, error) {
+func observeDispatchSubject(ctx context.Context, runner GitRunner, path, anchorCommit, correctionBase string, splitOverruns []workerSplitOverrunAncestry) (*WorkerObservedDelivery, reviewSubjectAncestry, reviewSubjectAncestry, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, workerDispatchObservationDeadline)
 	defer cancel()
 	status, err := runner.Run(probeCtx, path, "status", "--porcelain=v1", "-z", "--untracked-files=all")
@@ -420,33 +429,31 @@ func observeDispatchSubject(ctx context.Context, runner GitRunner, path, anchorC
 		return nil, reviewSubjectAncestry{}, reviewSubjectAncestry{}, newFailure(KindGitUnreachable, workerDispatchFreshnessOp, "the claimed worktree's HEAD is not one raw commit OID", true, "retry once the worktree resolves a commit")
 	}
 	var ancestry, correctionAncestry reviewSubjectAncestry
-	if anchorCommit != "" && anchorCommit != commit && len(status) == 0 {
-		_, ancestorErr := runner.Run(probeCtx, path, "--no-replace-objects", "merge-base", "--is-ancestor", anchorCommit, commit)
-		if ancestorErr == nil {
-			ancestry.strictDescendant = true
-		} else {
-			var exit *exec.ExitError
-			if !errors.As(ancestorErr, &exit) || exit.ExitCode() != 1 || probeCtx.Err() != nil {
-				// An ancestry outage refuses review, but cannot prevent an
-				// editing lane from producing a fresh accepted delivery.
-				ancestry.failure = dispatchSubjectProbeFailure("review subject ancestry", probeCtx, ancestorErr)
-			}
-		}
-	}
-	if correctionBase != "" && correctionBase != commit && len(status) == 0 {
-		_, ancestorErr := runner.Run(probeCtx, path, "--no-replace-objects", "merge-base", "--is-ancestor", correctionBase, commit)
-		if ancestorErr == nil {
-			correctionAncestry.strictDescendant = true
-		} else {
-			var exit *exec.ExitError
-			if !errors.As(ancestorErr, &exit) || exit.ExitCode() != 1 || probeCtx.Err() != nil {
-				// A repeat dispatch needs its base ancestry; an outage
-				// refuses the preparation before any effect.
-				correctionAncestry.failure = dispatchSubjectProbeFailure("correction base ancestry", probeCtx, ancestorErr)
-			}
+	if len(status) == 0 {
+		ancestry = observeDispatchAncestry(probeCtx, runner, path, "review subject ancestry", anchorCommit, commit)
+		correctionAncestry = observeDispatchAncestry(probeCtx, runner, path, "correction base ancestry", correctionBase, commit)
+		for i := range splitOverruns {
+			splitOverruns[i].ancestry = observeDispatchAncestry(probeCtx, runner, path, "split overrun ancestry", splitOverruns[i].commit, commit)
 		}
 	}
 	return &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}, ancestry, correctionAncestry, nil
+}
+
+// An ancestry outage stays scoped to the admission that needs this proof;
+// review outages do not prevent an editing lane from producing a new delivery.
+func observeDispatchAncestry(ctx context.Context, runner GitRunner, path, what, ancestor, subject string) reviewSubjectAncestry {
+	if ancestor == "" || ancestor == subject {
+		return reviewSubjectAncestry{}
+	}
+	_, err := runner.Run(ctx, path, "--no-replace-objects", "merge-base", "--is-ancestor", ancestor, subject)
+	if err == nil {
+		return reviewSubjectAncestry{strictDescendant: true}
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 && ctx.Err() == nil {
+		return reviewSubjectAncestry{}
+	}
+	return reviewSubjectAncestry{failure: dispatchSubjectProbeFailure(what, ctx, err)}
 }
 
 // dispatchSubjectProbeFailure classifies one probe failure: the fixed

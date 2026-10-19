@@ -791,6 +791,9 @@ func admitWorkerJobSizeDispatchTx(ctx context.Context, tx *sql.Tx, workID string
 		return err
 	}
 	if original == "" {
+		if err := admitWorkerJobSplitBaselineTx(ctx, tx, workID, binding.JobID, entry.basis.BaseCommit, subject); err != nil {
+			return err
+		}
 		if subject != entry.basis.BaseCommit {
 			return newFailure(KindInvalidOperation, "workflow_action",
 				"dispatch_worker implementation job "+binding.JobID+"'s recorded base_commit "+entry.basis.BaseCommit+" does not equal the admitted clean subject "+subject,

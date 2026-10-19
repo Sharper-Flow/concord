@@ -124,6 +124,18 @@ func builtinWorkflowActionCatalogs() []workflowActionCatalog {
 	return []workflowActionCatalog{workflowActionCatalogV1(), workflowActionCatalogV2()}
 }
 
+// latestCatalogAction returns an action as the latest catalog that carries
+// it declares it: the shape current definitions pin and publication projects.
+func latestCatalogAction(actionID string) (WorkflowActionDefinition, error) {
+	catalogs := builtinWorkflowActionCatalogs()
+	for index := len(catalogs) - 1; index >= 0; index-- {
+		if _, carried := catalogs[index].revisions[actionID]; carried {
+			return catalogs[index].action(actionID)
+		}
+	}
+	return WorkflowActionDefinition{}, definitionFailure(KindDefinitionActionOrStepUnknown, "action "+actionID+" is in no action catalog")
+}
+
 func builtinWorkflowActionCatalog(version int) (workflowActionCatalog, bool) {
 	for _, catalog := range builtinWorkflowActionCatalogs() {
 		if catalog.Version == version {

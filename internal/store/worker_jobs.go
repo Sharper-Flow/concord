@@ -337,11 +337,29 @@ func nextWorkerJobRevision(ctx context.Context, q queryer, workID, jobID string)
 }
 
 // workflowRecordWorkerJobEvents builds the worker.job_recorded event the
-// record_worker_job action appends. The caller authors the bounded job; the
-// core derives what the caller must not assert: the parent contract version
-// from the active approved contract, the Project scope from the work's
-// primary Project, the next contiguous revision, and the content digest.
+// record_worker_job action appends: it authors the revision payload through
+// the shared builder, then serializes that payload into the event's closed
+// field map.
 func workflowRecordWorkerJobEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
+	payload, err := authorWorkerJobRevisionTx(ctx, tx, request, fields)
+	if err != nil {
+		return nil, err
+	}
+	values := map[string]any{}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, wrapFailure(KindInvalidPayload, "workflow_action", "cannot encode the worker-job revision", false, "report the encoding failure", err)
+	}
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return nil, wrapFailure(KindInvalidPayload, "workflow_action", "cannot encode the worker-job revision", false, "report the encoding failure", err)
+	}
+	return []Event{workflowTypedEvent(eventID, WorkerJobRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
+}
+
+// authorWorkerJobRevisionTx shares the authority checks and core-derived
+// revision content between ordinary job authoring and split successors.
+// All reads use the caller's transaction.
+func authorWorkerJobRevisionTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, fields map[string]json.RawMessage) (*WorkerJobRecordedPayload, error) {
 	jobID := workflowFieldStringDefault(fields, "job_id", "")
 	if !workerJobIDPattern.MatchString(jobID) {
 		return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job job_id has invalid shape", false, "name the job with a stable identifier")
@@ -432,15 +450,7 @@ func workflowRecordWorkerJobEvents(ctx context.Context, tx *sql.Tx, request Work
 		return nil, err
 	}
 	payload.Digest = DeriveWorkerJobDigest(payload)
-	values := map[string]any{}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return nil, wrapFailure(KindInvalidPayload, "workflow_action", "cannot encode the worker-job revision", false, "report the encoding failure", err)
-	}
-	if err := json.Unmarshal(raw, &values); err != nil {
-		return nil, wrapFailure(KindInvalidPayload, "workflow_action", "cannot encode the worker-job revision", false, "report the encoding failure", err)
-	}
-	return []Event{workflowTypedEvent(eventID, WorkerJobRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
+	return &payload, nil
 }
 
 // verifyWorkerDispatchedJobBindingTx is the dispatch-side anti-fabrication

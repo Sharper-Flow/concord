@@ -25,7 +25,7 @@ PRIMARY_PROFILES = ROOT / "contracts/agent-primary-profiles.v1.json"
 PRIMARY_PROFILES_SCHEMA = ROOT / "contracts/agent-primary-profiles.schema.json"
 # The closed named primary set (CD-0154): Concord and an optional release train
 # engineer. Primaries are never lanes or utilities.
-PRIMARY_PROFILE_IDS = ("Concord-RTE", "Concord")
+PRIMARY_PROFILE_IDS = ("Concord-RTE", "Concord", "Concord-Planner")
 EVAL_PACKETS = ROOT / "adapter/opencode/evals/packets"
 AGENT_DIR = ROOT / ".opencode/agents"
 # The shipped conduct corpus owns the committed-content rule; lane bodies
@@ -1221,6 +1221,10 @@ def load_primary_profiles(manifest: dict, path: Path = PRIMARY_PROFILES) -> dict
             for rule in profile["task"]:
                 if rule["action"] == "allow" and rule["pattern"] not in utilities:
                     raise ValueError(f"primary profile {name} cannot dispatch lanes, so its Task rule may not allow {rule['pattern']!r}")
+        if "edit" in profile:
+            editors = sorted(set(profile["tools"]) & {"edit", "write", "patch"})
+            if editors:
+                raise ValueError(f"primary profile {name} scopes edits by path, so its tool map may not also grant {editors}")
         if not (ROOT / profile["role_source"]).is_file():
             raise ValueError(f"primary profile {name} role source {profile['role_source']} does not exist")
     return profiles
@@ -1229,7 +1233,9 @@ def load_primary_profiles(manifest: dict, path: Path = PRIMARY_PROFILES) -> dict
 def primary_projection(profile: dict, role_source: str) -> str:
     lines = ["---", f"description: {json.dumps(profile['description'], ensure_ascii=False)}", "mode: primary", "permission:"]
     lines.extend(f"  {tool}: {action}" for tool, action in profile["tools"].items())
-    for key in ("bash", "task"):
+    for key in ("edit", "bash", "task"):
+        if key not in profile:
+            continue
         lines.append(f"  {key}:")
         lines.extend(f"    {json.dumps(rule['pattern'])}: {rule['action']}" for rule in profile[key])
         if key == "bash":
@@ -1243,7 +1249,9 @@ def primary_projection(profile: dict, role_source: str) -> str:
 # the profile's denied tools. Every profile that denies at least one tool must
 # carry one, so a new profile fails generation instead of refusing with an
 # empty boundary.
-PRIMARY_PROFILE_REFUSAL_BOUNDARIES: dict[str, str] = {}
+PRIMARY_PROFILE_REFUSAL_BOUNDARIES: dict[str, str] = {
+    "Concord-Planner": "this research and planning profile holds no Concord tool that writes work state; start or advance managed work from Concord",
+}
 LANE_REFUSAL_BOUNDARY = "this Concord worker lane holds no general Concord tool access: its dispatch packet is its complete Concord context"
 UTILITY_REFUSAL_BOUNDARY = "this Concord utility holds no Concord tool access: its declared tool set is its complete tool surface"
 

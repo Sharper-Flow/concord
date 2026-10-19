@@ -4665,6 +4665,64 @@
               },
               "previous_contract_version": {
                 "$ref": "#/$defs/version"
+              },
+              "conflict_application": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "rule_id",
+                  "rule_source_hash",
+                  "catalog_generation",
+                  "size_assessment_sequence",
+                  "model_version",
+                  "size",
+                  "outcome",
+                  "settlement_ref"
+                ],
+                "properties": {
+                  "rule_id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                  },
+                  "rule_source_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  "catalog_generation": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "size_assessment_sequence": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "model_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "size": {
+                    "type": "string",
+                    "enum": [
+                      "small",
+                      "larger",
+                      "crucial"
+                    ]
+                  },
+                  "outcome": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "pattern": "\\S",
+                    "x-maxBytes": 4096
+                  },
+                  "settlement_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "\\S",
+                    "x-maxBytes": 256
+                  }
+                }
               }
             }
           }
@@ -9188,6 +9246,27 @@
             }
           }
         },
+        "conflict": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rule_id",
+            "outcome"
+          ],
+          "properties": {
+            "rule_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+            },
+            "outcome": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "\\S",
+              "x-maxBytes": 4096
+            }
+          }
+        },
         "statement": {
           "type": "string",
           "minLength": 1,
@@ -9227,8 +9306,17 @@
             "statement"
           ],
           "not": {
-            "required": [
-              "external"
+            "anyOf": [
+              {
+                "required": [
+                  "external"
+                ]
+              },
+              {
+                "required": [
+                  "conflict"
+                ]
+              }
             ]
           }
         },
@@ -9237,8 +9325,36 @@
             "external"
           ],
           "not": {
-            "required": [
-              "statement"
+            "anyOf": [
+              {
+                "required": [
+                  "statement"
+                ]
+              },
+              {
+                "required": [
+                  "conflict"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "conflict"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "statement"
+                ]
+              },
+              {
+                "required": [
+                  "external"
+                ]
+              }
             ]
           }
         }

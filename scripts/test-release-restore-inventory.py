@@ -10,7 +10,10 @@ whose tags carry each registry form the released history uses:
   entries are probed against the tag's own compiled source;
 - any other entry form, and a source that does not compile, is refused
   without being excluded;
-- tags with identical inputs share one probe group.
+- tags with identical inputs share one probe group;
+- each written (kind, version, type) binds only witness rows whose payload is
+  exactly that encoding, and stays uncovered until its witnesses together
+  present every field path.
 
 The fixture module is synthetic; no released Concord source is compiled.
 """
@@ -153,7 +156,34 @@ var eventKindRegistry = map[string]EventKindRegistration{
 """
 
 BROKEN_REGISTRY = TYPED_REGISTRY + "\nvar broken int = \"not an int\"\n"
+# A registration type that predates RecordedSchemas, as released before the
+# recorded-schema route existed.
+LEGACY_SOURCE = PRELUDE.replace("\tRecordedSchemas map[int][]string\n", "").replace(
+    "func withRecordedSchemas(r EventKindRegistration, schemas map[int][]string) EventKindRegistration {\n\tr.RecordedSchemas = schemas\n\treturn r\n}\n", ""
+) + """
+var eventKindRegistry = map[string]EventKindRegistration{
+	"thing.legacy": registerEventKind[Inner](1, 1, nil),
+}
+"""
 LATE_KIND_REGISTRY = TYPED_REGISTRY + "\nfunc init() { eventKindRegistry[\"thing.late\"] = registerEventKind[Inner](1, 1, nil) }\n"
+
+TYPED_BASE = {"promoted": "p", "name": "n", "count": "3", "tags": ["a"], "labels": {"k": {"depth": 1}}, "raw": {}, "when": 0, "any": 1, "blob": "AA==", "Default": True, "chain": {}}
+TYPED_FULL = TYPED_BASE | {"optional": {"depth": 2}, "chain": {"next": {}}}
+
+
+def witness(test: str, kind: str, version: int, payload: object) -> dict:
+    return {"test": test, "kind": kind, "payload_version": version, "payload": json.dumps(payload)}
+
+
+WITNESSES = [
+    witness("TestConstant", "thing.constant", 1, {"depth": 1}),
+    witness("TestRecordedOld", "thing.recorded", 1, {"depth": 1}),
+    witness("TestRecordedExtra", "thing.recorded", 2, {"depth": 1, "extra": 1}),
+    witness("TestScopedMissing", "thing.scoped", 1, {}),
+    witness("TestTypedBase", "thing.typed", 2, TYPED_BASE),
+    witness("TestTypedFull", "thing.typed", 2, TYPED_FULL),
+    witness("TestTypedCountNumber", "thing.typed", 2, TYPED_BASE | {"count": 3}),
+]
 
 
 def run(args: list[str], cwd: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -188,25 +218,30 @@ class InventoryTest(unittest.TestCase):
             ("v4.0.0", FORM_A_REGISTRY, False),
             ("v0.2.0", FORM_A_REGISTRY.replace('"thing.typed": {CurrentVersion: 1, MinSupported: 1},', '"thing.typed": {CurrentVersion: 1, MinSupported: 1}, "mixed": registerEventKind[Inner](1, 1, nil),'), False),
             ("v5.0.0", LATE_KIND_REGISTRY, False),
+            ("v0.40.0", LEGACY_SOURCE, False),
         ):
-            (store / "operation.go").write_text(PRELUDE + registry)
+            (store / "operation.go").write_text(registry if registry.startswith("package") else PRELUDE + registry)
             (cls.repo / "README").write_text(tag)
             assert git("add", "-A").returncode == 0
             assert git("commit", "-q", "-m", tag).returncode == 0
             assert git("tag", *(["-a", "-m", tag] if annotated else []), tag).returncode == 0
-        cls.first = cls.generate("first.json")
+        cls.first, cls.coverage = cls.generate("first", WITNESSES)
 
     @classmethod
     def tearDownClass(cls) -> None:
         shutil.rmtree(cls.scratch, ignore_errors=True)
 
     @classmethod
-    def generate(cls, name: str, *extra: str, env: dict[str, str] | None = None) -> dict:
-        output = cls.scratch / name
-        result = run([str(cls.binary), "-out", str(output), *extra], cls.repo, env)
-        if result.returncode != 1 or "inventory held" not in result.stderr:
+    def generate(cls, name: str, witnesses: list[dict]) -> tuple[dict, dict]:
+        output, coverage, log = (cls.scratch / f"{name}.{suffix}" for suffix in ("writers.json", "coverage.json", "witnesses.jsonl"))
+        log.write_text("".join(json.dumps(w) + "\n" for w in witnesses))
+        result = run([str(cls.binary), "-out", str(output), "-coverage", str(coverage), "-witnesses", str(log)], cls.repo)
+        if result.returncode != 1 or "inventory held" not in result.stderr or "coverage held" not in result.stderr:
             raise AssertionError((result.returncode, result.stdout, result.stderr))
-        return json.loads(output.read_text())
+        return json.loads(output.read_text()), json.loads(coverage.read_text())
+
+    def shapes(self, coverage: dict | None = None) -> dict[tuple[str, int], dict]:
+        return {(s["kind"], s["payload_version"]): s for s in (coverage or self.coverage)["shapes"]}
 
     def rows(self) -> dict[str, dict]:
         return {row["tag"]: row for row in self.first["rows"]}
@@ -216,7 +251,7 @@ class InventoryTest(unittest.TestCase):
         return self.first["types"][registration["type"]]
 
     def test_population_is_every_strict_tag_in_version_order(self) -> None:
-        self.assertEqual([row["tag"] for row in self.first["rows"]], ["v0.1.0", "v0.2.0", "v1.0.0", "v1.0.1", "v2.0.0", "v3.0.0", "v4.0.0", "v5.0.0"])
+        self.assertEqual([row["tag"] for row in self.first["rows"]], ["v0.1.0", "v0.2.0", "v0.40.0", "v1.0.0", "v1.0.1", "v2.0.0", "v3.0.0", "v4.0.0", "v5.0.0"])
         self.assertEqual(self.first["schema"], "concord.release-restore-writers.v1")
         self.assertEqual(self.first["generator"], "go run scripts/release-restore-inventory.go")
 
@@ -238,15 +273,19 @@ class InventoryTest(unittest.TestCase):
             self.assertEqual(self.rows()[tag]["status"], "inventory_refused")
             self.assertNotIn("excluded", self.rows()[tag])
 
-    def test_only_approved_exclusions_exit_zero(self) -> None:
+    def test_approved_exclusions_do_not_hold(self) -> None:
         repo = self.scratch / "approved"
         repo.mkdir()
         self.assertEqual(run(["git", "init", "-q"], repo).returncode, 0)
         fetched = run(["git", "fetch", "-q", str(self.repo), "refs/tags/v0.1.0:refs/tags/v0.1.0", "refs/tags/v1.0.0:refs/tags/v1.0.0"], repo)
         self.assertEqual(fetched.returncode, 0, fetched.stderr)
-        output = self.scratch / "approved.json"
-        result = run([str(self.binary), "-out", str(output)], repo)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        output, log = self.scratch / "approved.json", self.scratch / "approved.jsonl"
+        log.write_text(json.dumps(WITNESSES[0]) + "\n")
+        result = run([str(self.binary), "-out", str(output), "-coverage", str(self.scratch / "approved.cov"), "-witnesses", str(log)], repo)
+        # Only the unwitnessed v1.0.0 shapes hold; the exclusion does not.
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("coverage held", result.stderr)
+        self.assertNotIn("inventory held", result.stderr)
         rows = {row["tag"]: row for row in json.loads(output.read_text())["rows"]}
         self.assertEqual(list(rows), ["v0.1.0", "v1.0.0"])
         self.assertEqual((rows["v0.1.0"]["status"], rows["v0.1.0"]["excluded"]), ("inventory_refused", True))
@@ -280,7 +319,7 @@ class InventoryTest(unittest.TestCase):
         rows = self.rows()
         self.assertEqual(rows["v1.0.0"]["status"], "inventoried")
         self.assertEqual(rows["v1.0.0"]["group"], rows["v1.0.1"]["group"])
-        self.assertEqual(set(self.first["groups"]), {rows["v1.0.0"]["group"]})
+        self.assertEqual(set(self.first["groups"]), {rows["v1.0.0"]["group"], rows["v0.40.0"]["group"]})
 
     def test_registry_metadata_comes_from_the_compiled_registry(self) -> None:
         group = {r["kind"]: r for r in self.first["groups"][self.rows()["v1.0.0"]["group"]]}
@@ -320,6 +359,54 @@ class InventoryTest(unittest.TestCase):
     def test_ambiguous_embedding_is_custom(self) -> None:
         self.assertEqual(self.shape("thing.conflict"), {"kind": "custom", "type": "store.Conflict", "reason": "ambiguous or nullable embedded fields"})
 
+    def test_registration_without_a_metadata_field_records_it_absent(self) -> None:
+        row = self.rows()["v0.40.0"]
+        self.assertEqual(row["status"], "inventoried", row.get("detail"))
+        (legacy,) = self.first["groups"][row["group"]]
+        self.assertEqual((legacy["kind"], legacy["upcasters"], legacy["recorded_schemas"]), ("thing.legacy", [], None))
+
+    def test_coverage_lists_every_written_shape_once(self) -> None:
+        written = {(r["kind"], r["current_version"]) for row in self.first["rows"] if row["status"] == "inventoried" for r in self.first["groups"][row["group"]]}
+        self.assertEqual(set(self.shapes()), written)
+        self.assertEqual(self.coverage["schema"], "concord.release-restore-coverage.v1")
+        self.assertEqual(self.shapes()[("thing.constant", 1)]["writers"], ["v1.0.0", "v1.0.1"])
+
+    def test_exact_witness_binds_a_shape(self) -> None:
+        constant = self.shapes()[("thing.constant", 1)]
+        self.assertEqual((constant["covered"], constant["witnesses"]), (True, ["TestConstant"]))
+        self.assertNotIn("missing_paths", constant)
+
+    def test_witnesses_together_present_every_path(self) -> None:
+        typed = self.shapes()[("thing.typed", 2)]
+        self.assertEqual((typed["covered"], typed["witnesses"]), (True, ["TestTypedBase", "TestTypedFull"]))
+
+    def test_nonconforming_witnesses_bind_nothing(self) -> None:
+        # Wrong version, an unknown member, and a missing always-emitted member.
+        for key in (("thing.recorded", 2), ("thing.scoped", 1), ("flow.plain", 3)):
+            shape = self.shapes()[key]
+            self.assertEqual((shape["covered"], shape["witnesses"]), (False, []), key)
+            self.assertIn("$", shape["missing_paths"])
+
+    def test_partial_witnesses_name_the_missing_paths(self) -> None:
+        _, coverage = self.generate("partial", [WITNESSES[4]])
+        typed = self.shapes(coverage)[("thing.typed", 2)]
+        self.assertEqual((typed["covered"], typed["witnesses"]), (False, ["TestTypedBase"]))
+        self.assertEqual(typed["missing_paths"], ["$.chain.next", "$.optional", "$.optional.depth"])
+
+    def test_witness_log_is_required(self) -> None:
+        result = run([str(self.binary), "-out", str(self.scratch / "none.json")], self.repo)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("-witnesses is required", result.stderr)
+
+    def test_malformed_witness_log_refuses(self) -> None:
+        log = self.scratch / "malformed.jsonl"
+        for content, refusal in (("not json\n", "is not a witness row"), ("\n", "witness log is empty")):
+            log.write_text(content)
+            result = run([str(self.binary), "-out", str(self.scratch / "m.json"), "-coverage", str(self.scratch / "m.cov"), "-witnesses", str(log)], self.repo)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(refusal, result.stderr)
+            # The log is read before any probe runs, so nothing is written.
+            self.assertFalse((self.scratch / "m.json").exists())
 
     def test_container_shapes_preserve_wire_distinctions(self) -> None:
         fields = {f["name"]: f["shape"] for f in self.shape("thing.containers")["fields"]}

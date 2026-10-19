@@ -19,8 +19,10 @@ is refused rather than verified. A missing artifact, refused recipe step,
 exhausted budget, or incomplete
 population is a named `unknown`, never a skip. Exit status: 0 when every writer
 passes and shape coverage is closed, 3 when every writer passes but coverage is
-held, 1 otherwise. Coverage stays held until the closed historical-shape
-inventory is bound, so a bootstrap-only run is never acceptance.
+held, 1 otherwise. Coverage closes only when the committed shape census
+inventories every writer outside the approved exclusion and binds every shape
+it writes to a historical corpus witness, so a bootstrap-only run is never
+acceptance.
 
 Writer processes get a constructed environment: synthetic HOME, XDG, TMPDIR,
 and CONCORD_DB_PATH roots, and no inherited variable. Earlier releases predate
@@ -59,6 +61,7 @@ FULL_SHA_RE = re.compile(r"\A[0-9a-f]{40}\Z")
 REPOSITORY_RE = re.compile(r"\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 NETWORK_SECONDS = 120
 RECIPE_ID = "bootstrap-v1"
+CENSUS_DIR = Path(__file__).resolve().parents[1] / "cmd" / "concord" / "testdata" / "release_restore"
 PRODUCT = {
     "product_id": "gate-product", "display_name": "Gate Product", "stage_maturity": "prototype",
     "stage_audience_commitment": "operator_only", "project_id": "gate-project",
@@ -345,6 +348,27 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
     return row
 
 
+def shape_coverage(census: Path, writers: list[Writer]) -> dict:
+    """Close coverage only when the committed census (scripts/release-restore-inventory.go)
+    inventories every writer outside the approved exclusion and witnesses every shape."""
+    try:
+        rows = {row["tag"]: row for row in json.loads((census / "writers.json").read_text(encoding="utf-8"))["rows"]}
+        shapes = json.loads((census / "coverage.json").read_text(encoding="utf-8"))["shapes"]
+        written = {tag for shape in shapes for tag in shape["writers"]}
+        gaps = {
+            "uninventoried writers": [w.tag for w in writers if w.tag not in rows],
+            "refused writers": [tag for tag, row in rows.items() if row["status"] != "inventoried" and not row.get("excluded")],
+            "inventoried writers without shapes": [tag for tag, row in rows.items() if row["status"] == "inventoried" and tag not in written],
+            "unwitnessed shapes": [f"{shape['kind']} v{shape['payload_version']}" for shape in shapes if not shape["covered"]],
+        }
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return {"status": "held", "detail": f"the shape census at {census} is unreadable: {error}"}
+    gaps = {name: items for name, items in gaps.items() if items}
+    if gaps:
+        return {"status": "held", "detail": "; ".join(f"{len(items)} {name}, first {items[0]}" for name, items in gaps.items())}
+    return {"status": "closed", "writers": len(rows), "shapes": len(shapes)}
+
+
 def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tuple[str, str]], wall_deadline: float | None = None,
              scratch: Scratch | None = None) -> tuple[dict, int]:
     wall_deadline = wall_deadline or time.monotonic() + args.wall_seconds
@@ -379,6 +403,7 @@ def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tup
     if sha256_file(candidate) != candidate_sha256:
         raise GateError("the candidate binary changed during the run")
     rows += unknown
+    coverage = shape_coverage(Path(args.census_dir), writers)
     counts = {status: sum(row["status"] == status for row in rows) for status in ("pass", "fail", "unknown")}
     result = "fail" if counts["fail"] else "unknown" if STOP.is_set() or counts["unknown"] or not writers or len(rows) != len(writers) + len(unknown) else "pass"
     report = {
@@ -391,10 +416,10 @@ def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tup
                     "disk_bytes": args.disk_bytes, "retained_bytes": scratch.retained,
                     "transfer_bytes": args.transfer_bytes, "transferred_bytes": transfer.used},
         "counts": counts, "result": result,
-        "coverage": {"status": "held", "detail": "the closed historical-shape inventory is not bound; a bootstrap recipe is not acceptance"},
+        "coverage": coverage,
         "rows": rows,
     }
-    return report, 3 if result == "pass" else 1
+    return report, 1 if result != "pass" else 0 if coverage["status"] == "closed" else 3
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -406,6 +431,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--candidate", required=True)
     run.add_argument("--candidate-version", required=True)
     run.add_argument("--output-dir", required=True)
+    run.add_argument("--census-dir", default=str(CENSUS_DIR))
     for name, default in (("--workers", 4), ("--wall-seconds", 14400), ("--case-seconds", 120), ("--disk-bytes", 6 << 30), ("--transfer-bytes", 40 << 30)):
         run.add_argument(name, type=int, default=default)
     args = parser.parse_args(argv)

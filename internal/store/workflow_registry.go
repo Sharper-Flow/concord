@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -335,9 +336,21 @@ func NewWorkflowDefinitionRegistry() DefinitionRegistry {
 	return &workflowDefinitionRegistry{entries: make(map[string]RegisteredDefinition)}
 }
 
-func registryKey(ref string, version int64) string { return fmt.Sprintf("%s\x00%d", ref, version) }
+func registryKey(ref string, version int64) string {
+	return ref + "\x00" + strconv.FormatInt(version, 10)
+}
 
 func (r *workflowDefinitionRegistry) Register(definition WorkflowDefinition) (RegisteredDefinition, error) {
+	registered, err := r.register(definition)
+	if err != nil {
+		return RegisteredDefinition{}, err
+	}
+	return cloneRegisteredDefinition(registered), nil
+}
+
+// register stores a frozen copy of definition and returns the stored entry
+// itself, so only callers that discard the result may skip Register's clone.
+func (r *workflowDefinitionRegistry) register(definition WorkflowDefinition) (RegisteredDefinition, error) {
 	if err := ValidateWorkflowDefinition(definition); err != nil {
 		return RegisteredDefinition{}, err
 	}
@@ -359,7 +372,7 @@ func (r *workflowDefinitionRegistry) Register(definition WorkflowDefinition) (Re
 		if prior.Digest != digest {
 			return RegisteredDefinition{}, definitionFailure(KindDefinitionVersionConflict, "definition version is already registered with another digest")
 		}
-		return cloneRegisteredDefinition(prior), nil
+		return prior, nil
 	}
 	for existingKey, prior := range r.entries {
 		if prior.Definition.Ref == definition.Ref && existingKey != key && definition.Version <= prior.Definition.Version {
@@ -367,7 +380,7 @@ func (r *workflowDefinitionRegistry) Register(definition WorkflowDefinition) (Re
 		}
 	}
 	r.entries[key] = registered
-	return cloneRegisteredDefinition(registered), nil
+	return registered, nil
 }
 
 func (r *workflowDefinitionRegistry) Lookup(ref string, version int64) (RegisteredDefinition, bool) {
@@ -397,18 +410,6 @@ func (r *workflowDefinitionRegistry) Verify(ref string, version int64, digest st
 
 func definitionFailure(kind FailureKind, detail string) error {
 	return newFailure(kind, "workflow_definition", detail, false, "reread_entities")
-}
-
-func cloneWorkflowDefinition(definition WorkflowDefinition) WorkflowDefinition {
-	raw, _ := json.Marshal(definition)
-	var cloned WorkflowDefinition
-	_ = json.Unmarshal(raw, &cloned)
-	return cloned
-}
-
-func cloneRegisteredDefinition(registered RegisteredDefinition) RegisteredDefinition {
-	registered.Definition = cloneWorkflowDefinition(registered.Definition)
-	return registered
 }
 
 var workflowIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]{1,63}$`)
@@ -746,7 +747,7 @@ func validateBuiltinWorkflowVersionContinuity(definitions []WorkflowDefinition) 
 }
 
 func NewBuiltinWorkflowRegistry() DefinitionRegistry {
-	registry := NewWorkflowDefinitionRegistry()
+	registry := NewWorkflowDefinitionRegistry().(*workflowDefinitionRegistry)
 	definitions := builtinWorkflowDefinitionsWithHistory()
 	if err := validateBuiltinWorkflowVersionContinuity(definitions); err != nil {
 		panic(err)
@@ -755,7 +756,7 @@ func NewBuiltinWorkflowRegistry() DefinitionRegistry {
 		panic(err)
 	}
 	for _, definition := range definitions {
-		if _, err := registry.Register(definition); err != nil {
+		if _, err := registry.register(definition); err != nil {
 			panic(err)
 		}
 	}
@@ -2070,26 +2071,35 @@ func currentActionDefinition(id string, payloadContracts bool) WorkflowActionDef
 	return WorkflowActionDefinition{ID: id, Consequence: policy.Consequence, Approval: policy.Approval, ExecutionMode: policy.ExecutionMode, Payload: payload, PublicPayload: publicPayload}
 }
 
-// workflowDecisionFactPayloadFields selects the copied decision-fact
-// declaration onto one contract payload: a consequence_v1 definition copies
-// the supplied fields, replaces a declared decision_domains field with the
-// one canonical fact at its position, or appends the fact when none is
-// declared, so the selection never duplicates it; a legacy definition keeps
-// the supplied fields byte-identical. The copy leaves every builtin policy
-// slice, pinned declaration, and released field list unmutated.
+// workflowDecisionFactPayloadFields selects the copied consequence_v1 fact
+// declarations onto one contract payload: a consequence_v1 definition copies
+// the supplied fields, appends each CD-0230 D4 law-change field it does not
+// already declare, and replaces a declared decision_domains field with the
+// one canonical fact at its position or appends the fact last, so the
+// selection never duplicates a field; a legacy definition keeps the supplied fields
+// byte-identical. The copy leaves every builtin policy slice, pinned
+// declaration, and released field list unmutated.
 func workflowDecisionFactPayloadFields(definition WorkflowDefinition, fields []WorkflowPayloadField) []WorkflowPayloadField {
 	if !workflowApprovalPolicyRequiresDecisionFact(definition) {
 		return fields
 	}
-	selected := make([]WorkflowPayloadField, len(fields), len(fields)+1)
-	copy(selected, fields)
+	selected := slices.Clone(fields)
+	declared := false
 	for index := range selected {
 		if selected[index].Name == "decision_domains" {
 			selected[index] = workflowDecisionFactField()
-			return selected
+			declared = true
 		}
 	}
-	return append(selected, workflowDecisionFactField())
+	for _, field := range workflowLawChangeFields() {
+		if !slices.ContainsFunc(fields, func(existing WorkflowPayloadField) bool { return existing.Name == field.Name }) {
+			selected = append(selected, field)
+		}
+	}
+	if !declared {
+		selected = append(selected, workflowDecisionFactField())
+	}
+	return selected
 }
 
 // workflowDecisionFactInitialActionDefinition selects the initial

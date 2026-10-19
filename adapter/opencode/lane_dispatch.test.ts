@@ -228,7 +228,7 @@ test("happy path: continuity → packet → core ok → spawn with stubbed runne
   expect(windows.has("session-1")).toBe(true)
 })
 
-test("authorized dispatch queues exactly one native Task with no model or provider assignment", async () => {
+test.each([false, true])("authorized dispatch queues exactly one native Task with no model or provider assignment, added context=%s", async addedContext => {
   const windows = new DispatchWindows()
   const requests: Parameters<RouteClient["post"]>[0][] = []
   const permissions: unknown[] = []
@@ -243,7 +243,9 @@ test("authorized dispatch queues exactly one native Task with no model or provid
       expect(permissions).toHaveLength(1)
       expect(windows.has("session-1")).toBe(true)
       requests.push(request)
-      return acknowledgeNativeTask(request)
+      const response = await acknowledgeNativeTask(request)
+      if (addedContext) response.data.parts = [...response.data.parts, { type: "text", text: "CI wait success", synthetic: true }]
+      return response
     },
   })
   const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }) => {
@@ -266,6 +268,12 @@ test("authorized dispatch queues exactly one native Task with no model or provid
     noReply: true,
     parts: [{ type: "subtask", agent: `concord-${lane.id}`, description: `${lane.id} lane, attempt ${authorizedPacket!.attempt_id}`, prompt: JSON.stringify(authorizedPacket) }],
   })
+  expect(windows.has("session-1")).toBe(true)
+  const args = {}
+  await windows.bind(TASK_TOOL_ID, "session-1", args, "native-task-call", async () => process.cwd(), process.cwd())
+  expect(args).toEqual({ subagent_type: `concord-${lane.id}`, description: `${lane.id} lane, attempt ${authorizedPacket!.attempt_id}`, prompt: JSON.stringify(authorizedPacket) })
+  expect(windows.has("session-1")).toBe(false)
+  await expect(windows.bind(TASK_TOOL_ID, "session-1", {}, "replayed-task-call", async () => process.cwd(), process.cwd())).rejects.toThrow("no authorized dispatch window")
 })
 
 test("a host Task permission denial cannot queue a native worker", async () => {

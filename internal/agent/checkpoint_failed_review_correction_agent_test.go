@@ -87,10 +87,10 @@ func TestFailedReviewCheckpointCorrectionBoundaryApprovesExactOperatorOnly(t *te
 
 	// The instance is pinned to the released implementation version whose
 	// acceptance step is the human_checkpoint carrying the review dispatch.
-	pinned, err := store.BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The operator-approved checkpoint return is a legacy approval-policy
+	// flow; consequence_v1 takes no operator substitution for it.
+	pinned := legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation")
+	var err error
 	grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	grantActorRef, err := store.WorkflowActorRef(grantActor)
 	if err != nil {
@@ -192,6 +192,7 @@ func TestFailedReviewCheckpointCorrectionBoundaryApprovesExactOperatorOnly(t *te
 	}); dispatchErr != nil {
 		t.Fatalf("seed the accepted-prereq lane dispatch: %v", dispatchErr)
 	}
+	deliverAgentFixtureChange(t, s, "work-1", acceptedAttempt)
 	agentWorkerCompletedThroughSeam(t, s, acceptedAttempt, "checkpoint-accepted-prereq-completed", store.WorkerCompletedPayload{AttemptID: acceptedAttempt, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: acceptedJob})
 	var acceptedEpoch int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.step_id')='execution' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&acceptedEpoch); err != nil {

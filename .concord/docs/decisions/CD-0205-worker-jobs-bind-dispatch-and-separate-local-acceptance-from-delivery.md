@@ -13,6 +13,18 @@
   definition content and digests; CD-0148, the exact retry approval and fresh
   fencing; CD-0201, the single admission derivation and the liveness law
 - **Related:** CD-0137, CD-0192
+- **Amended by:** [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
+  D4 (the recorded observer and phase are an eligibility condition of the
+  `host_changed` basis)
+- **Amended:** 2026-10-19, approved by the operator as exact text for
+  [Concord (CON) issue 1221](https://linear.app/sharper-flow/issue/CON-1221).
+  D4 adds the checks repair and amends CD-0148 and CD-0164: the escalation
+  wall admits the one confirming review a checks repair funds, without a
+  convergence basis. The change is serious under P12: an accepted ship
+  verdict on that review closes a failed job's correction window, the wall
+  admits a dispatch no basis bought, and the repair reason is a
+  caller-supplied claim that grants authority. The Domain test counts one
+  child Domain, `workflow-engine`. It changes no UI/UX.
 - **Approval:** The operator approved contract version 1 of
   `work-e46f4308fb5dad191fcbe259`. That contract names CD-0164 and CD-0198 as
   modified law and adds this record.
@@ -143,7 +155,8 @@ stays the complete parent premise.
 
 The `dispatch_worker` completion records the binding. The dispatch evidence
 must carry exactly that binding. The report must claim exactly that revision.
-A satisfied revision refuses a new dispatch, on resume and on the first ask.
+A satisfied revision refuses a new dispatch (except the D4 confirming
+review), on resume and on the first ask.
 
 The host derives canonical report identity from the authorized packet. Worker
 echoes cannot select another job, revision, attempt, or subject. The store
@@ -251,7 +264,8 @@ Whole-work delivery keeps its two routes: `record_delivery`, and the accept
 that carries `delivery_artifact` and `delivery_state`. Both routes run one
 complete delivery admission — the same function, not two. That admission
 includes the fenced start, the refine proof, the declared tooling, the review
-debt, the verdicts, the operator checkpoint, and — where the work has recorded
+debt (including any unconfirmed checks repair), the verdicts, the operator
+checkpoint, and — where the work has recorded
 worker jobs — the satisfied required jobs and the integration evidence. Local
 acceptances and their count prove no integration and no delivery:
 `record_delivery` refuses while a required job's latest revision is
@@ -299,8 +313,68 @@ still requires the dispatched revision's result and existing independent
 authority. Job identity alone is not satisfaction — a rewritten
 revision with an unrelated objective carries a different obligation and leaves
 the failed revision's window open. The satisfying routes are to retry the
-unresolved revision itself under the CD-0148 exact approval, or to re-record
-the same obligation as a new revision and accept that.
+unresolved revision itself under the CD-0148 exact approval, to re-record the
+same obligation as a new revision and accept that, or to repair its checks
+under the rule below.
+
+A failure can come from the revision's own checks: a check that no admitted
+lane can execute or decide as written. The coordinator asserts this cause in
+the repair. The core cannot decide it; only the review below confirms it.
+
+A newer revision of the same job repairs that defect only when it is recorded
+under the same contract version as each revision it names, its acceptance
+oracle is byte-identical to theirs, and every other recorded job content
+field except its readiness evidence is byte-identical, including any
+CD-0225 size cap and measurement basis, so that only the checks differ.
+The core-derived revision number and digest change with the new record.
+The repairing record names every unresolved revision of the job that it
+repairs and states why their checks could not be executed or decided. The
+core records the old checks of each named revision beside the new checks,
+and refuses a repair whose other content differs from any named revision.
+A revision that a split replaced (CD-0225 D3) cannot be repaired. This rule
+applies only from the first definition version of each family that declares
+the repair; released pins keep the rule above (CD-0115, D6). The byte-identical
+oracle deliberately freezes its readiness references; only the job's
+readiness evidence is excepted. If the named revisions' oracles differ, no
+checks repair can name them together.
+
+An accepted result of the repairing revision satisfies the named revisions
+for readiness only. It opens no correction window and resets no attempt
+count. The repair is unconfirmed from that acceptance until its confirming
+review ends, and a repairing revision without an accepted result opens no
+repair. At most one unconfirmed repair may be open per job. The accepted
+repair funds exactly one independent confirming review dispatch for that
+job, even at the wall. It funds no authoring attempt or other dispatch.
+The core binds that review to the repairing acceptance and the exact
+repairing revision, which its packet carries in `inputs.worker_job`; it is
+the one dispatch a satisfied revision admits. It must be dispatched after
+that acceptance. The review packet carries the old checks, the new checks,
+and the stated reason.
+That review confirms that the old checks could not be executed or decided
+as written, and that each requirement of the old checks survives in the
+new checks or in the retained oracle. Delivery refuses while this review
+debt stands.
+
+Only acceptance of that review's ship verdict confirms the repair and
+satisfies the named revisions' failed obligations. It opens the correction
+window with the CD-0164 D2 productive reset only when no other recorded
+revision stays unresolved. A completed ship report awaiting
+acceptance leaves the repair unconfirmed. A failed or abandoned confirming
+review, a rejected review result, or a no_ship verdict voids the repair:
+the named revisions become unresolved again, the review counts as a
+non-progress attempt, and the old and new checks stay on record. A contract
+supersession before the ship verdict is accepted voids the repair the same
+way; a review not yet dispatched counts nothing. These outcomes reset
+nothing and restore no funded review dispatch. A new repair of those
+revisions after a voided repair gains no admission of its own: its dispatch
+needs the authority CD-0148 already requires, and at the wall only a
+store-derived convergence basis admits it. The repair adds no basis and no
+authority beyond its one funded review. The voided repairing revision stays
+latest and satisfied, and delivery still reads the latest revision, as on
+the existing rewritten-revision route.
+If a failed or rejected confirming review also leaves the repairing revision
+unresolved, recovery first re-records and accepts that revision's own
+obligation; a later repair names only revisions whose checks could not run.
 
 A recorded revision also keeps the parent contract authority it was recorded
 under. After a contract supersession, a revision recorded under the superseded
@@ -309,7 +383,8 @@ revision is recorded under the active contract.
 
 A failure without a job binding keeps CD-0164 D2 unchanged. The three-attempt
 limit, the two comparators of CD-0164 D4, and the approval wall of CD-0148 do
-not change.
+not change, except that the wall admits the one confirming review a checks
+repair funds.
 
 ### D5. The combined accept keeps CD-0198 D4 for delivery (amends CD-0198 D4)
 
@@ -382,7 +457,11 @@ Attribution cannot truncate a source into a different claim.
 Attribution supplies no verification evidence, effect, retry, delivery, or
 acceptance authority. Every dispatched attempt still counts. Exact retry
 approval, the convergence wall, independent verdicts, and the sole delivery
-admission keep their owners.
+admission keep their owners. The store reads a recorded observer and phase
+only as one eligibility condition of the `host_changed` convergence basis
+(CD-0239 D4); the basis also needs the live leased process claim and time
+conditions of CD-0239 D1, which prove neither host repair nor authenticated
+host identity.
 
 Existing event, attempt, and history reads expose attribution with its source
 version. Released definitions keep their original behavior. Historical
@@ -494,6 +573,57 @@ Scenario: An unrelated accepted job keeps the failed job's window
   When the coordinator accepts a different job, or a rewritten revision of the same job
   Then the correction count and the retry approval do not change
   And only an acceptance carrying the same recorded obligation closes the window
+
+Scenario: A checks repair satisfies only the named revisions and waits for review
+  Given a repair-capable definition and revisions 2 and 3 of one job failed on checks no lane can execute
+  When the coordinator records revision 4 that changes only the checks and names revisions 2 and 3
+  And an attempt on revision 4 completes and is accepted
+  Then revisions 2 and 3 are satisfied for readiness only
+  And the repairing acceptance opens no correction window and resets no attempt count
+  And exactly one confirming review dispatch for that job is admitted even at the wall
+  And that review carries the satisfied repairing revision as its job binding
+  And no authoring attempt or other dispatch is funded by the repair
+  And delivery refuses until that review ships and is accepted
+  And a second unconfirmed repair for this job refuses while the review debt stands
+  And a repairing revision whose result is failed or rejected opens no unconfirmed repair
+  And only acceptance of that ship verdict confirms the repair
+  And that acceptance opens the productive window only when no other recorded revision stays unresolved
+  And a repair that changes any other content, names a split-replaced revision, or crosses a contract version refuses with no effect
+
+Scenario: A confirming no_ship review voids the checks repair without renewing attempts
+  Given one unconfirmed checks repair whose confirming review was dispatched
+  When that review completes with no_ship
+  Then the repair is void and every named revision becomes unresolved again
+  And the review counts as non-progress and the old and new checks remain recorded
+  And the voided repair funds no further dispatch
+  And a new repair of those revisions gains no dispatch admission of its own
+  And its dispatch needs the authority CD-0148 already requires and at the wall a store-derived convergence basis
+  And released pins without the repair declaration retain their original admission and counting
+
+Scenario: A confirming review fails before its verdict
+  Given an accepted checks repair whose one funded confirming review was dispatched
+  When that review fails or is abandoned before reporting a verdict
+  Then the repair is void and every named revision becomes unresolved again
+  And the review counts as non-progress and resets no count or window
+  And the repair funds no replacement dispatch
+  And a repeat gains no admission of its own and at the wall needs a store-derived convergence basis
+  And an eligible host failure can use the existing host_changed basis
+
+Scenario: A rejected confirming review result cannot confirm a repair
+  Given an accepted checks repair whose confirming review completed with a ship report
+  And the repair is unconfirmed pending disposition
+  When the coordinator rejects that result
+  Then the repair is void and every named revision becomes unresolved again
+  And the review counts as non-progress and restores no funded review dispatch
+  And a repeat gains no admission of its own and at the wall needs a store-derived convergence basis
+
+Scenario: A contract supersession voids an unconfirmed checks repair
+  Given an accepted checks repair whose confirming review has no accepted ship verdict
+  When the operator supersedes the contract
+  Then the repair is void and every named revision becomes unresolved again
+  And a confirming review not yet dispatched counts nothing and stays unfunded
+  And the voided repair's review debt no longer refuses delivery
+  And no repair under the active contract can name those revisions
 
 Scenario: Stale job authority is refused after supersession
   Given a revision recorded under contract version 1

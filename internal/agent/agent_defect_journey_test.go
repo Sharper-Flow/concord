@@ -137,6 +137,7 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}},
 		"spec_mandate":       []string{},
 		"law_modifies":       []string{},
+		"decision_domains":   []string{"product"},
 	}
 	approved := approvedAction(env, map[string]any{"work_id": rcaID, "expected_version": workVersion(t, s, rcaID), "action_id": "approve_contract", "fields": contractFields, "idempotency_key": "defect-journey-contract"}, "defect-journey-contract")
 	if approved.Outcome != OutcomeOK {

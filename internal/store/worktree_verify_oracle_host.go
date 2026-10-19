@@ -16,7 +16,7 @@ import (
 // The target_runner_v1 family runs one target repository's own pinned test
 // framework or check scripts through two closed axes inside one recipe:
 //
-//   - materializer `none` or `uv`: the materializer owns the dependency
+//   - materializer `none`, `uv`, or `bun`: the materializer owns the dependency
 //     manifest and lockfile, offline lock-verified materialization into
 //     per-run scratch, cache-integrity proof, disabled scripts, and runtime
 //     fingerprints. `none` declares a dependency-free recipe.
@@ -24,7 +24,8 @@ import (
 //     witness population, and the result grammar. `check` pins each check's
 //     full bounded argv and grades the host-observed process exit.
 //
-// Exactly three pairs are admitted: uv+pytest, none+check, uv+check. The
+// Exactly four pairs are admitted: uv+pytest, none+check, uv+check, and
+// bun+check. The
 // admitted set is the closed union below — the pair is decided as one
 // discriminated decision, never as two independently accepted enum values —
 // and every other combination refuses as unsupported. Adding a member
@@ -38,7 +39,7 @@ import (
 type nativeTargetOracleManifest struct {
 	// Kind is exactly "target_runner_v1".
 	Kind string `json:"kind"`
-	// Materializer is one closed member: none or uv.
+	// Materializer is one closed member: none, uv, or bun.
 	Materializer string `json:"materializer"`
 	// Runner is one closed member: pytest or check.
 	Runner string `json:"runner"`
@@ -93,12 +94,17 @@ type nativeTargetPin struct {
 	// Shell is the exact bash version, required when a check invokes the
 	// bash interpreter slot.
 	Shell string `json:"shell,omitempty"`
+	// Bun is the exact bun version for bun materialization. It must be a
+	// member of nativeBunAdmittedVersions.
+	Bun string `json:"bun,omitempty"`
 	// DepManifest is the Project-relative dependency manifest path:
-	// "pyproject.toml" for uv materialization. The candidate commit's file
-	// must equal the recipe commit's byte for byte.
+	// "pyproject.toml" for uv and "package.json" for bun materialization.
+	// The candidate commit's file must equal the recipe commit's byte for
+	// byte.
 	DepManifest string `json:"dep_manifest,omitempty"`
-	// DepLock is the Project-relative lockfile path: "uv.lock" for uv
-	// materialization. Equality is enforced like DepManifest.
+	// DepLock is the Project-relative lockfile path: "uv.lock" for uv and
+	// "bun.lock" for bun materialization. Equality is enforced like
+	// DepManifest.
 	DepLock string `json:"dep_lock,omitempty"`
 }
 
@@ -130,6 +136,7 @@ var nativeTargetAdmittedPairs = []nativeTargetPair{
 	{nativeTargetMaterializerUV, nativeTargetRunnerPytest},
 	{nativeTargetMaterializerNone, nativeTargetRunnerCheck},
 	{nativeTargetMaterializerUV, nativeTargetRunnerCheck},
+	{nativeTargetMaterializerBun, nativeTargetRunnerCheck},
 }
 
 // nativeTargetPairOf resolves the manifest's axes as one closed discriminated
@@ -415,6 +422,13 @@ func validateNativeTargetManifest(m nativeTargetOracleManifest, c OracleControl)
 			if err := nativeTargetPinExact(m.Pin, "python uv"+nativeTargetOptionalPin(usesBash, "shell"), "pyproject.toml", "uv.lock"); err != nil {
 				return err
 			}
+		case pair.Materializer == nativeTargetMaterializerBun:
+			if err := nativeTargetPinExact(m.Pin, strings.TrimSpace("bun "+required), "package.json", "bun.lock"); err != nil {
+				return err
+			}
+			if !slices.Contains(nativeBunAdmittedVersions, m.Pin.Bun) {
+				return nativeUnavailable("bun " + m.Pin.Bun + " is not a validated materializer runtime")
+			}
 		case pair.Materializer == nativeTargetMaterializerNone:
 			if err := nativeTargetPinExact(m.Pin, required, "", ""); err != nil {
 				return err
@@ -427,7 +441,7 @@ func validateNativeTargetManifest(m nativeTargetOracleManifest, c OracleControl)
 			return nativeUnavailable("check recipes invoking python3 must pin the exact python version")
 		}
 	}
-	for _, pin := range []string{m.Pin.UV, m.Pin.Python, m.Pin.Pytest, m.Pin.Shell} {
+	for _, pin := range []string{m.Pin.UV, m.Pin.Python, m.Pin.Pytest, m.Pin.Shell, m.Pin.Bun} {
 		if pin != "" && !nativeTargetVersionPin.MatchString(pin) {
 			return nativeUnavailable("runtime pins must be exact dotted numeric versions")
 		}
@@ -446,7 +460,7 @@ func nativeTargetOptionalPin(used bool, name string) string {
 // required fields are present, the dependency binding is exact, and every
 // other field is empty.
 func nativeTargetPinExact(pin nativeTargetPin, required, depManifest, depLock string) error {
-	values := map[string]string{"uv": pin.UV, "python": pin.Python, "pytest": pin.Pytest, "shell": pin.Shell}
+	values := map[string]string{"uv": pin.UV, "python": pin.Python, "pytest": pin.Pytest, "shell": pin.Shell, "bun": pin.Bun}
 	for name, value := range values {
 		present := value != ""
 		switch {
@@ -508,21 +522,24 @@ type nativeTargetEnvironment struct {
 	// the preparation's ToolchainIdentity.
 	RuntimeIdentity string `json:"runtime_identity"`
 	// DependencyInputsDigest covers the byte-equal candidate and recipe
-	// dependency manifest and lock bytes. The uv materializer owns it; the
-	// none materializer pins its dependency-free declaration into the same
-	// field.
+	// dependency manifest and lock bytes. The uv and bun materializers own
+	// it; the none materializer pins its dependency-free declaration into
+	// the same field.
 	DependencyInputsDigest string `json:"dependency_inputs_digest"`
 	// Digest binds the runtime identity, executable digests, dependency
 	// inputs, and the closed pair policy string. Preparation and execution
 	// join on it, so a dependency-input change re-pins the environment.
 	Digest string `json:"digest"`
 	// Resolved slots: absolute paths of the pinned executables and the
-	// read-only host cache the uv materializer materializes from. Cache
-	// paths never enter the digest: they are input sources, not identities.
-	UV         string `json:"uv,omitempty"`
-	Python     string `json:"python,omitempty"`
-	Bash       string `json:"bash,omitempty"`
-	UVCacheDir string `json:"uv_cache_dir,omitempty"`
+	// read-only host cache the uv or bun materializer materializes from.
+	// Cache paths never enter the digest: they are input sources, not
+	// identities.
+	UV          string `json:"uv,omitempty"`
+	Python      string `json:"python,omitempty"`
+	Bash        string `json:"bash,omitempty"`
+	Bun         string `json:"bun,omitempty"`
+	UVCacheDir  string `json:"uv_cache_dir,omitempty"`
+	NPMCacheDir string `json:"npm_cache_dir,omitempty"`
 }
 
 func nativeTargetUnavailableMaterializer(materializer, cause string) error {
@@ -608,6 +625,25 @@ func resolveNativeTargetRuntime(ctx context.Context, m nativeTargetOracleManifes
 			}
 			e.RuntimeIdentity += " bash " + m.Pin.Shell
 		}
+	case pair.Materializer == nativeTargetMaterializerBun:
+		bun, err := resolved("bun")
+		if err != nil {
+			return e, nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
+		}
+		e.Bun = bun
+		out, err := versionOf("bun", "--version")
+		if err != nil {
+			return e, nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
+		}
+		got, err := nativeTargetLeadVersion(out, `^([0-9][0-9.]*)$`)
+		if err != nil {
+			return e, nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
+		}
+		if err := pinned("bun", got, m.Pin.Bun); err != nil {
+			return e, err
+		}
+		e.RuntimeIdentity = "bun " + m.Pin.Bun
+		fallthrough
 	case pair.Materializer == nativeTargetMaterializerNone:
 		if m.Pin.Shell != "" {
 			if err := bashVersion(); err != nil {

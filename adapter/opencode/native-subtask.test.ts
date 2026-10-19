@@ -2,6 +2,7 @@ import { expect, test } from "bun:test"
 import { HostControlPlane, SESSION_MESSAGES_ROUTE } from "./move-session"
 
 const task = { agent: "concord-research", description: "Research one bounded question", prompt: '{"approved":"packet"}' }
+const contextPart = { id: "prt_ciwatch-fixture", type: "text", text: "CI wait success", synthetic: true }
 
 test("a native subtask preserves the parent's host-selected model without assigning a worker model", async () => {
   const host = new HostControlPlane()
@@ -30,9 +31,28 @@ test("a native subtask preserves the parent's host-selected model without assign
 })
 
 test.each([
+  { parts: [contextPart, { type: "subtask", ...task }] },
+  { parts: [{ type: "subtask", ...task }, contextPart] },
+])("a native subtask acknowledgment allows host-added context in either order", async ({ parts }) => {
+  const host = new HostControlPlane()
+  host.bind({
+    async get() { return { data: { id: "parent", agent: "Concord" }, response: new Response(null, { status: 200 }) } },
+    async post() { return { data: { info: { id: "message-queued", sessionID: "parent", agent: "Concord" }, parts }, response: new Response(null, { status: 200 }) } },
+  })
+  await host.queueSubtask("parent", "Concord", task)
+})
+
+test.each([
   { info: { id: "message-queued", sessionID: "another-parent", agent: "Concord" }, parts: [{ type: "subtask", ...task }] },
+  { info: { id: "message-queued", sessionID: "parent", agent: "another-agent" }, parts: [{ type: "subtask", ...task }] },
   { info: { id: "message-queued", sessionID: "parent", agent: "Concord" }, parts: [] },
+  { info: { id: "message-queued", sessionID: "parent", agent: "Concord" }, parts: [contextPart] },
+  { info: { id: "message-queued", sessionID: "parent", agent: "Concord" }, parts: [{ type: "subtask", ...task }, { type: "subtask", ...task }] },
+  { info: { id: "message-queued", sessionID: "parent", agent: "Concord" }, parts: [contextPart, { type: "subtask", ...task }, { type: "subtask", ...task, prompt: "another packet" }] },
   { info: { id: "message-queued", sessionID: "parent", agent: "Concord" }, parts: [{ type: "subtask", ...task, prompt: "different packet" }] },
+  { info: { id: "message-queued", sessionID: "parent", agent: "Concord" }, parts: [contextPart, { type: "subtask", ...task, prompt: "different packet" }] },
+  { info: { id: "message-queued", sessionID: "parent", agent: "Concord" }, parts: [contextPart, { type: "subtask", ...task, agent: "concord-implement" }] },
+  { info: { id: "message-queued", sessionID: "parent", agent: "Concord" }, parts: [contextPart, { type: "subtask", ...task, description: "Different task" }] },
 ])("a host acknowledgment must retain the intended parent and exact native subtask", async data => {
   const host = new HostControlPlane()
   host.bind({

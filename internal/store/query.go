@@ -257,8 +257,9 @@ type TimelineEvent struct {
 	// ContractVersion names the contract version a workflow.contract_approved
 	// or workflow.contract_superseded event made; a supersession also names
 	// the version it replaced.
-	ContractVersion         *int64 `json:"contract_version,omitempty"`
-	PreviousContractVersion *int64 `json:"previous_contract_version,omitempty"`
+	ContractVersion         *int64               `json:"contract_version,omitempty"`
+	PreviousContractVersion *int64               `json:"previous_contract_version,omitempty"`
+	ConflictApplication     *ConflictApplication `json:"conflict_application,omitempty"`
 }
 
 type Q7Result struct {
@@ -1625,6 +1626,12 @@ func decodeTimelineEvent(eventID string, global int64, kind, actor, occurred str
 	case WorkflowContractSuperseded:
 		versions["new_contract_version"] = &e.ContractVersion
 		versions["previous_contract_version"] = &e.PreviousContractVersion
+	case WorkConflictApplied:
+		var application ConflictApplication
+		if err := decodeRegisteredPayload(Event{Payload: payload}, &application); err != nil || validateWorkConflictAppliedPayload(Event{}, application) != nil {
+			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "recorded conflict application is not inside the frozen v1 shape", false, "repair the event log before reading history")
+		}
+		e.ConflictApplication = &application
 	}
 	for name, dst := range versions {
 		var version int64

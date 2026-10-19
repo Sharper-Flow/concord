@@ -1263,6 +1263,15 @@ class LiveAuthoringClosureTests(unittest.TestCase):
         for token in retired_tokens:
             self.assertNotIn(f'"{token}"', text, f"retired outcome token {token} is still authorable")
         self.assertNotIn("decision_record", text)
+        # The work pin replays stored predicates unchanged, so it keeps the
+        # retained vocabulary and decision record that authoring narrows away.
+        retained = defs["workflow_retained_outcome"]["properties"]
+        self.assertEqual(retained["allowed"]["maxItems"], 8)
+        self.assertTrue(retired_tokens <= set(retained["allowed"]["items"]["enum"]))
+        self.assertIn("decision_record", retained)
+        criterion = json.dumps(defs["work_pin_verified_criterion"], sort_keys=True)
+        self.assertIn('"#/$defs/workflow_retained_outcome"', criterion)
+        self.assertNotIn('"#/$defs/workflow_outcome_outcome"', criterion)
 
     def test_the_frozen_decoder_keeps_the_retired_vocabulary(self):
         frozen = json.loads(generator.HISTORICAL_DECODER.read_text())["$defs"]
@@ -1924,8 +1933,18 @@ class CIContractRoutingTests(unittest.TestCase):
     def test_verify_adapter_runs_the_adapter_suite_directly(self):
         # The adapter_test evidence anchors resolve only against a direct
         # workflow invocation, so deleting the direct step would strand them.
-        direct = [step for step in workflow_job_steps("verify-adapter") if "bun test adapter/opencode" in step["run"]]
-        self.assertTrue(direct, "verify-adapter must run the adapter suite directly")
+        direct = [step for step in workflow_job_steps("verify-adapter-rest") if "bun test adapter/opencode" in step["run"]]
+        self.assertTrue(direct, "verify-adapter-rest must run the adapter suite directly")
+        aggregate = workflow_job_block("verify-adapter")
+        self.assertEqual(job_needs(aggregate), ["verify-adapter-rest", "verify-adapter-dispatch"])
+        self.assertRegex(aggregate, r"(?m)^ {4}if: always\(\)$")
+        gate = workflow_job_steps("verify-adapter")
+        self.assertEqual(len(gate), 1)
+        self.assertEqual(gate[0]["env"], {
+            "REST_RESULT": "${{ needs.verify-adapter-rest.result }}",
+            "DISPATCH_RESULT": "${{ needs.verify-adapter-dispatch.result }}",
+        })
+        self.assertEqual(gate[0]["run"].strip().splitlines(), ['test "$REST_RESULT" = success', 'test "$DISPATCH_RESULT" = success'])
 
     def test_verify_tooling_runs_the_contract_selftest_directly(self):
         direct = [step for step in workflow_job_steps("verify-tooling") if "scripts/test-agent-contracts.py" in step["run"]]
@@ -2622,13 +2641,16 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
             fields_schema = variant["properties"]["fields"]
             if len(combinations) + len(alternatives) == 1 and not kind_matches:
                 group = (combinations + alternatives)[0]
-                flat = fields_schema
-                self.assertNotIn("oneOf", flat, f"{action['id']} publishes a union for a single rule group")
-                self.assertIs(flat.get("additionalProperties"), False)
-                for name in group["fields"]:
-                    self.assertIn(name, flat.get("required", []), f"{action['id']} single rule group {group['fields']} loses its required field")
-                for name in group.get("forbids", []):
-                    self.assertNotIn(name, flat.get("properties", {}), f"{action['id']} single rule group publishes forbidden {name}")
+                # Different workflow fieldsets can still form an outer union;
+                # the single rule group must collapse within each fieldset.
+                for condition in _condition_branches(variant):
+                    flat = _fields_object(condition)
+                    self.assertNotIn("oneOf", flat, f"{action['id']} publishes a nested union for a single rule group")
+                    self.assertIs(flat.get("additionalProperties"), False)
+                    for name in group["fields"]:
+                        self.assertIn(name, flat.get("required", []), f"{action['id']} single rule group {group['fields']} loses its required field")
+                    for name in group.get("forbids", []):
+                        self.assertNotIn(name, flat.get("properties", {}), f"{action['id']} single rule group publishes forbidden {name}")
                 continue
             self.assertIn("oneOf", fields_schema, f"{action['id']} declares cross-field rules but its variant publishes none")
 
@@ -2757,7 +2779,8 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
                 fields = envelope["properties"].get("fields")
                 if fields is None:
                     continue
-                for branch in fields.get("anyOf", [fields]):
+                for condition in _condition_branches(envelope):
+                    branch = _fields_object(condition)
                     value = self._sample(envelope)
                     value["fields"] = self._sample(branch)
                     for name in names:
@@ -2776,9 +2799,10 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
             self.assertEqual(branch["properties"]["ordinal"]["description"], self.teaching["predicate_ordinal_rule"])
             self.assertEqual(branch["properties"]["outcome_kind"]["description"], self.teaching["outcome_kind_equality_rule"])
             self.assertEqual(branch["properties"]["outcome_kind"]["const"], branch["properties"]["outcome_payload"]["properties"]["kind"]["const"])
-        approve = self.defs["work_transition_action_variant_approve_contract"]["properties"]["fields"]["properties"]
-        if "required_evidence" in approve:
-            self.assertEqual(approve["required_evidence"].get("description"), self.teaching["obligation_membership_rule"])
+        for condition in _condition_branches(self.defs["work_transition_action_variant_approve_contract"]):
+            approve = _fields_object(condition)["properties"]
+            if "required_evidence" in approve:
+                self.assertEqual(approve["required_evidence"].get("description"), self.teaching["obligation_membership_rule"])
 
     def test_every_registry_action_has_one_closed_variant(self):
         core_refs = [{"$ref": f"#/$defs/work_transition_action_variant_{action['id']}"} for action in self.actions]
@@ -2885,10 +2909,21 @@ class ResearchContextProjectionTests(unittest.TestCase):
                              ("lane_work_context_research_finding_view", "work_context_research_finding_view")):
             self.assertEqual(self.projected["$defs"][shared], self._remapped_def(lane))
         # The current public view carries the same projected member the
-        # canonical view declares, under the shared def names.
+        # canonical view declares, under the shared def names. Its retained
+        # twin replays stored selections, so its items name the retained twin.
         lane_member = packet_schema["$defs"]["lane_work_context_view"]["properties"]["research_findings"]
         self.assertEqual(self.projected["$defs"]["work_context_view"]["properties"]["research_findings"],
                          self._remap(lane_member))
+        retained = self._remap(lane_member)
+        retained["items"]["$ref"] = "#/$defs/" + generator.retained_twin_name("work_context_research_finding_view")
+        twin = self.projected["$defs"][generator.retained_twin_name("work_context_view")]
+        self.assertEqual(twin["properties"]["research_findings"], retained)
+        # Packet dispatch keeps the lane's bounded scope id; only the retained
+        # read twin carries the store's wider knowledge ids.
+        retained_scopes = self.projected["$defs"][generator.retained_twin_name("research_scopes")]
+        for kind in ("product_ids", "project_ids", "domain_ids", "tag_ids"):
+            self.assertEqual(self.projected["$defs"]["research_scopes"]["properties"][kind]["items"], {"$ref": "#/$defs/id"})
+            self.assertEqual(retained_scopes["properties"][kind]["items"], {"$ref": "#/$defs/knowledge_id"})
 
     def _project_with_lane_packet(self, lane_document):
         """Project against a temporary canonical lane packet on disk: the

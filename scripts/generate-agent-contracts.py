@@ -144,6 +144,21 @@ export function expandedPublishedRequestSchema(published: unknown): unknown {
   body.oneOf = branches;
   return body;
 }
+// actionFieldsBranches returns the expanded branch list of one action
+// variant's fields surface: every oneOf/anyOf branch when publication
+// factored the fields union, or the single flat object when the action
+// declares one closed shape. Structural inspection reads fields through this
+// helper so a branch-only field (the consequence_v1 decision_domains
+// admission) is checked where it lives, never through the factored parent
+// view that carries only the shared constraints. Inspection only: the
+// published compact document stays the admitted input.
+export function actionFieldsBranches(actionInput: unknown): any[] {
+  const fields = (actionInput as any)?.properties?.fields;
+  if (fields === null || typeof fields !== "object" || Array.isArray(fields)) return [];
+  if (Array.isArray((fields as any).oneOf)) return (fields as any).oneOf;
+  if (Array.isArray((fields as any).anyOf)) return (fields as any).anyOf;
+  return [fields];
+}
 '''
 
 
@@ -731,6 +746,281 @@ def install_workflow_outcome_schema(defs: dict) -> dict:
     return {"oneOf": [rewrite(branch) for branch in document["oneOf"]]}
 
 
+# The retained output def names the output surfaces anchor to after the
+# separation: the narrowed live defs stay the authoring owner.
+RETAINED_OUTCOME_DEF = "workflow_retained_outcome"
+RETAINED_DECISION_RECORD_DEF = "workflow_retained_decision_record"
+# DecodeWorkflowPredicate refuses a serialized predicate above
+# maxWorkflowPredicateBytes (internal/store/workflow_outcome.go), and a
+# serialized string of N bytes decodes to at most N code points, so this is
+# the finite ceiling of every retained decision-record string no field guard
+# bounds. The output bound ledger proves this value against that constant.
+WORKFLOW_PREDICATE_MAX_BYTES = 64 * 1024
+
+
+# Read outputs that replay stored values verbatim share some definitions with
+# worker packets, and dispatch admission validates packets against those
+# definitions (internal/store/workflow_preflight.go validates every payload
+# field against its declared schema). The packet copies keep the admission
+# caps; each read parent here points at a retained twin that drops only the
+# caps no store writer enforces. A twin that drops nothing exists because a
+# packet also embeds it (worker_packet embeds work_context_view), so the read
+# parents need their own copy to reach the other twins. The output bound
+# ledger proves every dropped cap unbounded and every kept cap finite.
+RETAINED_OUTPUT_TWINS = {
+    "workflow_correction_context": ("/properties/diagnosis/maxLength", "/properties/failure_detail/maxLength"),
+    "workflow_law_context": ("/properties/registry_path/maxLength",),
+    "workflow_law_context_law": ("/properties/path/maxLength",),
+    "work_context_finding_view": ("/properties/source_event_id/maxLength",),
+    "research_source": tuple(f"/properties/{name}/maxLength" for name in ("locator", "title", "publisher_or_author", "published_at", "accessed_at")),
+    "native_oracle_preparation": tuple(f"{branch}/properties/{name}/maxLength" for branch in ("", "/oneOf/0", "/oneOf/1") for name in ("project_id", "toolchain_identity")),
+    "work_context_research_finding": ("/properties/statement/maxLength", "/properties/source_ids/maxItems", "/properties/source_ids/items/maxLength"),
+    "work_context_research_finding_view": ("/oneOf/0/properties/selection_event_id/maxLength", "/oneOf/0/properties/sources/maxItems", "/oneOf/1/properties/selection_event_id/maxLength"),
+    "work_context_view": (),
+    "research_scopes": (),
+    "worker_oracle_finding": (),
+}
+# Caps a retained twin raises: the store's retained producer exceeds the cap
+# dispatch admission enforces on the shared packet definition, so the read
+# copy carries the producer's finite maximum, which the output bound ledger
+# proves, while the packet keeps the admitted cap.
+RETAINED_OUTPUT_RAISES = {
+    "workflow_correction_context": {"/properties/evidence_refs/maxItems": 64},
+    "workflow_law_context_law": {"/properties/criteria/maxItems": 1000},
+    "research_scopes": {f"/properties/{name}/maxItems": 100 for name in ("product_ids", "project_ids", "domain_ids", "tag_ids")},
+    "worker_oracle_finding": {"/properties/owner_id/maxLength": 133},
+}
+# References a retained twin points at a wider definition: the retained
+# producers admit identities above the lane contract's bounded id
+# (validateResearchScopes admits 256-rune scope IDs; raw retained research
+# source IDs exceed the id bound), while packet dispatch keeps that id.
+RETAINED_OUTPUT_RETYPES = {
+    "research_scopes": {f"/properties/{name}/items/$ref": "#/$defs/knowledge_id" for name in ("product_ids", "project_ids", "domain_ids", "tag_ids")},
+    "research_source": {"/properties/source_id/$ref": "#/$defs/research_record_id"},
+}
+# The read parents that replay stored values, each with the twinned
+# definitions it references directly.
+RETAINED_OUTPUT_PARENTS = {
+    "continuity_snapshot": ("workflow_law_context", "work_context_view"),
+    "research_revision": ("research_source",),
+    "research_finding": ("research_scopes",),
+    "work_pin": ("workflow_correction_context", "work_context_view"),
+}
+
+
+def retained_twin_name(name: str) -> str:
+    return "retained_" + name
+
+
+def retained_cap_parent(node: dict, name: str, pointer: str) -> tuple[dict, str]:
+    tokens = pointer.split("/")[1:]
+    parent = node
+    for token in tokens[:-1]:
+        parent = parent[int(token)] if isinstance(parent, list) else parent.get(token)
+        if parent is None:
+            fail(f"retained twin {name} names {pointer}, which does not resolve")
+    if not isinstance(parent, dict) or tokens[-1] not in parent:
+        fail(f"retained twin {name} names {pointer}, which carries no such cap")
+    return parent, tokens[-1]
+
+
+def drop_retained_caps(node: dict, name: str) -> None:
+    """Remove from a copy of the named shared definition the caps its
+    retained output twin drops."""
+    for pointer in RETAINED_OUTPUT_TWINS[name]:
+        parent, keyword = retained_cap_parent(node, name, pointer)
+        del parent[keyword]
+
+
+def raise_retained_caps(node: dict, name: str) -> None:
+    """Raise in a twin the caps its retained producer exceeds."""
+    for pointer, value in RETAINED_OUTPUT_RAISES.get(name, {}).items():
+        parent, keyword = retained_cap_parent(node, name, pointer)
+        if parent[keyword] >= value:
+            fail(f"retained twin {name} raises {pointer} to {value}, which the shared cap {parent[keyword]} already admits")
+        parent[keyword] = value
+
+
+def retype_retained_items(node: dict, name: str) -> None:
+    """Point a twin's items at the wider definition its retained producer needs."""
+    for pointer, ref in RETAINED_OUTPUT_RETYPES.get(name, {}).items():
+        parent, keyword = retained_cap_parent(node, name, pointer)
+        if parent[keyword] == ref:
+            fail(f"retained twin {name} retypes {pointer} to {ref}, which the shared definition already references")
+        parent[keyword] = ref
+
+
+def install_retained_output_twins(defs: dict) -> None:
+    # The projection starts from the previous document, which already carries
+    # the twins and the retargeted refs. Undo both first, so every run derives
+    # the twins from the shared definitions and no ref to a twin survives
+    # outside the declared parents.
+    twin_names = {retained_twin_name(name): name for name in RETAINED_OUTPUT_TWINS}
+    for twin_name in twin_names:
+        defs.pop(twin_name, None)
+
+    def restore(value: object) -> None:
+        if isinstance(value, list):
+            for child in value:
+                restore(child)
+        elif isinstance(value, dict):
+            ref = value.get("$ref")
+            if isinstance(ref, str) and ref.removeprefix("#/$defs/") in twin_names:
+                value["$ref"] = "#/$defs/" + twin_names[ref.removeprefix("#/$defs/")]
+            for child in value.values():
+                restore(child)
+    restore(defs)
+
+    def retarget(node: object, where: str, allowed: set[str]) -> set[str]:
+        """Rewrite every ref to a twinned definition and return the names rewritten."""
+        seen: set[str] = set()
+        def walk(value: object) -> None:
+            if isinstance(value, list):
+                for child in value:
+                    walk(child)
+            elif isinstance(value, dict):
+                ref = value.get("$ref")
+                if isinstance(ref, str) and ref.startswith("#/$defs/"):
+                    target = ref.removeprefix("#/$defs/")
+                    if target in RETAINED_OUTPUT_TWINS:
+                        if target not in allowed:
+                            fail(f"{where} references {target}, which is not a declared retained twin target there")
+                        value["$ref"] = "#/$defs/" + retained_twin_name(target)
+                        seen.add(target)
+                for key, child in value.items():
+                    if key != "$ref":
+                        walk(child)
+        walk(node)
+        return seen
+
+    twins = {}
+    for name in RETAINED_OUTPUT_TWINS:
+        if name not in defs:
+            fail(f"retained twin source {name} is not defined")
+        twin = copy.deepcopy(defs[name])
+        drop_retained_caps(twin, name)
+        raise_retained_caps(twin, name)
+        retype_retained_items(twin, name)
+        retarget(twin, retained_twin_name(name), set(RETAINED_OUTPUT_TWINS))
+        twins[retained_twin_name(name)] = twin
+    defs.update(twins)
+    for parent, targets in RETAINED_OUTPUT_PARENTS.items():
+        if parent not in defs:
+            fail(f"retained twin parent {parent} is not defined")
+        seen = retarget(defs[parent], parent, set(targets))
+        if seen != set(targets):
+            fail(f"retained twin parent {parent} references {sorted(seen)}, want {sorted(targets)}")
+
+
+def preserve_retained_outcome_outputs(defs: dict) -> None:
+    """Preserve the canonical outcome and decision-record definitions as the
+    retained output shapes, and retarget the output uses of the outcome
+    branch on the work pin to them.
+
+    The store folds validate a retained predicate against the stored
+    definition (foldWorkflowContractApproved through DecodeWorkflowPredicate)
+    and the work pin copies OutcomePayload unchanged, so
+    work_pin_verified_criterion.outcome_payload must keep admitting the full
+    frozen vocabulary and the optional decision_record that live authoring
+    narrows away. Worker packets keep the live shape: dispatch admission
+    validates them against it, and a current head's contract carries only
+    live predicates. The copies are taken before narrow_live_outcome_union
+    mutates the authored vocabulary; the frozen historical decoder is never
+    rewritten here.
+    """
+    live_outcome = defs.get("workflow_outcome_outcome")
+    if not isinstance(live_outcome, dict) or not isinstance(live_outcome.get("properties"), dict):
+        fail("the canonical workflow_outcome_outcome schema is unavailable for retained-output preservation")
+    canonical_decision = defs.get("workflow_outcome_decision_record")
+    if not isinstance(canonical_decision, dict) or not isinstance(canonical_decision.get("properties"), dict):
+        fail("the canonical workflow_outcome_decision_record schema is unavailable for retained-output preservation")
+
+    # The retained decision record's enforcing guards are the inline
+    # validateDecisionRecord comparisons and the anchored actor/approval
+    # patterns (internal/store/workflow_outcome.go). The canonical per-element
+    # text maxima and the supersedes bounds are no store guard, so the output
+    # shape replaces them with the whole-predicate decode ceiling instead of
+    # pretending the canonical limits are enforced, and it admits exactly the
+    # null/absence shapes the decoder admits.
+    retained_decision = copy.deepcopy(canonical_decision)
+    decision_properties = retained_decision["properties"]
+    for name in ("question", "rationale", "poc_findings"):
+        node = decision_properties.get(name)
+        if not isinstance(node, dict) or node.get("type") != "string" or node.get("minLength") != 1 or node.get("maxLength") != 4096:
+            fail(f"the canonical decision record {name} is not the guarded 1..4096 string; the retained output projection is stale")
+    for name, cap in (("options_considered", 16), ("consequences", 16), ("inputs", 32), ("unknowns", 16), ("required_to_decide", 16)):
+        node = decision_properties.get(name)
+        if not isinstance(node, dict) or node.get("type") != "array" or node.get("maxItems") != cap or not isinstance(node.get("items"), dict):
+            fail(f"the canonical decision record {name} is not the guarded ..{cap} array; the retained output projection is stale")
+        node["items"].pop("minLength", None)
+        node["items"]["maxLength"] = WORKFLOW_PREDICATE_MAX_BYTES
+        if name != "options_considered":
+            # validateDecisionRecord enforces uniqueStrings on
+            # options_considered only.
+            node.pop("uniqueItems", None)
+    for name in ("unknowns", "required_to_decide"):
+        # A null array decodes to nil, and an accepted-decision record may
+        # leave both absent.
+        decision_properties[name]["type"] = ["array", "null"]
+    for name in ("supersedes", "superseded_by"):
+        node = decision_properties.get(name)
+        if not isinstance(node, dict) or node.get("type") != ["string", "null"]:
+            fail(f"the canonical decision record {name} is not the optional nullable string; the retained output projection is stale")
+        # Optional and guard-free: absent, null, and empty all decode, and
+        # validateDecisionRecord checks no supersedes field.
+        node.pop("minLength", None)
+        node["maxLength"] = WORKFLOW_PREDICATE_MAX_BYTES
+    actor_ref = decision_properties.get("reviewer_actor_ref")
+    if not isinstance(actor_ref, dict) or actor_ref.get("pattern") != "^actor:[0-9a-f]{64}$" or actor_ref.get("maxLength") != 70:
+        fail("the canonical decision record reviewer_actor_ref is not the exact actor-pattern shape; the retained output projection is stale")
+    approval_ref = decision_properties.get("operator_approval_ref")
+    if not isinstance(approval_ref, dict) or approval_ref.get("pattern") != "^approval:[a-z0-9][a-z0-9_.:/-]{1,127}$":
+        fail("the canonical decision record operator_approval_ref does not carry the enforcing approval pattern; the retained output projection is stale")
+    # The enforcing pattern admits 137 characters ("approval:" plus 1 plus
+    # 127); the canonical maxLength 136 would refuse a guard-admitted record,
+    # so the output shape keeps the pattern alone.
+    approval_ref.pop("maxLength", None)
+    retained_decision["required"] = [
+        "question", "options_considered", "decision", "rationale", "consequences",
+        "inputs", "poc_findings", "reviewer_actor_ref", "operator_approval_ref",
+    ]
+
+    retained_outcome = copy.deepcopy(live_outcome)
+    decision_property = retained_outcome["properties"].get("decision_record")
+    if not isinstance(decision_property, dict) or decision_property.get("$ref") != "#/$defs/workflow_outcome_decision_record":
+        fail("the canonical workflow_outcome_outcome carries no decision_record ref; the retained output projection is stale")
+    # A decision_record:null decodes to a nil record, so the retained output
+    # shape admits it beside the retained record object.
+    retained_outcome["properties"]["decision_record"] = {
+        "description": "The retained decision record the stored predicate carries; a null decodes to nil.",
+        "oneOf": [{"$ref": "#/$defs/" + RETAINED_DECISION_RECORD_DEF}, {"type": "null"}],
+    }
+    defs[RETAINED_OUTCOME_DEF] = retained_outcome
+    defs[RETAINED_DECISION_RECORD_DEF] = retained_decision
+
+    def retarget_predicate_union(node: object, where: str) -> None:
+        branches = node.get("oneOf") if isinstance(node, dict) else None
+        if not isinstance(branches, list) or len(branches) != 4:
+            fail(f"{where}.outcome_payload is not the four-branch predicate union; the retained output retarget is stale")
+        outcome_branches = 0
+        for branch in branches:
+            if not isinstance(branch, dict) or not isinstance(branch.get("$ref"), str):
+                fail(f"{where}.outcome_payload carries a non-reference predicate branch")
+            if branch["$ref"] == "#/$defs/workflow_outcome_outcome":
+                branch["$ref"] = "#/$defs/" + RETAINED_OUTCOME_DEF
+                outcome_branches += 1
+            elif branch["$ref"] == "#/$defs/" + RETAINED_OUTCOME_DEF:
+                # Already retargeted by a previous projection run.
+                outcome_branches += 1
+        if outcome_branches != 1:
+            fail(f"{where}.outcome_payload names {outcome_branches} outcome unions; expected exactly one live or retained branch")
+
+    criterion = defs.get("work_pin_verified_criterion")
+    if not isinstance(criterion, dict) or not isinstance(criterion.get("properties"), dict):
+        fail("the projected work_pin_verified_criterion schema is missing; the retained output retarget has no owner")
+    retarget_predicate_union(criterion["properties"].get("outcome_payload"), "work_pin_verified_criterion")
+
+
 def install_workflow_self_repair_schema(defs: dict) -> None:
     envelope = json.loads(ENVELOPE.read_text())
     refusal_kinds = envelope["$defs"]["typedError"]["properties"]["kind"]["enum"]
@@ -1035,6 +1325,7 @@ def closed_field_union(branches: list[dict], defs: dict, name: str) -> dict:
         and (not contains(member, other) or other_index < index)
         for other_index, other in enumerate(flattened)
     )]
+
     if len(members) == 1:
         return copy.deepcopy(members[0])
     disjoint = []
@@ -1131,13 +1422,16 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
             known = list(branch.get("required", []))
             branch["required"] = known + [name for name in required if name not in known]
 
+    # The worktree_verify result replays the lease's stored preparation, so
+    # it starts from the retained shape, not the dispatch-admitted one.
     prepare = copy.deepcopy(defs["native_oracle_preparation"])
+    drop_retained_caps(prepare, "native_oracle_preparation")
     prepare_fields = {
         "control_id": copy.deepcopy(defs["worker_oracle_control"]["properties"]["control_id"]),
         "input_manifest_digest": {"$ref": "#/$defs/native_oracle_digest"},
         "binary_digest": {"$ref": "#/$defs/native_oracle_digest"},
         "stages": {"type": "array", "minItems": 0, "maxItems": 16, "items": {"$ref": "#/$defs/native_oracle_stage"}},
-        "detail": {"type": "string", "maxLength": 4096},
+        "detail": {"type": "string"},
     }
     prepare["properties"].update(copy.deepcopy(prepare_fields))
     prepare["required"].extend(["control_id", "stages"])
@@ -1263,6 +1557,11 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     common_required = ["work_id", "expected_version", "action_id", "idempotency_key"]
 
     outcome_payload = install_workflow_outcome_schema(defs)
+    # The retained output shapes are preserved and their uses retargeted
+    # before the live outcome union narrows: stored predicates replay the
+    # full frozen vocabulary, and the narrowing must never leak
+    # into the copies.
+    preserve_retained_outcome_outputs(defs)
     # The live outcome union narrows before any branch copy is taken: the
     # published tokens are exactly what the live heads pin, and the
     # decision_record authoring surface retires (CD-0218 D1). The frozen
@@ -1326,6 +1625,17 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
             "verdict_kind": {"type": "string", "enum": ["ok", "outcome_mismatch", "insufficient_evidence"], "description": "Explicit verdict for this predicate. Missing verdict_kind refuses the whole action before any write; no verdict kind is inferred."},
             "evaluation_evidence": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}},
             "incomparable_with_approved": {"type": "boolean"},
+        },
+    }
+    # CD-0230 D4: a serious law change pins the exact text the operator
+    # approves. Each pin names one changed law and the sha256 content hash of
+    # its drafted after-state document; completion refuses other bytes.
+    defs["workflow_law_text_pin"] = {
+        "type": "object", "additionalProperties": False,
+        "required": ["law_id", "content_hash"],
+        "properties": {
+            "law_id": {"$ref": "#/$defs/law_id"},
+            "content_hash": {"type": "string", "minLength": 71, "maxLength": 71, "pattern": "^sha256:[0-9a-f]{64}$"},
         },
     }
     defs["workflow_forward_relation"] = {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {"kind": {"const": "forward_link"}, "class": {"type": "string", "enum": ["hard", "soft", "none"]}, "severity": {"type": "string", "enum": ["breaking", "non-breaking", "informational"]}}}
@@ -1435,6 +1745,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     defs["work_transition_action_input"] = copy.deepcopy(variant_wrapper) | {"anyOf": current_variant_refs}
     defs["work_transition_action_public_input"] = copy.deepcopy(variant_wrapper) | {"anyOf": [{"$ref": f"#/$defs/{variant['schema']}"} for variant in public_variants]}
     require_delivery_rule_teaching(defs)
+    install_retained_output_twins(defs)
     return projected, public_variants
 
 
@@ -1966,6 +2277,15 @@ def fixtures_projection(manifest: dict, public_variants: list[dict]) -> str:
         if isinstance(candidate,list) and candidate:
             changed=oversized(candidate[0]);candidate[0]=changed;return candidate
         return candidate
+    def oversized_case(value, schema):
+        """The oversized case only where its string member carries a cap: an
+        uncapped member admits any length, so its oversized value is valid."""
+        candidate = oversized(value)
+        try:
+            schema_validate(candidate, schema, {"$defs": payload})
+        except ValueError:
+            return candidate
+        return value
     fixtures = []
     for operation in manifest["operations"]:
         input_name=operation["input_schema"].split("/")[-1]
@@ -1983,8 +2303,8 @@ def fixtures_projection(manifest: dict, public_variants: list[dict]) -> str:
             valid_result["dry_run"]=True
         invalid_input=dict(valid_input) if isinstance(valid_input,dict) else {"value":valid_input};invalid_input["unknown"]=True
         invalid_result=dict(valid_result) if isinstance(valid_result,dict) else {"value":valid_result};invalid_result["unknown"]=True
-        input_invalid=[case for case in [invalid_input,nested_unknown(valid_input),oversized(valid_input)] if case != valid_input]
-        result_invalid=[case for case in [invalid_result,nested_unknown(valid_result),oversized(valid_result)] if case != valid_result]
+        input_invalid=[case for case in [invalid_input,nested_unknown(valid_input),oversized_case(valid_input,input_sample_schema)] if case != valid_input]
+        result_invalid=[case for case in [invalid_result,nested_unknown(valid_result),oversized_case(valid_result,payload[result_name])] if case != valid_result]
         fixtures.append({"operation": operation["id"], "input_schema": input_name, "input_valid": valid_input, "input_invalid_cases":input_invalid, "result_schema": result_name, "result_valid": valid_result, "result_invalid_cases":result_invalid})
     return json.dumps({"manifest_digest": manifest["digest"], "fixtures": fixtures}, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
 
@@ -2057,23 +2377,34 @@ export function envelopeFailurePath(value: unknown): string | null {{
 // store's ValidateOperationPayload stays the closed admission boundary; this
 // checks only what the advertised surface teaches. The published request is
 // one compact branch per operation, with the workflow actions grouped under
-// their operation; the traversal expands the passed document's own local
-// references and factored unions, so every check below reads the
-// legacy-effective branch view of the actual published document.
+// their operation, and approve_contract's and supersede_contract's fields is
+// one closed union: the legacy shape and the consequence_v1 extension. The
+// traversal expands the passed document's own local references and factored
+// unions, so every check below reads the legacy-effective view of the actual
+// published document, and every fields check runs on each branch of the
+// fields union, so a branch-only drop cannot hide behind the factored parent.
 export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
   const gaps: string[] = [];
   const expanded: any = expandedPublishedRequestSchema(published);
   const requestBranches: any[] = Array.isArray(expanded?.oneOf) ? expanded.oneOf : [];
   // workflow_action publishes one closed branch per action variant; the
-  // teaching checks read whichever variant carries the taught field.
+  // teaching checks read each fields branch that carries the taught field.
   const actionInputs: any[] = requestBranches
     .filter((branch) => branch?.properties?.operation?.const === "workflow_action")
-    .map((branch) => branch?.properties?.input)
-    .filter((input) => input?.properties?.fields?.properties);
-  const items = actionInputs.map((input) => input.properties.fields.properties.outcome_predicates?.items).find((candidate) => candidate !== undefined);
+    .map((branch) => branch?.properties?.input);
+  const carriers: any[] = actionInputs.flatMap((input) =>
+    actionFieldsBranches(input)
+      .filter((fields) => fields?.properties?.outcome_predicates !== undefined)
+      .map((fields) => ({{ actionId: input?.properties?.action_id?.const, fields }})),
+  );
+  if (carriers.length === 0) {{
+    gaps.push("outcome_predicates items carry 0 per-kind branches, expected the 4 strict variants");
+  }}
+  for (const carrier of carriers) {{
   // The published item is closed per kind: outcome_kind consts to the branch
   // and outcome_payload carries that branch's payload, so a mismatched
   // outcome_kind/outcome_payload pair validates no branch.
+  const items: any = carrier.fields.properties.outcome_predicates?.items;
   const kindBranches: any[] = Array.isArray(items?.oneOf) ? items.oneOf : [];
   const firstBranch = kindBranches[0] ?? {{}};
   const required: string[] = Array.isArray(firstBranch.required) ? firstBranch.required : [];
@@ -2106,15 +2437,13 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
   if (typeof tokens !== "string" || !tokens.includes("workflow.research") || !tokens.includes("report_recorded") || !tokens.includes("no outcome tokens")) {{
     gaps.push("allowed description does not name the per-workflow pinned outcome tokens");
   }}
-  // More than one action variant can carry the taught field (approve_contract
-  // and supersede_contract share outcome_predicates): every carrier must
-  // teach the rule, or a drop from one variant hides behind its sibling.
-  const predicateCarriers = actionInputs.filter((input) => input.properties.fields.properties.outcome_predicates !== undefined);
-  for (const input of predicateCarriers) {{
-    const delivery: unknown = input.properties.fields.properties.outcome_predicates?.description;
-    if (delivery !== {json.dumps(DELIVERY_RULE_PREDICATE_DESCRIPTION)}) {{
-      gaps.push(`outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action ${{input?.properties?.action_id?.const}}`);
-    }}
+  // Every fields branch that carries outcome_predicates on every carrier
+  // action (approve_contract and supersede_contract) must teach the rule,
+  // or a drop from one branch hides behind its siblings.
+  const delivery: unknown = carrier.fields.properties.outcome_predicates?.description;
+  if (delivery !== {json.dumps(DELIVERY_RULE_PREDICATE_DESCRIPTION)}) {{
+    gaps.push(`outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action ${{carrier.actionId}}`);
+  }}
   }}
   // The CD-0184 wait-rule teaching retired with add_condition (CD-0218 D1):
   // no live action declares expected_within_seconds, so no wait carrier

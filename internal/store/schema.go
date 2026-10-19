@@ -6494,9 +6494,25 @@ DELETE FROM fold_guard;
 `,
 	},
 	{
+		Version:  135,
+		Name:     "workflow_contract_law_change",
+		Breaking: false,
+		// The contract fold writes this column once per contract INSERT and
+		// never updates it, the origin class migration 133 declared for its
+		// decision fact. Older rows read NULL.
+		FoldMaintained: "origin",
+		SQL: `
+-- A consequence_v1 contract that changes law records the change: its reason,
+-- the declared P12 facts, the child Domains counted at approval, its size,
+-- and its seriousness (CD-0230 D4). NULL means the contract changes no law
+-- or predates the fact. The fold validates the JSON shape.
+ALTER TABLE workflow_contracts ADD COLUMN law_change TEXT CHECK(law_change IS NULL OR json_valid(law_change));
+`,
+	},
+	{
 		// Event provenance must not constrain a rebuild whose clear list does
 		// not know this projection, so work_id has no live-work foreign key.
-		Version:  135,
+		Version:  136,
 		Name:     "workflow_define_and_ship_timing",
 		Breaking: false,
 		SQL: `

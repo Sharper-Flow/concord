@@ -302,7 +302,7 @@ func main() {
 		return
 	}
 	definitions := store.BuiltinWorkflowDefinitions()
-	recovery := store.BuiltinWorkflowCanonicalRecoveryActionDefinitions()
+	recovery := append(store.BuiltinWorkflowCanonicalRecoveryActionDefinitions(), store.BuiltinWorkflowDecisionFactActionDefinitions()...)
 	history := store.BuiltinWorkflowDefinitionsWithHistory()
 	contracts, err := collectActionContracts(definitions, recovery)
 	if err != nil {

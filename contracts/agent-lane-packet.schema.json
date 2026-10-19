@@ -943,6 +943,8 @@
           "properties": {
             "base_commit": {
               "type": "string",
+              "minLength": 40,
+              "maxLength": 64,
               "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
               "description": "The raw commit oid of the clean integration foundation the production delta is measured against."
             },

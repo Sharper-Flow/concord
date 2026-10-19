@@ -1056,20 +1056,21 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
 
     def test_the_public_dispatch_override_remains_correct(self):
         # Versioned packet schemas do not expose packet authoring publicly.
-        # The canonical heads anchor dispatch at the research-context
-        # worker_packet3 closure in every family, so the three
-        # families' identical pairs dedupe to one variant whose public
-        # override stays the lane identity alone.
+        # The size-capable heads anchor dispatch at the worker_packet4
+        # closure and the other heads at the research-context worker_packet3
+        # closure, so dispatch projects one variant per closure and every
+        # variant's public override stays the lane identity alone.
         action = self.action("dispatch_worker")
-        self.assertEqual(len(action["variants"]), 1)
-        variant = action["variants"][0]
-        self.assertNotEqual(variant["payload"], variant["public_payload"])
-        self.assertEqual([field["name"] for field in variant["public_payload"]["fields"]], ["lane_id"])
-        packet_refs = {field["schema_ref"] for field in variant["payload"]["fields"] if field["name"] == "worker_packet"}
-        self.assertEqual(packet_refs, {"worker_packet3"})
+        self.assertEqual(len(action["variants"]), 2)
+        packet_refs = set()
+        for variant in action["variants"]:
+            self.assertNotEqual(variant["payload"], variant["public_payload"])
+            self.assertEqual([field["name"] for field in variant["public_payload"]["fields"]], ["lane_id"])
+            packet_refs |= {field["schema_ref"] for field in variant["payload"]["fields"] if field["name"] == "worker_packet"}
+        self.assertEqual(packet_refs, {"worker_packet3", "worker_packet4"})
         internal = payload_schema["$defs"]["work_transition_action_variant_dispatch_worker"]["properties"]["fields"]
         branches = internal.get("anyOf", internal.get("oneOf", [internal]))
-        self.assertEqual(len(branches), 1)
+        self.assertEqual(len(branches), 2)
         for fields in branches:
             self.assertEqual(sorted(fields["properties"]), ["attempt_id", "worker_packet"])
         public = payload_schema["$defs"]["work_transition_action_public_variant_dispatch_worker"]["properties"]["fields"]
@@ -1264,7 +1265,9 @@ class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
             self.assertNotIn(f"work_transition_action_public_variant_{action_id}", defs, action_id)
         consts = set()
         for name, schema in defs.items():
-            if name.startswith("work_transition_action_variant_"):
+            # closed_field_union hoists an overlapping fields member under
+            # the variant's name; that member is not an action variant.
+            if name.startswith("work_transition_action_variant_") and "_fields_member_" not in name:
                 consts.add(schema["properties"]["action_id"]["const"])
         self.assertEqual(consts, live_ids)
         union = defs["work_transition_action_input"]
@@ -2729,8 +2732,8 @@ class RetryResponsePacketUnionTests(unittest.TestCase):
     the pinned dispatch already admitted.
 
     mutation_result.retry_worker_packet is a closed anyOf over the unchanged
-    worker_packet2 and worker_packet3 closures. The two overlap — a plain
-    packet validates under both — so oneOf would refuse exactly the ordinary
+    worker_packet2, worker_packet3, and worker_packet4 closures. They overlap
+    — a plain packet validates under several — so oneOf would refuse exactly the ordinary
     packets the union must keep admitting. The response member carries no
     schema_version gate of its own: the pinned dispatch admission selects the
     generation the work's pinned definition declares, and the response
@@ -2769,7 +2772,7 @@ class RetryResponsePacketUnionTests(unittest.TestCase):
     def test_the_retry_response_is_the_closed_two_generation_anyof(self):
         member = self.member()
         self.assertEqual([branch["$ref"] for branch in member["anyOf"]],
-                         ["#/$defs/worker_packet2", "#/$defs/worker_packet3"])
+                         ["#/$defs/worker_packet2", "#/$defs/worker_packet3", "#/$defs/worker_packet4"])
         self.assertNotIn("oneOf", member)
         self.assertNotIn("$ref", member)
         self.assertNotIn("always the versioned packet2 identity", member["description"],

@@ -276,8 +276,11 @@ var newlyFrozenHistoricalDefs = map[string]string{
 	// The size-capable packet closure the v2 catalog's dispatch_worker
 	// anchors: the packet3 identity with the size-bearing worker_job, whose
 	// four optional members ride the unchanged packet aggregate.
-	"worker_packet4":            "CON-1001: the size-capable packet identity the size-capable implementation v34 and break_fix v31 dispatch payloads declare",
-	"worker_packet4_worker_job": "CON-1001: the size-bearing worker_job the worker_packet4 inputs carry, with the caller exclusions beside the recorded size members",
+	"worker_packet4":              "CON-1001: the size-capable packet identity the size-capable implementation v34 and break_fix v31 dispatch payloads declare",
+	"worker_packet4_worker_job":   "CON-1001: the size-bearing worker_job the worker_packet4 inputs carry, with the caller exclusions beside the recorded size members",
+	"worker_job_split":            "CON-1001: record_worker_job's closed split variant (CD-0225 D3)",
+	"worker_job_split_successor":  "CON-1001: one split successor's ordinary record_worker_job content",
+	"worker_job_split_allocation": "CON-1001: one evidenced allocation of predecessor paths to a split successor",
 }
 
 // TestHistoricalDecoderRetainsFrozenBaselineBytes pins the freeze at per-name

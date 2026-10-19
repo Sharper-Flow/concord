@@ -195,6 +195,23 @@ func workerJobSizeActionFields() []WorkflowPayloadField {
 	}
 }
 
+// workerJobSplitRevision adds record_worker_job's closed split variant
+// (CD-0225 D3). The ordinary group's members stop being individually
+// required: the engine's alternative groups require either the whole
+// ordinary group or the split alone. The acceptance oracle stays required
+// beside the ordinary group; the split group forbids it, which exempts it.
+func workerJobSplitRevision(action WorkflowActionDefinition) WorkflowActionDefinition {
+	fields := make([]WorkflowPayloadField, 0, len(action.Payload.Fields)+1)
+	for _, field := range action.Payload.Fields {
+		if slices.Contains(workerJobOrdinaryGroup, field.Name) {
+			field.Required = false
+		}
+		fields = append(fields, field)
+	}
+	action.Payload.Fields = append(fields, actionObjectField("split", false, "worker_job_split"))
+	return action
+}
+
 // workflowActionCatalogV2 revises record_worker_job, dispatch_worker, and
 // accept_worker_result: the v1 contract set with the three optional size
 // members appended beside the acceptance_oracle member, dispatch_worker's
@@ -207,7 +224,7 @@ func workflowActionCatalogV2() workflowActionCatalog {
 	for actionID, actionRevisions := range v1.revisions {
 		revisions[actionID] = actionRevisions
 	}
-	revisions["record_worker_job"] = append(slices.Clone(revisions["record_worker_job"]), withAppendedPayloadFields(workerJobSizeActionFields))
+	revisions["record_worker_job"] = append(slices.Clone(revisions["record_worker_job"]), withAppendedPayloadFields(workerJobSizeActionFields), workerJobSplitRevision)
 	revisions["dispatch_worker"] = append(slices.Clone(revisions["dispatch_worker"]), withWorkerPacketRef(workerPacket4Schema))
 	revisions["accept_worker_result"] = append(slices.Clone(revisions["accept_worker_result"]), withAppendedPayloadFields(func() []WorkflowPayloadField {
 		return []WorkflowPayloadField{actionItemArrayField("supplemental_classifications", false, 1, WorkerJobMeasuredPathsMax, "worker_job_measured_path")}

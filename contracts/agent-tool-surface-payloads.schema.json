@@ -3756,6 +3756,226 @@
         }
       }
     },
+    "worker_job_split": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The closed split variant of record_worker_job (CD-0225 D3): one atomic record that replaces the current predecessor revision with two or more new successor jobs under the predecessor's cap, with an evidenced allocation of the predecessor's measured paths. The store checks reference coverage and exact retained content, not prose equivalence.",
+      "required": [
+        "predecessor",
+        "successors",
+        "allocation"
+      ],
+      "properties": {
+        "predecessor": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The predecessor's current recorded revision, named exactly by job_id, revision, and digest.",
+          "required": [
+            "job_id",
+            "revision",
+            "digest"
+          ],
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "x-minBytes": 2,
+              "x-maxBytes": 128,
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        },
+        "successors": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/worker_job_split_successor"
+          },
+          "description": "The successor jobs, each a new job_id recorded at revision 1 with the ordinary job content."
+        },
+        "allocation": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/worker_job_split_allocation"
+          },
+          "description": "The evidenced allocation of the predecessor's measured paths to successors. Every predecessor inventory path is allocated."
+        }
+      }
+    },
+    "worker_job_split_successor": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One successor job's content: the ordinary record_worker_job members. Its revision, Project scope, contract version, and digest are core-derived exactly as for an ordinary recording.",
+      "required": [
+        "job_id",
+        "objective",
+        "stopping_condition",
+        "ready",
+        "acceptance_oracle"
+      ],
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "x-minBytes": 2,
+          "x-maxBytes": 128,
+          "pattern": "^[^\\x09-\\x0d    -     　]+$",
+          "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
+        },
+        "objective": {
+          "type": "string",
+          "maxLength": 4096,
+          "x-maxBytes": 4096,
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
+        },
+        "stopping_condition": {
+          "type": "string",
+          "maxLength": 2048,
+          "x-maxBytes": 2048,
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
+        },
+        "path_scope": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "minItems": 0,
+          "maxItems": 64
+        },
+        "predicate_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "maxItems": 8
+        },
+        "checks": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/worker_job_text"
+          },
+          "minItems": 0,
+          "maxItems": 64
+        },
+        "prerequisites": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/worker_job_prerequisite"
+          },
+          "minItems": 0,
+          "maxItems": 64
+        },
+        "unresolved_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/worker_job_text"
+          },
+          "minItems": 0,
+          "maxItems": 64
+        },
+        "reserved_integration": {
+          "type": "string",
+          "maxLength": 4096,
+          "x-maxBytes": 4096,
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "readiness_evidence": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "minItems": 0,
+          "maxItems": 16
+        },
+        "acceptance_oracle": {
+          "$ref": "#/$defs/worker_acceptance_oracle"
+        },
+        "production_size_max": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "measurement_basis": {
+          "$ref": "#/$defs/worker_job_measurement_basis"
+        },
+        "direct_caller_allowance": {
+          "$ref": "#/$defs/worker_job_direct_caller_allowance"
+        }
+      }
+    },
+    "worker_job_split_allocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One allocation entry: the successor that owns the listed predecessor paths and the evidence for the assignment.",
+      "required": [
+        "job_id",
+        "paths",
+        "evidence_refs"
+      ],
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "x-minBytes": 2,
+          "x-maxBytes": 128,
+          "pattern": "^[^\\x09-\\x0d    -     　]+$",
+          "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
+        },
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "description": "Normalized relative repository paths, each inside the named successor's path_scope."
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "description": "The evidence for the assignment."
+        }
+      }
+    },
     "continuity_snapshot": {
       "type": "object",
       "additionalProperties": false,
@@ -17370,120 +17590,137 @@
           "$ref": "#/$defs/digest"
         },
         "fields": {
-          "type": "object",
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "job_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "x-minBytes": 2,
-              "x-maxBytes": 128,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
-            },
-            "objective": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "pattern": "\\S",
-              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
-            },
-            "stopping_condition": {
-              "type": "string",
-              "maxLength": 2048,
-              "x-maxBytes": 2048,
-              "minLength": 1,
-              "pattern": "\\S",
-              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
-            },
-            "path_scope": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/reference"
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "job_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "x-minBytes": 2,
+                  "x-maxBytes": 128,
+                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
+                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
+                },
+                "objective": {
+                  "type": "string",
+                  "maxLength": 4096,
+                  "x-maxBytes": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
+                },
+                "stopping_condition": {
+                  "type": "string",
+                  "maxLength": 2048,
+                  "x-maxBytes": 2048,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
+                },
+                "path_scope": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "minItems": 0,
+                  "maxItems": 64
+                },
+                "predicate_ids": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "minItems": 0,
+                  "maxItems": 8
+                },
+                "checks": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/worker_job_text"
+                  },
+                  "minItems": 0,
+                  "maxItems": 64
+                },
+                "prerequisites": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/worker_job_prerequisite"
+                  },
+                  "minItems": 0,
+                  "maxItems": 64
+                },
+                "unresolved_refs": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/worker_job_text"
+                  },
+                  "minItems": 0,
+                  "maxItems": 64
+                },
+                "reserved_integration": {
+                  "type": "string",
+                  "maxLength": 4096,
+                  "x-maxBytes": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
+                },
+                "ready": {
+                  "type": "boolean"
+                },
+                "readiness_evidence": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "minItems": 0,
+                  "maxItems": 16
+                },
+                "acceptance_oracle": {
+                  "$ref": "#/$defs/worker_acceptance_oracle"
+                },
+                "production_size_max": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                },
+                "measurement_basis": {
+                  "$ref": "#/$defs/worker_job_measurement_basis"
+                },
+                "direct_caller_allowance": {
+                  "$ref": "#/$defs/worker_job_direct_caller_allowance"
+                }
               },
-              "minItems": 0,
-              "maxItems": 64
+              "required": [
+                "job_id",
+                "objective",
+                "stopping_condition",
+                "ready",
+                "acceptance_oracle"
+              ]
             },
-            "predicate_ids": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/id"
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "split": {
+                  "$ref": "#/$defs/worker_job_split"
+                }
               },
-              "minItems": 0,
-              "maxItems": 8
-            },
-            "checks": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/worker_job_text"
-              },
-              "minItems": 0,
-              "maxItems": 64
-            },
-            "prerequisites": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/worker_job_prerequisite"
-              },
-              "minItems": 0,
-              "maxItems": 64
-            },
-            "unresolved_refs": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/worker_job_text"
-              },
-              "minItems": 0,
-              "maxItems": 64
-            },
-            "reserved_integration": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "pattern": "\\S",
-              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
-            },
-            "ready": {
-              "type": "boolean"
-            },
-            "readiness_evidence": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/reference"
-              },
-              "minItems": 0,
-              "maxItems": 16
-            },
-            "acceptance_oracle": {
-              "$ref": "#/$defs/worker_acceptance_oracle"
-            },
-            "production_size_max": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 2147483647
-            },
-            "measurement_basis": {
-              "$ref": "#/$defs/worker_job_measurement_basis"
-            },
-            "direct_caller_allowance": {
-              "$ref": "#/$defs/worker_job_direct_caller_allowance"
+              "required": [
+                "split"
+              ]
             }
-          },
-          "required": [
-            "job_id",
-            "objective",
-            "stopping_condition",
-            "ready",
-            "acceptance_oracle"
           ]
         }
       },

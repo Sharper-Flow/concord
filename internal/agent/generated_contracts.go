@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:4a8132ec8803cbadba10526071ec3795620320a710bc63c0fbf3fa1918983ac0"
+const ManifestDigest = "sha256:0355564b1ebe34fe8a43810013f07c605d61b10a36373b3dc38fe72c3f58d583"
 
 type OperationKind string
 
@@ -343,6 +343,9 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"worker_job_measured_path":                                       {Required: []string{"path", "class"}, Properties: []string{"path", "class", "generator_ref"}},
 	"worker_job_measurement_basis":                                   {Required: []string{"base_commit", "paths"}, Properties: []string{"base_commit", "paths"}},
 	"worker_job_prerequisite":                                        {Required: []string{"job_id", "revision"}, Properties: []string{"job_id", "revision", "result_ref"}},
+	"worker_job_split":                                               {Required: []string{"predecessor", "successors", "allocation"}, Properties: []string{"predecessor", "successors", "allocation"}},
+	"worker_job_split_allocation":                                    {Required: []string{"job_id", "paths", "evidence_refs"}, Properties: []string{"job_id", "paths", "evidence_refs"}},
+	"worker_job_split_successor":                                     {Required: []string{"job_id", "objective", "stopping_condition", "ready", "acceptance_oracle"}, Properties: []string{"job_id", "objective", "stopping_condition", "path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration", "ready", "readiness_evidence", "acceptance_oracle", "production_size_max", "measurement_basis", "direct_caller_allowance"}},
 	"worker_oracle_case":                                             {Required: []string{"case_id", "owner_id", "entry_point", "input_class", "expected_state", "control_ids"}, Properties: []string{"case_id", "owner_id", "entry_point", "input_class", "expected_state", "control_ids"}},
 	"worker_oracle_control":                                          {Required: []string{"control_id", "owner_id", "predicate_ids", "case_ids", "recipe_source", "argv", "cwd", "expected_result", "required_evidence_role", "readiness_evidence_refs"}, Properties: []string{"control_id", "owner_id", "predicate_ids", "case_ids", "recipe_source", "argv", "cwd", "expected_result", "required_evidence_role", "readiness_evidence_refs"}},
 	"worker_oracle_finding":                                          {Required: []string{"classification"}, Properties: []string{"classification", "owner_id", "failure_family", "predicate_ids", "law_bindings", "case_ids", "control_ids", "evidence_refs", "entry_point", "continues_finding_id", "variant_of"}},

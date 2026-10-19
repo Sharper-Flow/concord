@@ -90,7 +90,7 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 		if refused.Outcome != OutcomeError || refused.Error == nil {
 			t.Fatalf("approve_contract without a stated question %d outcome=%q, want refusal", i, refused.Outcome)
 		}
-		if string(refused.Error.Kind) != "invalid_input" || !strings.Contains(refused.Error.Message, "$.fields.premise") {
+		if refused.Error.Kind != "invalid_input" || !strings.Contains(refused.Error.Message, "$.fields.premise") {
 			t.Fatalf("approve_contract without a stated question %d refused as %s: %s, want an invalid premise", i, refused.Error.Kind, refused.Error.Message)
 		}
 	}
@@ -98,7 +98,7 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 		t.Fatalf("contract approvals without a stated question=%d, want 0", approvals)
 	}
 	stated := action("approve_contract", map[string]any{"premise": "Which retry bound keeps the dispatch route live?", "outcome_predicates": predicates}, "framing-gate-stated-question")
-	if stated.Error == nil || string(stated.Error.Kind) != "approval_required" {
+	if stated.Error == nil || stated.Error.Kind != "approval_required" {
 		t.Fatalf("approve_contract with a stated question = %+v, want the operator approval boundary", stated.Error)
 	}
 }

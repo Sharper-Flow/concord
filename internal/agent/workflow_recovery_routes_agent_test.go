@@ -1623,6 +1623,9 @@ func runJourneyDeliveryAndAdvance(t *testing.T, tuple workflowRecoveryRouteTuple
 	if dispatch.Outcome != OutcomeOK {
 		t.Fatalf("%s dispatch_worker at %q: %+v", suffix, deliveryStep, dispatch.Error)
 	}
+	if deliveryLane.CapabilityClass == "implementation" {
+		deliverAgentFixtureChange(t, s, "work-1", attemptID)
+	}
 	appendLaneCompletion(t, s, grant, deliveryLane, attemptID, suffix)
 	epoch := attemptEpoch(t, s, attemptID)
 	if epoch == 0 {

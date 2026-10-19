@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -335,7 +336,9 @@ func NewWorkflowDefinitionRegistry() DefinitionRegistry {
 	return &workflowDefinitionRegistry{entries: make(map[string]RegisteredDefinition)}
 }
 
-func registryKey(ref string, version int64) string { return fmt.Sprintf("%s\x00%d", ref, version) }
+func registryKey(ref string, version int64) string {
+	return ref + "\x00" + strconv.FormatInt(version, 10)
+}
 
 func (r *workflowDefinitionRegistry) Register(definition WorkflowDefinition) (RegisteredDefinition, error) {
 	registered, err := r.register(definition)

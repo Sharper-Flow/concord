@@ -3,8 +3,12 @@
 // probe against that tag's own source. Tags with identical internal trees,
 // go.mod, and go.sum share one probe. An unrecognized
 // registry entry refuses the tag. Each written (kind, version, type) is then
-// joined to the historical corpus witness log; an unwitnessed shape or an
-// unapproved refusal holds (exit 1). Run from the repository root.
+// joined to the witness logs: historical corpus rows, and writer-produced rows
+// from scripts/release-restore-gate.py, each bound to its own release's
+// registered shape or older accepted version. An unwitnessed shape or older
+// version, a writer row that binds to no registered shape or accepted version of
+// its release, or an unapproved refusal holds (exit 1).
+// Run from the repository root.
 package main
 
 import (
@@ -283,21 +287,29 @@ func inspect(result row) (row, []string) {
 func main() {
 	output := flag.String("out", "cmd/concord/testdata/release_restore/writers.json", "inventory to write")
 	coverageOut := flag.String("coverage", "cmd/concord/testdata/release_restore/coverage.json", "shape coverage to write")
-	witnesses := flag.String("witnesses", "", "historical corpus witness log (JSON lines) to bind shapes to")
+	var witnesses []string
+	flag.Func("witnesses", "witness log (JSON lines) to bind shapes to: a historical corpus or release gate log; repeatable", func(path string) error {
+		witnesses = append(witnesses, path)
+		return nil
+	})
 	flag.Parse()
-	if err := run(*output, *coverageOut, *witnesses); err != nil {
+	if err := run(*output, *coverageOut, witnesses); err != nil {
 		fmt.Fprintln(os.Stderr, "release-restore-inventory:", err)
 		os.Exit(1)
 	}
 }
 
-func run(output, coverageOut, witnessLog string) error {
-	if witnessLog == "" {
+func run(output, coverageOut string, witnessLogs []string) error {
+	if len(witnessLogs) == 0 {
 		return errors.New("-witnesses is required: shapes without a witness join are not coverage")
 	}
-	witnesses, err := readWitnesses(witnessLog)
-	if err != nil {
-		return err
+	var witnesses []witness
+	for _, log := range witnessLogs {
+		rows, err := readWitnesses(log)
+		if err != nil {
+			return err
+		}
+		witnesses = append(witnesses, rows...)
 	}
 	tags, err := listTags()
 	if err != nil || len(tags) == 0 {
@@ -357,7 +369,7 @@ func run(output, coverageOut, witnessLog string) error {
 	if err != nil {
 		return err
 	}
-	data, err = json.MarshalIndent(map[string]any{"schema": "concord.release-restore-coverage.v1", "shapes": coverage}, "", " ")
+	data, err = json.MarshalIndent(coverage, "", " ")
 	if err != nil {
 		return err
 	}
@@ -371,7 +383,16 @@ func run(output, coverageOut, witnessLog string) error {
 			break
 		}
 	}
-	for _, shape := range coverage {
+	if len(coverage.Unbound) > 0 {
+		held = append(held, errors.New("coverage held: a writer-produced row binds to no registered shape or accepted version of its release; see coverage"))
+	}
+	for _, older := range coverage.Older {
+		if !older.Covered {
+			held = append(held, errors.New("coverage held: an older accepted version lacks a same-release witness; see coverage"))
+			break
+		}
+	}
+	for _, shape := range coverage.Shapes {
 		if !shape.Covered {
 			held = append(held, errors.New("coverage held: a written shape has no complete witness; see coverage"))
 			break
@@ -380,12 +401,54 @@ func run(output, coverageOut, witnessLog string) error {
 	return errors.Join(held...)
 }
 
-// witness is one passing historical corpus row (recordHistoricalWitness).
+// witness is one admitted row: a passing historical corpus row
+// (recordHistoricalWitness) names its Test; a writer-produced row from the
+// release gate carries the Writer that produced it and its place in that
+// writer's snapshot.
 type witness struct {
-	Test           string `json:"test"`
-	Kind           string `json:"kind"`
-	PayloadVersion int    `json:"payload_version"`
-	Payload        string `json:"payload"`
+	Test           string        `json:"test"`
+	Writer         *writerSource `json:"writer"`
+	Seq            int64         `json:"seq"`
+	EventID        string        `json:"event_id"`
+	Kind           string        `json:"kind"`
+	PayloadVersion int           `json:"payload_version"`
+	Payload        string        `json:"payload"`
+}
+
+// writerSource is the provenance chain of a writer-produced row: the release,
+// its verified asset, the closed recipe it ran, and the snapshot it was read from.
+type writerSource struct {
+	Tag            string `json:"tag"`
+	AssetDigest    string `json:"asset_digest"`
+	Recipe         string `json:"recipe"`
+	RecipeSHA256   string `json:"recipe_sha256"`
+	SnapshotSHA256 string `json:"snapshot_sha256"`
+}
+
+var (
+	sha256Prefixed = regexp.MustCompile(`\Asha256:[0-9a-f]{64}\z`)
+	sha256Bare     = regexp.MustCompile(`\A[0-9a-f]{64}\z`)
+)
+
+// complete reports whether a row carries every link of its provenance.
+func (w witness) complete() bool {
+	if w.Kind == "" || w.PayloadVersion < 1 {
+		return false
+	}
+	if w.Writer == nil {
+		return w.Test != ""
+	}
+	src := w.Writer
+	return w.Test == "" && w.Seq > 0 && w.EventID != "" && src.Tag != "" && src.Recipe != "" &&
+		sha256Prefixed.MatchString(src.AssetDigest) && sha256Bare.MatchString(src.RecipeSHA256) && sha256Bare.MatchString(src.SnapshotSHA256)
+}
+
+// name is the witness's identity in coverage output.
+func (w witness) name() string {
+	if w.Writer == nil {
+		return w.Test
+	}
+	return "release:" + w.Writer.Tag + "@" + w.Writer.Recipe
 }
 
 // shapeCoverage binds one written (kind, version, type) to the witnesses whose
@@ -401,7 +464,28 @@ type shapeCoverage struct {
 	Covered        bool     `json:"covered"`
 }
 
-// readWitnesses loads the corpus witness log before any probe runs.
+// olderCoverage is one accepted payload version below a registration's current
+// one. It has no static type: the release's upcaster reads raw JSON. Every
+// release that accepts it owes a witness from its own writer at that
+// (kind, version); a corpus row names no release and cannot stand in.
+type olderCoverage struct {
+	Kind           string   `json:"kind"`
+	PayloadVersion int      `json:"payload_version"`
+	Writers        []string `json:"writers"`
+	Witnesses      []string `json:"witnesses"`
+	Missing        []string `json:"missing_writers,omitempty"`
+	Covered        bool     `json:"covered"`
+}
+
+// coverageReport is coverage.json.
+type coverageReport struct {
+	Schema  string          `json:"schema"`
+	Shapes  []shapeCoverage `json:"shapes"`
+	Older   []olderCoverage `json:"older_versions"`
+	Unbound []string        `json:"unbound_writer_witnesses"`
+}
+
+// readWitnesses loads one witness log before any probe runs.
 func readWitnesses(witnessLog string) ([]witness, error) {
 	data, err := os.ReadFile(filepath.Clean(witnessLog))
 	if err != nil {
@@ -409,12 +493,12 @@ func readWitnesses(witnessLog string) ([]witness, error) {
 	}
 	data = bytes.TrimSpace(data)
 	if len(data) == 0 {
-		return nil, errors.New("witness log is empty: the corpus run recorded no rows")
+		return nil, fmt.Errorf("witness log is empty: %s recorded no rows", witnessLog)
 	}
 	var rows []witness
 	for _, line := range bytes.Split(data, []byte("\n")) {
 		var w witness
-		if err := json.Unmarshal(line, &w); err != nil || w.Test == "" || w.Kind == "" {
+		if err := json.Unmarshal(line, &w); err != nil || !w.complete() {
 			return nil, fmt.Errorf("witness log line %q is not a witness row", line)
 		}
 		rows = append(rows, w)
@@ -422,35 +506,58 @@ func readWitnesses(witnessLog string) ([]witness, error) {
 	return rows, nil
 }
 
-func cover(inv inventory, rows []witness) ([]shapeCoverage, error) {
-	shapes := map[string]*shapeCoverage{}
+// cover joins witnesses to written shapes. A corpus row covers every shape of
+// its (kind, version) it conforms to. A writer row covers only the shape its own
+// release registers for its (kind, version), and only when it conforms to it,
+// or that release's older accepted version when its payload is a JSON object;
+// a writer row from an approved excluded release is excluded with it; any
+// other writer row is returned as unbound.
+func cover(inv inventory, rows []witness) (coverageReport, error) {
+	shapes, older := map[string]*shapeCoverage{}, map[string]*olderCoverage{}
+	registered, accepted, excluded := map[string]string{}, map[string]bool{}, map[string]bool{}
 	for _, result := range inv.Rows {
+		excluded[result.Tag] = result.Excluded
 		if result.Status != "inventoried" {
 			continue
 		}
 		for _, r := range inv.Groups[result.Group] {
+			registered[fmt.Sprintf("%s\x00%s\x00%d", result.Tag, r.Kind, r.CurrentVersion)] = r.Type
 			key := fmt.Sprintf("%s\x00%d\x00%s", r.Kind, r.CurrentVersion, r.Type)
 			if shapes[key] == nil {
 				shapes[key] = &shapeCoverage{Kind: r.Kind, PayloadVersion: r.CurrentVersion, Type: r.Type, Witnesses: []string{}}
 			}
 			shapes[key].Writers = append(shapes[key].Writers, result.Tag)
+			for version := r.MinSupported; version < r.CurrentVersion; version++ {
+				accepted[fmt.Sprintf("%s\x00%s\x00%d", result.Tag, r.Kind, version)] = true
+				key := fmt.Sprintf("%s\x00%d", r.Kind, version)
+				if older[key] == nil {
+					older[key] = &olderCoverage{Kind: r.Kind, PayloadVersion: version, Witnesses: []string{}}
+				}
+				older[key].Writers = append(older[key].Writers, result.Tag)
+			}
 		}
 	}
+	unbound := []string{}
+	bound := map[int]bool{}
 	coverage := make([]shapeCoverage, 0, len(shapes))
 	for _, s := range shapes {
 		var shape any
 		if err := json.Unmarshal(inv.Types[s.Type], &shape); err != nil {
-			return nil, fmt.Errorf("type %s: %w", s.Type, err)
+			return coverageReport{}, fmt.Errorf("type %s: %w", s.Type, err)
 		}
 		missing, tests := map[string]bool{}, map[string]bool{}
 		paths(shape, "$", missing)
-		for _, w := range rows {
+		for i, w := range rows {
 			var value any
 			present := map[string]bool{}
+			if w.Writer != nil && registered[fmt.Sprintf("%s\x00%s\x00%d", w.Writer.Tag, w.Kind, w.PayloadVersion)] != s.Type {
+				continue
+			}
 			if w.Kind != s.Kind || w.PayloadVersion != s.PayloadVersion || json.Unmarshal([]byte(w.Payload), &value) != nil || !conforms(shape, value, "$", present) {
 				continue
 			}
-			tests[w.Test] = true
+			bound[i] = true
+			tests[w.name()] = true
 			for path := range present {
 				delete(missing, path)
 			}
@@ -466,6 +573,41 @@ func cover(inv inventory, rows []witness) ([]shapeCoverage, error) {
 		s.Covered = len(tests) > 0 && len(missing) == 0
 		coverage = append(coverage, *s)
 	}
+	witnessed := map[string]bool{}
+	for i, w := range rows {
+		var value map[string]any
+		if w.Writer == nil {
+			continue
+		}
+		key := fmt.Sprintf("%s\x00%s\x00%d", w.Writer.Tag, w.Kind, w.PayloadVersion)
+		if !accepted[key] || json.Unmarshal([]byte(w.Payload), &value) != nil || value == nil {
+			continue
+		}
+		bound[i] = true
+		witnessed[key] = true
+	}
+	olderCoverages := make([]olderCoverage, 0, len(older))
+	for _, o := range older {
+		for _, tag := range o.Writers {
+			if witnessed[fmt.Sprintf("%s\x00%s\x00%d", tag, o.Kind, o.PayloadVersion)] {
+				o.Witnesses = append(o.Witnesses, tag)
+			} else {
+				o.Missing = append(o.Missing, tag)
+			}
+		}
+		o.Covered = len(o.Missing) == 0
+		olderCoverages = append(olderCoverages, *o)
+	}
+	sort.Slice(olderCoverages, func(i, j int) bool {
+		a, b := olderCoverages[i], olderCoverages[j]
+		return a.Kind < b.Kind || a.Kind == b.Kind && a.PayloadVersion < b.PayloadVersion
+	})
+	for i, w := range rows {
+		if w.Writer != nil && !bound[i] && !excluded[w.Writer.Tag] {
+			unbound = append(unbound, fmt.Sprintf("%s seq %d %s v%d", w.Writer.Tag, w.Seq, w.Kind, w.PayloadVersion))
+		}
+	}
+	sort.Strings(unbound)
 	sort.Slice(coverage, func(i, j int) bool {
 		a, b := coverage[i], coverage[j]
 		if a.Kind != b.Kind {
@@ -476,7 +618,7 @@ func cover(inv inventory, rows []witness) ([]shapeCoverage, error) {
 		}
 		return a.Type < b.Type
 	})
-	return coverage, nil
+	return coverageReport{Schema: "concord.release-restore-coverage.v1", Shapes: coverage, Older: olderCoverages, Unbound: unbound}, nil
 }
 
 // paths lists every JSON path a shape can present: "[]" steps into elements,

@@ -197,7 +197,7 @@ func conformanceStepEntryAction(t *testing.T, definition WorkflowDefinition, ste
 }
 
 // TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept replays the
-// CON-796 witness path on the break-fix definition the fixture pins and
+// rejection-review witness path on the break-fix definition the fixture pins and
 // asserts, at every checkpoint, that the loader's fold equals the abstract successor of
 // the previous state under the action just performed, lifted through the
 // rules the liveness checks decide over.

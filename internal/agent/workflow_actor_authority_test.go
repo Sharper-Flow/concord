@@ -833,5 +833,5 @@ func liveHeadVersion(t *testing.T, ref string) int64 {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return int64(live.Definition.Version)
+	return live.Definition.Version
 }

@@ -1409,7 +1409,7 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 	if consequence {
 		successor["decision_domains"] = []string{"product"}
 	}
-	recoveryStep := func(name string, input map[string]any) Envelope {
+	recoveryStep := func(input map[string]any) Envelope {
 		t.Helper()
 		if consequence {
 			return invoke(input)
@@ -1417,7 +1417,7 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 		return approvedRecoveryAction(t, s, service, env, input)
 	}
 	supersede := map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "supersede_contract", "fields": successor, "idempotency_key": tuple.WorkflowID + "-supersede"}
-	requireRecoveryOK(t, "successor", recoveryStep("successor", supersede))
+	requireRecoveryOK(t, "successor", recoveryStep(supersede))
 	if got := stepOf(t, s); got != evaluator {
 		t.Fatalf("ordinary supersession moved %s to %s", evaluator, got)
 	}
@@ -1452,7 +1452,7 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 	if err := store.WorkflowActionPreflightWithRegistry(ctx, s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{WorkID: "work-1", ActionID: "request_correction", Payload: retryJSON(correction["fields"]), Actor: actor}); err != nil {
 		t.Fatalf("correction preflight: %v", err)
 	}
-	requireRecoveryOK(t, "correction", recoveryStep("correction", correction))
+	requireRecoveryOK(t, "correction", recoveryStep(correction))
 	if got := stepOf(t, s); got != tuple.Target {
 		t.Fatalf("correction target=%s, want %s", got, tuple.Target)
 	}
@@ -1480,7 +1480,7 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 		t.Fatalf("confirmation reached %s, want %s", got, terminal)
 	}
 	complete := map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "complete", "fields": map[string]any{"impact_verdict": "non-breaking"}, "idempotency_key": tuple.WorkflowID + "-complete"}
-	requireRecoveryOK(t, "completion", recoveryStep("completion", complete))
+	requireRecoveryOK(t, "completion", recoveryStep(complete))
 	if lifecycle := workLifecycle(t, s, "work-1"); lifecycle != "completed" {
 		t.Fatalf("lifecycle=%s, want completed", lifecycle)
 	}

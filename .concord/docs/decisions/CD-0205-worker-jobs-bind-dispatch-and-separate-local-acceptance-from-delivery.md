@@ -13,6 +13,9 @@
   definition content and digests; CD-0148, the exact retry approval and fresh
   fencing; CD-0201, the single admission derivation and the liveness law
 - **Related:** CD-0137, CD-0192
+- **Amended by:** [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
+  D4 (the recorded observer and phase are an eligibility condition of the
+  `host_changed` basis)
 - **Approval:** The operator approved contract version 1 of
   `work-e46f4308fb5dad191fcbe259`. That contract names CD-0164 and CD-0198 as
   modified law and adds this record.
@@ -382,7 +385,11 @@ Attribution cannot truncate a source into a different claim.
 Attribution supplies no verification evidence, effect, retry, delivery, or
 acceptance authority. Every dispatched attempt still counts. Exact retry
 approval, the convergence wall, independent verdicts, and the sole delivery
-admission keep their owners.
+admission keep their owners. The store reads a recorded observer and phase
+only as one eligibility condition of the `host_changed` convergence basis
+(CD-0239 D4); the basis also needs the live leased process claim and time
+conditions of CD-0239 D1, which prove neither host repair nor authenticated
+host identity.
 
 Existing event, attempt, and history reads expose attribution with its source
 version. Released definitions keep their original behavior. Historical

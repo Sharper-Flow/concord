@@ -356,6 +356,9 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		if !available {
 			return coreError(base, "invalid_transition", "workflow action registry is unavailable", "reread_entities", false), nil
 		}
+		if strictAction.ActionID == "dispatch_worker" {
+			ctx = store.WithHostLeaseSet(ctx, s.ReadHostLeases())
+		}
 		if err := preflightWorkflowActionRequestWithRegistry(ctx, s, request.Input, env, actor, registry); err != nil {
 			return failureEnvelope(base, err), nil
 		}

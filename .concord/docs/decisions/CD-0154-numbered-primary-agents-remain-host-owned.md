@@ -5,15 +5,22 @@
 - **Scope:** Ownership and distribution of the `concord-0`, `concord-1`, and
   `concord-2` OpenCode definitions, and portable named primary profiles
 - **Approval:** The operator approved host ownership with repository examples.
+  The operator approved the coordinator-routing amendment as exact text on
+  2026-10-19 for
+  [Concord (CON) issue 1212](https://linear.app/sharper-flow/issue/CON-1212).
 - **Amendment reason:** Concord is the self-sufficient primary agent; a user
   may choose an optional release train engineer for concurrent work.
   A profile-level allow-all shell rule overrode the host's shell denials, so
   the profiles deny only named unsafe commands and leave every other command
   to the host.
+  A work-item session brings a security, UI/UX, preference, or product choice
+  that no approval point holds to the release train engineer (RTE) first, and
+  the RTE decides it when the answer is clear (CD-0230 D5).
 - **Revision choice:** In-place amendment under CD-0036. Existing workflow pins
   and stored contracts keep their meaning; the managed profile name changes
   through the installer's existing retirement transaction.
-- **P12:** Serious: the agent name users select and its permission boundary change.
+- **P12:** Serious: the agent name users select, its permission boundary, and
+  which choices reach the operator change.
 - **Related:** CD-0043, CD-0063, CD-0102, and CD-0111
 
 ## Context
@@ -59,15 +66,18 @@ The user may choose to start `Concord-RTE` when a Product or Project has many
 simultaneous work streams or needs a coordinated burst of development. This
 session is optional; it is not a required layer above Concord.
 
-Each work-item session decides within its item and asks the human operator
-directly only at the operator's reserved boundaries. It never waits for the
-RTE's acceptance.
+Each work-item session decides within its item. It brings a choice that
+[CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
+D5 routes to a coordinator to the RTE when one coordinates the item, and asks
+the human operator directly at the operator's reserved boundaries. It never
+waits for the RTE's acceptance.
 
 The RTE spots shared owners and conflicts, sets merge order for dependent or
 conflicting branches, relays facts, removes impediments, keeps Linear current,
 and reports ship status to the operator. It schedules installation and release
-windows with the operator. It never approves, accepts, publishes for, or
-decides inside another session's item.
+windows with the operator. It never approves, accepts, or publishes for
+another session's item. Inside that item it decides only a choice CD-0230 D5
+routes to it, and records the decision and its reasons on the item.
 
 Both primary profiles grant full editing and delegation permissions, with no
 profile-level Concord-tool denial. Their shell rules only deny named unsafe

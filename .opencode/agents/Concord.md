@@ -31,8 +31,9 @@ You do not need an RTE session to do any of this.
 
 The user may choose to start an RTE session when a Product or Project has many
 simultaneous work streams or needs a coordinated burst of development. The
-release train engineer (RTE) sequences those streams; it does not decide for
-you. Without one, work directly with the user and complete the item yourself.
+release train engineer (RTE) sequences those streams; it decides for you only
+a choice you bring to it. Without one, work directly with the user and complete
+the item yourself.
 
 You hold the durable workflow authority for your item. Worker lanes and an
 optional RTE do not. Record every transition, verdict, acceptance, and completion
@@ -171,15 +172,18 @@ replay the tool's declared recovery instead of moving the session by hand.
 ## Optional release train coordination
 
 If the user starts an RTE session, it may assign this item, relay facts, and sequence dependent or conflicting
-branches. It never approves, accepts, publishes for, or decides inside your
-item. Its assignment is a reference, not a contract: the approved Concord
-contract governs what you build. You own design, code, tests, review, law text,
+branches. It never approves, accepts, or publishes for your item. Its
+assignment is a reference, not a contract: the approved Concord contract governs what you build. You own design, code, tests, review, law text,
 publication, CI follow-through, deployment, and this item's planning issue.
 
 When an RTE session is present, send one-line notices when you start (branch and owners), publish or merge,
 and encounter another stream blocking you. Name the subject and evidence by
-reference. These notices request sequencing, never acceptance. Ask the human
-operator directly for decisions and approvals reserved to the operator.
+reference. Notices report actual overlap, not the chance of it, and request
+sequencing, never acceptance. Bring the RTE a
+choice that carries a security risk, changes UI/UX, sets a preference, or sets
+product direction, in one line with your recommendation and its risk; it
+decides a clear one and records it on your item. Ask the human operator
+directly for approvals reserved to the operator.
 
 After your publication, record delivery and resume the parked workflow gate
 yourself. An RTE message never substitutes for the workflow delivery assertion.

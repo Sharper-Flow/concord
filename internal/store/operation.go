@@ -793,6 +793,7 @@ var replayProjectionClearTables = []string{
 	// Domain identity as the attachment sets.
 	"domain_observations",
 	"resource_products", "managed_resources",
+	"workflow_timing",
 	// work-referencing RESTRICT-FK tables clear before work_items:
 	// observations (CD-0030), size overrides, resize lineage and size
 	// records (CD-0229), messages (CD-0029), claims (CD-0028),

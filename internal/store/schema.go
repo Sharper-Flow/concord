@@ -6493,6 +6493,41 @@ CREATE TRIGGER workflow_overlap_resolutions_guard_delete BEFORE DELETE ON workfl
 DELETE FROM fold_guard;
 `,
 	},
+	{
+		// Event provenance must not constrain a rebuild whose clear list does
+		// not know this projection, so work_id has no live-work foreign key.
+		Version:  135,
+		Name:     "workflow_define_and_ship_timing",
+		Breaking: false,
+		SQL: `
+CREATE TABLE workflow_timing (
+    work_id TEXT PRIMARY KEY,
+    define_event_id TEXT UNIQUE REFERENCES domain_events(event_id) ON DELETE RESTRICT,
+    define_started_at TEXT,
+    queue_event_id TEXT UNIQUE REFERENCES domain_events(event_id) ON DELETE RESTRICT,
+    queue_entered_at TEXT,
+    queue_artifact TEXT,
+    CHECK((define_event_id IS NULL) = (define_started_at IS NULL)),
+    CHECK((queue_event_id IS NULL) = (queue_entered_at IS NULL)),
+    CHECK((queue_event_id IS NULL) = (queue_artifact IS NULL))
+);
+CREATE TRIGGER workflow_timing_guard_insert BEFORE INSERT ON workflow_timing FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_timing is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_timing_guard_update BEFORE UPDATE ON workflow_timing FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_timing is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_timing_guard_delete BEFORE DELETE ON workflow_timing FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_timing is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+INSERT INTO fold_guard(active) VALUES(1);
+INSERT INTO workflow_timing(work_id,define_event_id,define_started_at)
+SELECT root_work_id,event_id,occurred_at FROM (
+    SELECT coalesce(l.root_work_id,e.subject_id) AS root_work_id,e.event_id,e.occurred_at,
+           row_number() OVER (PARTITION BY coalesce(l.root_work_id,e.subject_id) ORDER BY e.seq) AS source_order
+    FROM domain_events e JOIN workflow_actors a ON a.actor_ref=e.actor
+    LEFT JOIN work_resize_lineage l ON l.successor_work_id=e.subject_id
+    WHERE e.subject_type='work_item' AND e.kind='workflow.action_completed' AND a.actor_class='agent'
+      AND coalesce(json_extract(e.payload,'$.action_id'),'')<>''
+      AND substr(e.event_id,-length(':workflow-failure'))<>':workflow-failure'
+) WHERE source_order=1;
+DELETE FROM fold_guard;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

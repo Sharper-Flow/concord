@@ -2676,6 +2676,9 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
+	if err := recordWorkflowTimingTx(ctx, tx, event, p, entry.Definition); err != nil {
+		return err
+	}
 	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',last_checkpoint_at=? WHERE work_id=?`, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
 	if err != nil || p.ActionID == "" || (!advancesStep && p.ActionID != "request_correction") {
 		return err

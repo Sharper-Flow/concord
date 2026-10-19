@@ -419,7 +419,7 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
             if rc != 0:
                 raise CaseFailure("unknown", verb, f"writer refused recipe step {step} {verb} with exit {rc}")
         snapshot = case / "snapshot.db"
-        manifest = snapshot_fixture(Path(env["CONCORD_DB_PATH"]), snapshot, writer.tag, room, guard, deadline)
+        manifest = snapshot_fixture(store, snapshot, writer.tag, room, guard, deadline)
         row["source"] = {key: manifest[key] for key in ("schema_version", "event_watermark", "db_checksum")}
         row["restored"] = restore(candidate, snapshot, case / "restored.db", case, deadline, streams, "restore", guard)
         again = case / "restored-snapshot.db"
@@ -434,7 +434,7 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
             raise CaseFailure("unknown", "budget", "case finished after its budget")
         row |= {"status": "pass", "stage": "complete", "detail": ""}
     except CaseFailure as failure:
-        row |= {"status": failure.status, "stage": failure.stage, "detail": failure.detail, "witnesses": []}
+        row |= {"status": failure.status, "stage": failure.stage, "detail": failure.detail}
     except sqlite3.Error as error:
         try:
             checkpoint(deadline)
@@ -504,10 +504,10 @@ def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tup
         futures = [pool.submit(run_writer_case, args.repository, writer, candidate, output / "cases", output / "streams" / writer.tag,
                                args.case_seconds, wall_deadline, scratch, transfer) for writer in writers]
         rows = [future.result() for future in futures]
-    emitted = [witness for row in rows for witness in row.pop("witnesses")]
-    (output / "witnesses.jsonl").write_text("".join(json.dumps(w, sort_keys=True) + "\n" for w in emitted), encoding="utf-8")
     if sha256_file(candidate) != candidate_sha256:
         raise GateError("the candidate binary changed during the run")
+    emitted = [witness for row in rows for witness in row.pop("witnesses") if row["status"] == "pass"]
+    (output / "witnesses.jsonl").write_text("".join(json.dumps(w, sort_keys=True) + "\n" for w in emitted), encoding="utf-8")
     rows += unknown
     coverage = shape_coverage(Path(args.census_dir), writers)
     counts = {status: sum(row["status"] == status for row in rows) for status in ("pass", "fail", "unknown")}

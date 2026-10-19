@@ -423,7 +423,8 @@ class InventoryTest(unittest.TestCase):
 
     def test_writer_rows_without_their_release_shape_hold(self) -> None:
         rows = [
-            writer_witness("v0.1.0", "thing.typed", 1, {}, seq=1),  # a release outside the inventory
+            writer_witness("v0.1.0", "thing.typed", 1, {}, seq=5),  # the approved exclusion: excluded, not unbound
+            writer_witness("v2.0.0", "thing.typed", 1, {}, seq=1),  # a refused release outside the inventory
             writer_witness("v1.0.0", "thing.typed", 1, {}, seq=2),  # an accepted version the census does not register
             writer_witness("v1.0.0", "thing.constant", 1, {"depth": "deep"}, seq=3),  # not its release's encoding
             writer_witness("v5.0.0", "thing.legacy", 1, {"depth": 1}, seq=4),  # a kind its release does not register
@@ -435,7 +436,7 @@ class InventoryTest(unittest.TestCase):
         self.assertIn("binds to no registered shape of its release", result.stderr)
         covered = json.loads(coverage.read_text())
         self.assertEqual(covered["unbound_writer_witnesses"], [
-            "v0.1.0 seq 1 thing.typed v1", "v1.0.0 seq 2 thing.typed v1", "v1.0.0 seq 3 thing.constant v1", "v5.0.0 seq 4 thing.legacy v1"])
+            "v1.0.0 seq 2 thing.typed v1", "v1.0.0 seq 3 thing.constant v1", "v2.0.0 seq 1 thing.typed v1", "v5.0.0 seq 4 thing.legacy v1"])
         self.assertEqual(self.shapes(covered)[("thing.constant", 1)]["witnesses"], [])
 
     def test_writer_rows_need_every_provenance_link(self) -> None:

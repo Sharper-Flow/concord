@@ -481,11 +481,13 @@ func readWitnesses(witnessLog string) ([]witness, error) {
 // cover joins witnesses to written shapes. A corpus row covers every shape of
 // its (kind, version) it conforms to. A writer row covers only the shape its own
 // release registers for its (kind, version), and only when it conforms to it;
-// any other writer row is returned as unbound.
+// a writer row from an approved excluded release is excluded with it; any
+// other writer row is returned as unbound.
 func cover(inv inventory, rows []witness) ([]shapeCoverage, []string, error) {
 	shapes := map[string]*shapeCoverage{}
-	registered := map[string]string{}
+	registered, excluded := map[string]string{}, map[string]bool{}
 	for _, result := range inv.Rows {
+		excluded[result.Tag] = result.Excluded
 		if result.Status != "inventoried" {
 			continue
 		}
@@ -535,7 +537,7 @@ func cover(inv inventory, rows []witness) ([]shapeCoverage, []string, error) {
 		coverage = append(coverage, *s)
 	}
 	for i, w := range rows {
-		if w.Writer != nil && !bound[i] {
+		if w.Writer != nil && !bound[i] && !excluded[w.Writer.Tag] {
 			unbound = append(unbound, fmt.Sprintf("%s seq %d %s v%d", w.Writer.Tag, w.Seq, w.Kind, w.PayloadVersion))
 		}
 	}

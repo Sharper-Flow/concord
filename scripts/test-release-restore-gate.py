@@ -222,10 +222,11 @@ class CaseTests(unittest.TestCase):
         # Versions come from the writer's own store, before each step.
         self.assertEqual(json.loads(row["witnesses"][2]["payload"])["expected_version"], 2)
 
-    def test_a_failing_case_witnesses_nothing(self) -> None:
-        for number, mode in enumerate(("rewrite-event", "rebuild-drift", "lose-effect")):
-            with self.subTest(mode=mode):
-                self.assertEqual(self.case(self.fixture.publish(f"v1.3.{number}"), self.fixture.candidate(mode))["witnesses"], [])
+    def test_only_passing_cases_emit_witnesses(self) -> None:
+        writers = (self.fixture.publish("v1.0.0"), self.fixture.publish("v1.2.0", mode="refuse"))
+        report, _ = self.gate_run(self.fixture.candidate(), *writers)
+        emitted = [json.loads(line) for line in (self.fixture.root / "out" / "witnesses.jsonl").read_text().splitlines()]
+        self.assertEqual(({w["writer"]["tag"] for w in emitted}, report["witnesses"]), ({"v1.0.0"}, len(gate.recipe_for("v1.0.0"))))
 
     def test_recipe_steps_start_at_their_release(self) -> None:
         verbs = lambda tag: [verb for verb, _ in gate.recipe_for(tag)]
@@ -414,6 +415,7 @@ class CaseTests(unittest.TestCase):
             gate.run_gate(self.args(self.fixture.candidate(version="v8.0.0")), [], {})
         with self.assertRaisesRegex(gate.GateError, "changed during the run"):
             self.gate_run(self.fixture.candidate("self-modify"), self.fixture.publish("v1.0.0"))
+        self.assertFalse((self.fixture.root / "out" / "witnesses.jsonl").exists())
 
     def test_main_refuses_bad_identity_and_reused_output(self) -> None:
         output = self.fixture.root / "used"

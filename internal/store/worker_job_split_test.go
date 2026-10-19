@@ -24,12 +24,12 @@ func splitPredecessorFields(t *testing.T, workID string, fixture workflowReturnR
 }
 
 // splitSuccessorFields authors one successor that carries every predecessor
-// obligation unchanged, under the given cap, inventorying one path.
-func splitSuccessorFields(t *testing.T, workID string, fixture workflowReturnRouteFixture, jobID string, sizeCap int64, path string) map[string]any {
+// obligation unchanged, under cap 200, inventorying one path.
+func splitSuccessorFields(t *testing.T, workID string, fixture workflowReturnRouteFixture, jobID, path string) map[string]any {
 	t.Helper()
 	fields := workerJobSizeEditingFields(t, workID, fixture)
 	fields["job_id"] = jobID
-	fields["production_size_max"] = sizeCap
+	fields["production_size_max"] = 200
 	fields["measurement_basis"].(map[string]any)["paths"] = []map[string]any{{"path": path, "class": "production"}}
 	return fields
 }
@@ -78,8 +78,8 @@ func latestSplitBinding(t *testing.T, fixture workflowReturnRouteFixture, workID
 func splitFields(t *testing.T, workID string, fixture workflowReturnRouteFixture, predecessor WorkerJobBinding, mutate func(successors []map[string]any, allocation []map[string]any) ([]map[string]any, []map[string]any)) map[string]any {
 	t.Helper()
 	successors := []map[string]any{
-		splitSuccessorFields(t, workID, fixture, "job:successor-a", 200, "internal/store/worker_jobs.go"),
-		splitSuccessorFields(t, workID, fixture, "job:successor-b", 200, "internal/store/worker_oracle.go"),
+		splitSuccessorFields(t, workID, fixture, "job:successor-a", "internal/store/worker_jobs.go"),
+		splitSuccessorFields(t, workID, fixture, "job:successor-b", "internal/store/worker_oracle.go"),
 	}
 	allocation := []map[string]any{
 		{"job_id": "job:successor-a", "paths": []string{"internal/store/worker_jobs.go"}, "evidence_refs": []string{"evidence:split-a"}},
@@ -243,22 +243,22 @@ func TestWorkerJobSplitBindsSuccessorRevisions(t *testing.T) {
 	if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, extra); err != nil {
 		t.Fatalf("complete split refused: %v", err)
 	}
-	narrowed := splitSuccessorFields(t, workID, fixture, "job:successor-a", 200, "internal/store/worker_jobs.go")
+	narrowed := splitSuccessorFields(t, workID, fixture, "job:successor-a", "internal/store/worker_jobs.go")
 	narrowed["path_scope"] = []string{"internal/store/worker_jobs.go"}
 	if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, narrowed); err != nil {
 		t.Fatalf("successor revision keeping its allocated path refused: %v", err)
 	}
-	dropped := splitSuccessorFields(t, workID, fixture, "job:successor-b", 200, "internal/store/worker_oracle.go")
+	dropped := splitSuccessorFields(t, workID, fixture, "job:successor-b", "internal/store/worker_oracle.go")
 	dropped["path_scope"] = []string{"internal/store/worker_oracle.go"}
 	if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, dropped); err == nil || !strings.Contains(err.Error(), "drops allocated path internal/store/worker_lanes.go") {
 		t.Fatalf("successor revision dropping its allocated path error = %v, want the allocation refusal", err)
 	}
-	changed := splitSuccessorFields(t, workID, fixture, "job:successor-b", 200, "internal/store/worker_oracle.go")
+	changed := splitSuccessorFields(t, workID, fixture, "job:successor-b", "internal/store/worker_oracle.go")
 	changed["acceptance_oracle"] = changedSplitOracle(t, workID, fixture)
 	if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, changed); err == nil || !strings.Contains(err.Error(), "drops or changes oracle item owner:") {
 		t.Fatalf("successor revision changing its oracle error = %v, want the oracle refusal", err)
 	}
-	cyclic := splitSuccessorFields(t, workID, fixture, "job:successor-b", 200, "internal/store/worker_oracle.go")
+	cyclic := splitSuccessorFields(t, workID, fixture, "job:successor-b", "internal/store/worker_oracle.go")
 	cyclic["prerequisites"] = []map[string]any{{"job_id": splitPredecessorJobID, "revision": 1}}
 	if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, cyclic); err == nil || !strings.Contains(err.Error(), "requires predecessor-lineage job job:predecessor") {
 		t.Fatalf("successor revision requiring its predecessor error = %v, want the lineage refusal", err)
@@ -374,7 +374,7 @@ func TestWorkerJobSplitFoldRejectsInventedBaseAndUnrelatedSuccessors(t *testing.
 	predecessor := recordSplitPredecessor(t, workID, fixture)
 	var successors []WorkerJobBinding
 	for _, jobID := range []string{"job:ordinary-a", "job:ordinary-b"} {
-		fields := splitSuccessorFields(t, workID, fixture, jobID, 200, "internal/store/worker_jobs.go")
+		fields := splitSuccessorFields(t, workID, fixture, jobID, "internal/store/worker_jobs.go")
 		if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, fields); err != nil {
 			t.Fatal(err)
 		}

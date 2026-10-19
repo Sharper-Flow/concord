@@ -19,7 +19,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -403,7 +402,7 @@ func verifyNativeBunLock(manifest nativeBunManifest, lock nativeBunLock) ([]nati
 				return nil, nativeBunUnavailable("dependency specifier is outside the supported range grammar: " + name + "@" + spec)
 			}
 			key, found := nativeBunResolve(lock, e.from, name)
-			if !found || !lock.Packages[key].selected() {
+			if !found {
 				if e.required {
 					return nil, nativeBunUnavailable("required dependency " + name + " of " + nativeBunFrom(e.from) + " resolves to no installable lock entry")
 				}
@@ -427,15 +426,13 @@ func nativeBunFrom(key string) string {
 }
 
 // nativeBunResolve applies Node lookup over the hoisted key chain: the
-// nearest enclosing node_modules that holds the name.
+// nearest enclosing node_modules that holds an installed (platform-selected)
+// entry of the name.
 func nativeBunResolve(lock nativeBunLock, from, name string) (string, bool) {
 	segments, _ := nativeBunKeySegments(from)
-	if from == "" {
-		segments = nil
-	}
 	for {
 		key := strings.Join(append(slices.Clone(segments), name), "/")
-		if _, ok := lock.Packages[key]; ok {
+		if pkg, ok := lock.Packages[key]; ok && pkg.selected() {
 			return key, true
 		}
 		if len(segments) == 0 {
@@ -471,7 +468,7 @@ func reconcileNativeBunArchive(pkg nativeBunPackage, raw []byte) error {
 	for name := range a.OptDeps {
 		delete(deps, name)
 	}
-	optionalPeers := []string{}
+	var optionalPeers []string
 	for name, meta := range a.PeerDepsMeta {
 		var m struct {
 			Optional bool `json:"optional"`
@@ -482,9 +479,6 @@ func reconcileNativeBunArchive(pkg nativeBunPackage, raw []byte) error {
 	}
 	slices.Sort(optionalPeers)
 	lockPeers := slices.Sorted(slices.Values(pkg.OptionalPeers))
-	if lockPeers == nil {
-		lockPeers = []string{}
-	}
 	peersOK := true
 	for name, value := range pkg.PeerDeps {
 		archived, ok := a.PeerDeps[name]
@@ -542,7 +536,7 @@ func nativeBunMissing(cacheDir string, installs []nativeBunInstall) error {
 
 // nativeBunBudget bounds one run's whole extraction.
 type nativeBunBudget struct {
-	packages, entries, files int
+	entries, files int
 	bytes                    int64
 }
 
@@ -565,10 +559,6 @@ func materializeNativeBunTree(ctx context.Context, cacheDir, dest string, instal
 	for _, in := range installs {
 		if err := ctx.Err(); err != nil {
 			return err
-		}
-		budget.packages++
-		if budget.packages > nativeBunMaxPackages {
-			return nativeBunLimit("package-count")
 		}
 		tarball, err := nativeBunReadCached(cacheDir, in.Pkg)
 		if err != nil {
@@ -625,6 +615,12 @@ func extractNativeBunPackage(ctx context.Context, rooted *os.Root, dir string, t
 	top := ""
 	kinds := map[string]byte{}
 	var manifest []byte
+	if strings.Count(dir, "/")+1 > nativeBunMaxDepth {
+		return nil, nativeBunLimit("path-depth")
+	}
+	if len(dir) > nativeBunMaxPathBytes {
+		return nil, nativeBunLimit("path-length")
+	}
 	if err := rooted.MkdirAll(dir, 0755); err != nil {
 		return nil, refuse("cannot be placed: " + err.Error())
 	}
@@ -707,13 +703,13 @@ func extractNativeBunPackage(ctx context.Context, rooted *os.Root, dir string, t
 		}
 		kinds[rel] = 'f'
 		budget.files++
-		budget.bytes += hdr.Size
 		if budget.files > nativeBunMaxFiles {
 			return nil, nativeBunLimit("file-count")
 		}
-		if hdr.Size < 0 || budget.bytes > nativeBunMaxBytes {
+		if hdr.Size < 0 || hdr.Size > nativeBunMaxBytes-budget.bytes {
 			return nil, nativeBunLimit("extracted-size")
 		}
+		budget.bytes += hdr.Size
 		if err := rooted.MkdirAll(path.Dir(target), 0755); err != nil {
 			return nil, refuse("directory cannot be written: " + err.Error())
 		}
@@ -723,6 +719,12 @@ func extractNativeBunPackage(ctx context.Context, rooted *os.Root, dir string, t
 		}
 		out, err := rooted.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 		if err != nil {
+			return nil, refuse("entry cannot be written: " + err.Error())
+		}
+		// The create mode passes through the process umask; the declared
+		// mode is set on the open file itself.
+		if err := out.Chmod(mode); err != nil {
+			_ = out.Close()
 			return nil, refuse("entry cannot be written: " + err.Error())
 		}
 		var keep bytes.Buffer
@@ -785,7 +787,6 @@ func nativeBunTreeDigest(dir string) ([]byte, error) {
 	if walkErr != nil {
 		return nil, walkErr
 	}
-	sort.Strings(lines)
 	return []byte(strings.Join(lines, "\n")), nil
 }
 
@@ -879,6 +880,9 @@ func nativeBunRunnerParts(t *nativeTargetOraclePlan, root string) ([][]byte, err
 	binary, err := os.ReadFile(t.Environment.Bun)
 	if err != nil {
 		return nil, nativeBunUnavailable("pinned bun is unreadable")
+	}
+	if bins, err := os.ReadDir(nativeBunBinDir(root)); err != nil || len(bins) != 1 {
+		return nil, nativeBunUnavailable("the per-run bin directory must hold only the pinned bun link")
 	}
 	link, err := os.Readlink(filepath.Join(nativeBunBinDir(root), "bun"))
 	if err != nil || link != t.Environment.Bun {

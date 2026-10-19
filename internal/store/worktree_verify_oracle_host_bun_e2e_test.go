@@ -294,6 +294,7 @@ func TestNativeTargetAxisBunFingerprint(t *testing.T) {
 		"hidden tree":      {"mkdir -p .venv/node_modules", "candidate carries a materialized dependency or cache tree: plugin/.venv/node_modules"},
 		"bun link":         {"ln -sfn /bin/true \"${TMPDIR%/tmp}/bin/bun\"", "bun link no longer names the pinned bun"},
 		"install cache":    {"touch \"$BUN_INSTALL_CACHE_DIR/auto\"", "auto-installed packages into the private bun install cache"},
+		"bin shadow":       {"ln -s /bin/true \"${TMPDIR%/tmp}/bin/node\"", "the per-run bin directory must hold only the pinned bun link"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			script := nativeTargetBunDefaultScript + c.script + "\n"

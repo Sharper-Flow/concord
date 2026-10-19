@@ -8,9 +8,11 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -311,11 +313,15 @@ func TestNativeBunLockClosure(t *testing.T) {
 		"nested lookup misses":               mutate("left/inner", nil),
 		"dist-tag edge":                      mutate("tool", []any{"tool@3.1.4", "", map[string]any{"dependencies": map[string]string{"inner": "latest"}}, bunTestIntegrity}),
 		"protocol edge":                      mutate("tool", []any{"tool@3.1.4", "", map[string]any{"dependencies": map[string]string{"inner": "github:a/inner"}}, bunTestIntegrity}),
+		// The nearest inner is not installed on linux, so Node reaches the
+		// hoisted inner@2, outside the range of left's optional edge.
+		"skipped nearest falls through": mutate("left/inner", []any{"inner@1.0.0", "", map[string]any{"os": "darwin"}, bunTestIntegrity}),
 	}
 	// The missing nested entry must fall through to the hoisted inner@2,
 	// which left's own lookup reaches only for an unversioned edge; make
 	// left depend on inner@^1 so the fallback fails the range.
 	refusals["nested lookup misses"]["left"] = []any{"left@1.0.0", "", map[string]any{"dependencies": map[string]string{"shared": "^1.0.0", "inner": "^1"}}, bunTestIntegrity}
+	refusals["skipped nearest falls through"]["left"] = []any{"left@1.0.0", "", map[string]any{"dependencies": map[string]string{"shared": "^1.0.0"}, "optionalDependencies": map[string]string{"inner": "^1"}}, bunTestIntegrity}
 	for name, pkgs := range refusals {
 		if _, err := bunVerifyForTest(t, manifest, manifest, pkgs); err == nil {
 			t.Errorf("%s: lock admitted", name)
@@ -406,7 +412,9 @@ func TestNativeBunTarSafety(t *testing.T) {
 		{name: "package/lib/deep/index.js", typeflag: tar.TypeReg, body: "module.exports = 1\n", mode: 0600},
 		{name: "package/bin/cli.js", typeflag: tar.TypeReg, body: "#!/usr/bin/env node\n", mode: 0775},
 	})
+	old := syscall.Umask(0o077)
 	dest, manifest, err := extractBunForTest(t, ok, nil)
+	syscall.Umask(old)
 	if err != nil || !strings.Contains(string(manifest), "\"left\"") {
 		t.Fatalf("safe archive with nested directory headers refused: %v", err)
 	}
@@ -480,6 +488,19 @@ func TestNativeBunExtractionBounds(t *testing.T) {
 	// The same budgets one unit lower admit the archive exactly at the bound.
 	if _, _, err := extractBunForTest(t, archive, &nativeBunBudget{entries: nativeBunMaxEntries - 2, files: nativeBunMaxFiles - 2, bytes: nativeBunMaxBytes - 10 - int64(len(bunManifestEntryForTest(t).body))}); err != nil {
 		t.Fatalf("archive at the bounds refused: %v", err)
+	}
+	// A declared entry size that would overflow the running total still
+	// refuses before any byte is written.
+	var huge bytes.Buffer
+	zw := gzip.NewWriter(&huge)
+	if err := tar.NewWriter(zw).WriteHeader(&tar.Header{Name: "package/huge.bin", Typeflag: tar.TypeReg, Mode: 0644, Size: math.MaxInt64, Format: tar.FormatPAX}); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := extractBunForTest(t, huge.Bytes(), &nativeBunBudget{bytes: 1}); err == nil || !strings.Contains(err.Error(), "extracted-size bound") {
+		t.Fatalf("overflowing entry size bypassed the extracted-size bound: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

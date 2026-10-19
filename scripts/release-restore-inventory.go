@@ -569,7 +569,6 @@ const probeTemplate = `package store
 
 import (
 	"encoding/json"
-	"errors"
 	"reflect"
 	"sort"
 	"strings"
@@ -588,12 +587,15 @@ func ReleaseRestoreProbe() ([]byte, error) {
 			continue
 		}
 		meta := map[string]any{"payload_type": payload.Name(), "current_version": registration.CurrentVersion, "min_supported": registration.MinSupported}
+		// A release whose registration type has no such field records it as
+		// null, distinct from a present, empty map.
 		for name, field := range map[string]string{"upcasters": "Upcasters", "recorded_schemas": "RecordedSchemas"} {
-			keys := []int{}
+			meta[name] = nil
 			value := reflect.ValueOf(registration).FieldByName(field)
 			if !value.IsValid() {
-				return nil, errors.New("event kind registration has no " + field + " field")
+				continue
 			}
+			keys := []int{}
 			for _, key := range value.MapKeys() {
 				keys = append(keys, int(key.Int()))
 			}

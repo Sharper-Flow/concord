@@ -156,6 +156,15 @@ var eventKindRegistry = map[string]EventKindRegistration{
 """
 
 BROKEN_REGISTRY = TYPED_REGISTRY + "\nvar broken int = \"not an int\"\n"
+# A registration type that predates RecordedSchemas, as released before the
+# recorded-schema route existed.
+LEGACY_SOURCE = PRELUDE.replace("\tRecordedSchemas map[int][]string\n", "").replace(
+    "func withRecordedSchemas(r EventKindRegistration, schemas map[int][]string) EventKindRegistration {\n\tr.RecordedSchemas = schemas\n\treturn r\n}\n", ""
+) + """
+var eventKindRegistry = map[string]EventKindRegistration{
+	"thing.legacy": registerEventKind[Inner](1, 1, nil),
+}
+"""
 LATE_KIND_REGISTRY = TYPED_REGISTRY + "\nfunc init() { eventKindRegistry[\"thing.late\"] = registerEventKind[Inner](1, 1, nil) }\n"
 
 TYPED_BASE = {"promoted": "p", "name": "n", "count": "3", "tags": ["a"], "labels": {"k": {"depth": 1}}, "raw": {}, "when": 0, "any": 1, "blob": "AA==", "Default": True, "chain": {}}
@@ -209,8 +218,9 @@ class InventoryTest(unittest.TestCase):
             ("v4.0.0", FORM_A_REGISTRY, False),
             ("v0.2.0", FORM_A_REGISTRY.replace('"thing.typed": {CurrentVersion: 1, MinSupported: 1},', '"thing.typed": {CurrentVersion: 1, MinSupported: 1}, "mixed": registerEventKind[Inner](1, 1, nil),'), False),
             ("v5.0.0", LATE_KIND_REGISTRY, False),
+            ("v0.40.0", LEGACY_SOURCE, False),
         ):
-            (store / "operation.go").write_text(PRELUDE + registry)
+            (store / "operation.go").write_text(registry if registry.startswith("package") else PRELUDE + registry)
             (cls.repo / "README").write_text(tag)
             assert git("add", "-A").returncode == 0
             assert git("commit", "-q", "-m", tag).returncode == 0
@@ -241,7 +251,7 @@ class InventoryTest(unittest.TestCase):
         return self.first["types"][registration["type"]]
 
     def test_population_is_every_strict_tag_in_version_order(self) -> None:
-        self.assertEqual([row["tag"] for row in self.first["rows"]], ["v0.1.0", "v0.2.0", "v1.0.0", "v1.0.1", "v2.0.0", "v3.0.0", "v4.0.0", "v5.0.0"])
+        self.assertEqual([row["tag"] for row in self.first["rows"]], ["v0.1.0", "v0.2.0", "v0.40.0", "v1.0.0", "v1.0.1", "v2.0.0", "v3.0.0", "v4.0.0", "v5.0.0"])
         self.assertEqual(self.first["schema"], "concord.release-restore-writers.v1")
         self.assertEqual(self.first["generator"], "go run scripts/release-restore-inventory.go")
 
@@ -309,7 +319,7 @@ class InventoryTest(unittest.TestCase):
         rows = self.rows()
         self.assertEqual(rows["v1.0.0"]["status"], "inventoried")
         self.assertEqual(rows["v1.0.0"]["group"], rows["v1.0.1"]["group"])
-        self.assertEqual(set(self.first["groups"]), {rows["v1.0.0"]["group"]})
+        self.assertEqual(set(self.first["groups"]), {rows["v1.0.0"]["group"], rows["v0.40.0"]["group"]})
 
     def test_registry_metadata_comes_from_the_compiled_registry(self) -> None:
         group = {r["kind"]: r for r in self.first["groups"][self.rows()["v1.0.0"]["group"]]}
@@ -349,9 +359,15 @@ class InventoryTest(unittest.TestCase):
     def test_ambiguous_embedding_is_custom(self) -> None:
         self.assertEqual(self.shape("thing.conflict"), {"kind": "custom", "type": "store.Conflict", "reason": "ambiguous or nullable embedded fields"})
 
+    def test_registration_without_a_metadata_field_records_it_absent(self) -> None:
+        row = self.rows()["v0.40.0"]
+        self.assertEqual(row["status"], "inventoried", row.get("detail"))
+        (legacy,) = self.first["groups"][row["group"]]
+        self.assertEqual((legacy["kind"], legacy["upcasters"], legacy["recorded_schemas"]), ("thing.legacy", [], None))
+
     def test_coverage_lists_every_written_shape_once(self) -> None:
-        kinds = {r["kind"]: r["current_version"] for r in self.first["groups"][self.rows()["v1.0.0"]["group"]]}
-        self.assertEqual(set(self.shapes()), set(kinds.items()))
+        written = {(r["kind"], r["current_version"]) for row in self.first["rows"] if row["status"] == "inventoried" for r in self.first["groups"][row["group"]]}
+        self.assertEqual(set(self.shapes()), written)
         self.assertEqual(self.coverage["schema"], "concord.release-restore-coverage.v1")
         self.assertEqual(self.shapes()[("thing.constant", 1)]["writers"], ["v1.0.0", "v1.0.1"])
 

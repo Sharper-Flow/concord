@@ -2177,9 +2177,8 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			RecordWorkerJob: true,
 			WorkflowID:      "break_fix-v32-complete-supersede",
 		},
-		// The superseded checks-repair candidate and consequence_v1 heads'
-		// supersede routes stay covered as recorded history next to the
-		// current heads.
+		// The consequence_v1 heads' supersede routes stay covered as recorded
+		// history next to the current heads.
 		{
 			Ref: "workflow.implementation", Version: 34,
 			Step: "release", Target: "execution",

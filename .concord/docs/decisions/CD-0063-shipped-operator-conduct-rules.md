@@ -86,7 +86,7 @@ redirected wholesale by environment, so no per-project pointer exists. The
 installer places generated definitions in the central OpenCode agents directory,
 which `computeHostPromptProvenance` prefers over the project copy. Ownership
 covers only the files recorded in the installer manifest, not that directory
-or every file matching `concord-*.md`. An agent definition is inert until
+or every Concord-named file. An agent definition is inert until
 invoked by name, so central visibility carries none of the always-on leakage
 that governs instructions.
 

@@ -2,7 +2,9 @@
 // and payload shapes: it parses the registry literal, then compiles a reflection
 // probe against that tag's own source. Tags with identical internal trees,
 // go.mod, and go.sum share one probe. An unrecognized
-// registry entry refuses the tag. Run from the repository root.
+// registry entry refuses the tag. Each written (kind, version, type) is then
+// joined to the historical corpus witness log; an unwitnessed shape or an
+// unapproved refusal holds (exit 1). Run from the repository root.
 package main
 
 import (
@@ -280,14 +282,23 @@ func inspect(result row) (row, []string) {
 
 func main() {
 	output := flag.String("out", "cmd/concord/testdata/release_restore/writers.json", "inventory to write")
+	coverageOut := flag.String("coverage", "cmd/concord/testdata/release_restore/coverage.json", "shape coverage to write")
+	witnesses := flag.String("witnesses", "", "historical corpus witness log (JSON lines) to bind shapes to")
 	flag.Parse()
-	if err := run(*output); err != nil {
+	if err := run(*output, *coverageOut, *witnesses); err != nil {
 		fmt.Fprintln(os.Stderr, "release-restore-inventory:", err)
 		os.Exit(1)
 	}
 }
 
-func run(output string) error {
+func run(output, coverageOut, witnessLog string) error {
+	if witnessLog == "" {
+		return errors.New("-witnesses is required: shapes without a witness join are not coverage")
+	}
+	witnesses, err := readWitnesses(witnessLog)
+	if err != nil {
+		return err
+	}
 	tags, err := listTags()
 	if err != nil || len(tags) == 0 {
 		return fmt.Errorf("release tags unavailable or empty: %v", err)
@@ -342,12 +353,221 @@ func run(output string) error {
 	if err := os.WriteFile(output, append(data, '\n'), 0o600); err != nil {
 		return err
 	}
+	coverage, err := cover(inv, witnesses)
+	if err != nil {
+		return err
+	}
+	data, err = json.MarshalIndent(map[string]any{"schema": "concord.release-restore-coverage.v1", "shapes": coverage}, "", " ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(coverageOut, append(data, '\n'), 0o600); err != nil {
+		return err
+	}
+	var held []error
 	for _, result := range inv.Rows {
 		if result.Status == "inventory_refused" && !result.Excluded {
-			return errors.New("inventory held: unapproved writer refusal; see output")
+			held = append(held, errors.New("inventory held: unapproved writer refusal; see output"))
+			break
 		}
 	}
-	return nil
+	for _, shape := range coverage {
+		if !shape.Covered {
+			held = append(held, errors.New("coverage held: a written shape has no complete witness; see coverage"))
+			break
+		}
+	}
+	return errors.Join(held...)
+}
+
+// witness is one passing historical corpus row (recordHistoricalWitness).
+type witness struct {
+	Test           string `json:"test"`
+	Kind           string `json:"kind"`
+	PayloadVersion int    `json:"payload_version"`
+	Payload        string `json:"payload"`
+}
+
+// shapeCoverage binds one written (kind, version, type) to the witnesses whose
+// payload is exactly that encoding. A field path no witness presents non-null
+// stays missing, and the shape stays uncovered.
+type shapeCoverage struct {
+	Kind           string   `json:"kind"`
+	PayloadVersion int      `json:"payload_version"`
+	Type           string   `json:"type"`
+	Writers        []string `json:"writers"`
+	Witnesses      []string `json:"witnesses"`
+	Missing        []string `json:"missing_paths,omitempty"`
+	Covered        bool     `json:"covered"`
+}
+
+// readWitnesses loads the corpus witness log before any probe runs.
+func readWitnesses(witnessLog string) ([]witness, error) {
+	data, err := os.ReadFile(filepath.Clean(witnessLog))
+	if err != nil {
+		return nil, fmt.Errorf("witness log: %w", err)
+	}
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 {
+		return nil, errors.New("witness log is empty: the corpus run recorded no rows")
+	}
+	var rows []witness
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		var w witness
+		if err := json.Unmarshal(line, &w); err != nil || w.Test == "" || w.Kind == "" {
+			return nil, fmt.Errorf("witness log line %q is not a witness row", line)
+		}
+		rows = append(rows, w)
+	}
+	return rows, nil
+}
+
+func cover(inv inventory, rows []witness) ([]shapeCoverage, error) {
+	shapes := map[string]*shapeCoverage{}
+	for _, result := range inv.Rows {
+		if result.Status != "inventoried" {
+			continue
+		}
+		for _, r := range inv.Groups[result.Group] {
+			key := fmt.Sprintf("%s\x00%d\x00%s", r.Kind, r.CurrentVersion, r.Type)
+			if shapes[key] == nil {
+				shapes[key] = &shapeCoverage{Kind: r.Kind, PayloadVersion: r.CurrentVersion, Type: r.Type, Witnesses: []string{}}
+			}
+			shapes[key].Writers = append(shapes[key].Writers, result.Tag)
+		}
+	}
+	coverage := make([]shapeCoverage, 0, len(shapes))
+	for _, s := range shapes {
+		var shape any
+		if err := json.Unmarshal(inv.Types[s.Type], &shape); err != nil {
+			return nil, fmt.Errorf("type %s: %w", s.Type, err)
+		}
+		missing, tests := map[string]bool{}, map[string]bool{}
+		paths(shape, "$", missing)
+		for _, w := range rows {
+			var value any
+			present := map[string]bool{}
+			if w.Kind != s.Kind || w.PayloadVersion != s.PayloadVersion || json.Unmarshal([]byte(w.Payload), &value) != nil || !conforms(shape, value, "$", present) {
+				continue
+			}
+			tests[w.Test] = true
+			for path := range present {
+				delete(missing, path)
+			}
+		}
+		for test := range tests {
+			s.Witnesses = append(s.Witnesses, test)
+		}
+		for path := range missing {
+			s.Missing = append(s.Missing, path)
+		}
+		sort.Strings(s.Witnesses)
+		sort.Strings(s.Missing)
+		s.Covered = len(tests) > 0 && len(missing) == 0
+		coverage = append(coverage, *s)
+	}
+	sort.Slice(coverage, func(i, j int) bool {
+		a, b := coverage[i], coverage[j]
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
+		}
+		if a.PayloadVersion != b.PayloadVersion {
+			return a.PayloadVersion < b.PayloadVersion
+		}
+		return a.Type < b.Type
+	})
+	return coverage, nil
+}
+
+// paths lists every JSON path a shape can present: "[]" steps into elements,
+// "{}" into map values. Custom and recursive shapes end their path.
+func paths(shape any, path string, out map[string]bool) {
+	s, _ := shape.(map[string]any)
+	out[path] = true
+	switch s["kind"] {
+	case "pointer":
+		paths(s["elem"], path, out)
+	case "slice", "array":
+		paths(s["elem"], path+"[]", out)
+	case "map":
+		paths(s["elem"], path+"{}", out)
+	case "object":
+		fields, _ := s["fields"].([]any)
+		for _, f := range fields {
+			field, _ := f.(map[string]any)
+			paths(field["shape"], path+"."+fmt.Sprint(field["name"]), out)
+		}
+	}
+}
+
+// conforms reports whether a decoded payload is exactly what encoding/json
+// writes for the shape: every member it always emits is present, no member is
+// unknown, and each value has the member's JSON type. It marks the paths the
+// payload presents non-null.
+func conforms(shape, value any, path string, present map[string]bool) bool {
+	s, _ := shape.(map[string]any)
+	kind, _ := s["kind"].(string)
+	if value == nil {
+		return kind == "pointer" || kind == "slice" || kind == "map" || kind == "bytes" || kind == "custom" || kind == "recursive"
+	}
+	present[path] = true
+	switch kind {
+	case "custom", "recursive":
+		return true
+	case "pointer":
+		return conforms(s["elem"], value, path, present)
+	case "string", "bytes":
+		_, ok := value.(string)
+		return ok
+	case "bool":
+		_, ok := value.(bool)
+		return ok
+	case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "float32", "float64":
+		_, ok := value.(float64)
+		return ok
+	case "slice", "array":
+		items, ok := value.([]any)
+		if !ok || (kind == "array" && float64(len(items)) != s["length"]) {
+			return false
+		}
+		for _, item := range items {
+			if !conforms(s["elem"], item, path+"[]", present) {
+				return false
+			}
+		}
+		return true
+	case "map":
+		entries, ok := value.(map[string]any)
+		for _, entry := range entries {
+			ok = ok && conforms(s["elem"], entry, path+"{}", present)
+		}
+		return ok
+	case "object":
+		object, ok := value.(map[string]any)
+		fields, _ := s["fields"].([]any)
+		known := map[string]bool{}
+		for _, f := range fields {
+			field, _ := f.(map[string]any)
+			name := fmt.Sprint(field["name"])
+			known[name] = true
+			member, has := object[name]
+			switch {
+			case !has:
+				ok = ok && (field["omitempty"] == true || field["omitzero"] == true)
+			case field["string"] == true:
+				_, quoted := member.(string)
+				ok = ok && quoted
+				present[path+"."+name] = true
+			default:
+				ok = ok && conforms(field["shape"], member, path+"."+name, present)
+			}
+		}
+		for name := range object {
+			ok = ok && known[name]
+		}
+		return ok
+	}
+	return false
 }
 
 // probeTemplate joins a scratch copy of one release's internal/store. It reflects
@@ -358,7 +578,6 @@ const probeTemplate = `package store
 
 import (
 	"encoding/json"
-	"errors"
 	"reflect"
 	"sort"
 	"strings"
@@ -377,12 +596,15 @@ func ReleaseRestoreProbe() ([]byte, error) {
 			continue
 		}
 		meta := map[string]any{"payload_type": payload.Name(), "current_version": registration.CurrentVersion, "min_supported": registration.MinSupported}
+		// A release whose registration type has no such field records it as
+		// null, distinct from a present, empty map.
 		for name, field := range map[string]string{"upcasters": "Upcasters", "recorded_schemas": "RecordedSchemas"} {
-			keys := []int{}
+			meta[name] = nil
 			value := reflect.ValueOf(registration).FieldByName(field)
 			if !value.IsValid() {
-				return nil, errors.New("event kind registration has no " + field + " field")
+				continue
 			}
+			keys := []int{}
 			for _, key := range value.MapKeys() {
 				keys = append(keys, int(key.Int()))
 			}

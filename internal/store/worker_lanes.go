@@ -1504,7 +1504,7 @@ func validateWorkerDispatchedJob(ctx context.Context, tx *sql.Tx, event Event, p
 		return newFailure(KindInvalidPayload, "fold_event", "worker.dispatched worker_job does not match the worker job its dispatch_worker authorization bound", false, "record the dispatch with the worker job the authorization returned")
 	}
 	if payload.WorkerJob != nil {
-		if err := verifyWorkerDispatchedJobBindingTx(ctx, tx, event.SubjectID, payload.WorkerJob); err != nil {
+		if err := verifyWorkerDispatchedJobBindingTx(ctx, tx, event, payload.WorkerJob); err != nil {
 			return err
 		}
 	}

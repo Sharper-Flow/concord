@@ -289,6 +289,9 @@ func foldWorkerJobRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	case err != sql.ErrNoRows:
 		return wrapFailure(KindUnavailable, "fold_event", "cannot compare the recorded worker-job revision", true, "retry once the worker-job projection is readable", err)
 	}
+	if err := refuseWorkerJobReplacedBeforeTx(ctx, tx, event, payload.JobID, "record another revision"); err != nil {
+		return err
+	}
 	next, err := nextWorkerJobRevision(ctx, tx, event.SubjectID, payload.JobID)
 	if err != nil {
 		return err
@@ -336,24 +339,40 @@ func nextWorkerJobRevision(ctx context.Context, q queryer, workID, jobID string)
 	return highest + 1, nil
 }
 
-// workflowRecordWorkerJobEvents builds the worker.job_recorded event the
-// record_worker_job action appends: it authors the revision payload through
-// the shared builder, then serializes that payload into the event's closed
-// field map.
+// workflowRecordWorkerJobEvents builds the events the record_worker_job
+// action appends: the split variant's successor and split events, or one
+// worker.job_recorded event authored through the shared builder and held to
+// any split lineage the job belongs to.
 func workflowRecordWorkerJobEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
+	if raw, split := fields["split"]; split {
+		return workflowRecordWorkerJobSplitEvents(ctx, tx, request, actor, raw, eventID, expected)
+	}
 	payload, err := authorWorkerJobRevisionTx(ctx, tx, request, fields)
 	if err != nil {
 		return nil, err
 	}
+	if err := admitWorkerJobLineageRevisionTx(ctx, tx, request.WorkID, payload); err != nil {
+		return nil, err
+	}
+	event, err := workerJobRecordedEvent(eventID, request, actor, expected, payload)
+	if err != nil {
+		return nil, err
+	}
+	return []Event{event}, nil
+}
+
+// workerJobRecordedEvent serializes one authored revision into its
+// worker.job_recorded event's closed field map.
+func workerJobRecordedEvent(eventID string, request WorkflowActionExecutionRequest, actor string, expected int64, payload *WorkerJobRecordedPayload) (Event, error) {
 	values := map[string]any{}
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		return nil, wrapFailure(KindInvalidPayload, "workflow_action", "cannot encode the worker-job revision", false, "report the encoding failure", err)
+		return Event{}, wrapFailure(KindInvalidPayload, "workflow_action", "cannot encode the worker-job revision", false, "report the encoding failure", err)
 	}
 	if err := json.Unmarshal(raw, &values); err != nil {
-		return nil, wrapFailure(KindInvalidPayload, "workflow_action", "cannot encode the worker-job revision", false, "report the encoding failure", err)
+		return Event{}, wrapFailure(KindInvalidPayload, "workflow_action", "cannot encode the worker-job revision", false, "report the encoding failure", err)
 	}
-	return []Event{workflowTypedEvent(eventID, WorkerJobRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
+	return workflowTypedEvent(eventID, WorkerJobRecorded, request.WorkID, actor, request.Now, expected, values), nil
 }
 
 // authorWorkerJobRevisionTx shares the authority checks and core-derived
@@ -461,8 +480,10 @@ func authorWorkerJobRevisionTx(ctx context.Context, tx *sql.Tx, request Workflow
 // refuses a redispatch, on resume as on first ask. The check runs in the
 // fold, so it holds for live appends and for log-ordered replay alike: a
 // recording always precedes its dispatches, and a satisfaction always
-// precedes the redispatch it refuses, in any legal log.
-func verifyWorkerDispatchedJobBindingTx(ctx context.Context, tx *sql.Tx, workID string, binding *WorkerJobBinding) error {
+// precedes the redispatch it refuses, in any legal log. A job a split
+// replaced dispatches no revision again (CD-0225 D3).
+func verifyWorkerDispatchedJobBindingTx(ctx context.Context, tx *sql.Tx, event Event, binding *WorkerJobBinding) error {
+	workID := event.SubjectID
 	var digest, state string
 	if err := tx.QueryRowContext(ctx, `SELECT digest,state FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, workID, binding.JobID, binding.Revision).Scan(&digest, &state); err != nil {
 		if err == sql.ErrNoRows {
@@ -476,7 +497,7 @@ func verifyWorkerDispatchedJobBindingTx(ctx context.Context, tx *sql.Tx, workID 
 	if state == "satisfied" {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "a satisfied worker-job revision cannot redispatch", false, "record a new revision of the job or dispatch another ready job")
 	}
-	return nil
+	return refuseWorkerJobReplacedBeforeTx(ctx, tx, event, binding.JobID, "dispatch")
 }
 
 // markWorkerJobSatisfiedTx records the disposition an accepted worker result
@@ -538,7 +559,8 @@ type WorkerJobRevisionView struct {
 // (CD-0205), evaluated over the worker_job_revisions row aliased j: the
 // revision is the latest recorded revision of its job, it is not yet
 // satisfied, its recorded parent authority is still the work's active
-// approved contract so a supersession strands old-authority revisions, its
+// approved contract so a supersession strands old-authority revisions, no
+// split replaced its job, its
 // coordinator readiness is asserted ready with evidence, its unresolved
 // references are empty, and every exact prerequisite revision is recorded and
 // satisfied — pinned, when the prerequisite names a result reference, to the
@@ -548,6 +570,7 @@ const workerJobReadyPredicate = `j.state='recorded'
   AND j.contract_version=(SELECT MAX(contract.contract_version) FROM workflow_contracts contract WHERE contract.work_id=j.work_id AND contract.superseded_by IS NULL)
   AND j.readiness IS NOT NULL AND json_extract(j.readiness,'$.ready')=1 AND COALESCE(json_array_length(j.readiness,'$.evidence'),0)>0
   AND json_array_length(j.unresolved_refs)=0
+  AND NOT EXISTS (SELECT 1 FROM domain_events split WHERE split.subject_type='work_item' AND split.subject_id=j.work_id AND split.kind='worker.job_split' AND json_extract(split.payload,'$.predecessor.job_id')=j.job_id)
   AND NOT EXISTS (SELECT 1 FROM json_each(j.prerequisites) prerequisite
     WHERE NOT EXISTS (SELECT 1 FROM worker_job_revisions satisfied
       WHERE satisfied.work_id=j.work_id
@@ -680,7 +703,7 @@ func requireWorkerJobRevisionStateReadyTx(ctx context.Context, q queryer, workID
 		return newFailure(KindInvalidOperation, "workflow_action", "the selected worker-job revision carries contract authority of version "+fmt.Sprint(contractVersion)+" while the active parent contract is version "+fmt.Sprint(active), false, "record a new revision of the job under the active contract before dispatching it")
 	}
 	if !ready {
-		return newFailure(KindInvalidOperation, "workflow_action", "the selected worker-job revision is not ready: it is satisfied, superseded by a later revision, lacks coordinator readiness, carries unresolved references, or waits on an unsatisfied prerequisite", false, "select a ready revision from the work's worker jobs, or record a new revision")
+		return newFailure(KindInvalidOperation, "workflow_action", "the selected worker-job revision is not ready: it is satisfied, superseded by a later revision, replaced by a split, lacks coordinator readiness, carries unresolved references, or waits on an unsatisfied prerequisite", false, "select a ready revision from the work's worker jobs, or record a new revision")
 	}
 	return nil
 }

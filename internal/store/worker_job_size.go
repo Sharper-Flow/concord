@@ -472,9 +472,16 @@ func workerJobCorrectionStatesTx(ctx context.Context, q queryer, workID string) 
 	if err := rows.Close(); err != nil {
 		return nil, nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot close the implementation dispatch read", true, "retry once the event log is readable", err)
 	}
+	splits, err := readWorkerJobSplitsTx(ctx, q, workID)
+	if err != nil {
+		return nil, nil, err
+	}
 	corrections := map[string]bool{}
 	attempts := map[string][]string{}
 	for jobID, dispatches := range byJob {
+		if workerJobSplitReplacing(splits, jobID) != nil {
+			continue
+		}
 		cutoff, err := workerJobSatisfactionSeqTx(ctx, q, workID, jobID)
 		if err != nil {
 			return nil, nil, err

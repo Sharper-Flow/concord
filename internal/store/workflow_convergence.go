@@ -14,6 +14,8 @@ type WorkflowRetryConvergence struct {
 	PreviousRecordSeq int64  `json:"previous_record_seq,omitempty"`
 	LatestRecordSeq   int64  `json:"latest_record_seq,omitempty"`
 	SupersededSeq     int64  `json:"superseded_seq,omitempty"`
+	HostPID           int    `json:"host_pid,omitempty"`
+	HostPIDStart      uint64 `json:"host_pid_start,omitempty"`
 }
 
 func (s WorkflowAdmissionState) retryEscalated() bool {
@@ -25,12 +27,13 @@ func workflowRetryConvergenceFailure(state WorkflowAdmissionState) *Failure {
 	if state.NonProgressAttempts >= workflowCorrectionAttemptLimit {
 		detail += fmt.Sprintf(": %d non-progress attempts since the last accepted productive result (step %s)", state.NonProgressAttempts, state.Step)
 	}
+	detail += ". Host recovery applies only to an eligible recorded host execution failure and an unused host basis in this nonprogress window: repair the fault, restart the host more than one minute after the failure, resume the item, then retry once"
 	return newFailure(KindMissingEvidence, "worker_dispatch", detail, false,
-		"record shrinking open_finding_ids on the next rejected result, supersede_contract with a changed approach, or stop the work")
+		"record shrinking open_finding_ids, supersede_contract with a changed approach, or stop the work; after a host execution failure, repair and restart the host, resume the item, and dispatch once from the restarted host (one host_changed retry per nonprogress window)")
 }
 
 // workflowRetryConvergence derives a basis rather than trusting a caller's
-// assessment. The latest dispatch consumes both bases, including an authorized
+// assessment. The latest dispatch consumes its basis, including an authorized
 // dispatch whose host worker never materialized.
 func workflowRetryConvergence(ctx context.Context, q queryer, workID, stepID string) (WorkflowRetryConvergence, error) {
 	var lastDispatch, superseded int64
@@ -48,8 +51,11 @@ func workflowRetryConvergence(ctx context.Context, q queryer, workID, stepID str
 		return WorkflowRetryConvergence{}, err
 	}
 	latest := history.records[len(history.records)-1]
-	if latest.seq <= lastDispatch || latest.fields.ActionID == "record_worker_failure" {
+	if latest.seq <= lastDispatch {
 		return WorkflowRetryConvergence{}, nil
+	}
+	if latest.fields.ActionID == "record_worker_failure" {
+		return workflowHostRetryConvergence(ctx, q, workID, lastDispatch, history.boundary)
 	}
 	boundary := history.boundary
 	if latest.fields.ActionID == "request_correction" {
@@ -205,9 +211,11 @@ func validateWorkflowOpenFindingsPayload(fields map[string]json.RawMessage) erro
 func (c WorkflowRetryConvergence) valid() bool {
 	switch c.Basis {
 	case "findings_shrinking":
-		return c.PreviousRecordSeq > 0 && c.LatestRecordSeq > c.PreviousRecordSeq && c.SupersededSeq == 0
+		return c.PreviousRecordSeq > 0 && c.LatestRecordSeq > c.PreviousRecordSeq && c.SupersededSeq == 0 && c.HostPID == 0 && c.HostPIDStart == 0
 	case "approach_changed":
-		return c.SupersededSeq > 0 && c.PreviousRecordSeq == 0 && c.LatestRecordSeq == 0
+		return c.SupersededSeq > 0 && c.PreviousRecordSeq == 0 && c.LatestRecordSeq == 0 && c.HostPID == 0 && c.HostPIDStart == 0
+	case "host_changed":
+		return c.LatestRecordSeq > 0 && c.PreviousRecordSeq == 0 && c.SupersededSeq == 0 && c.HostPID > 0 && c.HostPIDStart > 0
 	}
 	return false
 }

@@ -305,7 +305,7 @@ func escalatedDispatchEpoch(t *testing.T, s *store.Store) int64 {
 // so the fourth dispatch faces the escalated wall with a durable failed
 // attempt identity. The wall itself owns no approval binding under CON885,
 // so the seed pins only the correction record.
-func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey) (int64, string, string) {
+func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, failureAt ...time.Time) (int64, string, string) {
 	t.Helper()
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
@@ -403,7 +403,7 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 		if dispatched.Outcome != OutcomeOK {
 			t.Fatalf("seed escalated dispatch %d: %+v", cycle, dispatched.Error)
 		}
-		version = recordWorkflowFailureForPin(t, s, grant, attemptID, 0, "escalated-seed-"+strconv.FormatInt(cycle, 10))
+		version = recordWorkflowFailureForPin(t, s, grant, attemptID, 0, "escalated-seed-"+strconv.FormatInt(cycle, 10), failureAt...)
 	}
 	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
 	if err != nil {
@@ -472,7 +472,7 @@ func supersedeEscalatedCorrectionContract(t *testing.T, s *store.Store, owner st
 	}
 }
 
-func applyEscalatedWorkerDispatchAndFailure(t *testing.T, s *store.Store, grant Authority, attemptID, suffix string) {
+func applyEscalatedWorkerDispatchAndFailure(t *testing.T, s *store.Store, grant Authority, attemptID, suffix string, failureAt ...time.Time) {
 	t.Helper()
 	lane := retryLane(t)
 	job := authorizedWorkerJob(t, s, attemptID)
@@ -481,6 +481,9 @@ func applyEscalatedWorkerDispatchAndFailure(t *testing.T, s *store.Store, grant 
 	// definition requires; on a released pin the block lands unchanged beside
 	// the store-level record disposition.
 	failure := agentWorkerFailedAttributedEvent(suffix+"-failed-"+attemptID, store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "synthetic escalated failure"})
+	if len(failureAt) != 0 {
+		failure.OccurredAt = failureAt[0]
+	}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, dispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {
@@ -507,7 +510,7 @@ func applyEscalatedWorkerDispatchAndFailure(t *testing.T, s *store.Store, grant 
 // keeps its callable record_worker_failure behavior store-executable; the
 // closed live union publishes no authoring shape for the retired call
 // (CD-0218 D2/D4).
-func recordWorkflowFailureForPin(t *testing.T, s *store.Store, grant Authority, attemptID string, epoch int64, suffix string) int64 {
+func recordWorkflowFailureForPin(t *testing.T, s *store.Store, grant Authority, attemptID string, epoch int64, suffix string, failureAt ...time.Time) int64 {
 	t.Helper()
 	var pinnedRef string
 	var pinnedVersion int64
@@ -521,12 +524,12 @@ func recordWorkflowFailureForPin(t *testing.T, s *store.Store, grant Authority, 
 		// research v17+), and this fixture's pin rides it. The worker
 		// session's lane dispatch precedes its terminal fact, and the seam
 		// derives the record in the same commit.
-		applyEscalatedWorkerDispatchAndFailure(t, s, grant, attemptID, "escalated-derived-"+suffix)
+		applyEscalatedWorkerDispatchAndFailure(t, s, grant, attemptID, "escalated-derived-"+suffix, failureAt...)
 		return workVersion(t, s, "work-1")
 	}
 	// The worker session records its lane dispatch and its failure before
 	// the released pin's store-level record disposition lands.
-	applyEscalatedWorkerDispatchAndFailure(t, s, grant, attemptID, suffix)
+	applyEscalatedWorkerDispatchAndFailure(t, s, grant, attemptID, suffix, failureAt...)
 	if epoch == 0 {
 		epoch = escalatedDispatchEpoch(t, s)
 	}

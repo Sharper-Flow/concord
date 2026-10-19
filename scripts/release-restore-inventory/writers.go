@@ -31,7 +31,11 @@ import (
 // fields.
 //
 // Each site's (kind, version) pairs resolve through constants and locals,
-// flow-insensitively: a local is the union of every value assigned to it. A
+// flow-insensitively: a local is the union of every value assigned to it,
+// except an assignment in an if arm whose condition is constantly false, and
+// one that a later statement of its own list overwrites before anything reads
+// it. Overwriting applies only to a local no closure captures, and only across
+// statements with no branch or label. A
 // parameter, result, receiver, global, call result, or local whose address
 // escapes is "*". A site whose pairs all resolve to finite values adds them to
 // the release's writes; any other site is open. Pairs are "kind vVERSION",
@@ -96,11 +100,22 @@ var (
 const resolveBudget = 200000
 
 // assignment is one write of a local: the whole variable (field "") or one
-// Event field of it. A nil rhs is a var declaration's zero value.
+// Event field of it. A nil rhs is a var declaration's zero value. path lists
+// its enclosing if arms; list and pos place its statement, pos -1 when it is
+// not in a statement list.
 type assignment struct {
 	rhs   ast.Expr
 	field string
 	pkg   *checkedPackage
+	path  []branch
+	list  []ast.Stmt
+	pos   int
+}
+
+// branch is one enclosing if statement and the arm the node sits in.
+type branch struct {
+	stmt *ast.IfStmt
+	then bool
 }
 
 type seenKey struct {
@@ -122,7 +137,9 @@ type analyzer struct {
 	assigns  map[types.Object][]assignment
 	declared map[types.Object]bool
 	unknown  map[types.Object]bool
+	captured map[types.Object]bool
 	steps    int
+	cuts     int
 }
 
 func analyzerVersion() string { return "release-writer-sites.v1 " + digest([]byte(generatorSource)) }
@@ -227,6 +244,7 @@ func analyzeWritersIn(dir string) (writerAnalysis, error) {
 	}
 	a.params, a.typeArgs = map[*types.TypeParam]string{}, map[string][]types.Type{}
 	a.assigns, a.declared, a.unknown, a.writes = map[types.Object][]assignment{}, map[types.Object]bool{}, map[types.Object]bool{}, map[string]bool{}
+	a.captured = map[types.Object]bool{}
 	for _, p := range packages {
 		a.instances(p)
 		a.index(p)
@@ -250,16 +268,24 @@ func analyzeWritersIn(dir string) (writerAnalysis, error) {
 // unknown.
 func (a *analyzer) index(p *checkedPackage) {
 	for _, file := range p.files {
+		var stack []ast.Node
 		ast.Inspect(file, func(n ast.Node) bool {
+			if n == nil {
+				stack = stack[:len(stack)-1]
+				return true
+			}
+			defer func() { stack = append(stack, n) }()
 			switch v := n.(type) {
 			case *ast.AssignStmt:
-				a.indexAssign(p, v)
+				a.indexAssign(p, v, place(p, stack, v))
 			case *ast.DeclStmt:
 				if decl, ok := v.Decl.(*ast.GenDecl); ok && decl.Tok == token.VAR {
 					for _, spec := range decl.Specs {
-						a.indexSpec(p, spec.(*ast.ValueSpec))
+						a.indexSpec(p, spec.(*ast.ValueSpec), place(p, stack, v))
 					}
 				}
+			case *ast.Ident:
+				a.markCaptured(p, v, stack)
 			case *ast.IncDecStmt:
 				a.markUnknown(p, v.X)
 			case *ast.UnaryExpr:
@@ -285,9 +311,48 @@ func (a *analyzer) index(p *checkedPackage) {
 	}
 }
 
-func (a *analyzer) indexAssign(p *checkedPackage, v *ast.AssignStmt) {
+// place records where stmt sits: its statement list and position, and its
+// enclosing if arms up to the function or closure.
+func place(p *checkedPackage, stack []ast.Node, stmt ast.Stmt) assignment {
+	record := assignment{pkg: p}
+	switch parent := stack[len(stack)-1].(type) {
+	case *ast.BlockStmt:
+		record.list = parent.List
+	case *ast.CaseClause:
+		record.list = parent.Body
+	case *ast.CommClause:
+		record.list = parent.Body
+	}
+	record.pos = slices.Index(record.list, stmt)
+	for i := len(stack) - 1; i > 0; i-- {
+		switch v := stack[i-1].(type) {
+		case *ast.FuncLit, *ast.FuncDecl:
+			return record
+		case *ast.IfStmt:
+			if stack[i] == v.Body || stack[i] == v.Else {
+				record.path = append(record.path, branch{v, stack[i] == v.Body})
+			}
+		}
+	}
+	return record
+}
+
+// markCaptured marks a variable used inside a closure it is declared outside.
+func (a *analyzer) markCaptured(p *checkedPackage, id *ast.Ident, stack []ast.Node) {
+	obj := p.info.Uses[id]
+	for i := len(stack) - 1; obj != nil && i >= 0; i-- {
+		if lit, ok := stack[i].(*ast.FuncLit); ok {
+			if obj.Pos() < lit.Pos() || obj.Pos() >= lit.End() {
+				a.captured[obj] = true
+			}
+			return
+		}
+	}
+}
+
+func (a *analyzer) indexAssign(p *checkedPackage, v *ast.AssignStmt, at assignment) {
 	for i, lhs := range v.Lhs {
-		record := assignment{pkg: p}
+		record := at
 		target := ast.Unparen(lhs)
 		if selector, ok := target.(*ast.SelectorExpr); ok {
 			if record.field = a.eventField(p, selector); record.field == "" {
@@ -316,14 +381,14 @@ func (a *analyzer) indexAssign(p *checkedPackage, v *ast.AssignStmt) {
 	}
 }
 
-func (a *analyzer) indexSpec(p *checkedPackage, v *ast.ValueSpec) {
+func (a *analyzer) indexSpec(p *checkedPackage, v *ast.ValueSpec, at assignment) {
 	for i, id := range v.Names {
 		obj := p.info.Defs[id]
 		if obj == nil {
 			continue
 		}
 		a.declared[obj] = true
-		record := assignment{pkg: p}
+		record := at
 		switch len(v.Values) {
 		case 0:
 		case len(v.Names):
@@ -916,6 +981,8 @@ func (a *analyzer) resolve(p *checkedPackage, expr ast.Expr, seen map[seenKey]bo
 			return []string{constant.StringVal(tv.Value)}
 		case constant.Int:
 			return []string{tv.Value.ExactString()}
+		case constant.Bool:
+			return []string{strconv.FormatBool(constant.BoolVal(tv.Value))}
 		}
 		return anyValue
 	}
@@ -932,10 +999,47 @@ func (a *analyzer) resolve(p *checkedPackage, expr ast.Expr, seen map[seenKey]bo
 		if field := a.eventField(p, v); field != "" {
 			return a.resolveField(p, v.X, field, seen)
 		}
+	case *ast.BinaryExpr:
+		return a.resolveBinary(p, v, seen)
 	case *ast.Ident:
 		return a.resolveVar(p, v, "", seen)
 	}
 	return anyValue
+}
+
+// resolveBinary resolves a comparison or boolean operator over finite
+// operands to the results any pair of operand values gives.
+func (a *analyzer) resolveBinary(p *checkedPackage, v *ast.BinaryExpr, seen map[seenKey]bool) []string {
+	x, y := a.resolve(p, v.X, seen), a.resolve(p, v.Y, seen)
+	if slices.Contains(x, "*") || slices.Contains(y, "*") {
+		return anyValue
+	}
+	set := map[string]bool{}
+	for _, l := range x {
+		for _, r := range y {
+			switch v.Op {
+			case token.EQL:
+				set[strconv.FormatBool(l == r)] = true
+			case token.NEQ:
+				set[strconv.FormatBool(l != r)] = true
+			case token.LAND:
+				set[strconv.FormatBool(l == "true" && r == "true")] = true
+			case token.LOR:
+				set[strconv.FormatBool(l == "true" || r == "true")] = true
+			default:
+				return anyValue
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(set))
+}
+
+// constantly reports whether cond always resolves to want. A condition whose
+// resolution cut a cycle may have missed values and is never constant.
+func (a *analyzer) constantly(p *checkedPackage, cond ast.Expr, want bool, seen map[seenKey]bool) bool {
+	cuts := a.cuts
+	values := a.resolve(p, cond, seen)
+	return a.cuts == cuts && slices.Equal(values, []string{strconv.FormatBool(want)})
 }
 
 // resolveVar resolves a declared local, or with a field that Event field of
@@ -948,13 +1052,14 @@ func (a *analyzer) resolveVar(p *checkedPackage, id *ast.Ident, field string, se
 	}
 	key := seenKey{obj, field}
 	if seen[key] {
+		a.cuts++
 		return nil
 	}
 	seen[key] = true
 	defer delete(seen, key)
 	var values [][]string
 	for _, assign := range a.assigns[obj] {
-		if assign.field == "" || assign.field == field {
+		if (assign.field == "" || assign.field == field) && a.reaches(assign, obj, field, seen) {
 			values = append(values, a.resolveAssigned(assign, field, seen))
 		}
 	}
@@ -1003,4 +1108,106 @@ func (a *analyzer) resolveField(p *checkedPackage, expr ast.Expr, field string, 
 		return a.resolveVar(p, v, field, seen)
 	}
 	return anyValue
+}
+
+// reaches reports whether an assignment can supply a read of obj, or with a
+// field of that Event field: no enclosing arm is constantly skipped, and no
+// later statement of its list overwrites it first.
+func (a *analyzer) reaches(assign assignment, obj types.Object, field string, seen map[seenKey]bool) bool {
+	for _, b := range assign.path {
+		if a.constantly(assign.pkg, b.stmt.Cond, !b.then, seen) {
+			return false
+		}
+	}
+	return assign.pos < 0 || a.captured[obj] || !a.overwrites(assign.pkg, assign.list[assign.pos+1:], obj, field, seen)
+}
+
+// overwrites reports whether stmts assign obj (or obj.field) before anything
+// reads it, on the only path: the scan stops at a statement that holds a
+// branch or label, or that mentions obj other than to set another field.
+func (a *analyzer) overwrites(p *checkedPackage, stmts []ast.Stmt, obj types.Object, field string, seen map[seenKey]bool) bool {
+	for _, stmt := range stmts {
+		switch {
+		case jumps(stmt):
+			return false
+		case a.assignsWhole(p, stmt, obj, field):
+			return true
+		}
+		if s, ok := stmt.(*ast.IfStmt); ok && !a.mentions(p, s.Init, obj) && !a.mentions(p, s.Cond, obj) && a.constantly(p, s.Cond, true, seen) {
+			return a.overwrites(p, s.Body.List, obj, field, seen)
+		}
+		if field != "" && a.assignsOtherField(p, stmt, obj, field) {
+			continue
+		}
+		if a.mentions(p, stmt, obj) {
+			return false
+		}
+	}
+	return false
+}
+
+// jumps reports whether stmt holds a branch statement or a label outside a
+// closure.
+func jumps(stmt ast.Stmt) bool {
+	found := false
+	ast.Inspect(stmt, func(n ast.Node) bool {
+		switch n.(type) {
+		case *ast.BranchStmt, *ast.LabeledStmt:
+			found = true
+		case *ast.FuncLit:
+			return false
+		}
+		return !found
+	})
+	return found
+}
+
+// assignsWhole reports whether stmt assigns obj, or with a field obj.field,
+// reading obj nowhere else.
+func (a *analyzer) assignsWhole(p *checkedPackage, stmt ast.Stmt, obj types.Object, field string) bool {
+	assign, ok := stmt.(*ast.AssignStmt)
+	if !ok || assign.Tok != token.ASSIGN || slices.ContainsFunc(assign.Rhs, func(rhs ast.Expr) bool { return a.mentions(p, rhs, obj) }) {
+		return false
+	}
+	found := false
+	for _, lhs := range assign.Lhs {
+		target := ast.Unparen(lhs)
+		if selector, ok := target.(*ast.SelectorExpr); ok && field != "" && a.eventField(p, selector) == field {
+			target = ast.Unparen(selector.X)
+		}
+		if id, ok := target.(*ast.Ident); ok && p.info.Uses[id] == obj {
+			found = true
+		} else if a.mentions(p, lhs, obj) {
+			return false
+		}
+	}
+	return found
+}
+
+// assignsOtherField reports whether stmt only sets a field of obj other than
+// field, reading obj nowhere else.
+func (a *analyzer) assignsOtherField(p *checkedPackage, stmt ast.Stmt, obj types.Object, field string) bool {
+	assign, ok := stmt.(*ast.AssignStmt)
+	if !ok || assign.Tok != token.ASSIGN || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 || a.mentions(p, assign.Rhs[0], obj) {
+		return false
+	}
+	selector, ok := ast.Unparen(assign.Lhs[0]).(*ast.SelectorExpr)
+	if !ok || selector.Sel.Name == field {
+		return false
+	}
+	id, ok := ast.Unparen(selector.X).(*ast.Ident)
+	return ok && p.info.Uses[id] == obj
+}
+
+func (a *analyzer) mentions(p *checkedPackage, node ast.Node, obj types.Object) bool {
+	found := false
+	if node != nil {
+		ast.Inspect(node, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok && (p.info.Uses[id] == obj || p.info.Defs[id] == obj) {
+				found = true
+			}
+			return !found
+		})
+	}
+	return found
 }

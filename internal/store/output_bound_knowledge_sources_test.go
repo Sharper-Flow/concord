@@ -180,7 +180,7 @@ func init() {
 
 	// Law content hashes are stored under CHECK length 71 with the sha256
 	// prefix in the final DDL; verifyManifestBlob refuses any mismatch.
-	registerOutputBound("/$defs/domain_footprint_result/properties/laws/items/properties/content_hash/maxLength", goInlineBound("internal/store/knowledge_manifest.go", "validateContentHash", "len(hash)", boundBytes))
+	registerOutputBound("/$defs/domain_footprint_result/properties/laws/items/properties/content_hash/maxLength", goInlineBound("internal/store/git_knowledge.go", "validateContentHash", "len(hash)", boundBytes))
 
 	// Home Domain IDs are admitted through the same validManifestID
 	// code-point guard on every manifest record and scope array.
@@ -221,11 +221,11 @@ func init() {
 	registerOutputBound("/$defs/domain_footprint_result/properties/package_checks/items/properties/package/maxLength", goInlineBound("internal/store/knowledge_architecture.go", "validPackageMapPath", "len(value)", boundBytes))
 
 	// The check value is the live "./" literal at its construction site in
-	// queryDomainFootprintTx plus a package map path, whose guard refuses
+	// footprintSelectTx plus a package map path, whose guard refuses
 	// anything over maxPackageMapPath bytes; the sum is the producer bound.
 	registerOutputBound("/$defs/domain_footprint_result/properties/package_checks/items/properties/value/maxLength",
 		sumBound(
-			pkLiteralTextBound("internal/store/domain_footprint.go", "queryDomainFootprintTx", "./"),
+			pkLiteralTextBound("internal/store/domain_footprint.go", "footprintSelectTx", "./"),
 			goInlineBound("internal/store/knowledge_architecture.go", "validPackageMapPath", "len(value)", boundBytes),
 		))
 

@@ -551,6 +551,7 @@ func censusKey(file, pointer string) string {
 
 type goSource struct {
 	file *ast.File
+	path string // repository-relative; its directory is the package scope
 }
 
 // ledgerRuntime carries the live surfaces the ledger evaluates against: the
@@ -622,7 +623,7 @@ func (rt *ledgerRuntime) loadGo(file string) (*goSource, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot parse %s: %w", file, err)
 	}
-	source := &goSource{file: parsed}
+	source := &goSource{file: parsed, path: file}
 	rt.mu.Lock()
 	rt.goCache[file] = source
 	rt.mu.Unlock()
@@ -638,7 +639,7 @@ func (rt *ledgerRuntime) parseGoSource(name, src string) error {
 		return fmt.Errorf("synthetic source %s does not parse: %w", name, err)
 	}
 	rt.mu.Lock()
-	rt.goCache[name] = &goSource{file: parsed}
+	rt.goCache[name] = &goSource{file: parsed, path: name}
 	rt.mu.Unlock()
 	return nil
 }
@@ -677,11 +678,56 @@ func ledgerCollectConsts(decl *ast.GenDecl, into map[string]ledgerConstDef) {
 }
 
 // ledgerConstScope maps every const name visible to an expression: the
-// file's package-level consts, shadowed by the enclosing function's local
-// consts when scope is set. Implicit const-block repetition (iota lists)
-// re-evaluates the previous value list at the current spec index.
-func ledgerConstScope(file *ast.File, scope *ast.FuncDecl) map[string]ledgerConstDef {
+// package-level consts of every production file in the source's directory,
+// the file's own consts, and the enclosing function's local consts when scope
+// is set, each shadowing the last. Implicit const-block repetition (iota
+// lists) re-evaluates the previous value list at the current spec index.
+func (rt *ledgerRuntime) ledgerConstScope(goS *goSource, scope *ast.FuncDecl) (map[string]ledgerConstDef, error) {
 	consts := map[string]ledgerConstDef{}
+	if dir := filepath.Dir(goS.path); goS.path != "" && dir != "." {
+		root, err := rt.repoPath(dir)
+		if err != nil {
+			return nil, err
+		}
+		// The package is every production file on disk in the directory
+		// plus any source injected under it.
+		names := map[string]bool{}
+		entries, err := os.ReadDir(root)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("cannot read the package scope of %s: %w", goS.path, err)
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				names[filepath.ToSlash(filepath.Join(dir, entry.Name()))] = true
+			}
+		}
+		rt.mu.Lock()
+		for name := range rt.goCache {
+			if filepath.Dir(name) == dir {
+				names[name] = true
+			}
+		}
+		rt.mu.Unlock()
+		ordered := make([]string, 0, len(names))
+		for name := range names {
+			if strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") && name != goS.path {
+				ordered = append(ordered, name)
+			}
+		}
+		sort.Strings(ordered)
+		for _, name := range ordered {
+			sibling, err := rt.loadGo(name)
+			if err != nil {
+				return nil, err
+			}
+			for _, decl := range sibling.file.Decls {
+				if gen, ok := decl.(*ast.GenDecl); ok {
+					ledgerCollectConsts(gen, consts)
+				}
+			}
+		}
+	}
+	file := goS.file
 	for _, decl := range file.Decls {
 		if gen, ok := decl.(*ast.GenDecl); ok {
 			ledgerCollectConsts(gen, consts)
@@ -695,14 +741,17 @@ func ledgerConstScope(file *ast.File, scope *ast.FuncDecl) map[string]ledgerCons
 			return true
 		})
 	}
-	return consts
+	return consts, nil
 }
 
-// evalNumeric evaluates one integer constant expression against the file's
+// evalNumeric evaluates one integer constant expression against the package
 // const scope (plus the enclosing function's local consts when scope is set).
 // Anything it cannot resolve or reduce fails closed.
 func (rt *ledgerRuntime) evalNumeric(goS *goSource, scope *ast.FuncDecl, expr ast.Expr) (int64, error) {
-	consts := ledgerConstScope(goS.file, scope)
+	consts, err := rt.ledgerConstScope(goS, scope)
+	if err != nil {
+		return 0, err
+	}
 	return ledgerEvalConst(consts, expr, 0, 0)
 }
 
@@ -774,6 +823,18 @@ func ledgerEvalConst(consts map[string]ledgerConstDef, expr ast.Expr, iota, dept
 			return 0, fmt.Errorf("unsupported binary operator %s in a bound source", e.Op)
 		}
 		return ledgerConstInt(value)
+	case *ast.CallExpr:
+		// len of a string literal is a Go constant: its byte length.
+		if ident, ok := e.Fun.(*ast.Ident); ok && ident.Name == "len" && len(e.Args) == 1 {
+			if lit, ok := e.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				text, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					return 0, fmt.Errorf("unparsable string literal %s in a bound source: %w", lit.Value, err)
+				}
+				return int64(len(text)), nil
+			}
+		}
+		return 0, fmt.Errorf("unsupported constant expression %T in a bound source", expr)
 	default:
 		return 0, fmt.Errorf("unsupported constant expression %T in a bound source", expr)
 	}

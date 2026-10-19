@@ -171,14 +171,17 @@ func goInlineBound(file, function, measurement string, unit boundUnit) outputBou
 
 // derivationScanMode is the claim a comparison sits under: refuse means the
 // enclosing condition being true rejects the value, admit means the
-// enclosing expression being true admits the value, and other means the
-// comparison's truth does not gate admission where it sits.
+// enclosing expression being true admits the value, the conditional modes
+// mean the comparison refuses or admits only together with an unrelated
+// operand, and other means the comparison's truth does not gate admission where it sits.
 type derivationScanMode uint8
 
 const (
 	deriveModeOther derivationScanMode = iota
 	deriveModeRefuse
 	deriveModeAdmit
+	deriveModeConditionalRefuse
+	deriveModeConditionalAdmit
 )
 
 type inlineUpper struct {
@@ -306,27 +309,36 @@ func (w *inlineGuardScan) expr(e ast.Expr, mode derivationScanMode) {
 				mode = deriveModeAdmit
 			case deriveModeAdmit:
 				mode = deriveModeRefuse
+			case deriveModeConditionalRefuse, deriveModeConditionalAdmit:
+				mode = deriveModeOther
 			}
 		}
 		w.expr(node.X, mode)
 	case *ast.BinaryExpr:
 		switch node.Op {
 		case token.LAND:
-			// An admitting conjunction keeps the claim on both sides. Any
-			// other conjunction breaks the one-sided claim, so it descends
-			// without one: a measured comparison under the join then fails
-			// at the comparison itself, while an unrelated conjunction — a
-			// nil guard, a role check — poisons nothing.
+			// An admitting conjunction keeps the claim on both sides. A
+			// rejecting conjunction gates each side only together with the
+			// other, so it descends conditionally: an upper comparison there
+			// fails, while a lower one bounds nothing above and is counted.
+			// Elsewhere the join carries no claim; an unrelated conjunction
+			// — a nil guard, a role check — poisons nothing.
 			inner := deriveModeOther
-			if mode == deriveModeAdmit {
+			switch mode {
+			case deriveModeAdmit:
 				inner = deriveModeAdmit
+			case deriveModeRefuse, deriveModeConditionalRefuse:
+				inner = deriveModeConditionalRefuse
 			}
 			w.expr(node.X, inner)
 			w.expr(node.Y, inner)
 		case token.LOR:
 			inner := deriveModeOther
-			if mode == deriveModeRefuse {
+			switch mode {
+			case deriveModeRefuse:
 				inner = deriveModeRefuse
+			case deriveModeAdmit, deriveModeConditionalAdmit:
+				inner = deriveModeConditionalAdmit
 			}
 			w.expr(node.X, inner)
 			w.expr(node.Y, inner)
@@ -395,6 +407,14 @@ func (w *inlineGuardScan) comparison(node *ast.BinaryExpr, mode derivationScanMo
 	switch mode {
 	case deriveModeOther:
 		w.fail(fmt.Sprintf("comparison on %s sits in a context whose truth does not gate admission", w.measured))
+	case deriveModeConditionalRefuse, deriveModeConditionalAdmit:
+		// Only a comparison that pins the value from below is harmless
+		// here; anything that could read as an upper bound fails closed.
+		if ledgerConditionalComparisonIsLower(node, mode == deriveModeConditionalRefuse) {
+			w.lower++
+			return
+		}
+		w.fail(fmt.Sprintf("comparison on %s sits in a context whose truth does not gate admission", w.measured))
 	case deriveModeRefuse:
 		switch node.Op {
 		case token.GTR:
@@ -418,6 +438,22 @@ func (w *inlineGuardScan) comparison(node *ast.BinaryExpr, mode derivationScanMo
 			w.lower++
 		}
 	}
+}
+
+// ledgerConditionalComparisonIsLower reports whether a comparison, already
+// normalized with the measurement on the left, can only pin the value from
+// below. Refusing x < c, x <= c, or x == 0 leaves every larger value
+// admitted; admitting x > c, x >= c, or x != 0 does the same. Every other
+// form could stand for an upper bound, so the conditional context refuses it.
+func ledgerConditionalComparisonIsLower(node *ast.BinaryExpr, refusing bool) bool {
+	zero := false
+	if lit, ok := node.Y.(*ast.BasicLit); ok && lit.Kind == token.INT && lit.Value == "0" {
+		zero = true
+	}
+	if refusing {
+		return node.Op == token.LSS || node.Op == token.LEQ || node.Op == token.EQL && zero
+	}
+	return node.Op == token.GTR || node.Op == token.GEQ || node.Op == token.NEQ && zero
 }
 
 // audit counts every matching comparison in the function body, including
@@ -799,7 +835,10 @@ func goSliceBound(file, symbol string) outputBoundSource {
 		if !ok {
 			return evaluatedBound{}, fmt.Errorf("%s:%s: declaration is a %T literal, not a slice or array", file, symbol, literal.Type)
 		}
-		consts := ledgerConstScope(goS.file, nil)
+		consts, err := rt.ledgerConstScope(goS, nil)
+		if err != nil {
+			return evaluatedBound{}, err
+		}
 		for _, elt := range literal.Elts {
 			if err := ledgerSliceElement(elt, consts); err != nil {
 				return evaluatedBound{}, fmt.Errorf("%s:%s: %w", file, symbol, err)
@@ -985,9 +1024,14 @@ func TestDerivationGoInlineBound(t *testing.T) {
 		{name: "only lower guards fail", body: "func site(x string) bool {\n\tif len(x) < 1 {\n\t\treturn false\n\t}\n\treturn true\n}\n", function: "site", measurement: "len(x)", unit: boundItems, wantErr: "no comparison upper-bounds"},
 		{name: "rune measurement refuses a byte unit", body: "func site(s string) bool {\n\treturn utf8.RuneCountInString(s) < 12\n}\n", function: "site", measurement: "utf8.RuneCountInString(s)", unit: boundBytes, wantErr: "counts characters"},
 		{name: "len measurement refuses a character unit", body: "func site(s string) bool {\n\treturn len(s) <= 12\n}\n", function: "site", measurement: "len(s)", unit: boundCharacters, wantErr: "counts with len()"},
+		{name: "string literal length is a constant operand", body: "func site(x string) bool {\n\tif len(x) != len(\"sha256:\")+64 {\n\t\treturn false\n\t}\n\treturn true\n}\n", function: "site", measurement: "len(x)", unit: boundBytes, want: 71, wantInferred: "len"},
+		{name: "variable length operand fails closed", body: "func site(x, y string) bool {\n\treturn len(x) <= len(y)\n}\n", function: "site", measurement: "len(x)", unit: boundBytes, wantErr: "unsupported constant expression"},
 		{name: "parameter operand fails closed", body: "func site(x string, upper int) bool {\n\treturn len(x) <= upper\n}\n", function: "site", measurement: "len(x)", unit: boundBytes, wantErr: "unresolved constant upper"},
 		{name: "missing function fails", body: "func other(x string) bool {\n\treturn len(x) <= 4\n}\n", function: "site", measurement: "len(x)", unit: boundItems, wantErr: "not declared"},
 		{name: "duplicated function fails", body: "func site(x string) bool {\n\treturn len(x) <= 4\n}\n\nfunc site(y string) bool {\n\treturn len(y) <= 5\n}\n", function: "site", measurement: "len(x)", unit: boundItems, wantErr: "declared 2 times"},
+		{name: "emptiness check held by a rejecting conjunction is a lower bound", body: "func site(x []string, flag bool) bool {\n\tif len(x) > 4 {\n\t\treturn false\n\t}\n\tif flag && len(x) == 0 {\n\t\treturn false\n\t}\n\treturn true\n}\n", function: "site", measurement: "len(x)", unit: boundItems, want: 4, wantInferred: "len"},
+		{name: "nonzero equality held by a rejecting conjunction fails", body: "func site(x []string, flag bool) bool {\n\tif len(x) > 4 {\n\t\treturn false\n\t}\n\tif flag && len(x) == 3 {\n\t\treturn false\n\t}\n\treturn true\n}\n", function: "site", measurement: "len(x)", unit: boundItems, wantErr: "does not gate admission"},
+		{name: "negated lower comparison held by a rejecting conjunction fails", body: "func site(x []string, flag bool) bool {\n\tif len(x) > 4 {\n\t\treturn false\n\t}\n\tif flag && !(len(x) < 2) {\n\t\treturn false\n\t}\n\treturn true\n}\n", function: "site", measurement: "len(x)", unit: boundItems, wantErr: "does not gate admission"},
 		{name: "comparison held by a conjunction in a rejecting condition fails", body: "func site(x string, flag bool) bool {\n\tif len(x) > 4 && flag {\n\t\treturn false\n\t}\n\treturn true\n}\n", function: "site", measurement: "len(x)", unit: boundItems, wantErr: "does not gate admission"},
 		{name: "comparison held by a disjunction in an admitting return fails", body: "func site(x string, flag bool) bool {\n\treturn len(x) <= 4 || flag\n}\n", function: "site", measurement: "len(x)", unit: boundItems, wantErr: "does not gate admission"},
 		{name: "comparison in a call argument fails", body: "func sink(v bool) {}\n\nfunc site(x string) bool {\n\tsink(len(x) <= 4)\n\treturn true\n}\n", function: "site", measurement: "len(x)", unit: boundItems, wantErr: "does not gate admission"},

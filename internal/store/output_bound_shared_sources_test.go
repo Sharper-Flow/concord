@@ -77,55 +77,6 @@ func init() {
 			"constructor, or the consumer repair removing /$defs/absolute_path/maxLength",
 		"internal/agent/runtime.go:readSizeRefusal"))
 
-	// cursor: every mint was traced. Eleven mints emit the base64/decimal
-	// continuation tokens this primitive covers, and all encoded fields are
-	// admission-bounded or CHECK'd except one, so the row is unbounded,
-	// byte-ceiling only. The unbounded member:
-	// the federated knowledge cursor embeds last.CompletedAt
-	// (internal/store/knowledge_query.go:951), a value that enters through
-	// the knowledge manifest record date validated only by
-	// time.Parse(time.RFC3339Nano) (internal/store/knowledge_manifest.go:1344),
-	// which accepts arbitrarily long fractional seconds, and is stored in
-	// archived_work.completed_at with no length CHECK
-	// (internal/store/schema.go:377); nothing bounds it between the index
-	// read and the base64 mint. Parent repair: remove the
-	// /$defs/cursor/maxLength cap, or add the manifest-side length guard and
-	// re-prove the row. The bounded mints, for the re-proof after that
-	// repair: internal/store/query_pages.go:offsetWorkPage (Q4/Q5 decimal
-	// offset tokens), internal/store/query.go:QueryQ4 (decimal offset
-	// token), internal/store/query.go:readQ1ProductPage (base64 JSON over
-	// the admitted display name and work id), internal/store/query_pages.go
-	// Q6Result.LimitPage (base64 JSON over admitted product/project ids, a
-	// const order literal, and an integer offset; feeds the work_scope
-	// def), internal/store/query.go
-	// QueryQ7 (base64 JSON over the admitted work id, direction enum, and
-	// integer sequence), internal/store/work_collection_cursor.go
-	// encodeWorkCollectionCursor, internal/store/workflow_continuity.go:limitBoundaries
-	// (base64 JSON over the work id and integers),
-	// internal/store/research_reads.go:ResearchPacksByOwner (base64 JSON
-	// over the owner id, pack id, and the Go-minted updated_at timestamp),
-	// internal/store/domain_footprint.go:encodeFootprintCursor (base64 over
-	// the worktree SHA, a hex sha256 binding, and an integer offset;
-	// goPatternBound derives 64 from worktreeSHAPattern),
-	// internal/store/domain_reads.go:encodeDomainCursor (std base64 over the
-	// domains name and id registry values; their table CHECKs are
-	// prefix-only under the NUL model, so the re-proof cites the registry
-	// admission guards instead: validManifestID at 256 characters and
-	// maxManifestTitle for the name), and
-	// internal/store/knowledge_query.go:encodeFederatedKnowledgeCursor.
-	registerOutputBound("/$defs/cursor/maxLength", unboundedOutput(
-		"eleven traced base64/decimal cursor mints (offsetWorkPage, QueryQ4, readQ1ProductPage, Q6Result.LimitPage, "+
-			"QueryQ7, encodeWorkCollectionCursor, limitBoundaries, ResearchPacksByOwner, encodeFootprintCursor, "+
-			"encodeDomainCursor, "+
-			"encodeFederatedKnowledgeCursor) with no encode-time length guard, and one unbounded encoded field: "+
-			"encodeFederatedKnowledgeCursor embeds last.CompletedAt "+
-			"(internal/store/knowledge_query.go:951) whose value is the knowledge manifest record date, validated "+
-			"only by time.Parse(time.RFC3339Nano) (internal/store/knowledge_manifest.go:1344), stored in "+
-			"archived_work.completed_at with no length CHECK (internal/store/schema.go:377), and never bounded "+
-			"between the index read and the mint. Missing: a manifest-side date length guard, or the consumer "+
-			"repair removing /$defs/cursor/maxLength",
-		"internal/agent/runtime.go:readSizeRefusal"))
-
 	// digest: every output value is a boundary-admitted digest (<=128 code
 	// points, hex pattern — the admission is a full-string bound), a
 	// Go-minted sha256 form (64 bare hex, 71 with the sha256: prefix;

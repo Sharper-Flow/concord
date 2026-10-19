@@ -46,10 +46,9 @@ func init() {
 	observationRecordedAt := pkTimeLayoutWidthBound("internal/store/work_observations.go", "foldWorkObservationRecorded", "time.RFC3339Nano")
 	sizeRecordedAt := pkTimeLayoutWidthBound("internal/store/work_size.go", "foldWorkSized", "time.RFC3339Nano")
 	// last_progress is the max domain_events.occurred_at column value, whose
-	// only three writers each render the same recorded layout.
+	// only two writers each render the same recorded layout.
 	eventOccurredAt := maxBound(
 		pkTimeLayoutWidthBound("internal/store/events.go", "appendEvent", "time.RFC3339Nano"),
-		pkTimeLayoutWidthBound("internal/store/reconstruction.go", "ReconstructSubjectAt", "time.RFC3339Nano"),
 		pkTimeLayoutWidthBound("internal/store/workflow.go", "appendWorkflowContractImpactNoticesTx", "time.RFC3339Nano"),
 	)
 
@@ -111,10 +110,10 @@ func init() {
 	// (len(value) >= 1 && len(value) <= 2048); every other site uses the
 	// refusal form (expression > N beside a lower guard the helper never
 	// selects).
-	continuityPageLimit := goInlineBound("internal/store/workflow_continuity.go", "ReadWorkflowContinuity", "req.Limit", boundItems)
+	continuityPageLimit := goInlineBound("internal/store/workflow_continuity.go", "readWorkflowContinuityForRegistry", "req.Limit", boundItems)
 	observationRefBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(ref)", boundBytes)
 	observationTagBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(tag)", boundBytes)
-	productIdentityBound := goInlineBound("internal/store/workflow_continuity.go", "ReadWorkflowContinuity", "len(out.ProductIdentity)", boundItems)
+	productIdentityBound := goInlineBound("internal/store/workflow_continuity.go", "readWorkflowContinuityForRegistry", "len(out.ProductIdentity)", boundItems)
 	stepActionCount := goInlineBound("internal/store/workflow_registry.go", "validateWorkflowDefinitionWithReference", "len(step.Actions)", boundItems)
 	commitOIDBound := goInlineBound("internal/store/work_context.go", "workContextCommitOID", "len(oid)", boundBytes)
 	drivingSessionCount := goInlineBound("internal/store/workpin.go", "scanWorkPinDrivingSessions", "len(sessions)", boundItems)
@@ -407,7 +406,7 @@ func init() {
 	// Work pin evidence: the evidence_bound fold's inline closed vocabulary
 	// and the shared evidence reference guard.
 	registerOutputBound("/$defs/work_pin_evidence/properties/evidence_kind/maxLength",
-		workflowContainsLiteralLongestBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "contains"))
+		workflowContainsLiteralLongestBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "slices.Contains"))
 	registerOutputBound("/$defs/work_pin_evidence/properties/immutable_subject_ref/maxLength", evidenceRefBound)
 
 	// Work size summary.
@@ -1123,7 +1122,10 @@ func workflowSplitConstItemsBound(file, constName, separator string) outputBound
 		if err != nil {
 			return evaluatedBound{}, err
 		}
-		consts := ledgerConstScope(goS.file, nil)
+		consts, err := rt.ledgerConstScope(goS, nil)
+		if err != nil {
+			return evaluatedBound{}, err
+		}
 		def, ok := consts[constName]
 		if !ok {
 			return evaluatedBound{}, fmt.Errorf("workflow split const %s:%s resolves to no constant", file, constName)
@@ -1156,7 +1158,10 @@ func workflowRoleMarkItemsBound(file, function, marker string) outputBoundSource
 		if err != nil {
 			return evaluatedBound{}, err
 		}
-		consts := ledgerConstScope(goS.file, fn)
+		consts, err := rt.ledgerConstScope(goS, fn)
+		if err != nil {
+			return evaluatedBound{}, err
+		}
 		seen := map[string]bool{}
 		var refusal error
 		ast.Inspect(fn, func(n ast.Node) bool {

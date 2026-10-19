@@ -1126,16 +1126,14 @@ func init() {
 	))
 	registerOutputBound("/$defs/mutation_result/properties/worker_packet_digest/maxLength", goPatternBound("internal/store/worker_lanes.go", "workerProvenancePattern"))
 
-	// The anchor guard is conditional: ValidateObservedUniverse bounds the
-	// anchor only when coverage is complete, so a partial or unknown coverage
-	// capture stores an anchor of any length and the schema cap is redundant.
-	registerOutputBound("/$defs/observed_universe/properties/anchor_token/maxLength", unboundedOutput("ValidateObservedUniverse (internal/store/external_observation.go) calls boundedString(universe.AnchorToken, 1, 2048) only inside the coverage=complete branch; a partial or unknown coverage capture folds any anchor length into the stored universe, which the read projects verbatim", "internal/agent/runtime.go:readSizeRefusal"))
-	registerOutputBound("/$defs/observed_universe/properties/applied_scope/maxLength", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedString", "universe.AppliedScope", 2, boundBytes))
-	registerOutputBound("/$defs/observed_universe/properties/canonical_identity_key/maxLength", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedString", "universe.CanonicalIdentityKey", 2, boundBytes))
-	registerOutputBound("/$defs/observed_universe/properties/observed_refs/items/maxLength", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedStringList", "universe.ObservedRefs", 3, boundBytes))
-	registerOutputBound("/$defs/observed_universe/properties/observed_refs/maxItems", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedStringList", "universe.ObservedRefs", 1, boundItems))
-	registerOutputBound("/$defs/observed_universe/properties/omissions/items/maxLength", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedStringList", "universe.Omissions", 3, boundBytes))
-	registerOutputBound("/$defs/observed_universe/properties/omissions/maxItems", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedStringList", "universe.Omissions", 1, boundItems))
+	// The output readback omits the anchor_token cap: ValidateObservedUniverse
+	// bounds the anchor only when coverage is complete.
+	registerOutputBound("/$defs/observed_universe_output/properties/applied_scope/maxLength", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedString", "universe.AppliedScope", 2, boundBytes))
+	registerOutputBound("/$defs/observed_universe_output/properties/canonical_identity_key/maxLength", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedString", "universe.CanonicalIdentityKey", 2, boundBytes))
+	registerOutputBound("/$defs/observed_universe_output/properties/observed_refs/items/maxLength", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedStringList", "universe.ObservedRefs", 3, boundBytes))
+	registerOutputBound("/$defs/observed_universe_output/properties/observed_refs/maxItems", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedStringList", "universe.ObservedRefs", 1, boundItems))
+	registerOutputBound("/$defs/observed_universe_output/properties/omissions/items/maxLength", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedStringList", "universe.Omissions", 3, boundBytes))
+	registerOutputBound("/$defs/observed_universe_output/properties/omissions/maxItems", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedStringList", "universe.Omissions", 1, boundItems))
 
 	registerOutputBound("/$defs/outside_repair_disposition/properties/reason/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "applyOutsideRepairMutationTx", "workflowString", "request.Reason", 1, boundBytes))
 	registerOutputBound("/$defs/outside_repair_disposition/properties/recorded_at/maxLength", pkTimeLayoutWidthBound("internal/store/outside_repair.go", "foldOutsideRepairDispositionSet", "time.RFC3339Nano"))

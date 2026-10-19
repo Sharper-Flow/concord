@@ -27,6 +27,11 @@
 - **Approval:** The Snowball coordinator approved this record on 2026-10-17
   under the operator's delegation. The record is serious under P12 because it
   affects more than one Domain.
+- **Amended:** 2026-10-19. Operator approval of the exact text for
+  [Concord (CON) issue 1200](https://linear.app/sharper-flow/issue/CON-1200).
+  D4's P12 Domain test counts the change's declared affected Domains, not its
+  footprint record. The change is serious under P12 because it narrows when an
+  operator approval applies, which removes behavior the operator sees.
 
 ## Context
 
@@ -86,10 +91,21 @@ An agent changes a law and records why, unless the change is serious under
 P12. A serious law change needs the operator's approval of its exact text. At
 `crucial` size, every law change needs that approval (Appendix A2 row 3).
 
-The P12 test that a change affects more than one Domain is computed from the
-change's footprint record. The agent declares the other three tests: whether
-the change removes or reverses behavior users see, touches security or data
-safety, or changes UI/UX. Independent review checks the declaration.
+The P12 test that a change affects more than one Domain counts the change's
+declared affected Domains. In a Product-changing contract these are the
+architecture binding's `affected_domain_ids`. The store already requires that
+set to hold the home Domain of every law the change adds or modifies and both
+ends of every Domain relation it modifies. A law change made outside such a
+contract declares the same set, under the same rule, in its pull request. The
+test holds when the set names more than one Domain.
+
+The footprint record is the evidence for that declaration, not the count. A
+path's footprint reaches every Domain of its owning package (CD-0222 D2), so a
+count of the footprint would make every law change to a shared package
+serious. The agent also declares the other three tests: whether the change
+removes or reverses behavior users see, touches security or data safety, or
+changes UI/UX. Independent review checks the declared Domains against the
+footprint, and the other three declarations, before the change is enacted.
 
 This amends CD-0006 D5 and D10, CD-0013 D9, CD-0036 D2, CD-0159 D4, CD-0218
 D1, and CD-0222 D1, D4, and D5. Where they require human or operator approval
@@ -140,8 +156,17 @@ the D6 label duty as a gap.
 
 - Keep the rules as prose and rely on review. Goal F rules this out.
 - Copy the rule text into the table. Two copies would drift.
-- Let the agent decide all four P12 tests alone. The Domain-count test is
-  computable, and a computed fact needs no judgement.
+- Let the agent decide all four P12 tests alone. The Domain test's floor, the
+  home Domain of every law the change adds or modifies, is a fact the store
+  enforces; review checks what the agent declares beyond it.
+- Count the Domains of the change's footprint record. The footprint lists
+  every Domain of each touched package. An installer-only amendment of a law
+  homed in one Domain counted seven, so every law change that ships with code
+  needed an operator turn.
+- Give each file its own Domains in the package map. CD-0222 D2 keeps the map
+  at package grain, and a file such as the installer still serves several
+  Domains, so the count would follow the file and not the change. It would
+  also rewrite the map and change work sizing, which reads the same footprint.
 - Keep operator approval for every law change. R3 replaces that rule.
 - Treat every change to a `legislated` record as serious. That adds a fifth
   test P12 does not hold.
@@ -155,6 +180,11 @@ the D6 label duty as a gap.
 
 A non-serious law change no longer costs an operator turn. The cost moves to
 the declaration of the P12 tests and its review.
+
+The P12 Domain test reads the declared affected Domains, while work sizing
+under CD-0229 and the footprint read keep their package-grain counts. An agent
+that declares too few Domains understates seriousness; the review of the
+declaration against the footprint is the check on that risk.
 
 A record the operator legislated becomes `derived` when an agent revises it
 without operator approval, so its standing shows who last enacted it.
@@ -177,9 +207,12 @@ Every change to `goals.md` moves its content hash, so the change that edits
   rule that files follow-up items names its label.
 - `go test ./internal/store` must prove that a non-serious law change with a
   recorded reason is admitted without operator approval and records the
-  `derived` tier, also for a D5 cohort record, that a change whose footprint
-  spans two Domains requires approval, that every law change at `crucial` size
-  requires it, and that a governed scope cut requires it at every size.
+  `derived` tier, also for a D5 cohort record, that a change whose declared
+  affected Domains name two Domains requires approval, that a change touching
+  only `scripts/install.py` to amend a law homed in one Domain counts one
+  Domain, that a declared set without the home Domain of a law the change
+  modifies is refused, that every law change at `crucial` size requires
+  approval, and that a governed scope cut requires it at every size.
 - `go test ./internal/store` must prove that each operator approval point
   carries one of the four D5 classes or stays an operator approval as a listed
   gap, and that a conflict record names its rule ID, size, and outcome.

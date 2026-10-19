@@ -988,7 +988,21 @@ func validateRequiredCommandFields(command string, raw []byte) error {
 	return nil
 }
 
+// databasePath resolves the store every command route uses. It admits the
+// path before any route reads or writes the data root's leases, locks,
+// fences, or store (CD-0240 D1).
 func databasePath() (string, error) {
+	path, err := resolveDatabasePath()
+	if err != nil {
+		return "", err
+	}
+	if err := store.AdmitStorePath(path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func resolveDatabasePath() (string, error) {
 	if override := os.Getenv(dbOverrideEnv); override != "" {
 		absolute, err := filepath.Abs(override)
 		if err != nil {
@@ -1465,8 +1479,6 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		}
 		report, err := store.RestoreBackup(ctx, request.Source, request.Destination)
 		if err != nil {
-			// The source is a backup file, not a data root's store, so the
-			// refusal names no owner.
 			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}

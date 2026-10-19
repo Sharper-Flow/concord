@@ -72,8 +72,8 @@ other agent is denied, and no substitute exists. If typed dispatch is
 unavailable, stop the dispatch rather than reproducing a lane's work by hand and
 recording the outcome as if a lane had produced it.
 
-A generated utility is the narrow exception, under CD-0102. A coordinator whose
-session has no managed parent calls a generated utility with no dispatch window,
+Under CD-0102, a generated utility runs as an ordinary host Task. A coordinator
+whose session has no managed parent calls one with no dispatch window,
 and the hook passes the call through unchanged. A lane session has a managed
 parent, so the hook refuses the utility call before the host starts it. Route by
 need and let the registry descriptions name the agent: a bounded repository

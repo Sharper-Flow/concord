@@ -163,7 +163,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		if err := checkMandatedLawsTx(ctx, tx, event.SubjectID, mandated, contract.LawModifies, false); err != nil {
 			return workflowClauseError(err, 3)
 		}
-		if err := checkWorkflowLawChangeEnactmentTx(ctx, tx, event.SubjectID, contract.LawChange, contract.LawModifies, contract.ArchitectureBinding); err != nil {
+		if err := checkWorkflowLawChangeEnactmentTx(ctx, tx, event.SubjectID, contract.LawChange); err != nil {
 			return workflowClauseError(err, 3)
 		}
 	}

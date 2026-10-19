@@ -183,8 +183,7 @@ func classifyConsequenceV1WorkflowApproval(definition WorkflowDefinition, action
 			return WorkflowApprovalPolicyResult{Policy: WorkflowApprovalPolicyConsequenceV1, Class: WorkflowApprovalClassDecision, Consent: WorkflowConsentRequired,
 				Reason: fmt.Sprintf("consequence_v1: %s on %s makes a serious law change and requires the operator's approval of its exact text (CD-0230 D4)", actionID, pin)}, nil
 		}
-		return WorkflowApprovalPolicyResult{Policy: WorkflowApprovalPolicyConsequenceV1, Class: WorkflowApprovalClassRoutine, Consent: WorkflowConsentNone,
-			Reason: fmt.Sprintf("consequence_v1: %s on %s is routine record-keeping with no consent challenge", actionID, pin)}, nil
+		fallthrough
 	default:
 		// The declared legacy metadata is deliberately not consulted: the
 		// new policy replaces it for every routine action.

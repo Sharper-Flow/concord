@@ -2082,9 +2082,7 @@ func workflowDecisionFactPayloadFields(definition WorkflowDefinition, fields []W
 	if !workflowApprovalPolicyRequiresDecisionFact(definition) {
 		return fields
 	}
-	lawChange := workflowLawChangeFields()
-	selected := make([]WorkflowPayloadField, len(fields), len(fields)+len(lawChange)+1)
-	copy(selected, fields)
+	selected := slices.Clone(fields)
 	declared := false
 	for index := range selected {
 		if selected[index].Name == "decision_domains" {
@@ -2092,7 +2090,7 @@ func workflowDecisionFactPayloadFields(definition WorkflowDefinition, fields []W
 			declared = true
 		}
 	}
-	for _, field := range lawChange {
+	for _, field := range workflowLawChangeFields() {
 		if !slices.ContainsFunc(fields, func(existing WorkflowPayloadField) bool { return existing.Name == field.Name }) {
 			selected = append(selected, field)
 		}

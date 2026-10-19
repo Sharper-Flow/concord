@@ -145,10 +145,15 @@ func deriveLawChange(t *testing.T, s *Store, workID string, definition WorkflowD
 	return change, err
 }
 
+// enactLawChange runs the completion check. A hand-built fact without law_ids
+// changes the laws the contract names.
 func enactLawChange(t *testing.T, s *Store, workID string, change *WorkflowLawChange, laws []string, binding *WorkflowArchitectureBinding) error {
 	t.Helper()
+	if change.LawIDs == nil {
+		change.LawIDs = uniqueSorted(workflowChangedLawIDs(laws, binding))
+	}
 	tx := lawChangeTx(t, s)
-	err := checkWorkflowLawChangeEnactmentTx(context.Background(), tx, workID, change, laws, binding)
+	err := checkWorkflowLawChangeEnactmentTx(context.Background(), tx, workID, change)
 	if rollbackErr := tx.Rollback(); rollbackErr != nil {
 		t.Fatal(rollbackErr)
 	}
@@ -235,7 +240,7 @@ func TestLawChangeDerivationRecordsReasonAndSeriousness(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a non-serious law change with a reason refused: %v", err)
 	}
-	want := &WorkflowLawChange{Reason: "the installer moved", DomainIDs: []string{"agent-surface"}}
+	want := &WorkflowLawChange{Reason: "the installer moved", LawIDs: []string{"law-agent"}, DomainIDs: []string{"agent-surface"}}
 	if !reflect.DeepEqual(change, want) {
 		t.Fatalf("recorded %+v, want %+v", change, want)
 	}
@@ -509,22 +514,25 @@ func TestLawChangeTextPinsBindTheChange(t *testing.T) {
 func TestLawChangeShapeValidation(t *testing.T) {
 	t.Parallel()
 	agent := []string{"law-agent"}
-	if err := validateWorkflowLawChangeShape(&WorkflowLawChange{Reason: "revise", DomainIDs: []string{"agent-surface"}}, []string{}, agent, nil); err != nil {
+	if err := validateWorkflowLawChangeShape(&WorkflowLawChange{Reason: "revise", LawIDs: agent, DomainIDs: []string{"agent-surface"}}, []string{}, agent, nil); err != nil {
 		t.Fatalf("a well-formed fact refused: %v", err)
 	}
 	for name, change := range map[string]WorkflowLawChange{
-		"lowered seriousness": {Reason: "revise", DomainIDs: []string{"agent-surface", "workflow-engine"}},
-		"missing reason":      {DomainIDs: []string{}},
-		"unsorted Domains":    {Reason: "revise", DomainIDs: []string{"workflow-engine", "agent-surface"}, Serious: true},
-		"null Domains":        {Reason: "revise"},
-		"unpinned serious":    {Reason: "revise", DomainIDs: []string{"agent-surface"}, Crucial: true, Serious: true},
-		"pinned non-serious":  {Reason: "revise", DomainIDs: []string{"agent-surface"}, TextPins: lawChangePins("law-agent")},
+		"lowered seriousness":        {Reason: "revise", LawIDs: agent, DomainIDs: []string{"agent-surface", "workflow-engine"}},
+		"lowered inherited serious":  {Reason: "revise", LawIDs: agent, DomainIDs: []string{"agent-surface"}, PredecessorSerious: true},
+		"missing reason":             {LawIDs: agent, DomainIDs: []string{}},
+		"unsorted Domains":           {Reason: "revise", LawIDs: agent, DomainIDs: []string{"workflow-engine", "agent-surface"}, Serious: true},
+		"null Domains":               {Reason: "revise", LawIDs: agent},
+		"null law_ids":               {Reason: "revise", DomainIDs: []string{"agent-surface"}},
+		"law_ids omit a changed law": {Reason: "revise", LawIDs: []string{}, DomainIDs: []string{"agent-surface"}},
+		"unpinned serious":           {Reason: "revise", LawIDs: agent, DomainIDs: []string{"agent-surface"}, Crucial: true, Serious: true},
+		"pinned non-serious":         {Reason: "revise", LawIDs: agent, DomainIDs: []string{"agent-surface"}, TextPins: lawChangePins("law-agent")},
 	} {
 		if err := validateWorkflowLawChangeShape(&change, []string{}, agent, nil); err == nil {
 			t.Errorf("%s: admitted", name)
 		}
 	}
-	pinned := WorkflowLawChange{Reason: "revise", DomainIDs: []string{"agent-surface"}, Crucial: true, Serious: true, TextPins: lawChangePins("law-agent")}
+	pinned := WorkflowLawChange{Reason: "revise", LawIDs: agent, DomainIDs: []string{"agent-surface"}, Crucial: true, Serious: true, TextPins: lawChangePins("law-agent")}
 	requireFailureKind(t, validateWorkflowLawChangeShape(&pinned, []string{}, agent, nil), KindApprovalRequired, "a pinned serious fact without consumed approval")
 	pinned.Approval = lawChangeApprovalProof()
 	if err := validateWorkflowLawChangeShape(&pinned, []string{}, agent, nil); err != nil {
@@ -553,7 +561,7 @@ func TestLawChangeApprovalRequiresConsumedIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := WorkflowActionExecutionRequest{OperatorApprovalRef: proof.ApprovalRef, ApprovalOperationDigest: proof.OperationDigest, ApprovalScopeJSON: proof.ScopeJSON, ApprovalVersionsJSON: proof.VersionsJSON, ApprovalConsequence: proof.Consequence}
-	change := &WorkflowLawChange{Reason: "revise", DomainIDs: []string{"agent-surface"}, Crucial: true, Serious: true, TextPins: lawChangePins("law-agent")}
+	change := &WorkflowLawChange{Reason: "revise", LawIDs: []string{"law-agent"}, DomainIDs: []string{"agent-surface"}, Crucial: true, Serious: true, TextPins: lawChangePins("law-agent")}
 	bind := func(request WorkflowActionExecutionRequest) error {
 		tx := lawChangeTx(t, s)
 		err := bindWorkflowLawChangeApprovalTx(context.Background(), tx, request, change)
@@ -579,7 +587,7 @@ func TestLawChangeApprovalRequiresConsumedIdentity(t *testing.T) {
 	change.Approval.Operator.PrincipalRef = "principal/other"
 	seedLawChangeSize(t, s, workID, WorkSizeCrucial)
 	tx := lawChangeTx(t, s)
-	err := validateLiveWorkflowLawChangeTx(context.Background(), tx, lawChangeV1, workID, workflowContractApprovedPayload{LawChange: change, LawModifies: []string{"law-agent"}})
+	err := validateLiveWorkflowLawChangeTx(context.Background(), tx, workID, workflowContractApprovedPayload{LawChange: change, LawModifies: []string{"law-agent"}})
 	_ = tx.Rollback()
 	requireFailureKind(t, err, KindUnauthorized, "operator differs from consumed approval")
 }
@@ -591,7 +599,7 @@ func TestLawChangeReplayKeepsRecordedApproval(t *testing.T) {
 	s, owner := seedResolutionSelection(t, workID, registry, registered)
 	seedIssue31DomainRegistry(t, s)
 	seedLawChangeLaw(t, s, "law-agent", "derived", "root")
-	change := &WorkflowLawChange{Reason: "revise", DomainIDs: []string{}, Serious: true, TouchesSecurityOrDataSafe: true, TextPins: lawChangePins("law-agent"), Approval: lawChangeApprovalProof()}
+	change := &WorkflowLawChange{Reason: "revise", LawIDs: []string{"law-agent"}, DomainIDs: []string{}, Serious: true, TouchesSecurityOrDataSafe: true, TextPins: lawChangePins("law-agent"), Approval: lawChangeApprovalProof()}
 	version := readWorkVersion(t, s, workID)
 	event := workflowTypedEvent("law-replay", WorkflowContractApproved, workID, ownerRefForTest(t, owner), time.Unix(30, 0), version, map[string]any{
 		"contract_version": 1, "premise": "The law change preserves its exact approved text.",
@@ -648,7 +656,7 @@ func TestLawChangeReplayKeepsRecordedApproval(t *testing.T) {
 	if err := scope.bindRegistry(tx, registry); err != nil {
 		t.Fatal(err)
 	}
-	requireFailureKind(t, validateLiveWorkflowLawChangeTx(context.Background(), tx, definition, workID, workflowContractApprovedPayload{LawChange: change, LawModifies: []string{"law-agent"}}), KindApprovalRequired, "live admission without the consumed approval")
+	requireFailureKind(t, validateLiveWorkflowLawChangeTx(context.Background(), tx, workID, workflowContractApprovedPayload{LawChange: change, LawModifies: []string{"law-agent"}}), KindApprovalRequired, "live admission without the consumed approval")
 	if err := foldWorkflowContractApproved(workflowReplayContext(context.Background()), tx, event, scope); err != nil {
 		t.Fatalf("recorded proof refused during replay: %v", err)
 	}
@@ -695,4 +703,108 @@ func TestLawChangeRegistryCountUsesEnactedEntries(t *testing.T) {
 			}
 		})
 	}
+}
+
+// recordLawChangeContract records contract version as the item's active
+// contract with the given law change and supersedes every earlier one.
+func recordLawChangeContract(t *testing.T, s *Store, workID string, version int64, change *WorkflowLawChange) {
+	t.Helper()
+	encoded, err := json.Marshal(change)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := "actor:" + strings.Repeat("a", 64)
+	lawChangeFold(t, s, `INSERT OR IGNORE INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'principal/law','client/law','agent/law','session/law','agent','2026-10-19T00:00:00Z')`, actor)
+	lawChangeFold(t, s, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_change) VALUES(?,?,'The law change fixture.','internal_sqlite','[]','[]','2026-10-19T00:00:00Z',?,'[]',?)`, workID, version, actor, string(encoded))
+	lawChangeFold(t, s, `UPDATE workflow_contracts SET superseded_by=? WHERE work_id=? AND contract_version<? AND superseded_by IS NULL`, version, workID, version)
+}
+
+// TestLawChangeSuccessorKeepsTheItemBaseline holds that the before-state
+// belongs to the work item, not to one contract version: a successor counts
+// the enacted state against the baseline its predecessors recorded, so a
+// routine or re-pin successor cannot lower the count of a change already
+// made, and a cumulative serious change needs the operator's approval of the
+// cumulative after-state text.
+func TestLawChangeSuccessorKeepsTheItemBaseline(t *testing.T) {
+	t.Parallel()
+	consent := lawChangeV1
+	consent.ActionDefinitions = []WorkflowActionDefinition{{ID: "approve_contract"}, {ID: "supersede_contract"}}
+
+	t.Run("a law moved across a routine successor counts both homes", func(t *testing.T) {
+		t.Parallel()
+		workID := "law-change-successor-move"
+		s := seedLawChangeFixture(t, workID)
+		seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
+		reason := map[string]any{workflowLawChangeReasonField: "move the law"}
+		v1, err := deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, reason), []string{"law-agent"}, nil, []string{})
+		if err != nil || v1.Serious || !reflect.DeepEqual(v1.DomainIDs, []string{"agent-surface"}) {
+			t.Fatalf("v1 = %+v, %v; want a non-serious change in agent-surface", v1, err)
+		}
+		recordLawChangeContract(t, s, workID, 1, v1)
+		lawChangeFold(t, s, `UPDATE law_domain_homes SET domain_id='workflow-engine' WHERE law_id='law-agent'`)
+		requireFailureKind(t, enactLawChange(t, s, workID, v1, nil, nil), KindApprovalRequired, "v1 completion of the moved law")
+
+		_, err = deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, reason), []string{"law-agent"}, nil, []string{})
+		requireFailureKind(t, err, KindInvalidPayload, "a routine successor without the cumulative text pins")
+
+		pinned := map[string]any{"law_modifies": []string{"law-agent"}, "decision_domains": []string{}, workflowLawChangeReasonField: "move the law", workflowLawChangeTextPinsField: lawChangePins("law-agent")}
+		tx := lawChangeTx(t, s)
+		serious, err := workflowProposedLawChangeSeriousTx(context.Background(), tx, lawChangeV1, workID, "successor", lawChangeFields(t, pinned))
+		_ = tx.Rollback()
+		if err != nil || !serious {
+			t.Fatalf("successor consent boundary serious = %v, %v; want serious", serious, err)
+		}
+		result, err := ClassifyWorkflowApproval(consent, "supersede_contract", WorkflowApprovalFacts{SeriousLawChange: serious})
+		if err != nil || result.Consent != WorkflowConsentRequired {
+			t.Fatalf("successor consent = %+v, %v; want the operator's approval", result, err)
+		}
+
+		v2, err := deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, pinned), []string{"law-agent"}, nil, []string{})
+		if err != nil || !v2.Serious || !reflect.DeepEqual(v2.DomainIDs, []string{"agent-surface", "workflow-engine"}) {
+			t.Fatalf("v2 = %+v, %v; want a serious change counting both homes", v2, err)
+		}
+
+		narrowed, err := deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, pinned), nil, nil, []string{})
+		if err != nil || narrowed == nil || !narrowed.Serious || !reflect.DeepEqual(narrowed.LawIDs, []string{"law-agent"}) {
+			t.Fatalf("a successor naming no law = %+v, %v; want the item's serious change kept", narrowed, err)
+		}
+		tx = lawChangeTx(t, s)
+		err = validateLiveWorkflowLawChangeTx(context.Background(), tx, workID, workflowContractApprovedPayload{})
+		_ = tx.Rollback()
+		requireFailureKind(t, err, KindInvalidPayload, "a successor dropping the recorded law change")
+	})
+
+	t.Run("a registry re-pin successor keeps the first before-state", func(t *testing.T) {
+		t.Parallel()
+		workID := "law-change-successor-repin"
+		s := seedLawChangeFixture(t, workID)
+		binding := &WorkflowArchitectureBinding{DomainModifies: []string{"agent-surface"}}
+		reason := map[string]any{workflowLawChangeReasonField: "revise registry"}
+		v1, err := deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, reason), nil, binding, []string{})
+		if err != nil || v1.Serious || v1.RegistryBefore == nil {
+			t.Fatalf("v1 = %+v, %v; want a non-serious registry edit with its before-state", v1, err)
+		}
+		recordLawChangeContract(t, s, workID, 1, v1)
+		lawChangeFold(t, s, `UPDATE domains SET purpose='amended' WHERE domain_id IN ('agent-surface','workflow-engine')`)
+		var enacted string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM domain_registries WHERE product_id='product'`).Scan(&enacted); err != nil {
+			t.Fatal(err)
+		}
+		requireFailureKind(t, enactLawChange(t, s, workID, v1, nil, nil), KindApprovalRequired, "v1 completion of the undeclared second entry")
+
+		_, err = deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, reason), nil, binding, []string{})
+		requireFailureKind(t, err, KindInvalidPayload, "a re-pin successor without the cumulative registry pin")
+
+		repin := map[string]any{workflowLawChangeReasonField: "revise registry", workflowLawChangeRegistryHashField: enacted}
+		v2, err := deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, repin), nil, binding, []string{})
+		if err != nil || !v2.Serious || !reflect.DeepEqual(v2.DomainIDs, []string{"agent-surface", "workflow-engine"}) {
+			t.Fatalf("v2 = %+v, %v; want a serious change counting both changed entries", v2, err)
+		}
+		if !reflect.DeepEqual(v2.RegistryBefore, v1.RegistryBefore) {
+			t.Fatalf("the re-pin successor took a new before-state %+v; want the first %+v", v2.RegistryBefore, v1.RegistryBefore)
+		}
+		if err := enactLawChange(t, s, workID, v2, nil, nil); err != nil {
+			t.Fatalf("the approved cumulative registry refused at completion: %v", err)
+		}
+	})
 }

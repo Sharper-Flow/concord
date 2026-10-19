@@ -11,6 +11,22 @@ transcript of commands and status changes. Do not mirror routine progress in
 chat, receipts, and planning comments. Required workflow transitions and planning
 state changes still belong in their owning systems.
 
+## State the problem and the end state
+
+Every Linear issue you create or rewrite, and every work item you capture,
+states three things before any plan:
+
+- the problem, with the evidence you observed: the error, the path, the
+  measurement, or the operator's words;
+- who or what the problem affects;
+- the end state that closes the item, written so a check or a reviewer can
+  decide it when the change is delivered.
+
+A goal, a feature request, or a law to implement is not yet a problem. Say what
+fails, is missing, or costs too much today without it.
+
+## Write for the later reader
+
 Name what the reader can open. Give the path, the symbol, the command, the
 identifier, or the error text. "The validator rejected the change" sends nobody
 anywhere. Name the validator and quote what it printed, and the reader goes

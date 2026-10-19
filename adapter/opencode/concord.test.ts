@@ -4659,6 +4659,10 @@ test("portable continuation posture leaves host protocol names to the host surfa
   expect(recordsSource).toContain("Put the task identity, scope, and stop conditions in the assignment.")
   expect(recordsSource).toContain("prompt names the agent's role and points to that assignment instead of restating")
   expect(recordsSource).not.toContain("carries only the agent's role")
+  expect(recordsSource).toContain("Every Linear issue you create or rewrite, and every work item you capture,")
+  expect(recordsSource).toContain("the problem, with the evidence you observed")
+  expect(recordsSource).toContain("who or what the problem affects;")
+  expect(recordsSource).toContain("decide it when the change is delivered.")
 })
 
 // CD-0191: installed-versus-session release staleness. The installer

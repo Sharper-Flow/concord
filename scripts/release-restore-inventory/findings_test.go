@@ -17,13 +17,14 @@ func findingInventory(analysis writerAnalysis) inventory {
 	}
 }
 
+// Resolved writes are reported beside the held sites, and hold nothing less.
 func TestEveryOpenSiteIsHeld(t *testing.T) {
-	analysis := writerAnalysis{Analyzer: "test", Open: []writerSite{
+	analysis := writerAnalysis{Analyzer: "test", Writes: []string{"thing.a v2"}, Open: []writerSite{
 		{Function: "store.readEvents", Expression: "&event.Kind", FunctionDigest: "sha256:5555", Pairs: []string{"* v*"}},
 		{Function: "store.upcast", Expression: "event.PayloadVersion = 2", FunctionDigest: "sha256:1111", Pairs: []string{"* v2"}},
 	}}
 	findings := writerFindings(findingInventory(analysis))
-	if len(findings) != 1 || findings[0].Refused != "" || !reflect.DeepEqual(findings[0].Held, analysis.Open) {
+	if len(findings) != 1 || findings[0].Refused != "" || !reflect.DeepEqual(findings[0].Held, analysis.Open) || !reflect.DeepEqual(findings[0].Writes, analysis.Writes) {
 		t.Fatalf("findings = %+v", findings)
 	}
 }

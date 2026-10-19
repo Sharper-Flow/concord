@@ -277,22 +277,24 @@ func TestFixtureAnalysisListsEachSite(t *testing.T) {
 	analysis := analyzeFixture(t)
 	var got []string
 	for _, s := range analysis.Open {
-		if !slices.Equal(s.Pairs, []string{"* v*"}) || s.FunctionDigest == "" {
+		if s.FunctionDigest == "" {
 			t.Errorf("site %+v", s)
 		}
-		got = append(got, strings.TrimPrefix(strings.TrimPrefix(s.Function, storePkg+"."), mainPkg+".")+": "+s.Expression)
+		got = append(got, strings.TrimPrefix(strings.TrimPrefix(s.Function, storePkg+"."), mainPkg+".")+": "+s.Expression+" "+strings.Join(s.Pairs, ","))
 	}
 	want := []string{
-		`reconstruct: requested.PayloadVersion = existing.PayloadVersion`,
-		`ReadEvent: &event.Kind`,
-		`ReadEvent: &event.PayloadVersion`,
-		`RecordA: Event{Kind: "thing.a", SubjectType: SubjectProduct, PayloadVersion: 2, Payload: payload}`,
-		`upcastA1: event.PayloadVersion = 2`,
-		`upcastB1: event.PayloadVersion = 2`,
-		`upcastB2: event.PayloadVersion = 3`,
+		`reconstruct: requested.PayloadVersion = existing.PayloadVersion * v*`,
+		`ReadEvent: &event.Kind * v*`,
+		`ReadEvent: &event.PayloadVersion * v*`,
+		`upcastA1: event.PayloadVersion = 2 * v2`,
+		`upcastB1: event.PayloadVersion = 2 * v2`,
+		`upcastB2: event.PayloadVersion = 3 * v3`,
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("sites:\n%s", strings.Join(got, "\n"))
+	}
+	if !slices.Equal(analysis.Writes, []string{"thing.a v2"}) {
+		t.Fatalf("writes = %q", analysis.Writes)
 	}
 }
 
@@ -311,7 +313,7 @@ func TestEachWriteFormIsASite(t *testing.T) {
 
 func pair() (string, int) { return "thing.a", 1 }`, "Pair", `event.Kind, event.PayloadVersion = pair()`},
 		"positional literal":     {`func Positional() Event { return Event{"thing.a", SubjectProduct, 1, nil} }`, "Positional", `Event{"thing.a", SubjectProduct, 1, nil}`},
-		"literal eliding &Event": {`func Elided() []*Event { return []*Event{{Kind: "thing.a", PayloadVersion: 1}} }`, "Elided", `{Kind: "thing.a", PayloadVersion: 1}`},
+		"literal eliding &Event": {`func Elided(kind string) []*Event { return []*Event{{Kind: kind, PayloadVersion: 1}} }`, "Elided", `{Kind: kind, PayloadVersion: 1}`},
 		"conversion into an Event": {`type raw struct {
 	Kind           string
 	SubjectType    SubjectType
@@ -404,6 +406,142 @@ func hold(event *Event) (*Event, error) { return event, nil }`, "Spread", "retur
 			}
 			if !slices.Equal(sites, []string{c.expression}) {
 				t.Fatalf("sites of %s = %q", c.function, sites)
+			}
+		})
+	}
+}
+
+// A site's pairs resolve through constants and locals. A fully resolved site
+// adds writes; a site with any unresolved value stays open with its pairs.
+func TestSitePairsResolve(t *testing.T) {
+	const anchor = "func ReadEvent("
+	for name, c := range map[string]struct {
+		code   string
+		writes []string
+		open   []string
+	}{
+		"locals": {`func F() Event {
+	kind := "thing.b"
+	var version = 3
+	return Event{Kind: kind, PayloadVersion: version}
+}`, []string{"thing.b v3"}, nil},
+		"every assignment": {`func F(c bool) Event {
+	kind := "thing.a"
+	if c {
+		kind = "thing.b"
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, []string{"thing.a v1", "thing.b v1"}, nil},
+		"closure assignment": {`func F() Event {
+	kind := "thing.a"
+	defer func() { kind = "thing.b" }()
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, []string{"thing.a v1", "thing.b v1"}, nil},
+		"self assignment": {`func F(n int) Event {
+	kind := "thing.a"
+	for range n {
+		kind = kind
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, []string{"thing.a v1"}, nil},
+		"same-type conversion": {`func F() Event {
+	kind := SubjectProduct
+	return Event{Kind: string(kind), PayloadVersion: 1}
+}`, []string{"product v1"}, nil},
+		// Resolution is flow-insensitive: each field keeps its zero value.
+		"field assignments": {`func F() Event {
+	var event Event
+	event.Kind = "thing.b"
+	event.PayloadVersion = 2
+	return event
+}`, []string{" v2", "thing.b v0", "thing.b v2"}, nil},
+		"zero version": {`func F() Event { return Event{Kind: "thing.b", PayloadVersion: 0} }`, []string{"thing.b v0"}, nil},
+		"copied event": {`func F() Event {
+	base := Event{Kind: "thing.b", PayloadVersion: 2}
+	next := base
+	next.PayloadVersion = 3
+	return next
+}`, []string{"thing.b v2", "thing.b v3"}, nil},
+		"rune conversion": {`func F() Event {
+	n := 65
+	return Event{Kind: string(rune(n)), PayloadVersion: 1}
+}`, nil, []string{"* v1"}},
+		"narrowing conversion": {`func F() Event {
+	n := 300
+	return Event{Kind: "thing.a", PayloadVersion: int(int8(n))}
+}`, nil, []string{"thing.a v*"}},
+		"escaped address": {`func F() Event {
+	kind := "thing.a"
+	set(&kind)
+	return Event{Kind: kind, PayloadVersion: 1}
+}
+
+func set(kind *string) { *kind = "thing.c" }`, nil, []string{"* v1"}},
+		"pointer method": {`func (e *Event) bump() { e.PayloadVersion++ }
+
+func F() Event {
+	event := Event{Kind: "thing.a", PayloadVersion: 1}
+	event.bump()
+	event.Kind = "thing.b"
+	return event
+}`, []string{"thing.a v1"}, []string{"thing.b v*"}},
+		"op-assignment": {`func F() Event {
+	version := 1
+	version += 1
+	return Event{Kind: "thing.a", PayloadVersion: version}
+}`, nil, []string{"thing.a v*"}},
+		"increment": {`func F() Event {
+	version := 1
+	version++
+	return Event{Kind: "thing.a", PayloadVersion: version}
+}`, nil, []string{"thing.a v*"}},
+		"tuple declaration": {`func F() Event {
+	var event, err = pairEvent()
+	_ = err
+	event.Kind = "thing.b"
+	return event
+}
+
+func pairEvent() (Event, error) { return Event{}, nil }`, nil, []string{"thing.b v*"}},
+		"embedded event": {`type wrapped struct{ Event }
+
+func F() Event {
+	var w wrapped
+	w.Event = Event{Kind: "thing.a", PayloadVersion: 7}
+	w.Kind = "thing.b"
+	return w.Event
+}`, []string{"thing.a v7"}, []string{"thing.b v*"}},
+		"tuple result": {`func F() Event {
+	kind, version := pair()
+	return Event{Kind: kind, PayloadVersion: version}
+}
+
+func pair() (string, int) { return "thing.a", 1 }`, nil, []string{"* v*"}},
+		"range value": {`func F(kinds []string) Event {
+	kind := "thing.a"
+	for _, kind = range kinds {
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, nil, []string{"* v1"}},
+		"global": {`var defaultKind = "thing.a"
+
+func F() Event { return Event{Kind: defaultKind, PayloadVersion: 1} }`, nil, []string{"* v1"}},
+		"parameter field": {`func F(event Event) Event {
+	event.Kind = "thing.b"
+	return event
+}`, nil, []string{"thing.b v*"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			analysis := analyzeFixture(t, mutation{"internal/store/store.go", anchor, c.code + "\n\n" + anchor})
+			writes := slices.DeleteFunc(slices.Clone(analysis.Writes), func(pair string) bool { return pair == "thing.a v2" })
+			var open []string
+			for _, s := range analysis.Open {
+				if s.Function == storePkg+".F" {
+					open = append(open, s.Pairs...)
+				}
+			}
+			if !slices.Equal(writes, c.writes) || !slices.Equal(open, c.open) {
+				t.Fatalf("writes %q, open %q", writes, open)
 			}
 		})
 	}

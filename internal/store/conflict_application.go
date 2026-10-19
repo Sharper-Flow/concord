@@ -81,13 +81,19 @@ func validateWorkConflictAppliedPayload(_ Event, p ConflictApplication) error {
 		return invalid("size model version must be positive")
 	case !validWorkSize(p.Size):
 		return invalid(fmt.Sprintf("size %q is outside the stored size vocabulary", p.Size))
-	case strings.TrimSpace(p.Outcome) == "":
+	}
+	// The text bounds stay if statements: the output-bound ledger reads them
+	// as the guards that bound history output.
+	if strings.TrimSpace(p.Outcome) == "" {
 		return invalid("outcome is blank")
-	case !utf8.ValidString(p.Outcome) || len(p.Outcome) > conflictOutcomeMaxBytes:
+	}
+	if !utf8.ValidString(p.Outcome) || len(p.Outcome) > conflictOutcomeMaxBytes {
 		return invalid("outcome is not valid UTF-8 inside its 4096-byte bound")
-	case strings.TrimSpace(p.SettlementRef) == "":
+	}
+	if strings.TrimSpace(p.SettlementRef) == "" {
 		return invalid("settlement reference is blank")
-	case !utf8.ValidString(p.SettlementRef) || len(p.SettlementRef) > conflictSettlementRefMaxBytes:
+	}
+	if !utf8.ValidString(p.SettlementRef) || len(p.SettlementRef) > conflictSettlementRefMaxBytes {
 		return invalid("settlement reference is not valid UTF-8 inside its 256-byte bound")
 	}
 	return nil
@@ -161,39 +167,39 @@ func conflictApplicationEventID(request ConflictApplicationRequest, sequence int
 // and the stored assessment sequence: an exact retry carrying the same
 // inputs reports the already-recorded event as the durable effect and
 // returns it, while the same derived identity carrying different content
-// refuses as divergent. The caller's transaction rolls back on error, so a
+// refuses as divergent. It returns the one recorded event ID. The caller's transaction rolls back on error, so a
 // refusal leaves no effects.
-func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, request ConflictApplicationRequest) ([]string, error) {
+func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, request ConflictApplicationRequest) (string, error) {
 	const op = "record_conflict_application"
 	tx, err := transactionSQL(transaction, op)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if request.WorkID == "" || request.Actor == "" || request.OccurredAt.IsZero() {
-		return nil, newFailure(KindInvalidOperation, op, "conflict application request is missing its work, actor, or occurrence time", false, "supply the authenticated settlement fields")
+		return "", newFailure(KindInvalidOperation, op, "conflict application request is missing its work, actor, or occurrence time", false, "supply the authenticated settlement fields")
 	}
 	if !utf8.ValidString(request.WorkID) || !utf8.ValidString(request.Actor) {
 		// The identity hash encodes these fields as JSON strings, whose
 		// encoder silently replaces invalid UTF-8 with U+FFFD. A request
 		// whose identity fields are not valid UTF-8 refuses here, before
 		// hashing, instead of collapsing into another settlement's identity.
-		return nil, newFailure(KindInvalidOperation, op, "conflict application request carries work or actor identity fields that are not valid UTF-8", false, "supply valid UTF-8 settlement identity fields")
+		return "", newFailure(KindInvalidOperation, op, "conflict application request carries work or actor identity fields that are not valid UTF-8", false, "supply valid UTF-8 settlement identity fields")
 	}
 	if strings.TrimSpace(request.Outcome) == "" || !utf8.ValidString(request.Outcome) || len(request.Outcome) > conflictOutcomeMaxBytes {
-		return nil, newFailure(KindInvalidPayload, op, "conflict application outcome is not valid UTF-8 inside its 4096-byte bound", false, "record a nonblank bounded outcome")
+		return "", newFailure(KindInvalidPayload, op, "conflict application outcome is not valid UTF-8 inside its 4096-byte bound", false, "record a nonblank bounded outcome")
 	}
 	if strings.TrimSpace(request.SettlementRef) == "" || !utf8.ValidString(request.SettlementRef) || len(request.SettlementRef) > conflictSettlementRefMaxBytes {
-		return nil, newFailure(KindInvalidPayload, op, "conflict application settlement reference is not valid UTF-8 inside its 256-byte bound", false, "record a nonblank bounded settlement reference")
+		return "", newFailure(KindInvalidPayload, op, "conflict application settlement reference is not valid UTF-8 inside its 256-byte bound", false, "record a nonblank bounded settlement reference")
 	}
 	if !validConflictRuleID(request.RuleID) {
-		return nil, newFailure(KindInvalidPayload, op, fmt.Sprintf("rule ID %q is not in the checked conflict-rule table", request.RuleID), false, "record a rule the checked table carries")
+		return "", newFailure(KindInvalidPayload, op, fmt.Sprintf("rule ID %q is not in the checked conflict-rule table", request.RuleID), false, "record a rule the checked table carries")
 	}
 	decision, sized, err := readEffectiveWorkSize(ctx, tx, request.WorkID)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if !sized {
-		return nil, newFailure(KindProjectionNotFound, op,
+		return "", newFailure(KindProjectionNotFound, op,
 			fmt.Sprintf("work %s carries no recorded size; conflict applications refuse without effects until it is sized", request.WorkID),
 			false, "size the work item through its sizing route first")
 	}
@@ -210,7 +216,7 @@ func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, 
 	}
 	encoded, err := json.Marshal(application)
 	if err != nil {
-		return nil, wrapFailure(KindInvalidPayload, op, "cannot encode the conflict application", false, "repair the settlement fields", err)
+		return "", wrapFailure(KindInvalidPayload, op, "cannot encode the conflict application", false, "repair the settlement fields", err)
 	}
 	eventID := conflictApplicationEventID(request, record.Sequence)
 	event := Event{
@@ -228,12 +234,12 @@ func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, 
 		if errors.As(err, &failure) && failure.Kind == KindDuplicateEvent {
 			// An exact retry of the same settlement inputs: the recorded event
 			// is the durable effect, so return the original record.
-			return []string{eventID}, nil
+			return eventID, nil
 		}
-		return nil, err
+		return "", err
 	}
 	if err := foldRegisteredEvent(ctx, tx, event); err != nil {
-		return nil, err
+		return "", err
 	}
-	return []string{eventID}, nil
+	return eventID, nil
 }

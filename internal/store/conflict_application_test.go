@@ -314,16 +314,16 @@ func conflictApplicationRequest(workID, settlementRef string, adjust func(*Confl
 
 func recordConflictApplication(t *testing.T, s *Store, request ConflictApplicationRequest) ([]string, error) {
 	t.Helper()
-	var ids []string
+	var id string
 	err := s.Transact(context.Background(), func(tx *Transaction) error {
 		var err error
-		ids, err = RecordConflictApplicationTx(context.Background(), tx, request)
+		id, err = RecordConflictApplicationTx(context.Background(), tx, request)
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
-	return ids, nil
+	return []string{id}, nil
 }
 
 func TestRecordConflictApplicationTxRecordsTheLiveBinding(t *testing.T) {

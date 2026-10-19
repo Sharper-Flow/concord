@@ -1,10 +1,12 @@
-import { agentLanes, agentUtilities, laneForIdentity, laneToolRequirements, type AgentLane } from "./generated-agent-lanes"
+import { agentLanes, laneForIdentity, laneToolRequirements, type AgentLane } from "./generated-agent-lanes"
 import { dispatchDirectoryIdentityMismatch, dispatchWindows, type DispatchRecord, type DispatchWindows } from "./dispatch-window"
 import { defaultRunner, readExportOpeningPacket, readWorkerSessionBody, type DispatchRunner } from "./dispatch"
 import { reviewSubjectFailure } from "./worker_subject"
-import { hostControlPlane, type HostControlPlane } from "./move-session"
+import { hostControlPlane, type HostControlPlane, type RouteResult, type SessionReader } from "./move-session"
 
 export class WorkerCapabilityError extends Error {}
+
+export const isLaneAgent = (agent: unknown): boolean => agentLanes.some(lane => agent === `concord-${lane.id}`)
 
 export function toolAllowedByCapabilities(capabilities: readonly string[], toolID: string): boolean {
   const alternatives = Object.hasOwn(laneToolRequirements, toolID)
@@ -45,6 +47,30 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
   // Parent identity is immutable; the selected agent is refreshed by chat.
   const roots = new Map<string, boolean>()
   const unresolved = new Set<string>()
+  // Only immutable host provenance is cached, never tool grants or attempt state.
+  const nativeChildren = new Map<string, string>()
+
+  async function opening(sessionID: string, parentSessionID: string, result: RouteResult, reader: SessionReader, signal: AbortSignal): Promise<{ kind: "native" } | { kind: "lane"; agent: string; body: string }> {
+    if (nativeChildren.get(sessionID) === parentSessionID) return { kind: "native" }
+    const body = await readWorkerSessionBody({ ...reader, get: async () => result }, sessionID, signal)
+    if (!body.ok) throw new WorkerCapabilityError(`cannot authenticate worker opening: ${body.message}`)
+    const first = JSON.parse(body.body).messages[0]
+    if (!isRecord(first?.info) || first.info.sessionID !== sessionID || first.info.role !== "user" || typeof first.info.agent !== "string" || !first.info.agent) {
+      throw new WorkerCapabilityError("cannot authenticate the original host child agent")
+    }
+    if (isLaneAgent(first.info.agent)) return { kind: "lane", agent: first.info.agent, body: body.body }
+    nativeChildren.set(sessionID, parentSessionID)
+    return { kind: "native" }
+  }
+
+  async function isNativeChildOf(sessionID: string, parentSessionID: string, signal: AbortSignal = AbortSignal.timeout(5_000)): Promise<boolean> {
+    const reader = sessions.sessionReader()
+    if (!reader) throw new WorkerCapabilityError("cannot authenticate a resume target while the host session reader is unavailable")
+    const result = await reader.get(sessionID, signal)
+    const info = checkedSessionInfo(result.data, result.response.ok, sessionID)
+    if (info.parentID !== parentSessionID || isLaneAgent(info.agent)) return false
+    return (await opening(sessionID, parentSessionID, result, reader, signal)).kind === "native"
+  }
 
   async function observe(sessionID: string, selectedAgent?: string): Promise<void> {
     const laneSelected = agentLanes.some((lane) => selectedAgent === `concord-${lane.id}`)
@@ -93,16 +119,20 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
     }
     const parentSessionID = info.parentID
     const record = windows.activeAttempt(parentSessionID)
-    if (!record && await sessions.taskScope(parentSessionID, signal) !== "managed") return null
+    if (!record) {
+      const scope = await sessions.taskScope(parentSessionID, signal)
+      if (scope === null) throw new WorkerCapabilityError("cannot authenticate tool access: the host parent session is missing")
+      if (scope === "unmanaged" && !managedChildren.has(sessionID)) return null
+    }
     managedChildren.add(sessionID)
     if (!record || children.get(record) !== sessionID) {
-      const body = await readWorkerSessionBody({ ...reader, get: async () => result }, sessionID, signal)
-      if (!body.ok) throw new WorkerCapabilityError(`cannot authenticate worker opening: ${body.message}`)
-      const opening = record ? readExportOpeningPacket(body.body, sessionID, record.packet) : null
-      if (!record || !opening?.ok) {
-        const first = JSON.parse(body.body).messages[0]
-        const utility = agentUtilities.some((entry) => first?.info?.agent === `concord-${entry.id}`)
-        if (utility && !await sessions.hasManagedParent(parentSessionID, signal)) return null
+      const original = await opening(sessionID, parentSessionID, result, reader, signal)
+      if (original.kind === "native") {
+        if (isLaneAgent(info.agent)) throw new WorkerCapabilityError("a Concord lane requires an active authorized attempt")
+        if (await sessions.hasManagedParent(parentSessionID, signal)) throw new WorkerCapabilityError("an ordinary host child cannot nest under a managed parent")
+        return null
+      }
+      if (!record || original.agent !== `concord-${record.packet.lane_id}` || !readExportOpeningPacket(original.body, sessionID, record.packet).ok) {
         throw new WorkerCapabilityError(record ? "worker session did not open with the authorized packet" : "worker session has no active authorized attempt")
       }
       const bound = children.get(record)
@@ -138,5 +168,5 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
     }
   }
 
-  return { authorize, before, observe }
+  return { authorize, before, observe, isNativeChildOf }
 }

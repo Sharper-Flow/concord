@@ -3,22 +3,27 @@ import ConcordAdapterPlugin from "./concord-plugin"
 import { dispatchWindows, serializeLanePacket } from "./dispatch-window"
 import { configureHostLease } from "./host-lease"
 import { configureCiWatch } from "./ci-watch"
-import { HostControlPlane, hostControlPlane, SESSION_ROUTE } from "./move-session"
+import { HostControlPlane, hostControlPlane, SESSION_ROUTE, SESSION_MESSAGES_ROUTE } from "./move-session"
 
 const SCOPE_KEY = "concord.task_scope"
 type Session = { id: string; directory: string; parentID?: string; agent?: string; metadata?: Record<string, unknown> }
 
 function host(records: Session[], persist = true) {
   const sessions = new Map(records.map((session) => [session.id, structuredClone(session)]))
+  const openings = new Map(records.map((session) => [session.id, [{
+    info: { id: `opening-${session.id}`, sessionID: session.id, time: { created: 1 }, role: "user", agent: session.agent ?? "general" },
+    parts: [{ id: `part-${session.id}`, sessionID: session.id, messageID: `opening-${session.id}`, type: "text", text: "Native assignment" }],
+  }]]))
   const reads: string[] = []
   const writes: Array<{ url: string; path?: Record<string, unknown>; body?: unknown }> = []
   const client = {
     get: async ({ url, path, signal }: { url: string; path?: Record<string, unknown>; signal?: AbortSignal }) => {
       signal?.throwIfAborted()
-      expect(url).toBe(SESSION_ROUTE)
       const id = String(path?.id)
-      reads.push(id)
       const session = sessions.get(id)
+      if (url === SESSION_MESSAGES_ROUTE) return { data: openings.get(id), response: new Response(null, { status: session ? 200 : 404 }) }
+      expect(url).toBe(SESSION_ROUTE)
+      reads.push(id)
       return { data: structuredClone(session), response: new Response(null, { status: session ? 200 : 404 }) }
     },
     patch: async (request: { url: string; path?: Record<string, unknown>; body?: unknown }) => {
@@ -32,7 +37,7 @@ function host(records: Session[], persist = true) {
     },
     post: async () => { throw new Error("scope admission must not change permissions, move a session, or invoke a core operation") },
   }
-  return { sessions, reads, writes, client, plugin: () => ConcordAdapterPlugin({ directory: process.cwd(), client: { _client: client } as never }) }
+  return { sessions, openings, reads, writes, client, plugin: () => ConcordAdapterPlugin({ directory: process.cwd(), client: { _client: client } as never }) }
 }
 
 // The directory must resolve on disk: the dispatch window compares the claimed
@@ -63,14 +68,15 @@ test("an unmanaged native Task preserves arguments and creates no Concord eviden
   expect(result).toEqual({ title: "native task", output: "native result", metadata: {} })
 })
 
-test("managed scope refuses ordinary and Concord Tasks without a window", async () => {
+test("managed scope admits ordinary host Tasks but keeps lanes dispatch-only", async () => {
   const fixture = host([session("scope-managed", true)])
   const plugin = await fixture.plugin()
-  for (const subagent_type of ["general", "explore"]) {
+  for (const subagent_type of ["general", "explore", "host-reviewer", "concord-local-reviewer"]) {
     const output = { args: { ...args(), subagent_type } }
     const original = structuredClone(output.args)
-    await expect(plugin["tool.execute.before"](task("scope-managed"), output)).rejects.toThrow("no authorized dispatch window")
+    await plugin["tool.execute.before"](task("scope-managed"), output)
     expect(output.args).toEqual(original)
+    expect(dispatchWindows().inFlightAttempt("scope-managed")).toBeNull()
   }
   // A lane Task without a window is refused by the dispatch-only lane rule,
   // which names the correcting route: dispatch_worker opens the window.
@@ -78,26 +84,28 @@ test("managed scope refuses ordinary and Concord Tasks without a window", async 
   const laneOriginal = structuredClone(laneOutput.args)
   await expect(plugin["tool.execute.before"](task("scope-managed"), laneOutput)).rejects.toThrow("dispatch_worker")
   expect(laneOutput.args).toEqual(laneOriginal)
+  expect(fixture.writes).toEqual([])
 })
 
 test("managed participation survives agent changes and plugin recreation", async () => {
   const fixture = host([{ ...session("scope-restart", true), agent: "concord-1" }])
   const first = await fixture.plugin()
-  await expect(first["tool.execute.before"](task("scope-restart"), { args: args() })).rejects.toThrow("no authorized dispatch window")
+  await first["tool.execute.before"](task("scope-restart"), { args: args() })
   fixture.sessions.get("scope-restart")!.agent = "build"
   const freshControlPlane = new HostControlPlane()
   freshControlPlane.bind(fixture.client)
   expect(await freshControlPlane.taskScope("scope-restart")).toBe("managed")
   const restarted = await fixture.plugin()
-  await expect(restarted["tool.execute.before"](task("scope-restart"), { args: args() })).rejects.toThrow("no authorized dispatch window")
+  await restarted["tool.execute.before"](task("scope-restart"), { args: args() })
+  expect(await freshControlPlane.taskScope("scope-restart")).toBe("managed")
   expect(fixture.writes).toEqual([])
 })
 
 test("an unmarked child inherits managed participation from its host parent", async () => {
   const fixture = host([session("scope-parent", true), { ...session("scope-child"), parentID: "scope-parent", agent: "build" }])
   const plugin = await fixture.plugin()
-  await expect(plugin["tool.execute.before"](task("scope-child"), { args: args() })).rejects.toThrow("no authorized dispatch window")
-  expect(fixture.reads).toEqual(["scope-child", "scope-parent"])
+  await expect(plugin["tool.execute.before"](task("scope-child"), { args: args() })).rejects.toThrow("managed parent")
+  expect(fixture.reads).toEqual(["scope-child", "scope-parent", "scope-child", "scope-parent"])
 })
 
 test("a coordinator can auto-start a generated utility without a dispatch window", async () => {
@@ -107,7 +115,7 @@ test("a coordinator can auto-start a generated utility without a dispatch window
   const original = structuredClone(output.args)
   await plugin["tool.execute.before"](task("scope-coordinator"), output)
   expect(output.args).toEqual(original)
-  expect(fixture.reads).toEqual(["scope-coordinator"])
+  expect(fixture.reads).toEqual(["scope-coordinator", "scope-coordinator", "prior-host-worker"])
   expect(fixture.writes).toEqual([])
   const result = { title: "Explore", output: "result", metadata: {} }
   await plugin["tool.execute.after"]({ ...task("scope-coordinator"), args: output.args }, result)
@@ -122,7 +130,7 @@ test("a lane session cannot auto-start a generated utility", async () => {
   const original = structuredClone(output.args)
   await expect(plugin["tool.execute.before"](task("scope-lane"), output)).rejects.toThrow("managed parent")
   expect(output.args).toEqual(original)
-  expect(fixture.reads).toEqual(["scope-lane", "scope-parent"])
+  expect(fixture.reads).toEqual(["scope-lane", "scope-parent", "scope-lane", "scope-parent"])
   expect(fixture.writes).toEqual([])
 })
 
@@ -173,17 +181,59 @@ test("unmanaged resume targets and absent targets retain native Task behavior", 
   }
 })
 
-test("an authorized Task binds once and the managed session stays protected", async () => {
+test("an authorized lane binds once while an ordinary Task cannot steal its window", async () => {
   const fixture = host([session("scope-window", true), session("scope-other", true)])
   const plugin = await fixture.plugin()
   const packet = { schema_version: "1.0" as const, attempt_id: "scope-attempt", lane_id: "implement", lane_version: 1, lane_digest: "sha256:" + "a".repeat(64), work_id: "scope-work", step_id: "repair", inputs: { task: "Approved task", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" } } }
   dispatchWindows().open("scope-window", packet, "", process.cwd())
-  await expect(plugin["tool.execute.before"](task("scope-other"), { args: args() })).rejects.toThrow("no authorized dispatch window")
-  expect(dispatchWindows().has("scope-window")).toBe(true)
-  const output = { args: args() }
+  for (const id of ["scope-other", "scope-window"]) {
+    const ordinary = { args: args() }
+    const original = structuredClone(ordinary.args)
+    await plugin["tool.execute.before"](task(id), ordinary)
+    expect(ordinary.args).toEqual(original)
+    expect(dispatchWindows().has("scope-window")).toBe(true)
+    expect(dispatchWindows().inFlightAttempt("scope-window")).toBeNull()
+  }
+  const output = { args: { ...args(), subagent_type: "concord-implement" } }
   await plugin["tool.execute.before"](task("scope-window"), output)
   expect(output.args).toEqual({ subagent_type: "concord-implement", prompt: serializeLanePacket(packet), description: "implement lane, attempt scope-attempt" })
-  await expect(plugin["tool.execute.before"](task("scope-window"), { args: args() })).rejects.toThrow("no authorized dispatch window")
+  await expect(plugin["tool.execute.before"](task("scope-window"), { args: { ...args(), subagent_type: "concord-implement" } })).rejects.toThrow("dispatch_worker")
+})
+
+test("managed callers resume only their own originally ordinary children, including utility calls", async () => {
+  const fixture = host([
+    session("scope-caller", true), session("scope-foreign"),
+    { ...session("scope-own"), parentID: "scope-caller", agent: "host-reviewer" },
+    { ...session("scope-lane-target"), parentID: "scope-caller", agent: "concord-review" },
+    { ...session("scope-foreign-child"), parentID: "scope-foreign", agent: "host-reviewer" },
+  ])
+  fixture.sessions.get("scope-lane-target")!.agent = "build"
+  const plugin = await fixture.plugin()
+  for (const subagent_type of ["host-reviewer", "concord-explore"]) {
+    for (const task_id of ["scope-own", "scope-missing"]) {
+      const output = { args: { ...args(), subagent_type, task_id } }
+      const original = structuredClone(output.args)
+      await plugin["tool.execute.before"](task("scope-caller"), output)
+      expect(output.args).toEqual(original)
+    }
+    for (const task_id of ["scope-caller", "scope-lane-target", "scope-foreign", "scope-foreign-child"]) {
+      const output = { args: { ...args(), subagent_type, task_id } }
+      const original = structuredClone(output.args)
+      await expect(plugin["tool.execute.before"](task("scope-caller"), output)).rejects.toThrow("resume")
+      expect(output.args).toEqual(original)
+    }
+  }
+  expect(fixture.writes).toEqual([])
+})
+
+test("an enrolled caller under an unmanaged parent can start ordinary host work", async () => {
+  const fixture = host([session("scope-unmanaged-parent"), { ...session("scope-enrolled-child", true), parentID: "scope-unmanaged-parent" }])
+  const plugin = await fixture.plugin()
+  const output = { args: args() }
+  const original = structuredClone(output.args)
+  await plugin["tool.execute.before"](task("scope-enrolled-child"), output)
+  expect(output.args).toEqual(original)
+  expect(fixture.writes).toEqual([])
 })
 
 test("unknown metadata and broken ancestry never imply unmanaged scope", async () => {
@@ -292,7 +342,8 @@ test("an interrupted enrollment retains any participation the host recorded", as
   }
   const plugin = await fixture.plugin()
   await expect(hostControlPlane().manageSession("scope-interrupted")).rejects.toThrow("participation may have been recorded")
-  await expect(plugin["tool.execute.before"](task("scope-interrupted"), { args: args() })).rejects.toThrow("no authorized dispatch window")
+  await plugin["tool.execute.before"](task("scope-interrupted"), { args: args() })
+  expect(await hostControlPlane().taskScope("scope-interrupted")).toBe("managed")
   await hostControlPlane().manageSession("scope-interrupted")
   expect(fixture.writes).toHaveLength(1)
 })

@@ -36,7 +36,6 @@ import type { PluginInput, PluginOptions } from "@opencode-ai/plugin"
 import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { dispatchWindows, DispatchWindowError, TASK_TOOL_ID } from "./dispatch-window"
-import { agentLanes, agentUtilities } from "./generated-agent-lanes"
 import { bindCiWatchClient, ciWatchTool, drainQueuedCiReportsForMessage, isCiWatchNoticeMessage, publishCiWatchDefinition, redeliverQueuedCiReports, registerCiWatchPeer } from "./ci-watch"
 import { completeDispatchedWorker, failDispatchedWorker } from "./lane_completion"
 import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
@@ -44,7 +43,7 @@ import { claimHostLease } from "./host-lease"
 import { guardPrimaryRoles } from "./primary-role"
 import { clearTurnMoveBoundary, questionRequiresNormalChat, TURN_MOVE_QUESTION_REFUSAL } from "./turn-move-boundary"
 import { continueWorkStartOnEvent, observeWorkStartMessage } from "./work-start-continuation"
-import { createWorkerCapabilityGuard } from "./lane_capabilities"
+import { createWorkerCapabilityGuard, isLaneAgent } from "./lane_capabilities"
 import { workerReadTool, publishWorkerReadDefinition } from "./worker_source"
 import { workerCheckTool, publishWorkerCheckDefinition } from "./worker_control"
 import { workerDiffTool, publishWorkerDiffDefinition } from "./worker_diff"
@@ -162,8 +161,8 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
         await input?.client?.app.log({ body: { service: "concord", level: "error", message: JSON.stringify(result) } })
       }
     },
-    // Managed sessions and Concord lanes require one authorized packet.
-    // Ordinary unmanaged Tasks remain entirely subject to host permissions.
+    // Only registered lane Tasks consume a dispatch window. Ordinary host
+    // children keep host permissions without acquiring workflow authority.
     "tool.execute.before": async (
       input: { tool: string; sessionID: string; callID: string },
       output: { args: Record<string, unknown> },
@@ -177,14 +176,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       }
       try {
         const windows = dispatchWindows()
-        const concordUtility = agentUtilities.some((utility) => output.args.subagent_type === `concord-${utility.id}`)
-        if (concordUtility) {
-          if (await hostControlPlane().hasManagedParent(input.sessionID)) {
-            throw new DispatchWindowError("a Concord utility cannot run from a session with a managed parent")
-          }
-          return
-        }
-        const concordLane = agentLanes.some((lane) => output.args.subagent_type === `concord-${lane.id}`)
+        const concordLane = isLaneAgent(output.args.subagent_type)
         // A lane runs only inside the window an authorized dispatch_worker
         // opened. Without one, a direct lane Task is exactly the coordinator
         // Task-list competition the registry forbids: the call is refused with
@@ -192,21 +184,23 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
         if (concordLane && !windows.has(input.sessionID)) {
           throw new DispatchWindowError(`a Concord lane runs only through dispatch_worker: ${String(output.args.subagent_type)} was called with no open dispatch window; dispatch_worker schedules its authorized native Task without a separate Task call`)
         }
-        if (windows.has(input.sessionID)) {
+        if (concordLane) {
+          if (await hostControlPlane().hasManagedParent(input.sessionID)) throw new DispatchWindowError("a Task cannot run from a session with a managed parent")
           await windows.bind(input.tool, input.sessionID, output.args, input.callID, () => hostControlPlane().sessionDirectory(input.sessionID), instanceDirectory)
           return
         }
         const scope = await hostControlPlane().taskScope(input.sessionID)
         if (scope === null) throw new SessionScopeUnavailable("cannot resolve managed Task scope: the calling host session does not exist")
-        if (scope === "managed") {
-          await windows.bind(input.tool, input.sessionID, output.args, input.callID, () => hostControlPlane().sessionDirectory(input.sessionID), instanceDirectory)
-          return
-        }
+        if (scope === "managed" && await hostControlPlane().hasManagedParent(input.sessionID)) throw new DispatchWindowError("a Task cannot run from a session with a managed parent")
         // A native Task may resume a session that belongs to another parent.
         // Caller participation alone cannot authorize a managed resume target.
         const target = output.args.task_id
-        if (typeof target === "string" && target.length > 0 && await hostControlPlane().taskScope(target) === "managed") {
-          throw new DispatchWindowError("an unmanaged Task cannot resume a managed Concord session; use a fresh authorized dispatch")
+        if (typeof target === "string" && target.length > 0) {
+          const targetScope = await hostControlPlane().taskScope(target)
+          if (scope === "unmanaged" && targetScope === "managed") throw new DispatchWindowError("an unmanaged Task cannot resume a managed Concord session; use a fresh authorized dispatch")
+          if (scope === "managed" && targetScope !== null && !await workerCapabilities.isNativeChildOf(target, input.sessionID)) {
+            throw new DispatchWindowError("a managed Task may resume only its own originally ordinary host child; use a fresh Task for another assignment")
+          }
         }
       } catch (error) {
         try {

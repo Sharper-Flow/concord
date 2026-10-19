@@ -15,20 +15,27 @@ async function fixture(laneID = "verify", subject?: string, subjectRunner?: Disp
   const windows = new DispatchWindows()
   windows.open("parent", packet, "sha256:" + "a".repeat(64), process.cwd())
   await windows.bind("task", "parent", {}, "task-call", async () => process.cwd(), process.cwd())
-  const state = { agent: `concord-${laneID}`, openingAgent: `concord-${laneID}`, opening: serializeLanePacket(packet), extraPart: false, readerUnavailable: false, failedReads: new Set<string>(), failedAncestry: new Set<string>() }
+  const state = { agent: `concord-${laneID}`, openingAgent: `concord-${laneID}`, openingRole: "user", openingSession: undefined as string | undefined, parentScope: "managed" as "managed" | "unmanaged" | null, opening: serializeLanePacket(packet), extraPart: false, readerUnavailable: false, paginate: false, messageReads: 0, nestedParent: false, failedReads: new Set<string>(), failedAncestry: new Set<string>() }
   const reader = {
     get: async (id: string) => {
       if (state.failedReads.has(id)) throw new Error("host session read unavailable")
       return { data: { id, directory: process.cwd(), agent: id === "root" || id === "parent" ? "build" : state.agent, ...(id === "root" || id === "parent" ? {} : { parentID: "parent" }) }, response: new Response(null, { status: 200 }) }
     },
-    messages: async () => ({ data: [{ info: { role: "user", agent: state.openingAgent }, parts: [{ type: "text", text: state.opening }, ...(state.extraPart ? [{ type: "text", text: "extra instruction" }] : [])] }], response: new Response(null, { status: 200 }) }),
+    messages: async (id: string, _limit: number, before: string | undefined) => {
+      state.messageReads++
+      if (state.paginate && before === undefined) return {
+        data: Array.from({ length: 100 }, () => ({ info: { role: "assistant", agent: "build" }, parts: [] })),
+        response: new Response(null, { status: 200, headers: { link: '<https://host.invalid/session/child/message?before=oldest>; rel="next"' } }),
+      }
+      return { data: [{ info: { sessionID: state.openingSession ?? id, role: state.openingRole, agent: state.openingAgent }, parts: [{ type: "text", text: state.opening }, ...(state.extraPart ? [{ type: "text", text: "extra instruction" }] : [])] }], response: new Response(null, { status: 200 }) }
+    },
   }
   const guard = createWorkerCapabilityGuard({ windows, subjectRunner, sessions: {
     sessionReader: () => state.readerUnavailable ? null : reader,
-    taskScope: async () => "managed" as const,
+    taskScope: async () => state.parentScope,
     hasManagedParent: async (id: string) => {
       if (state.failedAncestry.has(id)) throw new Error("host ancestry read unavailable")
-      return id !== "parent" && id !== "root"
+      return id === "parent" ? state.nestedParent : id !== "root"
     },
   } })
   const before = (tool: string, args: Record<string, unknown> = {}, sessionID = "child") => guard.before({ tool, sessionID }, { args })
@@ -169,6 +176,60 @@ test("root host work and a coordinator utility do not acquire or consume lane au
   f.state.opening = "Read the bounded utility assignment"
   await f.before("read")
   expect(f.windows.inFlightAttempt("parent")?.packet.attempt_id).toBe("capability-attempt")
+})
+
+test("ordinary host children cannot claim a lane child slot even with exact packet bytes", async () => {
+  for (const agent of ["host-reviewer", "concord-local-reviewer", "general"]) {
+    const f = await fixture()
+    f.state.agent = f.state.openingAgent = agent
+    await f.before("bash")
+    expect(await f.guard.authorize("child")).toBeNull()
+    f.state.agent = f.state.openingAgent = "concord-verify"
+    await f.before("read", {}, "real-worker")
+    await expect(f.before("bash", {}, "real-worker")).rejects.toThrow("does not grant")
+    expect(f.windows.inFlightAttempt("parent")?.packet.attempt_id).toBe("capability-attempt")
+  }
+})
+
+test("ordinary children under an enrolled parent need no live attempt", async () => {
+  const f = await fixture()
+  f.windows.takeInFlight("parent")
+  f.state.agent = f.state.openingAgent = "host-reviewer"
+  await f.guard.observe("child")
+  await f.before("bash")
+  expect(await f.guard.authorize("child")).toBeNull()
+})
+
+test("native provenance is read once across pages, but current identity and role still gate tools", async () => {
+  const f = await fixture()
+  f.state.agent = f.state.openingAgent = "host-reviewer"
+  f.state.paginate = true
+  await f.before("bash")
+  expect(f.state.messageReads).toBe(2)
+  for (let i = 0; i < 10; i++) await f.before("read")
+  expect(f.state.messageReads).toBe(2)
+  f.state.agent = "concord-review"
+  await expect(f.before("read")).rejects.toThrow("authorized attempt")
+  f.state.agent = "host-reviewer"
+  f.state.failedReads.add("child")
+  await expect(f.before("read")).rejects.toThrow("host session read unavailable")
+})
+
+test("malformed original identity and nested or missing ancestry never authorize native tools", async () => {
+  for (const variant of ["agent", "role", "session", "nested", "missing"]) {
+    const f = await fixture()
+    f.state.agent = f.state.openingAgent = "host-reviewer"
+    if (variant === "agent") f.state.openingAgent = ""
+    if (variant === "role") f.state.openingRole = "assistant"
+    if (variant === "session") f.state.openingSession = "foreign-child"
+    if (variant === "nested") f.state.nestedParent = true
+    if (variant === "missing") {
+      f.windows.takeInFlight("parent")
+      f.state.parentScope = null
+      await f.guard.observe("child")
+    }
+    await expect(f.before("read")).rejects.toThrow()
+  }
 })
 
 test("review tool admission refuses subject drift even after the host child is bound", async () => {

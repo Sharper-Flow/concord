@@ -647,43 +647,12 @@ func validateNativeGoMetadata(raw []byte, root string, p nativeOraclePlan) (stri
 		if err != nil {
 			return "", nativeUnavailable("Go build metadata is malformed")
 		}
-		if pkg.Error != nil || len(pkg.CgoFiles) > 0 {
-			return "", nativeUnavailable("Go package has unavailable inputs or cgo")
-		}
-		if nativeContained(root, pkg.Dir) && (len(pkg.SFiles)+len(pkg.CFiles)+len(pkg.CXXFiles)+len(pkg.MFiles)+len(pkg.HFiles)+len(pkg.FFiles)+len(pkg.SysoFiles) > 0) {
-			return "", nativeUnavailable("repository compiler inputs are not pure Go")
-		}
-		if pkg.Module != nil && pkg.Module.Replace != nil && pkg.Module.Replace.Dir != "" && !nativeContained(root, pkg.Module.Replace.Dir) {
-			return "", nativeUnavailable("local module replacement escapes the controlled snapshot")
+		if err := validateNativeGoPackage(rooted, root, cwd, pkg, fixtures, p); err != nil {
+			return "", err
 		}
 		if pkg.Dir == cwd && !strings.Contains(pkg.ImportPath, " [") && !strings.HasSuffix(pkg.ImportPath, ".test") {
 			selectedPackage := pkg
 			target = &selectedPackage
-		}
-		if !nativeContained(root, pkg.Dir) {
-			continue
-		}
-		if pkg.Dir != cwd {
-			if err := validateNativeLocalPackageClosure(root, pkg.Dir, p); err != nil {
-				return "", err
-			}
-		}
-		for _, names := range [][]string{pkg.EmbedFiles, pkg.TestEmbedFiles, pkg.XTestEmbedFiles} {
-			for _, name := range names {
-				absolute := filepath.Join(pkg.Dir, name)
-				rel, err := filepath.Rel(root, absolute)
-				if err != nil {
-					return "", err
-				}
-				f, ok := fixtures[filepath.ToSlash(rel)]
-				if !ok {
-					return "", nativeUnavailable("resolved repository embed is not a declared pinned fixture: " + filepath.ToSlash(rel))
-				}
-				b, err := rooted.ReadFile(rel)
-				if err != nil || nativeDigest(b) != f.SHA256 {
-					return "", nativeUnavailable("resolved embed differs from its pinned fixture")
-				}
-			}
 		}
 	}
 	if target == nil {
@@ -705,55 +674,8 @@ func validateNativeGoMetadata(raw []byte, root string, p nativeOraclePlan) (stri
 	}
 	found := map[string]bool{}
 	for _, name := range selected {
-		name = path.Join(p.Bundle.Control.Cwd, name)
-		data, err := rooted.ReadFile(name)
-		if err != nil {
+		if err := collectNativeGoTests(rooted, path.Join(p.Bundle.Control.Cwd, name), found); err != nil {
 			return "", err
-		}
-		file, err := parser.ParseFile(token.NewFileSet(), name, data, 0)
-		if err != nil {
-			return "", err
-		}
-		aliases := map[string]bool{}
-		for _, imp := range file.Imports {
-			if imp.Path.Value == `"testing"` {
-				alias := "testing"
-				if imp.Name != nil {
-					alias = imp.Name.Name
-				}
-				aliases[alias] = true
-			}
-		}
-		for _, decl := range file.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Recv != nil {
-				continue
-			}
-			if fn.Name.Name == "TestMain" {
-				return "", nativeUnavailable("custom TestMain is unsupported")
-			}
-			if !nativeOracleTestName.MatchString(fn.Name.Name) {
-				continue
-			}
-			if found[fn.Name.Name] {
-				return "", nativeUnavailable("duplicate top-level test name")
-			}
-			if fn.Type.TypeParams != nil || (fn.Type.Results != nil && len(fn.Type.Results.List) != 0) || fn.Type.Params == nil || len(fn.Type.Params.List) != 1 || len(fn.Type.Params.List[0].Names) > 1 {
-				return "", nativeUnavailable("test signature is not func TestXxx(*testing.T)")
-			}
-			star, ok := fn.Type.Params.List[0].Type.(*ast.StarExpr)
-			if !ok {
-				return "", nativeUnavailable("unsupported test signature")
-			}
-			sel, ok := star.X.(*ast.SelectorExpr)
-			if !ok || sel.Sel.Name != "T" {
-				return "", nativeUnavailable("unsupported test signature")
-			}
-			ident, ok := sel.X.(*ast.Ident)
-			if !ok || !aliases[ident.Name] {
-				return "", nativeUnavailable("test parameter must be testing.T")
-			}
-			found[fn.Name.Name] = true
 		}
 	}
 	names, err := nativeOracleSelector(p.Manifest, p.Bundle.Control)
@@ -766,6 +688,111 @@ func validateNativeGoMetadata(raw []byte, root string, p nativeOraclePlan) (stri
 		}
 	}
 	return target.ImportPath, nil
+}
+
+// validateNativeGoPackage refuses one build-selected package whose inputs the
+// controlled snapshot does not pin: cgo or non-Go compiler inputs, an escaping
+// local replacement, an undeclared local dependency input, or an embed that is
+// not a declared pinned fixture.
+func validateNativeGoPackage(rooted *os.Root, root, cwd string, pkg nativeGoPackage, fixtures map[string]NativeOracleFile, p nativeOraclePlan) error {
+	if pkg.Error != nil || len(pkg.CgoFiles) > 0 {
+		return nativeUnavailable("Go package has unavailable inputs or cgo")
+	}
+	contained := nativeContained(root, pkg.Dir)
+	if contained && (len(pkg.SFiles)+len(pkg.CFiles)+len(pkg.CXXFiles)+len(pkg.MFiles)+len(pkg.HFiles)+len(pkg.FFiles)+len(pkg.SysoFiles) > 0) {
+		return nativeUnavailable("repository compiler inputs are not pure Go")
+	}
+	if pkg.Module != nil && pkg.Module.Replace != nil && pkg.Module.Replace.Dir != "" && !nativeContained(root, pkg.Module.Replace.Dir) {
+		return nativeUnavailable("local module replacement escapes the controlled snapshot")
+	}
+	if !contained {
+		return nil
+	}
+	if pkg.Dir != cwd {
+		if err := validateNativeLocalPackageClosure(root, pkg.Dir, p); err != nil {
+			return err
+		}
+	}
+	for _, names := range [][]string{pkg.EmbedFiles, pkg.TestEmbedFiles, pkg.XTestEmbedFiles} {
+		for _, name := range names {
+			rel, err := filepath.Rel(root, filepath.Join(pkg.Dir, name))
+			if err != nil {
+				return err
+			}
+			f, ok := fixtures[filepath.ToSlash(rel)]
+			if !ok {
+				return nativeUnavailable("resolved repository embed is not a declared pinned fixture: " + filepath.ToSlash(rel))
+			}
+			b, err := rooted.ReadFile(rel)
+			if err != nil || nativeDigest(b) != f.SHA256 {
+				return nativeUnavailable("resolved embed differs from its pinned fixture")
+			}
+		}
+	}
+	return nil
+}
+
+// collectNativeGoTests parses one selected test file and records each
+// top-level func TestXxx(*testing.T) in found. A custom TestMain, a duplicate
+// name, or any other signature refuses.
+func collectNativeGoTests(rooted *os.Root, name string, found map[string]bool) error {
+	data, err := rooted.ReadFile(name)
+	if err != nil {
+		return err
+	}
+	file, err := parser.ParseFile(token.NewFileSet(), name, data, 0)
+	if err != nil {
+		return err
+	}
+	aliases := map[string]bool{}
+	for _, imp := range file.Imports {
+		if imp.Path.Value == `"testing"` {
+			alias := "testing"
+			if imp.Name != nil {
+				alias = imp.Name.Name
+			}
+			aliases[alias] = true
+		}
+	}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv != nil {
+			continue
+		}
+		if fn.Name.Name == "TestMain" {
+			return nativeUnavailable("custom TestMain is unsupported")
+		}
+		if !nativeOracleTestName.MatchString(fn.Name.Name) {
+			continue
+		}
+		if found[fn.Name.Name] {
+			return nativeUnavailable("duplicate top-level test name")
+		}
+		if err := validateNativeTestSignature(fn.Type, aliases); err != nil {
+			return err
+		}
+		found[fn.Name.Name] = true
+	}
+	return nil
+}
+
+func validateNativeTestSignature(fn *ast.FuncType, testingAliases map[string]bool) error {
+	if fn.TypeParams != nil || (fn.Results != nil && len(fn.Results.List) != 0) || fn.Params == nil || len(fn.Params.List) != 1 || len(fn.Params.List[0].Names) > 1 {
+		return nativeUnavailable("test signature is not func TestXxx(*testing.T)")
+	}
+	star, ok := fn.Params.List[0].Type.(*ast.StarExpr)
+	if !ok {
+		return nativeUnavailable("unsupported test signature")
+	}
+	sel, ok := star.X.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "T" {
+		return nativeUnavailable("unsupported test signature")
+	}
+	ident, ok := sel.X.(*ast.Ident)
+	if !ok || !testingAliases[ident.Name] {
+		return nativeUnavailable("test parameter must be testing.T")
+	}
+	return nil
 }
 
 func nativeContained(root, name string) bool {
@@ -968,120 +995,11 @@ func (s *Store) runNativeGoOracle(ctx context.Context, r GitRunner, entry Worktr
 		return err
 	}
 	defer func() { _ = scratchRoot.Close() }()
-	packagePath := ""
-	testStdout := []byte{}
-	programExit := -1
-	converterDigest := ""
+	run := &nativeGoOracleRun{s: s, req: req, p: p, root: root, cache: cache, snapshot: snapshot, cwd: cwd, env: env, digest: digest, scratchRoot: scratchRoot, capture: capture, result: result, programExit: -1}
 	for _, stage := range p.Stages {
-		cacheInfo, err := os.Lstat(cache)
-		if err != nil || !cacheInfo.IsDir() || cacheInfo.Mode()&os.ModeSymlink != 0 {
-			return nativeUnavailable("disposable cache no longer realizes the leased plan slot")
-		}
-		if stage.Name == "test" {
-			actual, err := validateNativeOraclePackageInputs(snapshot, p)
-			if err != nil || actual != digest {
-				return nativeUnavailable("candidate inputs changed before test launch")
-			}
-			binary, err := scratchRoot.ReadFile("oracle.test")
-			if err != nil || nativeDigest(binary) != result.BinaryDigest {
-				return nativeUnavailable("test binary changed before launch")
-			}
-		}
-		if stage.Name == "convert" {
-			converter, err := scratchRoot.ReadFile("test2json")
-			if err != nil || converterDigest == "" || nativeDigest(converter) != converterDigest {
-				return nativeUnavailable("trusted converter binary changed before conversion")
-			}
-		}
-		argv := slices.Clone(stage.Argv)
-		for i, part := range argv {
-			switch {
-			case part == "go":
-				argv[i] = p.Environment.GoExecutable
-			case strings.HasPrefix(part, "$scratch/"):
-				argv[i] = filepath.Join(root, strings.TrimPrefix(part, "$scratch/"))
-			case part == "$package":
-				argv[i] = packagePath
-			}
-		}
-		var stdin io.Reader
-		if stage.Name == "convert" {
-			stdin = bytes.NewReader(testStdout)
-		}
-		so, se := len(capture.stdout), len(capture.stderr)
-		var launched func()
-		if stage.Name == "test" {
-			launched = s.nativeOracleProgramLaunched
-		}
-		if s.nativeOracleStageObserved != nil {
-			s.nativeOracleStageObserved(stage.Name, cwd, slices.Clone(argv), slices.Clone(env))
-		}
-		stageCtx := ctx
-		cancel := func() {}
-		if stage.Name == "test" {
-			stageCtx, cancel, err = nativeOracleTestContext(ctx, req)
-			if err != nil {
-				return err
-			}
-		}
-		stageCapture := nativeOracleStageCapture(stage.Name, capture)
-		exit, runErr := runNativeOracleStage(stageCtx, cwd, argv, env, stdin, stageCapture, launched)
-		cancel()
-		stage.ExitCode = exit
-		stage.StdoutOffset = so
-		stage.StderrOffset = se
-		stage.StdoutLength = len(capture.stdout) - so
-		stage.StderrLength = len(capture.stderr) - se
-		result.Stages = append(result.Stages, stage)
-		if runErr != nil || !stageCapture.complete {
-			return nativeUnavailable(fmt.Sprintf("native %s failed: %v", stage.Name, runErr))
-		}
-		if stage.Name == "compile" && exit != 0 && req.Oracle.Phase == "execute" {
-			result.Qualification = "fail"
-			return nil
-		}
-		if exit != 0 && stage.Name != "test" {
-			return nativeUnavailable("native " + stage.Name + " returned a nonzero exit")
-		}
-		switch stage.Name {
-		case "metadata":
-			packagePath, err = validateNativeGoMetadata(stageCapture.stdout, snapshot, p)
-			if err != nil {
-				return err
-			}
-		case "compile":
-			stat, err := scratchRoot.Stat("oracle.test")
-			if err != nil || !stat.Mode().IsRegular() || stat.Mode().Perm()&0111 == 0 {
-				return nativeUnavailable("compiler produced no regular executable")
-			}
-			binary, err := scratchRoot.ReadFile("oracle.test")
-			if err != nil {
-				return err
-			}
-			result.BinaryDigest = nativeDigest(binary)
-		case "converter_compile":
-			stat, err := scratchRoot.Lstat("test2json")
-			if err != nil || !stat.Mode().IsRegular() || stat.Mode().Perm()&0111 == 0 {
-				return nativeUnavailable("converter compiler produced no regular executable")
-			}
-			binary, err := scratchRoot.ReadFile("test2json")
-			if err != nil {
-				return err
-			}
-			converterDigest = nativeDigest(binary)
-		case "test":
-			programExit = exit
-			testStdout = bytes.Clone(capture.stdout[so:])
-		case "convert":
-			if programExit != 0 {
-				result.Qualification = "fail"
-			} else {
-				result.ObservedTestNames, err = nativeOracleWitnesses(capture.stdout[so:], packagePath, result.SelectedTestNames, testStdout)
-				if err != nil {
-					return err
-				}
-				result.Qualification = "pass"
-			}
+		stop, err := run.stage(ctx, stage)
+		if err != nil || stop {
+			return err
 		}
 	}
 	actual, err := validateNativeOraclePackageInputs(snapshot, p)
@@ -1093,11 +1011,167 @@ func (s *Store) runNativeGoOracle(ctx context.Context, r GitRunner, entry Worktr
 		return nativeUnavailable("consumed binary changed during execution")
 	}
 	converter, err := scratchRoot.ReadFile("test2json")
-	if err != nil || nativeDigest(converter) != converterDigest {
+	if err != nil || nativeDigest(converter) != run.converterDigest {
 		return nativeUnavailable("consumed converter changed during execution")
 	}
 	if req.Oracle.Phase == "prepare" {
 		result.Qualification = "ready"
 	}
 	return nil
+}
+
+// nativeGoOracleRun carries one native Go oracle run's scratch layout and the
+// facts each stage hands to the next: the build-selected package path, the
+// raw test stdout, the program exit, and the trusted converter digest.
+type nativeGoOracleRun struct {
+	s               *Store
+	req             WorktreeVerifyRequest
+	p               nativeOraclePlan
+	root, cache     string
+	snapshot, cwd   string
+	env             []string
+	digest          string
+	scratchRoot     *os.Root
+	capture         *nativeStreamCapture
+	result          *NativeOracleResult
+	packagePath     string
+	testStdout      []byte
+	programExit     int
+	converterDigest string
+}
+
+// stage runs one planned stage and records it. stop reports a decided
+// qualification that ends the run without error.
+func (run *nativeGoOracleRun) stage(ctx context.Context, stage NativeOracleStage) (stop bool, err error) {
+	if err := run.checkBeforeStage(stage.Name); err != nil {
+		return false, err
+	}
+	argv := run.expandArgv(stage.Argv)
+	var stdin io.Reader
+	if stage.Name == "convert" {
+		stdin = bytes.NewReader(run.testStdout)
+	}
+	so, se := len(run.capture.stdout), len(run.capture.stderr)
+	var launched func()
+	if stage.Name == "test" {
+		launched = run.s.nativeOracleProgramLaunched
+	}
+	if run.s.nativeOracleStageObserved != nil {
+		run.s.nativeOracleStageObserved(stage.Name, run.cwd, slices.Clone(argv), slices.Clone(run.env))
+	}
+	stageCtx := ctx
+	cancel := func() {}
+	if stage.Name == "test" {
+		stageCtx, cancel, err = nativeOracleTestContext(ctx, run.req)
+		if err != nil {
+			return false, err
+		}
+	}
+	stageCapture := nativeOracleStageCapture(stage.Name, run.capture)
+	exit, runErr := runNativeOracleStage(stageCtx, run.cwd, argv, run.env, stdin, stageCapture, launched)
+	cancel()
+	stage.ExitCode = exit
+	stage.StdoutOffset = so
+	stage.StderrOffset = se
+	stage.StdoutLength = len(run.capture.stdout) - so
+	stage.StderrLength = len(run.capture.stderr) - se
+	run.result.Stages = append(run.result.Stages, stage)
+	if runErr != nil || !stageCapture.complete {
+		return false, nativeUnavailable(fmt.Sprintf("native %s failed: %v", stage.Name, runErr))
+	}
+	if stage.Name == "compile" && exit != 0 && run.req.Oracle.Phase == "execute" {
+		run.result.Qualification = "fail"
+		return true, nil
+	}
+	if exit != 0 && stage.Name != "test" {
+		return false, nativeUnavailable("native " + stage.Name + " returned a nonzero exit")
+	}
+	return false, run.consumeStageOutput(stage.Name, exit, stageCapture.stdout, run.capture.stdout[so:])
+}
+
+// checkBeforeStage refuses a stage whose leased cache slot, candidate inputs,
+// compiled test binary, or trusted converter changed since it was produced.
+func (run *nativeGoOracleRun) checkBeforeStage(name string) error {
+	cacheInfo, err := os.Lstat(run.cache)
+	if err != nil || !cacheInfo.IsDir() || cacheInfo.Mode()&os.ModeSymlink != 0 {
+		return nativeUnavailable("disposable cache no longer realizes the leased plan slot")
+	}
+	switch name {
+	case "test":
+		actual, err := validateNativeOraclePackageInputs(run.snapshot, run.p)
+		if err != nil || actual != run.digest {
+			return nativeUnavailable("candidate inputs changed before test launch")
+		}
+		binary, err := run.scratchRoot.ReadFile("oracle.test")
+		if err != nil || nativeDigest(binary) != run.result.BinaryDigest {
+			return nativeUnavailable("test binary changed before launch")
+		}
+	case "convert":
+		converter, err := run.scratchRoot.ReadFile("test2json")
+		if err != nil || run.converterDigest == "" || nativeDigest(converter) != run.converterDigest {
+			return nativeUnavailable("trusted converter binary changed before conversion")
+		}
+	}
+	return nil
+}
+
+func (run *nativeGoOracleRun) expandArgv(planned []string) []string {
+	argv := slices.Clone(planned)
+	for i, part := range argv {
+		switch {
+		case part == "go":
+			argv[i] = run.p.Environment.GoExecutable
+		case strings.HasPrefix(part, "$scratch/"):
+			argv[i] = filepath.Join(run.root, strings.TrimPrefix(part, "$scratch/"))
+		case part == "$package":
+			argv[i] = run.packagePath
+		}
+	}
+	return argv
+}
+
+// consumeStageOutput records what a successful stage produced for the stages
+// after it. stageStdout is the stage's own capture; streamStdout is the
+// shared stream from the stage's offset.
+func (run *nativeGoOracleRun) consumeStageOutput(name string, exit int, stageStdout, streamStdout []byte) error {
+	var err error
+	switch name {
+	case "metadata":
+		run.packagePath, err = validateNativeGoMetadata(stageStdout, run.snapshot, run.p)
+		return err
+	case "compile":
+		run.result.BinaryDigest, err = nativeExecutableDigest(run.scratchRoot.Stat, run.scratchRoot, "oracle.test", "compiler produced no regular executable")
+		return err
+	case "converter_compile":
+		run.converterDigest, err = nativeExecutableDigest(run.scratchRoot.Lstat, run.scratchRoot, "test2json", "converter compiler produced no regular executable")
+		return err
+	case "test":
+		run.programExit = exit
+		run.testStdout = bytes.Clone(streamStdout)
+	case "convert":
+		if run.programExit != 0 {
+			run.result.Qualification = "fail"
+			return nil
+		}
+		run.result.ObservedTestNames, err = nativeOracleWitnesses(streamStdout, run.packagePath, run.result.SelectedTestNames, run.testStdout)
+		if err != nil {
+			return err
+		}
+		run.result.Qualification = "pass"
+	}
+	return nil
+}
+
+// nativeExecutableDigest digests a regular executable the scratch root holds.
+// stat selects whether a symlink at name is followed.
+func nativeExecutableDigest(stat func(string) (fs.FileInfo, error), scratchRoot *os.Root, name, refusal string) (string, error) {
+	info, err := stat(name)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+		return "", nativeUnavailable(refusal)
+	}
+	binary, err := scratchRoot.ReadFile(name)
+	if err != nil {
+		return "", err
+	}
+	return nativeDigest(binary), nil
 }

@@ -12,8 +12,7 @@ import (
 // The real challenge, signed answer, consumption, constructors, and folds
 // must agree for both initial and successor serious-law contracts. Consent
 // approves the text without replacing the coordinator as contract author.
-// The synthetic pin enters at the runtime mutation owner: published input
-// schemas stay on the released built-in heads until their policy migration.
+// Calls enter through the published tool boundary on the live break-fix pin.
 func TestWorkflowSeriousLawChangeApproval(t *testing.T) {
 	testWorkflowLawChangeApproval(t, true, "derived")
 }
@@ -29,23 +28,14 @@ func testWorkflowLawChangeApproval(t *testing.T, serious bool, tier string) {
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
 	seedRoutineCoordinationDomainFixture(t, s, ctx)
-	live, err := store.LiveWorkflowDefinitionForRef("workflow.break_fix")
+	registered, err := store.LiveWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := json.Marshal(live.Definition)
-	var definition store.WorkflowDefinition
-	if err := json.Unmarshal(raw, &definition); err != nil {
-		t.Fatal(err)
+	if registered.Definition.ApprovalPolicy != store.WorkflowApprovalPolicyConsequenceV1 {
+		t.Fatal("the live break-fix head must use consequence_v1")
 	}
-	definition.Ref = "workflow.law-consent-test"
-	definition.Version = 1
-	definition.ApprovalPolicy = store.WorkflowApprovalPolicyConsequenceV1
-	registry := store.NewWorkflowDefinitionRegistry()
-	registered, err := registry.Register(definition)
-	if err != nil {
-		t.Fatal(err)
-	}
+	registry := store.BuiltinWorkflowRegistry()
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Registry: registry, Actor: actor, Now: fixedTime()})
@@ -59,16 +49,7 @@ func testWorkflowLawChangeApproval(t *testing.T, serious bool, tier string) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		op, ok := ValidateContractOperation("concord_work_transition", "workflow_action")
-		if !ok {
-			t.Fatal("workflow_action is not a declared mutation")
-		}
-		r := runtime{Store: s, Authority: service, Envelope: env, Registry: registry, Tool: op.Tool, Operation: op.Operation}
-		response, err := r.mutateWorkflowAction(ctx, NewBase(env.RequestID, op.Tool, op.Operation), raw, grant, op)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return response
+		return invokeWorkflowIssue31(t, s, service, env, raw)
 	}
 	invoke := func(action, key string, fields map[string]any) (Envelope, map[string]any) {
 		t.Helper()

@@ -45,9 +45,13 @@ resource.setrlimit(resource.RLIMIT_FSIZE, (FILE_LIMIT, FILE_LIMIT))
 
 # A bounded runaway: grow HOME/growth to GROWTH_CAP at `pace` seconds per
 # 64 KiB, then idle, so a missing gate bound shows as a timeout, not a full disk.
+# With fork, a background grandchild grows the file while the command idles.
 GROW = """
-def grow(pace):
+def grow(pace, fork=False):
     import os, time
+    if fork and os.fork():
+        time.sleep(60)
+        sys.exit(0)
     with open(os.path.join(os.environ["HOME"], "pid"), "w") as handle:
         handle.write(str(os.getpid()))
     with open(os.path.join(os.environ["HOME"], "growth"), "wb") as handle:
@@ -73,7 +77,7 @@ if MODE == "refuse":
 if MODE == "grow":
     grow(0)
 if MODE == "trickle":
-    grow(0.05)
+    grow(0.05, fork=True)
 if MODE == "deaf":
     import time
     time.sleep(30)
@@ -339,6 +343,25 @@ class CaseTests(unittest.TestCase):
         with self.assertRaisesRegex(gate.GateError, "during enumeration"):
             gate.run_gate(self.args(self.fixture.candidate()), [], {}, time.monotonic() - 1)
 
+    def test_snapshot_work_stops_at_the_deadline_and_on_a_signal(self) -> None:
+        store = self.fixture.root / "store.db"
+        db = sqlite3.connect(store)
+        db.execute("CREATE TABLE domain_events (seq INTEGER PRIMARY KEY, kind TEXT, payload TEXT)")
+        db.executemany("INSERT INTO domain_events (kind, payload) VALUES ('k', ?)", [("x" * 4000,)] * 2000)
+        db.commit()
+        db.close()
+        with self.assertRaisesRegex(gate.CaseFailure, "budget exhausted"):
+            gate.snapshot_fixture(store, self.fixture.root / "late.db", "v1.0.0", deadline=time.monotonic() - 1)
+        self.assertLess((self.fixture.root / "late.db").stat().st_size, store.stat().st_size, "the backup ran past its deadline")
+        with self.assertRaisesRegex(gate.CaseFailure, "budget exhausted"):
+            gate.event_rows(store, time.monotonic() - 1)
+        gate.STOP.set()
+        try:
+            with self.assertRaisesRegex(gate.CaseFailure, "stopped by a signal"):
+                gate.snapshot_fixture(store, self.fixture.root / "stopped.db", "v1.0.0")
+        finally:
+            gate.STOP.clear()
+
     def test_snapshot_refuses_a_store_beyond_the_remaining_scratch(self) -> None:
         store = self.fixture.root / "store.db"
         store.write_bytes(b"x" * 4096)
@@ -350,12 +373,14 @@ class CaseTests(unittest.TestCase):
         (self.fixture.assets / "releases?per_page=100&page=1").parent.mkdir(parents=True, exist_ok=True)
         (self.fixture.assets / "releases?per_page=100&page=1").write_text(json.dumps(page))
         streams = self.fixture.root / "out" / "streams" / "population"
-        run = gate.population_runner(streams, time.monotonic() + 60)
+        run = gate.population_runner(streams, time.monotonic() + 60, gate.Scratch(1 << 30, 1))
         self.assertEqual(gate.gh_release_page("owner/repo", 1, run), page)
         with self.assertRaisesRegex(gate.GateError, "exited 1"):
             gate.gh_release_page("owner/repo", 2, run)
         with self.assertRaisesRegex(gate.GateError, "budget exhausted"):
-            gate.gh_release_page("owner/repo", 1, gate.population_runner(streams, time.monotonic() - 1))
+            gate.gh_release_page("owner/repo", 1, gate.population_runner(streams, time.monotonic() - 1, gate.Scratch(1 << 30, 1)))
+        with self.assertRaisesRegex(gate.GateError, "population reads exceed"):
+            gate.gh_release_page("owner/repo", 1, gate.population_runner(streams, time.monotonic() + 60, gate.Scratch(16, 1)))
         gate.STOP.set()
         try:
             with self.assertRaisesRegex(gate.GateError, "stopped by a signal"):
@@ -419,7 +444,8 @@ print(json.dumps(outcome))
 
 
 class InterruptTests(unittest.TestCase):
-    """Stopping the gate stops its children: a handled signal kills them, and SIGKILL reaches them through pdeathsig."""
+    """Stopping the gate stops its children and their descendants: a handled signal kills the group, and a
+    SIGKILL of the gate reaches the group through its supervisor's death signal. The writer is a forked grandchild."""
 
     def stop_gate(self, signum: int) -> tuple[subprocess.CompletedProcess, Path]:
         with tempfile.TemporaryDirectory() as directory:

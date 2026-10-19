@@ -141,26 +141,39 @@ def install_interrupt_handlers() -> None:
         signal.signal(signum, interrupt)
 
 
-# Exec-in-place launcher for every child. It arms PR_SET_PDEATHSIG, then
-# refuses to run when the gate already died (its parent is no longer the gate),
-# which closes the window between fork and arming. It caps every file the child
-# writes and restores the signal dispositions Python ignores, so the kernel's
-# SIGXFSZ reaches the child.
+# Supervisor for every child, started as the leader of the child's process
+# group. It arms PR_SET_PDEATHSIG with SIGTERM and refuses to run when its parent
+# is no longer the gate, which closes the window between fork and arming. When
+# the gate dies, by any signal, the supervisor kills the whole group, so no
+# descendant outlives the gate. Its file-size limit is inherited by every
+# descendant, and the command gets back the signal dispositions Python ignores.
+# The supervisor ends the way its command ended.
 LAUNCHER = """
 import ctypes, os, resource, signal, sys
-if ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGKILL, 0, 0, 0) != 0:
+signal.signal(signal.SIGTERM, lambda signum, frame: os.killpg(0, signal.SIGKILL))
+if ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGTERM, 0, 0, 0) != 0:
     sys.exit(126)
 if os.getppid() != int(sys.argv[1]):
     sys.exit(125)
 resource.setrlimit(resource.RLIMIT_FSIZE, (int(sys.argv[2]), int(sys.argv[2])))
-for signum in (signal.SIGPIPE, signal.SIGXFSZ):
-    signal.signal(signum, signal.SIG_DFL)
-os.execvp(sys.argv[3], sys.argv[3:])
+command = os.fork()
+if command == 0:
+    for signum in (signal.SIGPIPE, signal.SIGXFSZ, signal.SIGTERM):
+        signal.signal(signum, signal.SIG_DFL)
+    try:
+        os.execvp(sys.argv[3], sys.argv[3:])
+    except OSError:
+        os._exit(127)
+code = os.waitstatus_to_exitcode(os.waitpid(command, 0)[1])
+if code < 0:
+    signal.signal(-code, signal.SIG_DFL)
+    os.kill(os.getpid(), -code)
+sys.exit(code)
 """
 
 
 def confinement(file_bytes: int) -> list[str]:
-    """The launcher prefix: die with the spawning thread, and never write a file above file_bytes.
+    """The supervisor prefix: the group dies with the spawning thread, and no file grows above file_bytes.
 
     PR_SET_PDEATHSIG fires when the forking thread ends, so a caller spawns and
     waits for its child on one thread. RLIMIT_FSIZE cannot be raised past the
@@ -252,15 +265,19 @@ def network_env() -> dict[str, str]:
     return {key: os.environ[key] for key in ("PATH", "HOME", "XDG_CONFIG_HOME", "GH_TOKEN", "GITHUB_TOKEN", "GH_HOST") if key in os.environ}
 
 
-def population_runner(streams: Path, wall_deadline: float):
-    """A `run(argv) -> stdout` for the population readers: confined, wall-bounded, and interruptible."""
+def population_runner(streams: Path, wall_deadline: float, scratch: Scratch):
+    """A `run(argv) -> stdout` for the population readers: confined, wall-bounded, interruptible, and inside scratch."""
     calls = iter(range(1 << 30))
+
+    def check() -> None:
+        if tree_bytes(streams) > scratch.allowance():
+            raise CaseFailure("unknown", "disk", "population reads exceed their scratch share")
 
     def run(argv: list[str]) -> str:
         label = f"population-{next(calls)}"
         try:
             rc, out = run_bounded(argv, network_env(), "", min(wall_deadline, time.monotonic() + NETWORK_SECONDS), streams, label,
-                                  Guard(lambda: None, lambda: STREAM_LIMIT))
+                                  Guard(check, lambda: min(STREAM_LIMIT, scratch.allowance())))
         except CaseFailure as failure:
             raise GateError(f"{argv[:3]}: {failure.detail}") from None
         if rc != 0:
@@ -302,22 +319,37 @@ def verify_writer_asset(repository: str, writer: Writer, case: Path, deadline: f
     return binary
 
 
-def snapshot_fixture(source: Path, destination: Path, writer: str, room=lambda: 1 << 62, guard=lambda: None) -> dict:
+def checkpoint(deadline: float) -> None:
+    if STOP.is_set():
+        raise CaseFailure("unknown", "interrupted", "the gate was stopped by a signal")
+    if time.monotonic() >= deadline:
+        raise CaseFailure("unknown", "budget", "case budget exhausted")
+
+
+def connect(path: Path, deadline: float, readonly: bool = True) -> sqlite3.Connection:
+    """A connection whose statements abort at the deadline or on a signal; checkpoint() then names why."""
+    db = sqlite3.connect(f"file:{path}?mode=ro", uri=True) if readonly else sqlite3.connect(path)
+    db.set_progress_handler(lambda: int(STOP.is_set() or time.monotonic() >= deadline), 1000)
+    return db
+
+
+def snapshot_fixture(source: Path, destination: Path, writer: str, room=lambda: 1 << 62, guard=lambda: None,
+                     deadline: float = float("inf")) -> dict:
     """Online Backup snapshot of an exited writer's store, with its PM10 manifest.
 
     The copy is refused before it starts when the source would not fit the case's
-    remaining scratch, and the case guard runs again once it is written.
+    remaining scratch, and the case guard runs again once it is written. Every
+    backup step and statement stops at the deadline or on a signal.
     """
     if source.stat().st_size > room():
         raise CaseFailure("unknown", "disk", f"snapshot of {source.stat().st_size} bytes exceeds the case's remaining scratch")
-    reader = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
-    target = sqlite3.connect(destination)
+    reader, target = connect(source, deadline), connect(destination, deadline, readonly=False)
     try:
-        reader.backup(target)
+        reader.backup(target, pages=256, progress=lambda *_: checkpoint(deadline))
     finally:
         target.close()
         reader.close()
-    snapshot = sqlite3.connect(f"file:{destination}?mode=ro", uri=True)
+    snapshot = connect(destination, deadline)
     try:
         manifest = {
             "schema_version": snapshot.execute("SELECT COALESCE(MAX(version),0) FROM schema_migrations").fetchone()[0],
@@ -331,6 +363,9 @@ def snapshot_fixture(source: Path, destination: Path, writer: str, room=lambda: 
             "quick_check": snapshot.execute("PRAGMA quick_check").fetchone()[0],
         }
         foreign = snapshot.execute("PRAGMA foreign_key_check").fetchall()
+    except sqlite3.Error:
+        checkpoint(deadline)
+        raise
     finally:
         snapshot.close()
     if manifest["integrity_check"] != "ok" or manifest["quick_check"] != "ok" or foreign:
@@ -343,20 +378,26 @@ def snapshot_fixture(source: Path, destination: Path, writer: str, room=lambda: 
     return manifest
 
 
-def event_rows(path: Path, columns: list[str] | None = None) -> tuple[list[str], list[tuple]]:
-    db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+def event_rows(path: Path, deadline: float, columns: list[str] | None = None) -> tuple[list[str], list[tuple]]:
+    db = connect(path, deadline)
     try:
         columns = columns or [row[1] for row in db.execute("PRAGMA table_info(domain_events)")]
         return columns, db.execute(f"SELECT {', '.join(columns)} FROM domain_events ORDER BY seq").fetchall()
+    except sqlite3.Error:
+        checkpoint(deadline)
+        raise
     finally:
         db.close()
 
 
-def effects(path: Path) -> list[str]:
+def effects(path: Path, deadline: float) -> list[str]:
     """The recipe effects absent from a restored store, by projection."""
-    db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    db = connect(path, deadline)
     try:
         return [name for name, query, want in EFFECTS if db.execute(query).fetchall() != [want]]
+    except sqlite3.Error:
+        checkpoint(deadline)
+        raise
     finally:
         db.close()
 
@@ -373,14 +414,14 @@ def restore(candidate: Path, snapshot: Path, restored: Path, case: Path, deadlin
         raise CaseFailure("fail", label, "restore report disagrees with the snapshot inventory")
     if sha256_file(snapshot) != manifest["db_checksum"]:
         raise CaseFailure("fail", "conservation", "restore modified the source snapshot")
-    columns, source_events = event_rows(snapshot)
+    columns, source_events = event_rows(snapshot, deadline)
     try:
-        _, restored_events = event_rows(restored, columns)
+        _, restored_events = event_rows(restored, deadline, columns)
     except sqlite3.Error as error:
         raise CaseFailure("fail", "conservation", f"restored event log lacks a source column: {error}") from None
     if restored_events[:len(source_events)] != source_events:
         raise CaseFailure("fail", "conservation", "restored event rows differ from the snapshot's bytes")
-    missing = effects(restored)
+    missing = effects(restored, deadline)
     if missing:
         raise CaseFailure("fail", "effects", f"{label} lacks the recipe's {', '.join(missing)}")
     return inventory | {"appended_events": len(restored_events) - len(source_events)}
@@ -412,11 +453,11 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
             if rc != 0:
                 raise CaseFailure("unknown", verb, f"writer refused recipe step {verb} with exit {rc}")
         snapshot = case / "snapshot.db"
-        manifest = snapshot_fixture(Path(env["CONCORD_DB_PATH"]), snapshot, writer.tag, room, guard)
+        manifest = snapshot_fixture(Path(env["CONCORD_DB_PATH"]), snapshot, writer.tag, room, guard, deadline)
         row["source"] = {key: manifest[key] for key in ("schema_version", "event_watermark", "db_checksum")}
         row["restored"] = restore(candidate, snapshot, case / "restored.db", case, deadline, streams, "restore", guard)
         again = case / "restored-snapshot.db"
-        snapshot_fixture(case / "restored.db", again, f"{writer.tag}-restored", room, guard)
+        snapshot_fixture(case / "restored.db", again, f"{writer.tag}-restored", room, guard, deadline)
         row["rebuilt"] = restore(candidate, again, case / "rebuilt.db", case, deadline, streams, "rebuild", guard)
         if row["rebuilt"]["appended_events"] or row["rebuilt"]["event_watermark"] != row["restored"]["event_watermark"]:
             raise CaseFailure("fail", "rebuild", "a second restore of the restored store changed its event log")
@@ -426,7 +467,13 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
         row |= {"status": "pass", "stage": "complete", "detail": ""}
     except CaseFailure as failure:
         row |= {"status": failure.status, "stage": failure.stage, "detail": failure.detail}
-    except (OSError, ValueError, KeyError, AttributeError, TypeError, sqlite3.Error, subprocess.SubprocessError) as error:
+    except sqlite3.Error as error:
+        try:
+            checkpoint(deadline)
+            row |= {"status": "unknown", "stage": "harness", "detail": f"{type(error).__name__}: {error}"}
+        except CaseFailure as failure:
+            row |= {"status": failure.status, "stage": failure.stage, "detail": failure.detail}
+    except (OSError, ValueError, KeyError, AttributeError, TypeError, subprocess.SubprocessError) as error:
         row |= {"status": "unknown", "stage": "harness", "detail": f"{type(error).__name__}: {error}"}
     row |= {"disk_bytes": tree_bytes(case), "seconds": round(time.monotonic() - started, 3)}
     if row["status"] == "pass":
@@ -437,15 +484,16 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
     return row
 
 
-def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tuple[str, str]], wall_deadline: float | None = None) -> tuple[dict, int]:
+def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tuple[str, str]], wall_deadline: float | None = None,
+             scratch: Scratch | None = None) -> tuple[dict, int]:
     wall_deadline = wall_deadline or time.monotonic() + args.wall_seconds
+    scratch = scratch or Scratch(args.disk_bytes, args.workers)
     output = Path(args.output_dir).resolve()
     candidate = Path(args.candidate).resolve()
     candidate_sha256 = sha256_file(candidate)
     if time.monotonic() >= wall_deadline:
         raise GateError("the wall budget ran out during enumeration")
-    transfer, scratch = Transfer(args.transfer_bytes), Scratch(args.disk_bytes, args.workers)
-    scratch.retain(tree_bytes(output / "streams" / "population"))
+    transfer = Transfer(args.transfer_bytes)
     preflight = output / "candidate"
 
     def check() -> None:
@@ -511,9 +559,12 @@ def main(argv: list[str] | None = None) -> int:
         if output.exists() and any(output.iterdir()):
             raise GateError(f"output directory {output} is not empty")
         output.mkdir(parents=True, exist_ok=True)
-        run = population_runner(output / "streams" / "population", wall_deadline)
+        scratch, population = Scratch(args.disk_bytes, args.workers), output / "streams" / "population"
+        run = population_runner(population, wall_deadline, scratch)
         releases = list_releases(gh_release_total(args.repository, run), lambda page: gh_release_page(args.repository, page, run))
-        report, status = run_gate(args, releases, git_tags(args.repository, run), wall_deadline)
+        tags = git_tags(args.repository, run)
+        scratch.retain(tree_bytes(population))
+        report, status = run_gate(args, releases, tags, wall_deadline, scratch)
     except (GateError, OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         report, status = {"schema": "concord.release-restore-gate.v1", "result": "unknown", "stage": "population", "detail": str(error)}, 1
     output.mkdir(parents=True, exist_ok=True)

@@ -582,6 +582,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
       expect(subject).not.toBe(previousSubject)
       expect(await Bun.file(join(worktree, ".concord/docs/dispatch-marker.txt")).text()).toBe(`synthetic marker pass ${pass}\n`)
       const report = routeWorkerReport(lane, producer.packet, subject)
+      report.production_size.count = pass === 0 ? 1 : 2
       if (pass === 1) loseAcknowledgement = true
       const receipt = await completeRouteTask(producer, report, runner, binary)
       const retained = host.retain(producer, report)

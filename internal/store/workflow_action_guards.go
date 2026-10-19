@@ -1593,6 +1593,18 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		if job != nil {
 			completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}
 		}
+		// CD-0225 D2, CD-0227 D2: a capped job's implementation result is
+		// accepted only on an agreed, contained, in-cap production size.
+		acceptedSize, sizeErr := admitWorkerJobSizeAcceptanceTx(in.ctx, in.tx, in.request.WorkID, in.entry.Definition, job, workflowFieldStringDefault(fields, "attempt_id", ""), fields)
+		if sizeErr != nil {
+			return events, "", sizeErr
+		}
+		if acceptedSize != nil {
+			completionValues["worker_production_size"] = acceptedSize.size
+			if acceptedSize.supplemental != nil {
+				completionValues["supplemental_classifications"] = acceptedSize.supplemental
+			}
+		}
 	}
 	// CD-0198 D4: the combined accept asserts the same delivery fields on the
 	// same completion event a record_delivery appends, so delivery readers
@@ -1811,6 +1823,12 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 		// the correction base, and the measured-path serialization.
 		if err := admitWorkerJobSizeDispatchTx(in.ctx, in.tx, in.request.WorkID, in.entry.Definition, lane, *job, subject); err != nil {
 			return err
+		}
+		// The packet validation held the packet's caller exclusions equal to
+		// the core's computed set, so the completion retains them from the
+		// same bytes for the acceptance's containment check.
+		if exclusions := workerPacketCallerExclusions(packetRaw); len(exclusions) > 0 {
+			completionValues["worker_caller_exclusions"] = exclusions
 		}
 	}
 	// Revalidate the sealed pre-transaction preparation with SQL only,

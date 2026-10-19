@@ -78,12 +78,28 @@ func workerCompletionWithReportedSize(t *testing.T, ctx context.Context, s *Stor
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.ProductionSize != nil && payload.ProductionSize.Tree == unobservedTreeForTest {
-		payload.ProductionSize.Tree = prepared.proof.observation.Commit
-		event.Payload = mustJSONValue(payload)
+	if payload.ProductionSize != nil && payload.ProductionSize.Tree != unobservedTreeForTest {
 		return event
 	}
-	return withReportedSizeForTest(t, s, event, prepared.proof.observation.Commit)
+	if payload.ProductionSize == nil {
+		event = withReportedSizeForTest(t, s, event, prepared.proof.observation.Commit)
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if payload.ProductionSize != nil {
+		payload.ProductionSize.Tree = prepared.proof.observation.Commit
+		content, err := readWorkerJobSizeContentTx(ctx, s.db, event.SubjectID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		count, unavailable := workerJobReportedLineCount(content[*payload.WorkerJob].basis, prepared.proof.observation)
+		if unavailable == "" {
+			payload.ProductionSize.Count = count
+		}
+		event.Payload = mustJSONValue(payload)
+	}
+	return event
 }
 
 // withReportedSizeForTest gives a capped implementation job's completion the

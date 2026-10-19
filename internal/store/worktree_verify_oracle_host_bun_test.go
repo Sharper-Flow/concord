@@ -514,6 +514,31 @@ func TestNativeBunExtractionBounds(t *testing.T) {
 	}
 }
 
+func TestNativeBunMaterializeEmptyTree(t *testing.T) {
+	manifest := map[string]any{"name": "fixture"}
+	installs, err := bunVerifyForTest(t, manifest, manifest, nil)
+	if err != nil || len(installs) != 0 {
+		t.Fatalf("empty lock plan = %+v, %v", installs, err)
+	}
+	dest := t.TempDir()
+	cache := filepath.Join(t.TempDir(), "uncached")
+	if err := materializeNativeBunTree(context.Background(), cache, dest, installs); err != nil {
+		t.Fatal(err)
+	}
+	tree := filepath.Join(dest, "node_modules")
+	digest, err := nativeBunTreeDigest(tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(digest) == 0 {
+		t.Fatal("empty tree has no root fingerprint")
+	}
+	entries, err := os.ReadDir(tree)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("empty dependency tree = %v, %v", entries, err)
+	}
+}
+
 func TestNativeBunCacheIntegrity(t *testing.T) {
 	cache := t.TempDir()
 	good := bunTarballForTest(t, []bunTarEntryForTest{bunManifestEntryForTest(t)})

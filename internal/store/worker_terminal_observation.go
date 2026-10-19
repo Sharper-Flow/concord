@@ -166,14 +166,8 @@ func sampleWorkerTerminalDelivery(ctx context.Context, q queryer, workID, attemp
 	if jobErr != nil {
 		return sample, jobErr
 	}
-	if job != nil {
-		content, contentErr := readWorkerJobSizeContentTx(ctx, q, workID)
-		if contentErr != nil {
-			return sample, contentErr
-		}
-		if entry, recorded := content[*job]; recorded && entry.basis != nil {
-			sample.jobBasisBase = entry.basis.BaseCommit
-		}
+	if sample.jobBasisBase, err = workerJobBasisBase(ctx, q, workID, job); err != nil {
+		return sample, err
 	}
 	if window.WorktreeIdentity == "" {
 		return sample, nil
@@ -289,12 +283,16 @@ func observeWorkerDelivery(ctx context.Context, runner GitRunner, path, basisBas
 		return nil, newFailure(KindGitUnreachable, workerTerminalObservationOp, "the worktree's HEAD is not one raw commit OID", true, "retry once the worktree resolves a commit")
 	}
 	observation := &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}
-	if basisBase == "" || observation.State == "dirty" {
-		// A basis-free job measures nothing, and a dirty tree records no
-		// paths and cannot establish a size.
+	if basisBase == "" {
+		// A basis-free job measures nothing.
 		return observation, nil
 	}
 	observation.Base = basisBase
+	if observation.State == "dirty" {
+		// A dirty tree records the recorded base but no paths: it cannot
+		// establish a size, and acceptance refuses it as unavailable evidence.
+		return observation, nil
+	}
 	numstat, err := runner.Run(probeCtx, path, append(workerDiffSharedDiffArgs(), "--numstat", "-z", basisBase, commit)...)
 	if err != nil {
 		return nil, workerDeliveryProbeFailure("measured delta", probeCtx, err)
@@ -313,7 +311,7 @@ func observeWorkerDelivery(ctx context.Context, runner GitRunner, path, basisBas
 // deletion record beside an addition record.
 func parseWorkerNumstat(raw []byte) ([]WorkerObservedPath, error) {
 	records := strings.Split(string(raw), "\x00")
-	paths := make([]WorkerObservedPath, 0, len(records))
+	var paths []WorkerObservedPath
 	for _, record := range records {
 		if record == "" {
 			continue
@@ -337,9 +335,6 @@ func parseWorkerNumstat(raw []byte) ([]WorkerObservedPath, error) {
 			return nil, newFailure(KindGitUnreachable, workerTerminalObservationOp, "the measured delta carries a numstat record with no path", true, "retry the same completion once the worktree is reachable")
 		}
 		paths = append(paths, path)
-	}
-	if len(paths) == 0 {
-		return nil, nil
 	}
 	return paths, nil
 }
@@ -513,15 +508,9 @@ func enrichWorkerObservedDeliveryTx(ctx context.Context, tx *sql.Tx, event Event
 	if jobErr != nil {
 		return jobErr
 	}
-	var basisBase string
-	if job != nil {
-		content, contentErr := readWorkerJobSizeContentTx(ctx, tx, event.SubjectID)
-		if contentErr != nil {
-			return contentErr
-		}
-		if entry, recorded := content[*job]; recorded && entry.basis != nil {
-			basisBase = entry.basis.BaseCommit
-		}
+	basisBase, basisErr := workerJobBasisBase(ctx, tx, event.SubjectID, job)
+	if basisErr != nil {
+		return basisErr
 	}
 	if basisBase == "" && (proof.observation.Base != "" || proof.observation.Paths != nil) {
 		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared delivery observation carries size content for a dispatched job that records no measurement basis", false, "prepare the completion against the recorded job")
@@ -531,4 +520,20 @@ func enrichWorkerObservedDeliveryTx(ctx context.Context, tx *sql.Tx, event Event
 	}
 	payload.ObservedDelivery = proof.observation
 	return nil
+}
+
+// workerJobBasisBase is the base_commit the job's recorded measurement basis
+// names, or empty for no job or a basis-free job.
+func workerJobBasisBase(ctx context.Context, q queryer, workID string, job *WorkerJobBinding) (string, error) {
+	if job == nil {
+		return "", nil
+	}
+	content, err := readWorkerJobSizeContentTx(ctx, q, workID)
+	if err != nil {
+		return "", err
+	}
+	if entry, recorded := content[*job]; recorded && entry.basis != nil {
+		return entry.basis.BaseCommit, nil
+	}
+	return "", nil
 }

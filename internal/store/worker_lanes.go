@@ -631,7 +631,7 @@ func validateWorkerDirectCallerRepairs(repairs []WorkerDirectCallerRepair) error
 			if len(check.check.Observed) < 1 || len(check.check.Observed) > 512 {
 				return invalidWorkerPayload("worker.completed direct_caller_repairs " + check.role + " must carry its observed output reference of 1 to 512 bytes")
 			}
-			if check.check.InferredCause != "" && len(check.check.InferredCause) > 512 {
+			if len(check.check.InferredCause) > 512 {
 				return invalidWorkerPayload("worker.completed direct_caller_repairs " + check.role + " inferred cause must be at most 512 bytes")
 			}
 		}
@@ -1912,25 +1912,19 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 // completion without a sealed observation has no measured delta, which
 // acceptance refuses as unavailable evidence.
 func bindWorkerCompletedReportSizeTx(ctx context.Context, tx *sql.Tx, attempt workerTerminalAttempt, dispatchedJob *WorkerJobBinding, lane LaneDefinition, sourceVersion int, payload *WorkerCompletedPayload) error {
-	var basis *WorkerJobMeasurementBasis
-	if dispatchedJob != nil {
-		content, err := readWorkerJobSizeContentTx(ctx, tx, attempt.WorkID)
-		if err != nil {
-			return err
-		}
-		if entry, recorded := content[*dispatchedJob]; recorded {
-			basis = entry.basis
-		}
+	basisBase, err := workerJobBasisBase(ctx, tx, attempt.WorkID, dispatchedJob)
+	if err != nil {
+		return err
 	}
-	if basis != nil && lane.CapabilityClass == "implementation" {
+	if basisBase != "" && lane.CapabilityClass == "implementation" {
 		if sourceVersion != 0 && sourceVersion < workerCompletedJobSizeVersion {
 			return nil
 		}
 		if payload.ProductionSize == nil {
 			return invalidWorkerPayload("worker.completed production_size is required for a completed report of a capped implementation job: missing production_size is malformed output")
 		}
-		if payload.ProductionSize.Base != basis.BaseCommit {
-			return invalidWorkerPayload("worker.completed production_size base " + payload.ProductionSize.Base + " does not equal the dispatched job's recorded base_commit " + basis.BaseCommit)
+		if payload.ProductionSize.Base != basisBase {
+			return invalidWorkerPayload("worker.completed production_size base " + payload.ProductionSize.Base + " does not equal the dispatched job's recorded base_commit " + basisBase)
 		}
 		if payload.ObservedDelivery != nil && payload.ProductionSize.Tree != payload.ObservedDelivery.Commit {
 			return invalidWorkerPayload("worker.completed production_size tree must equal the observed delivery commit")

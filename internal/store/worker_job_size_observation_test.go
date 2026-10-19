@@ -265,8 +265,9 @@ func TestWorkerTerminalObservationCarriesJobSizeObservation(t *testing.T) {
 		}
 	})
 	t.Run("a dirty observation records no paths and probes no numstat", func(t *testing.T) {
-		fixture, _ := sizeObservationFixture(t, "size-observe-dirty", "", 0)
+		fixture, job := sizeObservationFixture(t, "size-observe-dirty", "", 0)
 		s := fixture.store
+		base := sizeObservationBasisBase(t, fixture, job)
 		runner := newScriptedDeliveryRunner()
 		runner.statusOutput = []byte(" M seed.txt\x00")
 		attemptID := "attempt-" + fixture.workID
@@ -276,11 +277,18 @@ func TestWorkerTerminalObservationCarriesJobSizeObservation(t *testing.T) {
 			t.Fatalf("terminal delivery preparation refused: %v", err)
 		}
 		observed := preparation.proof.observation
-		if observed == nil || observed.State != "dirty" || observed.Paths != nil {
-			t.Fatalf("observed delivery = %#v, want a dirty observation with no paths", observed)
+		if observed == nil || observed.State != "dirty" || observed.Base != base || observed.Paths != nil {
+			t.Fatalf("observed delivery = %#v, want a dirty observation of base %s with no paths", observed, base)
 		}
 		if runner.numstatCalls != 0 {
 			t.Fatalf("numstat ran %d times on a dirty tree, want none", runner.numstatCalls)
+		}
+		// A dirty capped completion stays a recorded report: it cannot
+		// establish a size, and acceptance owns that refusal.
+		workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), preparation), s, completion)
+		stored := rawObservedDelivery(t, s.DatabaseForTesting(), completion.EventID)
+		if stored.State != "dirty" || stored.Base != base || stored.Paths != nil {
+			t.Fatalf("stored observed delivery = %#v, want the dirty completion recorded with its base and no paths", stored)
 		}
 	})
 	t.Run("a numstat failure refuses the completion with zero effects", func(t *testing.T) {
@@ -414,6 +422,11 @@ func TestWorkerJobCorrectionMeasuredPathsUnion(t *testing.T) {
 		{Path: "internal/store/worker_jobs.go", Added: 5, Deleted: 2},
 		{Path: "internal/store/new_file.go", Added: 40, Deleted: 0},
 	})
+	other := &WorkerJobBinding{JobID: "job:union-other", Revision: 1}
+	recordEditingJobForTest(t, fixture, workID, workerJobSizeEditingFields(t, workID, fixture), other)
+	recordObservedCorrectionAttempt(t, s, workID, "attempt:union-other", *other, []WorkerObservedPath{
+		{Path: "internal/store/other_job.go", Added: 3, Deleted: 0},
+	})
 	measured, err := workerJobCorrectionMeasuredTx(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
@@ -421,6 +434,9 @@ func TestWorkerJobCorrectionMeasuredPathsUnion(t *testing.T) {
 	paths := measured[job.JobID]
 	if !slices.Contains(paths, "internal/store/worker_jobs.go") || !slices.Contains(paths, "internal/store/new_file.go") {
 		t.Fatalf("measured paths = %q, want the inventory unioned with the sealed observed paths", paths)
+	}
+	if slices.Contains(paths, "internal/store/other_job.go") {
+		t.Fatalf("measured paths = %q, want another job's observed paths excluded", paths)
 	}
 	seen := map[string]bool{}
 	for _, path := range paths {
@@ -433,7 +449,7 @@ func TestWorkerJobCorrectionMeasuredPathsUnion(t *testing.T) {
 
 // A revision recorded before the job's first implementation dispatch at
 // another base refuses a later dispatch: the job keeps the base its first
-// dispatch bound, whatever earlier revisions recorded (slice-2 review r3).
+// dispatch bound, whatever earlier revisions recorded.
 // The live dispatch route refuses the superseded revision at readiness
 // first; the size admission keeps the same rule as defense in depth, and
 // this test proves both layers.

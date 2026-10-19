@@ -789,7 +789,7 @@ func attachCompletedReportSizeForTest(ctx context.Context, s *Store, workID, att
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return err
 	}
-	payload.ObservedDelivery = &WorkerObservedDelivery{Commit: entry.basis.BaseCommit, State: "clean"}
+	payload.ObservedDelivery = &WorkerObservedDelivery{Commit: entry.basis.BaseCommit, State: "clean", Base: entry.basis.BaseCommit}
 	payload.ProductionSize = &WorkerProductionSize{Base: entry.basis.BaseCommit, Tree: entry.basis.BaseCommit, Count: 0}
 	event.Payload = mustJSONValue(payload)
 	return nil

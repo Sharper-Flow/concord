@@ -37,17 +37,38 @@
 - **Amended:** 2026-10-18; 2026-10-19.
 - **Revision choice:** Compatible amendments under
   [CD-0036](CD-0036-breaking-law-cutovers.md) D2; the law ID stays unchanged.
+  The 2026-10-19 proof rules apply only to newly released size-aware definition
+  pins, not to in-flight instances on earlier definitions.
 - **Amendment reason:** On 2026-10-18: D5 already fixes the small
   implementation composition; its relationship to CD-0138 D1 must be
   explicit. No composition, released definition, pin, or runtime behavior
-  changes in that amendment. On 2026-10-19: D7's two timing records must name
-  the events that stamp them and must distinguish the actor's submission from
-  the external queue's state.
-- **P12:** Each amendment affects only the workflow-engine Domain. Neither
-  removes or reverses user-visible behavior, touches a security or data-safety
-  rule, and changes no UI/UX. It is not serious under
+  changes in that amendment. On 2026-10-19: D5 must preserve capture when a
+  small composition cannot execute its least proof, without weakening that
+  proof. D7's timing records must name the events that stamp them and must
+  distinguish the actor's submission from the external queue's state.
+- **P12 (2026-10-18):** That amendment affects only the workflow-engine Domain.
+  It removes or reverses no user-visible behavior, touches no security or
+  data-safety rule, and changes no UI/UX. It is not serious under
   [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
   D4.
+- **P12 (2026-10-19):** The changed law's child-Domain count is one:
+  `workflow-engine`. Its [knowledge record](../knowledge/records/CD-0229.json)
+  has that home and no applicability Domains, before and after this amendment.
+  No Domain registry entry or relation changes. The multi-Domain test is false.
+  User-visible removal or reversal: yes. Some model-small items keep the full
+  steps rather than the small steps, and a newly pinned small item that could
+  previously complete without a named check must now wait for an executing
+  suite or an operator size override. Security or data safety: no; the amendment
+  changes no privilege, credential, destructive operation, or recovery guarantee.
+  UI/UX: yes; the workflow changes which size-override questions reach the
+  operator. The amendment is serious under CD-0230 D4.
+- **Amendment approval boundary (2026-10-19):** This amendment requires the
+  operator's approval of its exact text before merge.
+- **Amendment approval (2026-10-19):** The operator approved the exact text.
+  Approval reference:
+  `sha256:e4152063369264fcc924060c5db8944548899a1a432e03f80dd5a4a36c20a22d`.
+  Approved source:
+  `sha256:b1531fbe01296491efcfca4ac3f329901af1697552674b7f2a03abd5f6a597bf`.
 
 ## Context
 
@@ -144,12 +165,27 @@ family follows goal B's examples: `small` composes define, implement, review,
 and ship; `larger` adds research, architect, and refine; `crucial` adds
 repeated implement steps and repeats review and refine. This amends CD-0218
 D2 for implementation at every size and CD-0138 D1 only for the `small`
-implementation composition. An implementation item walks the steps of its
-size's composition. At every size it keeps its outcome contract, its independent
-acceptance, and closure.
+implementation composition. An implementation item walks its pinned
+composition, selected by its size subject to the full-retention rules below.
+At every size it keeps its outcome contract, independent acceptance, and
+closure.
 
 No size ships with zero proof. A `small` change runs the checks its footprint
 record names and receives one independent review.
+
+If a named check has no declared executing suite, capture keeps the full
+implementation composition and the model's `small` result. The pin records a
+typed reason naming that check. The full composition is also retained when an
+existing full instance cannot change composition in place. Neither case changes
+the size or earns proof credit for an unexecuted check.
+
+For instances pinned to a size-aware implementation definition, the effective
+size governs proof: the operator's size under D6 when set, otherwise the model's
+result. This includes a full instance first sized after capture. A small item
+cannot cross acceptance or ship without its footprint checks and independent
+review. It proceeds once its named checks execute through declared suites, or
+after the operator changes its size through D6. Instances pinned to earlier
+definitions keep their released behavior.
 
 Review findings follow Appendix A2 row 5 by size. At `small`, the change fixes
 the problems inside its scope and files follow-up items for the rest. At
@@ -185,12 +221,12 @@ B's measure for a small change, one hour or less, reads these two records.
 The targets for `larger` and `crucial` stay open under goals.md §5. No time
 target refuses admission until the operator sets one as a gate.
 
-For this measure, define starts at the first qualifying agent workflow
-action-completed event on the item. Merge-queue entry means the ship step's
-delivery assertion that the delivering actor submitted the change to the
-repository's merge route, with its PR artifact. Both times are stamped by
-the core. These records apply at every size and do not assert the external
-queue's state or impose a wait.
+For this measure, define starts at the first agent workflow action-completed
+event on the item, excluding core-derived worker-failure completions.
+Merge-queue entry means the ship step's delivery assertion, with its PR artifact,
+that the delivering actor submitted the change to the repository's merge route.
+The core stamps both times. These records apply at every size. They do not
+assert the external queue's state or impose a wait.
 
 ## Alternatives considered
 
@@ -247,3 +283,7 @@ goals.md §2 names. This record does not move that point.
 - `go test ./internal/store` must prove that a `small` implementation item
   cannot ship without its outcome contract, its footprint checks, and one
   independent review, and that the define-start and merge-queue records exist.
+- `go test ./internal/store` must prove that capture retains a full pin with a
+  typed reason naming an unsupported check and leaves the model's small size
+  unchanged. Neither that fallback nor first sizing of a new full instance
+  earns proof credit for an unexecuted footprint check.

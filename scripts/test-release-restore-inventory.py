@@ -13,7 +13,9 @@ whose tags carry each registry form the released history uses:
 - tags with identical inputs share one probe group;
 - each written (kind, version, type) binds only witness rows whose payload is
   exactly that encoding, and stays uncovered until its witnesses together
-  present every field path.
+  present every field path;
+- a writer-produced row binds only the shape its own release registers for its
+  (kind, version), carries its full provenance, and holds coverage otherwise.
 
 The fixture module is synthetic; no released Concord source is compiled.
 """
@@ -173,6 +175,11 @@ TYPED_FULL = TYPED_BASE | {"optional": {"depth": 2}, "chain": {"next": {}}}
 
 def witness(test: str, kind: str, version: int, payload: object) -> dict:
     return {"test": test, "kind": kind, "payload_version": version, "payload": json.dumps(payload)}
+
+
+def writer_witness(release: str, kind: str, version: int, payload: object, seq: int = 1, **provenance: str) -> dict:
+    source = {"tag": release, "asset_digest": "sha256:" + "a" * 64, "recipe": "domain-v2", "recipe_sha256": "b" * 64, "snapshot_sha256": "c" * 64}
+    return {"writer": source | provenance, "seq": seq, "event_id": f"event-{seq}", "kind": kind, "payload_version": version, "payload": json.dumps(payload)}
 
 
 WITNESSES = [
@@ -407,6 +414,59 @@ class InventoryTest(unittest.TestCase):
             self.assertIn(refusal, result.stderr)
             # The log is read before any probe runs, so nothing is written.
             self.assertFalse((self.scratch / "m.json").exists())
+
+    def test_writer_rows_bind_their_own_release_shape(self) -> None:
+        _, coverage = self.generate("writer", [writer_witness("v1.0.0", "thing.constant", 1, {"depth": 1})])
+        constant = self.shapes(coverage)[("thing.constant", 1)]
+        self.assertEqual((constant["covered"], constant["witnesses"]), (True, ["release:v1.0.0@domain-v2"]))
+        self.assertEqual(coverage["unbound_writer_witnesses"], [])
+
+    def test_writer_rows_without_their_release_shape_hold(self) -> None:
+        rows = [
+            writer_witness("v0.1.0", "thing.typed", 1, {}, seq=5),  # the approved exclusion: excluded, not unbound
+            writer_witness("v2.0.0", "thing.typed", 1, {}, seq=1),  # a refused release outside the inventory
+            writer_witness("v1.0.0", "thing.typed", 1, {}, seq=2),  # an accepted version the census does not register
+            writer_witness("v1.0.0", "thing.constant", 1, {"depth": "deep"}, seq=3),  # not its release's encoding
+            writer_witness("v5.0.0", "thing.legacy", 1, {"depth": 1}, seq=4),  # a kind its release does not register
+        ]
+        output, coverage, log = (self.scratch / f"unbound.{suffix}" for suffix in ("writers.json", "coverage.json", "witnesses.jsonl"))
+        log.write_text("".join(json.dumps(w) + "\n" for w in rows))
+        result = run([str(self.binary), "-out", str(output), "-coverage", str(coverage), "-witnesses", str(log)], self.repo)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("binds to no registered shape of its release", result.stderr)
+        covered = json.loads(coverage.read_text())
+        self.assertEqual(covered["unbound_writer_witnesses"], [
+            "v1.0.0 seq 2 thing.typed v1", "v1.0.0 seq 3 thing.constant v1", "v2.0.0 seq 1 thing.typed v1", "v5.0.0 seq 4 thing.legacy v1"])
+        self.assertEqual(self.shapes(covered)[("thing.constant", 1)]["witnesses"], [])
+
+    def test_writer_rows_need_every_provenance_link(self) -> None:
+        log = self.scratch / "provenance.jsonl"
+        broken = (
+            {"asset_digest": "a" * 64}, {"recipe": ""}, {"recipe_sha256": "short"}, {"snapshot_sha256": "C" * 64}, {"tag": ""},
+        )
+        for change in broken:
+            log.write_text(json.dumps(writer_witness("v1.0.0", "thing.constant", 1, {"depth": 1}, **change)) + "\n")
+            result = run([str(self.binary), "-out", str(self.scratch / "p.json"), "-coverage", str(self.scratch / "p.cov"), "-witnesses", str(log)], self.repo)
+            self.assertEqual(result.returncode, 1, change)
+            self.assertIn("is not a witness row", result.stderr, change)
+        for change in ({"seq": 0}, {"event_id": ""}, {"test": "TestBoth"}):
+            row = writer_witness("v1.0.0", "thing.constant", 1, {"depth": 1}) | change
+            log.write_text(json.dumps(row) + "\n")
+            result = run([str(self.binary), "-out", str(self.scratch / "p.json"), "-coverage", str(self.scratch / "p.cov"), "-witnesses", str(log)], self.repo)
+            self.assertEqual(result.returncode, 1, change)
+            self.assertIn("is not a witness row", result.stderr, change)
+        self.assertFalse((self.scratch / "p.json").exists())
+
+    def test_witness_logs_are_joined(self) -> None:
+        corpus, writers = self.scratch / "joined-corpus.jsonl", self.scratch / "joined-writers.jsonl"
+        corpus.write_text(json.dumps(WITNESSES[4]) + "\n")
+        writers.write_text(json.dumps(writer_witness("v1.0.0", "thing.typed", 2, TYPED_FULL)) + "\n")
+        coverage = self.scratch / "joined.cov"
+        result = run([str(self.binary), "-out", str(self.scratch / "joined.json"), "-coverage", str(coverage),
+                      "-witnesses", str(corpus), "-witnesses", str(writers)], self.repo)
+        self.assertEqual(result.returncode, 1)
+        typed = self.shapes(json.loads(coverage.read_text()))[("thing.typed", 2)]
+        self.assertEqual((typed["covered"], typed["witnesses"]), (True, ["TestTypedBase", "release:v1.0.0@domain-v2"]))
 
     def test_container_shapes_preserve_wire_distinctions(self) -> None:
         fields = {f["name"]: f["shape"] for f in self.shape("thing.containers")["fields"]}

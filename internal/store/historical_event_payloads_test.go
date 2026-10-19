@@ -474,16 +474,6 @@ func TestRecordedHistoricalPayloadHistoryRebuildsRestoresAndReconstructs(t *test
 	if !reflect.DeepEqual(wantProjections, gotProjections) {
 		t.Fatalf("restored projections differ from the source projections:\nsource: %v\nrestored: %v", wantProjections, gotProjections)
 	}
-
-	// Reconstruction folds the same recorded sub-log into a disposable
-	// snapshot carrying the reconstructed work projection.
-	reconstruction, err := ReconstructSubjectAt(ctx, s, VersionRef(SubjectWorkItem, "work-w"), watermark, PurposeAudit)
-	if err != nil {
-		t.Fatalf("reconstruction of the recorded history: %v", err)
-	}
-	if reconstruction.Work == nil || reconstruction.Work.ID != "work-w" {
-		t.Fatalf("reconstructed work = %+v, want the work-w projection", reconstruction.Work)
-	}
 }
 
 func TestRecordedRoutingTerminalOutsideMigratedPopulationRefusesUnchanged(t *testing.T) {

@@ -469,7 +469,6 @@ const (
 	corpusActionStartDownstream       workflowCorpusAction = "start_downstream"
 	corpusActionLinkAndComplete       workflowCorpusAction = "link_and_complete"
 	corpusActionRebuild               workflowCorpusAction = "rebuild"
-	corpusActionReconstruct           workflowCorpusAction = "reconstruct_subject"
 	corpusActionStartExecution        workflowCorpusAction = "start_execution"
 	corpusActionAcceptWorkerResult    workflowCorpusAction = "accept_worker_result"
 	corpusActionRecordDelivery        workflowCorpusAction = "record_delivery"
@@ -480,7 +479,7 @@ const (
 )
 
 var workflowCorpusActions = map[workflowCorpusAction]struct{}{
-	corpusActionCapture: {}, corpusActionApproveContract: {}, corpusActionComplete: {}, corpusActionReviseCandidates: {}, corpusActionSupersedeContract: {}, corpusActionLinkSuccessor: {}, corpusActionReplaceCheck: {}, corpusActionRecordVerdict: {}, corpusActionCompleteExternal: {}, corpusActionRebuildAfterInterrupt: {}, corpusActionRetry: {}, corpusActionDeriveReady: {}, corpusActionAddCondition: {}, corpusActionResolveCondition: {}, corpusActionCancelCondition: {}, corpusActionStartDownstream: {}, corpusActionLinkAndComplete: {}, corpusActionRebuild: {}, corpusActionReconstruct: {}, corpusActionStartExecution: {}, corpusActionAcceptWorkerResult: {}, corpusActionRecordDelivery: {}, corpusActionWorkflowAction: {}, corpusActionConcurrent: {}, corpusActionRepair: {}, corpusActionReplay: {},
+	corpusActionCapture: {}, corpusActionApproveContract: {}, corpusActionComplete: {}, corpusActionReviseCandidates: {}, corpusActionSupersedeContract: {}, corpusActionLinkSuccessor: {}, corpusActionReplaceCheck: {}, corpusActionRecordVerdict: {}, corpusActionCompleteExternal: {}, corpusActionRebuildAfterInterrupt: {}, corpusActionRetry: {}, corpusActionDeriveReady: {}, corpusActionAddCondition: {}, corpusActionResolveCondition: {}, corpusActionCancelCondition: {}, corpusActionStartDownstream: {}, corpusActionLinkAndComplete: {}, corpusActionRebuild: {}, corpusActionStartExecution: {}, corpusActionAcceptWorkerResult: {}, corpusActionRecordDelivery: {}, corpusActionWorkflowAction: {}, corpusActionConcurrent: {}, corpusActionRepair: {}, corpusActionReplay: {},
 }
 
 func TestWorkflowScenarioCorpusExecutesExactProductionActions(t *testing.T) {
@@ -724,12 +723,13 @@ func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
 const workflowScenarioNumberCeiling = 57
 
 // WF03 and WF52 asserted the label-only vacuity refusal and were retired with
-// CD-0236.
-var retiredWorkflowScenarioNumbers = map[int]bool{3: true, 52: true}
+// CD-0236. WF36 asserted core point-in-time reconstruction and was retired
+// with CD-0238.
+var retiredWorkflowScenarioNumbers = map[int]bool{3: true, 36: true, 52: true}
 
 func workflowScenarioIDs() []string {
 	return []string{
-		"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF06-absence-removal", "WF07-candidate-revision", "WF08-premise-supersession", "WF09-execution-write-outcome", "WF10-forward-link-discovery", "WF11-end-state-supersession-audit", "WF12-self-authored-check", "WF13-verdict-actor-distinctness", "WF14-undeclared-route-convention", "WF15-lowest-rigor-floor", "WF16-research-no-change", "WF17-spike-insufficient-evidence", "WF18-premise-unconfirmed", "WF19-completion-one-transaction", "WF20-internal-inline", "WF21-attempt-epoch-winner", "WF22-checkpoint-resume", "WF23-idempotent-retry", "WF24-stale-attempt", "WF25-operator-takeover-approval", "WF26-condition-actions-refused", "WF27-condition-block-relation", "WF28-recorded-conditions-rebuild", "WF29-impact-notice-identity", "WF30-breaking-dependent-block", "WF31-end-state-revision-impact", "WF32-forward-successor-completes", "WF33-forbid-nested-composition", "WF34-generic-forward-any-family", "WF35-rebuild-byte-equal", "WF36-point-in-time-reconstruction", "WF37-action-availability-before-register", "WF38-action-payload-step-actor", "WF39-action-error-envelope", "WF40-staleness-block", "WF41-staleness-warning-recorded", "WF42-ten-worktrees-one-truth", "WF43-unreadable-possible-blocker", "WF44-unrelated-unreadable", "WF45-corruption-versus-poison", "WF46-event-version-fail-closed", "WF47-evidence-commit-binding", "WF48-lane-pipeline-typed-evidence", "WF49-conjunctive-end-state", "WF50-one-conjunct-weaker", "WF51-uncovered-conjunct", "WF53-unapproved-delivered",
+		"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF06-absence-removal", "WF07-candidate-revision", "WF08-premise-supersession", "WF09-execution-write-outcome", "WF10-forward-link-discovery", "WF11-end-state-supersession-audit", "WF12-self-authored-check", "WF13-verdict-actor-distinctness", "WF14-undeclared-route-convention", "WF15-lowest-rigor-floor", "WF16-research-no-change", "WF17-spike-insufficient-evidence", "WF18-premise-unconfirmed", "WF19-completion-one-transaction", "WF20-internal-inline", "WF21-attempt-epoch-winner", "WF22-checkpoint-resume", "WF23-idempotent-retry", "WF24-stale-attempt", "WF25-operator-takeover-approval", "WF26-condition-actions-refused", "WF27-condition-block-relation", "WF28-recorded-conditions-rebuild", "WF29-impact-notice-identity", "WF30-breaking-dependent-block", "WF31-end-state-revision-impact", "WF32-forward-successor-completes", "WF33-forbid-nested-composition", "WF34-generic-forward-any-family", "WF35-rebuild-byte-equal", "WF37-action-availability-before-register", "WF38-action-payload-step-actor", "WF39-action-error-envelope", "WF40-staleness-block", "WF41-staleness-warning-recorded", "WF42-ten-worktrees-one-truth", "WF43-unreadable-possible-blocker", "WF44-unrelated-unreadable", "WF45-corruption-versus-poison", "WF46-event-version-fail-closed", "WF47-evidence-commit-binding", "WF48-lane-pipeline-typed-evidence", "WF49-conjunctive-end-state", "WF50-one-conjunct-weaker", "WF51-uncovered-conjunct", "WF53-unapproved-delivered",
 		"WF54-verification-obligation-discharged", "WF55-verification-obligation-missing", "WF56-session-vacate-then-reclaim-passes-gate", "WF57-refine-exit-needs-green-verify-run",
 	}
 }
@@ -1119,29 +1119,6 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 			authority = "undetermined"
 		}
 		return observeWorkflowStore(ctx, s, workID, beforeSeq, nil, map[string]any{"ready": ready.Ready, "unknown_conditions": ready.UnknownConditions, "blocking_conditions": ready.BlockingConditions, "authority": authority})
-	}
-	if action == "reconstruct_subject" {
-		asOf := int64(1)
-		if value, ok := request.Fields["as_of"].(float64); ok && value > 0 {
-			asOf = int64(value)
-		} else if payload, payloadOK := request.Fields["payload"].(map[string]any); payloadOK {
-			if value, valueOK := workflowCorpusInt(payload["as_of"]); valueOK && value > 0 {
-				asOf = value
-			}
-		}
-		snapshot, readErr := ReconstructSubjectAt(ctx, s, SubjectRef{Type: SubjectWorkItem, ID: workID}, asOf, PurposeAudit)
-		if readErr != nil {
-			return observeWorkflowStore(ctx, s, workID, beforeSeq, readErr, nil)
-		}
-		state := ""
-		if snapshot.Work != nil {
-			if snapshot.Work.Lifecycle == "in_progress" {
-				state = "running"
-			} else {
-				state = snapshot.Work.Lifecycle
-			}
-		}
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, nil, map[string]any{"sequence": snapshot.AsOfSeq, "state_at_sequence": state})
 	}
 	if action == "rebuild" || action == "replay" || action == "repair_and_rebuild" {
 		beforeHash, hashErr := WorkflowProjectionHash(ctx, s)

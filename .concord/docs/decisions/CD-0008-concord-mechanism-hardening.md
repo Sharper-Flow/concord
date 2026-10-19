@@ -9,6 +9,9 @@ comparison is falsifier-only. CD-0011 records the completed 2026-08-07
 post-falsifier review and retains SQLite.
 **Amended by operator:** 2026-10-17 — D6 states when a payload version bump
 needs a Breaking migration and requires each bump to declare its class.
+**Amended:** 2026-10-18 — [CD-0238](CD-0238-point-in-time-reconstruction-runs-outside-the-core.md) amends
+D6's point-in-time reconstruction bullet: reconstruction runs on the operator's
+machine, outside the core.
 **Scope:** Evidence resolution, unreadable-record isolation, workflow checkpoints,
 attempt fencing, external conditions, worktree topology, schema evolution, and the
 SQLite confirmation and alternative-engine trigger.
@@ -257,8 +260,9 @@ after checking the owning authority.
 - Active workflow executions remain pinned to their accepted workflow version; idle
   work adopts the current version. Completion always records the pinned version even
   when a newer definition has superseded it, preserving historical reconstruction.
-- Read-only point-in-time reconstruction at an event/version is allowed for audit and
-  diagnosis. Historical fork creates new linked work; it never rewrites history.
+- Read-only point-in-time reconstruction at an event/version runs on the operator's
+  machine, outside the core (CD-0238). Historical fork creates new linked work; it
+  never rewrites history.
 - Projection snapshots are permitted only after measured replay time requires them.
   A snapshot is disposable acceleration, carries event watermark/checksum/version,
   and never replaces retained authority.

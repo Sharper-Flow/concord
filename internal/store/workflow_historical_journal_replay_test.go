@@ -368,44 +368,37 @@ func TestHistoricalJournalFixturesReplayWithOriginalPins(t *testing.T) {
 				t.Fatalf("reopened projection hash %s does not reproduce the frozen baseline hash %s", reopenPinned, provenance.WorkflowProjectionHash)
 			}
 
-			// As-of boundaries. A reconstruct sample replays through the
-			// production as-of API; it is only available before the journal's
-			// first receipt-consuming or Product-truth-contract event, because
-			// that API folds the subject sub-log in a scratch store that
-			// restores neither durable receipts nor cross-subject Product
-			// endpoints. A prefix sample restores the journal prefix with its
-			// bounded receipts and rebuilds: this is a deterministic prefix
-			// rebuild of recorded history, not a production as-of read, and
-			// the two kinds are never conflated.
+			// As-of boundaries. Each sample restores the journal prefix with
+			// its bounded receipts and rebuilds, then reads the workflow
+			// instance the prefix folds to. A reconstruct sample also pins the
+			// work lifecycle at its sequence.
 			for _, sample := range provenance.AsOfSamples {
-				switch sample.Kind {
-				case "reconstruct":
-					snapshot, readErr := ReconstructSubjectAt(ctx, reopened, SubjectRef{Type: SubjectWorkItem, ID: workID}, sample.Seq, PurposeAudit)
-					if readErr != nil {
-						t.Fatalf("as-of %s at %d: %v", sample.Label, sample.Seq, readErr)
-					}
-					state := "running"
-					if snapshot.Work != nil && snapshot.Work.Lifecycle != "in_progress" {
-						state = snapshot.Work.Lifecycle
-					}
-					if state != sample.State {
-						t.Fatalf("as-of %s state = %q, want the frozen %q", sample.Label, state, sample.State)
-					}
-				case "prefix":
-					prefix := restoreFrozenJournal(t, ctx, journal, sample.Seq)
-					defer prefix.Close()
-					if err := RebuildFromLog(ctx, prefix); err != nil {
-						t.Fatalf("prefix rebuild at %s seq %d refused: %v", sample.Label, sample.Seq, err)
-					}
-					var prefixState, prefixStep string
-					if err := prefix.DatabaseForTesting().QueryRowContext(ctx, `SELECT instance_state,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&prefixState, &prefixStep); err != nil {
-						t.Fatalf("prefix workflow instance at %s is missing: %v", sample.Label, err)
-					}
-					if prefixState != sample.Instance || prefixStep != sample.Step {
-						t.Fatalf("prefix state at %s = %q/%q, want the frozen %q/%q", sample.Label, prefixState, prefixStep, sample.Instance, sample.Step)
-					}
-				default:
+				if sample.Kind != "reconstruct" && sample.Kind != "prefix" {
 					t.Fatalf("frozen as-of sample %s carries unknown kind %q", sample.Label, sample.Kind)
+				}
+				prefix := restoreFrozenJournal(t, ctx, journal, sample.Seq)
+				defer prefix.Close()
+				if err := RebuildFromLog(ctx, prefix); err != nil {
+					t.Fatalf("prefix rebuild at %s seq %d refused: %v", sample.Label, sample.Seq, err)
+				}
+				var prefixState, prefixStep string
+				if err := prefix.DatabaseForTesting().QueryRowContext(ctx, `SELECT instance_state,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&prefixState, &prefixStep); err != nil {
+					t.Fatalf("prefix workflow instance at %s is missing: %v", sample.Label, err)
+				}
+				if prefixState != sample.Instance || prefixStep != sample.Step {
+					t.Fatalf("prefix state at %s = %q/%q, want the frozen %q/%q", sample.Label, prefixState, prefixStep, sample.Instance, sample.Step)
+				}
+				if sample.Kind == "reconstruct" {
+					var lifecycle string
+					if err := prefix.DatabaseForTesting().QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
+						t.Fatalf("prefix work at %s is missing: %v", sample.Label, err)
+					}
+					if lifecycle == "in_progress" {
+						lifecycle = "running"
+					}
+					if lifecycle != sample.State {
+						t.Fatalf("as-of %s state = %q, want the frozen %q", sample.Label, lifecycle, sample.State)
+					}
 				}
 			}
 

@@ -30,7 +30,6 @@ class WorkKindsFixture(unittest.TestCase):
             "contracts/work-kinds.digest",
             "internal/store/generated_work_kinds.go",
             "internal/store/schema.go",
-            "internal/store/reconstruction.go",
             "internal/store/lifecycle.go",
             "internal/agent/mutations.go",
             "scripts/generate-work-kinds.py",
@@ -126,9 +125,11 @@ class WorkKindsFixture(unittest.TestCase):
         self.assertTrue(any(item.startswith("scenario-payload-split:") for item in self.findings()))
 
     def test_stale_runtime_literal_is_reported(self) -> None:
-        source = self.root / "internal/store/reconstruction.go"
-        text = source.read_text(encoding="utf-8").replace("VALUES (?, 'task', ?", "VALUES (?, 'reconstruction', ?")
-        source.write_text(text, encoding="utf-8")
+        source = self.root / "internal/store/stale_literal.go"
+        source.write_text(
+            "package store\n\nconst staleInsert = `INSERT INTO work_items (id, kind, title) VALUES (?, 'undeclared', ?)`\n",
+            encoding="utf-8",
+        )
         self.assertTrue(any(item.startswith("runtime-work-kind-literal:") for item in self.findings()))
 
     def test_stale_runtime_guard_is_reported(self) -> None:

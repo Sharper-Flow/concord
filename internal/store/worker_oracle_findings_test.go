@@ -134,7 +134,15 @@ func TestOwnerOracleOwnerCaseRetention(t *testing.T) {
 	}
 }
 
-func TestOwnerOracleContractDebtIdentity(t *testing.T) {
+// A retained oracle carries the obligation identity across a contract
+// re-key: record-time validation ties an oracle's predicates to its parent
+// contract, so a byte-identical oracle recorded under a later contract
+// exercises the same predicate set, and the accepted run discharges the
+// earlier revision's debt. Holding oracle-identical debt to the retired
+// contract version is what bricked CON-1183: every supersession forced a
+// re-recorded revision under a new contract, so no acceptance could ever
+// renew the correction window.
+func TestOwnerOracleContractRekeyRetiresDebt(t *testing.T) {
 	h := workflowCorrectionHistory{obligations: map[string]workflowJobObligationState{}, unresolved: map[string]bool{"job:contract|1": true}}
 	for _, version := range []int64{1, 2} {
 		payload := WorkerJobRecordedPayload{JobID: "job:contract", Revision: version, ContractVersion: version, Objective: "same objective", AcceptanceOracle: testOracleGraph()}
@@ -142,8 +150,8 @@ func TestOwnerOracleContractDebtIdentity(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if h.discharge("job:contract", 2) {
-		t.Fatal("identical oracle under another contract discharged earlier debt")
+	if !h.discharge("job:contract", 2) {
+		t.Fatal("retained oracle under a re-keyed contract left the earlier revision's debt open")
 	}
 }
 

@@ -355,6 +355,179 @@ func TestUnrelatedAcceptedJobPreservesDerivedFailureBudget(t *testing.T) {
 	}
 }
 
+// recordJobRevisionWithFieldsForTest records one revision of a worker job
+// with caller-authored content fields, attaching the fixture oracle (and its
+// seeded preparations) exactly when the pinned definition is oracle-capable.
+// mutateOracle, when set, rewrites the fixture oracle before its preparation
+// is seeded, so a recording can carry a deliberately rewritten oracle.
+func recordJobRevisionWithFieldsForTest(t *testing.T, s *Store, workID string, actor WorkflowActor, job *WorkerJobBinding, fields map[string]any, mutateOracle func(map[string]any)) {
+	t.Helper()
+	if oracleCapablePinForWork(t, s, workID) {
+		bootstrapOracleFixtureSubject(t, s, workID)
+		oracle := acceptanceOracleFieldsWithoutPreparationsForTest(t, s, workID)
+		if mutateOracle != nil {
+			mutateOracle(oracle)
+		}
+		seedOraclePreparationFieldsFixture(t, s, workID, oracle)
+		fields["acceptance_oracle"] = oracle
+	}
+	if err := recordWorkerJobActionForTest(t, s, workID, actor, fields); err != nil {
+		t.Fatalf("record worker-job %s: %v", job.JobID, err)
+	}
+	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, view := range views {
+		if view.Binding.JobID == job.JobID {
+			*job = view.Binding
+		}
+	}
+}
+
+// A supersession-driven re-recording rewords the objective while the
+// acceptance oracle retains every owner, case, and control byte-identically.
+// The reworded revision's accepted result must still renew the correction
+// window: the accepted worker delivered the same oracle obligations, so debt
+// keyed to the retired prose permanently holds the work item at the escalated
+// wall with no discharge route left (observed live on CON-1183, where four
+// contract supersessions each forced a re-recorded job revision).
+func TestAcceptedRewordedRevisionRenewsCorrectionWindow(t *testing.T) {
+	const workID = "correction-window-reworded-revision"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s := fixture.store
+	defer s.Close()
+	lane := reviewGateLane(t, "implementation")
+	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	workerRef, err := WorkflowActorRef(worker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerVersion := readWorkVersion(t, s, workID)
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("reword-worker-"+workID, WorkflowActorRecorded, workID, workerRef, map[string]any{
+		"work_id": workID, "expected_version": workerVersion, "resulting_version": workerVersion + 1,
+		"actor_ref": workerRef, "principal_ref": worker.PrincipalRef, "client_ref": worker.ClientRef,
+		"agent_ref": worker.AgentRef, "session_ref": worker.SessionRef, "actor_class": "agent",
+	})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): workerVersion}}); err != nil {
+		t.Fatal(err)
+	}
+	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reword-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
+	jobRevision1 := &WorkerJobBinding{JobID: "job:reword-corrective", Revision: 1}
+	jobRevision2 := &WorkerJobBinding{JobID: "job:reword-corrective", Revision: 2}
+	jobRevision3 := &WorkerJobBinding{JobID: "job:reword-corrective", Revision: 3}
+
+	attempt1 := "attempt:" + workID + ":1"
+	dispatchJobBoundAttempt(t, s, workID, "repair", attempt1, nil, worker, issue1013Pin(t, s, workID).Version, "job-reword-1", jobRevision1)
+	s2WorkerFailedAttributedLive(t, s, workID, attempt1, "lane fallback blocked before the model ran")
+	pin := issue1013Pin(t, s, workID)
+	if pin.Correction == nil || pin.Correction.AttemptCount != 1 {
+		t.Fatalf("correction after one failed job-bound attempt = %#v, want one counted attempt", pin.Correction)
+	}
+
+	// The corrective re-recording rewords the objective — exactly what a
+	// supersession-forced re-record does — while the fixture oracle stays
+	// byte-identical.
+	recordJobRevisionWithFieldsForTest(t, s, workID, worker, jobRevision2, map[string]any{
+		"job_id": jobRevision2.JobID, "objective": "reworded corrective objective after the supersession",
+		"stopping_condition": "the recorded checks pass with no unresolved reference",
+		"path_scope":         []string{"internal/store"}, "checks": []string{"go test ./internal/store/"},
+		"reserved_integration": "integration evidence binds at the parent effect step",
+		"ready":                true, "readiness_evidence": []string{"evidence:coordinator-ready"},
+	}, nil)
+	if jobRevision2.Digest == "" || jobRevision2.Digest == jobRevision1.Digest {
+		t.Fatalf("reworded revision digest = %q, want a distinct recorded revision", jobRevision2.Digest)
+	}
+
+	attempt2 := "attempt:" + workID + ":2"
+	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
+	pin = issue1013Pin(t, s, workID)
+	dispatchJobBoundAttempt(t, s, workID, "repair", attempt2, pin.Correction, worker, pin.Version, "job-reword-2", jobRevision2)
+	completeAndAcceptAttempt(t, s, workID, attempt2, lane, acceptor)
+	pin = issue1013Pin(t, s, workID)
+	if pin.Correction != nil {
+		t.Fatalf("acceptance of the reworded same-job revision left the correction context open: %#v", pin.Correction)
+	}
+
+	// The renewed window counts from zero: one fresh failure is one counted
+	// attempt, not a continuation of the retired debt.
+	recordJobRevisionWithFieldsForTest(t, s, workID, worker, jobRevision3, map[string]any{
+		"job_id": jobRevision3.JobID, "objective": "bounded job objective for " + jobRevision3.JobID,
+		"stopping_condition": "the recorded checks pass with no unresolved reference",
+		"path_scope":         []string{"internal/store"}, "checks": []string{"go test ./internal/store/"},
+		"reserved_integration": "integration evidence binds at the parent effect step",
+		"ready":                true, "readiness_evidence": []string{"evidence:coordinator-ready"},
+	}, nil)
+	attempt3 := "attempt:" + workID + ":3"
+	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
+	pin = issue1013Pin(t, s, workID)
+	dispatchJobBoundAttempt(t, s, workID, "repair", attempt3, nil, worker, pin.Version, "job-reword-3", jobRevision3)
+	s2WorkerFailedAttributedLive(t, s, workID, attempt3, "lane fallback blocked before the model ran")
+	pin = issue1013Pin(t, s, workID)
+	if pin.Correction == nil || pin.Correction.AttemptCount != 1 || pin.Correction.Escalated {
+		t.Fatalf("correction after the renewed window = %#v, want one counted attempt in a fresh window", pin.Correction)
+	}
+}
+
+// The retention guard survives the rewording fix: a recorded revision whose
+// acceptance oracle rewrites an owner never retires the earlier revision's
+// debt, because the accepted run exercised a different oracle obligation
+// (CD-0205's oracle-identity rule).
+func TestRewrittenOracleRevisionKeepsCorrectionDebt(t *testing.T) {
+	const workID = "correction-window-rewritten-oracle"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s := fixture.store
+	defer s.Close()
+	lane := reviewGateLane(t, "implementation")
+	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	workerRef, err := WorkflowActorRef(worker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerVersion := readWorkVersion(t, s, workID)
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("oracle-rewrite-worker-"+workID, WorkflowActorRecorded, workID, workerRef, map[string]any{
+		"work_id": workID, "expected_version": workerVersion, "resulting_version": workerVersion + 1,
+		"actor_ref": workerRef, "principal_ref": worker.PrincipalRef, "client_ref": worker.ClientRef,
+		"agent_ref": worker.AgentRef, "session_ref": worker.SessionRef, "actor_class": "agent",
+	})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): workerVersion}}); err != nil {
+		t.Fatal(err)
+	}
+	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/oracle-rewrite-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
+	jobRevision1 := &WorkerJobBinding{JobID: "job:oracle-rewrite", Revision: 1}
+	jobRevision2 := &WorkerJobBinding{JobID: "job:oracle-rewrite", Revision: 2}
+
+	attempt1 := "attempt:" + workID + ":1"
+	dispatchJobBoundAttempt(t, s, workID, "repair", attempt1, nil, worker, issue1013Pin(t, s, workID).Version, "job-oracle-rewrite-1", jobRevision1)
+	s2WorkerFailedAttributedLive(t, s, workID, attempt1, "lane fallback blocked before the model ran")
+	pin := issue1013Pin(t, s, workID)
+	if pin.Correction == nil || pin.Correction.AttemptCount != 1 {
+		t.Fatalf("correction after one failed job-bound attempt = %#v, want one counted attempt", pin.Correction)
+	}
+
+	// The second revision rewords the objective AND rewrites the oracle's
+	// owner obligation: not a retention, so the earlier debt survives the
+	// acceptance.
+	recordJobRevisionWithFieldsForTest(t, s, workID, worker, jobRevision2, map[string]any{
+		"job_id": jobRevision2.JobID, "objective": "reworded objective with a rewritten oracle",
+		"stopping_condition": "the recorded checks pass with no unresolved reference",
+		"path_scope":         []string{"internal/store"}, "checks": []string{"go test ./internal/store/"},
+		"reserved_integration": "integration evidence binds at the parent effect step",
+		"ready":                true, "readiness_evidence": []string{"evidence:coordinator-ready"},
+	}, func(oracle map[string]any) {
+		owners := oracle["owners"].([]map[string]any)
+		owners[0]["obligation"] = "rewritten oracle obligation the accepted run exercised instead"
+	})
+
+	attempt2 := "attempt:" + workID + ":2"
+	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
+	pin = issue1013Pin(t, s, workID)
+	dispatchJobBoundAttempt(t, s, workID, "repair", attempt2, pin.Correction, worker, pin.Version, "job-oracle-rewrite-2", jobRevision2)
+	completeAndAcceptAttempt(t, s, workID, attempt2, lane, acceptor)
+	pin = issue1013Pin(t, s, workID)
+	if pin.Correction == nil {
+		t.Fatalf("acceptance under a rewritten oracle retired the earlier revision's debt, want the correction window preserved")
+	}
+}
+
 // jobWindowCorrectionCount reads the correction counting window through the
 // real derivation, so a test can assert the boundary itself and not only the
 // pin view built on it. The optional seq pins the walked prefix: deriving the

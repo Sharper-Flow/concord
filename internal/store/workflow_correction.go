@@ -631,10 +631,23 @@ type workflowJobObligationState struct {
 }
 
 // discharge owns acceptance satisfaction for both projections. A reset needs
-// every debt cleared by the same job's equal base obligation with retained
-// oracle owners, cases, controls, and contract authority. With no job-bound
-// debt, any acceptance resets the window (CD-0164 D2). The accepted dispatch
-// binds the revision being compared; it does not supply semantic proof.
+// every same-job debt cleared by the accepted revision: the accepted worker
+// delivered the job's obligation, so debt recorded under an earlier revision
+// of the same job retires with it. Obligation identity follows the form the
+// debt was recorded in: a prior revision that carried an acceptance oracle
+// retires only when the accepted revision's oracle retains every earlier
+// owner, case, and control byte-identically — a rewritten oracle never
+// silently retires debt the accepted run did not exercise — while an
+// oracle-free prior revision retires only under equal base-obligation prose
+// and parent-contract authority, where the prose is the whole obligation.
+// Oracle-bearing debt deliberately ignores prose and contract re-keying: a
+// contract supersession forces a re-recorded revision whose objective
+// rewording and new contract version are the correction itself, and holding
+// oracle-identical debt to the retired prose leaves the work item
+// permanently at the escalated wall with no discharge route (the CON-1183
+// deadlock). With no job-bound debt, any acceptance resets the window
+// (CD-0164 D2). The accepted dispatch binds the revision being compared; it
+// does not supply semantic proof.
 func (h *workflowCorrectionHistory) discharge(jobID string, revision int64) bool {
 	if len(h.unresolved) == 0 {
 		return true
@@ -648,7 +661,11 @@ func (h *workflowCorrectionHistory) discharge(jobID string, revision int64) bool
 			continue
 		}
 		prior := h.obligations[open]
-		if prior.base != accepted.base || (prior.oracle != nil && prior.contractVersion != accepted.contractVersion) || !oracleControlsRetained(prior.oracle, accepted.oracle) {
+		if prior.oracle != nil {
+			if !oracleControlsRetained(prior.oracle, accepted.oracle) {
+				continue
+			}
+		} else if prior.base != accepted.base || prior.contractVersion != accepted.contractVersion {
 			continue
 		}
 		delete(h.unresolved, open)

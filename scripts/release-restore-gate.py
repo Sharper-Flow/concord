@@ -6,14 +6,17 @@ the gate downloads the published standalone binary, verifies it against the
 release's asset digest and checksum manifest, and runs a pinned recipe through
 that binary's own commands in a disposable root. It then takes an SQLite Online
 Backup snapshot after the writer exits and restores the snapshot with the
-candidate's `restore` command. Restore migrates a clean stage and rebuilds its
+candidate's `restore` command, then snapshots and restores that result again. Restore migrates a clean stage and rebuilds its
 projections from the log (internal/store/backup.go verifyRestoredStage). The
-gate then requires the source event rows to survive byte for byte and the
-recipe's effects to be present. A candidate migration may append events after
+gate then requires the source event rows to survive byte for byte, the
+recipe's effects to be present with their values, and the second restore to
+reproduce the first. A candidate migration may append events after
 the writer's watermark (a locator renormalization does); those are reported,
 and the writer's events must remain the unchanged prefix.
 
-A missing artifact, refused recipe step, exhausted budget, or incomplete
+Assets are fetched by the asset IDs read at enumeration, so a replaced asset
+is refused rather than verified. A missing artifact, refused recipe step,
+exhausted budget, or incomplete
 population is a named `unknown`, never a skip. Exit status: 0 when every writer
 passes and shape coverage is closed, 3 when every writer passes but coverage is
 held, 1 otherwise. Coverage stays held until the closed historical-shape
@@ -23,6 +26,10 @@ Writer processes get a constructed environment: synthetic HOME, XDG, TMPDIR,
 and CONCORD_DB_PATH roots, and no inherited variable. Earlier releases predate
 the installed-store refusal (CD-0240), so an inherited CONCORD_DB_PATH would
 send them to the live store.
+
+The caller owns candidate provenance: it builds the candidate from the target
+commit and passes both. The gate binds the candidate's bytes by hashing them
+before the first case and refusing a change by the end of the run.
 """
 
 from __future__ import annotations
@@ -39,6 +46,7 @@ import signal
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +57,7 @@ REPOSITORY_RE = re.compile(r"\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 PER_PAGE = 100
 STREAM_LIMIT = 64 * 1024 * 1024
 NETWORK_SECONDS = 120
+POLL_SECONDS = 0.05
 RECIPE_ID = "bootstrap-v1"
 # Strict-semver tags that carry no GitHub release by a recorded ruling. The
 # entry binds the tag object and commit, so a retargeted tag is unknown again.
@@ -66,15 +75,29 @@ LOCATOR = {
 }
 RECIPE = (("product-create", PRODUCT), ("project-locator-add", LOCATOR))
 EFFECTS = (
-    ("products", "SELECT id FROM products WHERE id='gate-product'"),
-    ("projects", "SELECT id FROM projects WHERE id='gate-project'"),
-    ("product_projects", "SELECT role FROM product_projects WHERE product_id='gate-product' AND project_id='gate-project' AND role='primary'"),
-    ("project_locators", "SELECT locator_id FROM project_locators WHERE project_id='gate-project' AND locator_id='gate-remote'"),
+    ("products", "SELECT display_name FROM products WHERE id='gate-product'", ("Gate Product",)),
+    ("projects", "SELECT display_name FROM projects WHERE id='gate-project'", ("Gate Project",)),
+    ("product_projects", "SELECT role FROM product_projects WHERE product_id='gate-product' AND project_id='gate-project'", ("primary",)),
+    ("project_locators", "SELECT kind, locator_value FROM project_locators WHERE project_id='gate-project' AND locator_id='gate-remote'",
+     ("git_remote", "https://example.invalid/gate/project.git")),
 )
 
 
 class GateError(Exception):
     """The population or candidate cannot be trusted; no writer result is meaningful."""
+
+
+class Transfer:
+    """The run's shared download allowance, reserved before each asset is fetched."""
+
+    def __init__(self, limit: int) -> None:
+        self.limit, self.used, self.lock = limit, 0, threading.Lock()
+
+    def reserve(self, size: int) -> None:
+        with self.lock:
+            if self.used + size > self.limit:
+                raise CaseFailure("unknown", "transfer", f"download of {size} bytes exceeds the {self.limit} byte transfer budget")
+            self.used += size
 
 
 class CaseFailure(Exception):
@@ -90,8 +113,10 @@ class Writer:
     tag_object: str
     commit: str
     asset_id: int
+    asset_size: int
     asset_digest: str
     checksum_asset_id: int
+    checksum_size: int
 
 
 def semver(tag: str) -> tuple[int, int, int]:
@@ -155,6 +180,11 @@ def git_tags(repository: str) -> dict[str, tuple[str, str]]:
     return {tag: (oid, peeled.get(tag, oid)) for tag, oid in objects.items() if TAG_RE.match(tag)}
 
 
+def candidate_rerun(tag: str, tags: dict[str, tuple[str, str]], candidate_version: str, target_sha: str) -> bool:
+    """An idempotent release rerun: the candidate's own tag already names the target commit."""
+    return tag == candidate_version and tags.get(tag, ("", ""))[1] == target_sha
+
+
 def enumerate_writers(releases: list[dict], tags: dict[str, tuple[str, str]], candidate_version: str, target_sha: str):
     """Join releases to tags. Returns (writers, unknown rows, unavailable rows, excluded tags)."""
     candidate = semver(candidate_version)
@@ -170,7 +200,7 @@ def enumerate_writers(releases: list[dict], tags: dict[str, tuple[str, str]], ca
             raise GateError(f"release {release.get('id')} has a missing or duplicate tag {tag!r}")
         seen.add(tag)
         if semver(tag) >= candidate:
-            if tag == candidate_version and tags.get(tag, ("", ""))[1] == target_sha:
+            if candidate_rerun(tag, tags, candidate_version, target_sha):
                 excluded.append(tag)
                 continue
             raise GateError(f"published release {tag} is not earlier than candidate {candidate_version}")
@@ -182,12 +212,13 @@ def enumerate_writers(releases: list[dict], tags: dict[str, tuple[str, str]], ca
         if binary is None or checksum is None:
             unknown.append({"tag": tag, "status": "unknown", "stage": "artifact", "detail": "binary or checksum asset is absent"})
             continue
-        writers.append(Writer(tag, int(release["id"]), tags[tag][0], tags[tag][1], int(binary["id"]), str(binary.get("digest") or ""), int(checksum["id"])))
+        writers.append(Writer(tag, int(release["id"]), tags[tag][0], tags[tag][1], int(binary["id"]), int(binary["size"]),
+                              str(binary.get("digest") or ""), int(checksum["id"]), int(checksum["size"])))
     unavailable: list[dict] = []
     for tag in sorted(set(tags) - seen, key=semver):
-        if semver(tag) >= candidate:
-            continue
-        if SETTLED_UNPUBLISHED.get(tag) == tags[tag]:
+        if candidate_rerun(tag, tags, candidate_version, target_sha):
+            excluded.append(tag)
+        elif SETTLED_UNPUBLISHED.get(tag) == tags[tag]:
             unavailable.append({"tag": tag, "status": "artifact_unavailable", "tag_object": tags[tag][0], "commit": tags[tag][1]})
         else:
             unknown.append({"tag": tag, "status": "unknown", "stage": "population", "detail": "tag has no published release"})
@@ -205,25 +236,44 @@ def sandbox_env(root: Path) -> dict[str, str]:
     return env
 
 
-def run_bounded(argv: list[str], env: dict[str, str] | None, stdin: str, deadline: float, streams: Path, label: str) -> tuple[int, str]:
-    """Run one child in its own process group, killing the group at the deadline."""
+def run_bounded(argv: list[str], env: dict[str, str] | None, stdin: str, deadline: float, streams: Path, label: str,
+                guard=None, stdout_path: Path | None = None, limit: int = STREAM_LIMIT) -> tuple[int, str]:
+    """Run one child in its own process group and kill the whole group when it ends.
+
+    The deadline, the stream limit, and the caller's guard are checked while the
+    child runs, so a runaway child is stopped rather than measured afterward.
+    """
     streams.mkdir(parents=True, exist_ok=True)
-    out_path, err_path = streams / f"{label}.stdout", streams / f"{label}.stderr"
+    out_path, err_path = stdout_path or streams / f"{label}.stdout", streams / f"{label}.stderr"
     with out_path.open("wb") as out, err_path.open("wb") as err:
         child = subprocess.Popen(argv, env=env, stdin=subprocess.PIPE, stdout=out, stderr=err, start_new_session=True)
         try:
-            child.communicate(stdin.encode(), timeout=max(0.0, deadline - time.monotonic()))
-        except subprocess.TimeoutExpired:
-            os.killpg(child.pid, signal.SIGKILL)
-            child.wait()
-            raise CaseFailure("unknown", label, "case budget exhausted") from None
+            try:
+                child.stdin.write(stdin.encode())  # type: ignore[union-attr]
+                child.stdin.close()  # type: ignore[union-attr]
+            except BrokenPipeError:
+                pass
+            while child.poll() is None:
+                if time.monotonic() >= deadline:
+                    raise CaseFailure("unknown", label, "case budget exhausted")
+                if out_path.stat().st_size + err_path.stat().st_size > limit:
+                    raise CaseFailure("unknown", label, f"streams exceeded their {limit} byte budget")
+                if guard:
+                    guard()
+                time.sleep(POLL_SECONDS)
         finally:
-            if child.poll() is None:
+            try:
                 os.killpg(child.pid, signal.SIGKILL)
-                child.wait()
-    if out_path.stat().st_size > STREAM_LIMIT or err_path.stat().st_size > STREAM_LIMIT:
-        raise CaseFailure("unknown", label, "stream exceeded its 64 MiB budget")
-    return child.returncode, out_path.read_text(errors="replace")
+            except ProcessLookupError:
+                pass
+            child.wait()
+    if out_path.stat().st_size + err_path.stat().st_size > limit:
+        raise CaseFailure("unknown", label, f"streams exceeded their {limit} byte budget")
+    return child.returncode, "" if stdout_path else out_path.read_text(errors="replace")
+
+
+def tree_bytes(root: Path) -> int:
+    return sum(path.stat().st_size for path in root.rglob("*") if path.is_file()) if root.exists() else 0
 
 
 def sha256_file(path: Path) -> str:
@@ -234,17 +284,27 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def verify_writer_asset(repository: str, writer: Writer, case: Path, deadline: float, streams: Path) -> Path:
-    name = f"concord-{writer.tag}"
-    directory = case / "asset"
+def download_asset(repository: str, asset_id: int, size: int, destination: Path, deadline: float, streams: Path, transfer: Transfer) -> None:
+    """Fetch one asset by its enumerated ID with an allowlisted authentication environment."""
+    transfer.reserve(size)
     auth = {key: os.environ[key] for key in ("PATH", "HOME", "XDG_CONFIG_HOME", "GH_TOKEN", "GITHUB_TOKEN", "GH_HOST") if key in os.environ}
-    rc, _ = run_bounded(["gh", "release", "download", writer.tag, "-R", repository, "-p", name, "-p", f"{name}.sha256", "-D", str(directory)],
-                        auth, "", min(deadline, time.monotonic() + NETWORK_SECONDS), streams, "download")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    rc, _ = run_bounded(["gh", "api", "-H", "Accept: application/octet-stream", f"repos/{repository}/releases/assets/{asset_id}"],
+                        auth, "", min(deadline, time.monotonic() + NETWORK_SECONDS), streams, f"download-{asset_id}",
+                        stdout_path=destination, limit=size + STREAM_LIMIT)
     if rc != 0:
-        raise CaseFailure("unknown", "download", f"gh release download exited {rc}")
-    binary = directory / name
+        raise CaseFailure("unknown", "download", f"asset {asset_id} download exited {rc}")
+    if destination.stat().st_size != size:
+        raise CaseFailure("fail", "download", f"asset {asset_id} has {destination.stat().st_size} bytes, enumerated {size}")
+
+
+def verify_writer_asset(repository: str, writer: Writer, case: Path, deadline: float, streams: Path, transfer: Transfer) -> Path:
+    name = f"concord-{writer.tag}"
+    binary, checksums = case / "asset" / name, case / "asset" / f"{name}.sha256"
+    download_asset(repository, writer.checksum_asset_id, writer.checksum_size, checksums, deadline, streams, transfer)
+    download_asset(repository, writer.asset_id, writer.asset_size, binary, deadline, streams, transfer)
     actual = sha256_file(binary)
-    listed = {parts[1].lstrip("*"): parts[0] for parts in (line.split() for line in (directory / f"{name}.sha256").read_text().splitlines()) if len(parts) == 2}
+    listed = {parts[1].lstrip("*"): parts[0] for parts in (line.split() for line in checksums.read_text().splitlines()) if len(parts) == 2}
     if listed.get(name) != actual or (writer.asset_digest and writer.asset_digest != f"sha256:{actual}"):
         raise CaseFailure("fail", "checksum", f"binary sha256 {actual} disagrees with the checksum manifest or asset digest")
     binary.chmod(0o755)
@@ -297,58 +357,78 @@ def event_rows(path: Path, columns: list[str] | None = None) -> tuple[list[str],
         db.close()
 
 
-def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path, streams: Path, case_seconds: int, wall_deadline: float, case_disk: int) -> dict:
+def effects(path: Path) -> list[str]:
+    """The recipe effects absent from a restored store, by projection."""
+    db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return [name for name, query, want in EFFECTS if db.execute(query).fetchall() != [want]]
+    finally:
+        db.close()
+
+
+def restore(candidate: Path, snapshot: Path, restored: Path, case: Path, deadline: float, streams: Path, label: str, guard) -> dict:
+    manifest = json.loads(Path(f"{snapshot}.manifest.json").read_text())
+    request = json.dumps({"source": str(snapshot), "destination": str(restored)})
+    rc, out = run_bounded([str(candidate), "restore"], sandbox_env(case / label), request, deadline, streams, label, guard)
+    if rc != 0:
+        raise CaseFailure("fail", label, f"candidate restore exited {rc}")
+    report = json.loads(out)
+    inventory = report.get("restored_database") or {}
+    if report.get("source_snapshot", {}).get("db_checksum") != manifest["db_checksum"] or inventory.get("event_watermark", -1) < manifest["event_watermark"]:
+        raise CaseFailure("fail", label, "restore report disagrees with the snapshot inventory")
+    if sha256_file(snapshot) != manifest["db_checksum"]:
+        raise CaseFailure("fail", "conservation", "restore modified the source snapshot")
+    columns, source_events = event_rows(snapshot)
+    try:
+        _, restored_events = event_rows(restored, columns)
+    except sqlite3.Error as error:
+        raise CaseFailure("fail", "conservation", f"restored event log lacks a source column: {error}") from None
+    if restored_events[:len(source_events)] != source_events:
+        raise CaseFailure("fail", "conservation", "restored event rows differ from the snapshot's bytes")
+    missing = effects(restored)
+    if missing:
+        raise CaseFailure("fail", "effects", f"{label} lacks the recipe's {', '.join(missing)}")
+    return inventory | {"appended_events": len(restored_events) - len(source_events)}
+
+
+def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path, streams: Path, case_seconds: int,
+                    wall_deadline: float, case_disk: int, transfer: Transfer) -> dict:
     started = time.monotonic()
     row = dataclasses.asdict(writer) | {"recipe": RECIPE_ID, "streams": str(streams)}
     case = work / writer.tag
+
+    def guard() -> None:
+        if tree_bytes(case) > case_disk:
+            raise CaseFailure("unknown", "disk", f"case scratch exceeds its {case_disk} byte share")
+
     try:
         if started >= wall_deadline:
             raise CaseFailure("unknown", "wall", "global budget exhausted before the case started")
         deadline = min(started + case_seconds, wall_deadline)
-        binary = verify_writer_asset(repository, writer, case, deadline, streams)
+        binary = verify_writer_asset(repository, writer, case, deadline, streams, transfer)
         env = sandbox_env(case)
         for verb, request in RECIPE:
-            rc, _ = run_bounded([str(binary), verb], env, json.dumps(request), deadline, streams, verb)
+            rc, _ = run_bounded([str(binary), verb], env, json.dumps(request), deadline, streams, verb, guard)
             if rc != 0:
                 raise CaseFailure("unknown", verb, f"writer refused recipe step {verb} with exit {rc}")
         snapshot = case / "snapshot.db"
         manifest = snapshot_fixture(Path(env["CONCORD_DB_PATH"]), snapshot, writer.tag)
         row["source"] = {key: manifest[key] for key in ("schema_version", "event_watermark", "db_checksum")}
-        restored = case / "restored.db"
-        restore_env = sandbox_env(case / "candidate")
-        rc, out = run_bounded([str(candidate), "restore"], restore_env, json.dumps({"source": str(snapshot), "destination": str(restored)}), deadline, streams, "restore")
-        if rc != 0:
-            raise CaseFailure("fail", "restore", f"candidate restore exited {rc}")
-        report = json.loads(out)
-        row["restored"] = report.get("restored_database")
-        if report.get("source_snapshot", {}).get("db_checksum") != manifest["db_checksum"] or row["restored"].get("event_watermark", -1) < manifest["event_watermark"]:
-            raise CaseFailure("fail", "restore", "restore report disagrees with the snapshot inventory")
-        if sha256_file(snapshot) != manifest["db_checksum"]:
-            raise CaseFailure("fail", "conservation", "restore modified the source snapshot")
-        columns, source_events = event_rows(snapshot)
-        try:
-            _, restored_events = event_rows(restored, columns)
-        except sqlite3.Error as error:
-            raise CaseFailure("fail", "conservation", f"restored event log lacks a source column: {error}") from None
-        if restored_events[:len(source_events)] != source_events:
-            raise CaseFailure("fail", "conservation", "restored event rows differ from the writer's bytes")
-        row["appended_events"] = len(restored_events) - len(source_events)
-        db = sqlite3.connect(f"file:{restored}?mode=ro", uri=True)
-        try:
-            missing = [name for name, query in EFFECTS if db.execute(query).fetchone() is None]
-        finally:
-            db.close()
-        if missing:
-            raise CaseFailure("fail", "effects", f"restored projections lack {', '.join(missing)}")
+        row["restored"] = restore(candidate, snapshot, case / "restored.db", case, deadline, streams, "restore", guard)
+        again = case / "restored-snapshot.db"
+        snapshot_fixture(case / "restored.db", again, f"{writer.tag}-restored")
+        row["rebuilt"] = restore(candidate, again, case / "rebuilt.db", case, deadline, streams, "rebuild", guard)
+        if row["rebuilt"]["appended_events"] or row["rebuilt"]["event_watermark"] != row["restored"]["event_watermark"]:
+            raise CaseFailure("fail", "rebuild", "a second restore of the restored store changed its event log")
+        guard()
+        if time.monotonic() > deadline:
+            raise CaseFailure("unknown", "budget", "case finished after its budget")
         row |= {"status": "pass", "stage": "complete", "detail": ""}
     except CaseFailure as failure:
         row |= {"status": failure.status, "stage": failure.stage, "detail": failure.detail}
-    except (OSError, ValueError, KeyError, AttributeError, sqlite3.Error, subprocess.SubprocessError) as error:
+    except (OSError, ValueError, KeyError, AttributeError, TypeError, sqlite3.Error, subprocess.SubprocessError) as error:
         row |= {"status": "unknown", "stage": "harness", "detail": f"{type(error).__name__}: {error}"}
-    used = sum(path.stat().st_size for path in case.rglob("*") if path.is_file()) if case.exists() else 0
-    if used > case_disk and row["status"] == "pass":
-        row |= {"status": "unknown", "stage": "disk", "detail": f"case used {used} bytes over its {case_disk} byte share"}
-    row |= {"disk_bytes": used, "seconds": round(time.monotonic() - started, 3)}
+    row |= {"disk_bytes": tree_bytes(case), "seconds": round(time.monotonic() - started, 3)}
     if row["status"] == "pass":
         shutil.rmtree(case, ignore_errors=True)
     else:
@@ -357,28 +437,33 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
 
 
 def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tuple[str, str]]) -> tuple[dict, int]:
+    wall_deadline = time.monotonic() + args.wall_seconds
     candidate = Path(args.candidate).resolve()
+    candidate_sha256 = sha256_file(candidate)
     rc = subprocess.run([str(candidate), "--version"], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"}, timeout=NETWORK_SECONDS)
     if rc.returncode != 0 or rc.stdout.strip() != args.candidate_version:
         raise GateError(f"candidate reports {rc.stdout.strip()!r}, want {args.candidate_version}")
     writers, unknown, unavailable, excluded = enumerate_writers(releases, tags, args.candidate_version, args.target_sha)
     output = Path(args.output_dir).resolve()
     population = [dataclasses.asdict(writer) for writer in writers] + unknown + unavailable
-    wall_deadline = time.monotonic() + args.wall_seconds
+    transfer = Transfer(args.transfer_bytes)
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = [pool.submit(run_writer_case, args.repository, writer, candidate, output / "cases", output / "streams" / writer.tag,
-                               args.case_seconds, wall_deadline, args.disk_bytes // args.workers) for writer in writers]
+                               args.case_seconds, wall_deadline, args.disk_bytes // args.workers, transfer) for writer in writers]
         rows = [future.result() for future in futures]
+    if sha256_file(candidate) != candidate_sha256:
+        raise GateError("the candidate binary changed during the run")
     rows += unknown
     counts = {status: sum(row["status"] == status for row in rows) for status in ("pass", "fail", "unknown")}
     result = "fail" if counts["fail"] else "unknown" if counts["unknown"] or not writers or len(rows) != len(writers) + len(unknown) else "pass"
     report = {
         "schema": "concord.release-restore-gate.v1", "repository": args.repository, "target_sha": args.target_sha,
-        "candidate": {"path": str(candidate), "version": args.candidate_version, "sha256": sha256_file(candidate)},
+        "candidate": {"path": str(candidate), "version": args.candidate_version, "sha256": candidate_sha256},
         "recipe": RECIPE_ID,
         "population": {"digest": hashlib.sha256(json.dumps(population, sort_keys=True).encode()).hexdigest(),
                        "writers": len(writers) + len(unknown), "unavailable": unavailable, "excluded_candidate": excluded},
-        "budgets": {"workers": args.workers, "wall_seconds": args.wall_seconds, "case_seconds": args.case_seconds, "disk_bytes": args.disk_bytes},
+        "budgets": {"workers": args.workers, "wall_seconds": args.wall_seconds, "case_seconds": args.case_seconds,
+                    "disk_bytes": args.disk_bytes, "transfer_bytes": args.transfer_bytes, "transferred_bytes": transfer.used},
         "counts": counts, "result": result,
         "coverage": {"status": "held", "detail": "the closed historical-shape inventory is not bound; a bootstrap recipe is not acceptance"},
         "rows": rows,
@@ -395,14 +480,14 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--candidate", required=True)
     run.add_argument("--candidate-version", required=True)
     run.add_argument("--output-dir", required=True)
-    for name, default in (("--workers", 4), ("--wall-seconds", 14400), ("--case-seconds", 120), ("--disk-bytes", 6 << 30)):
+    for name, default in (("--workers", 4), ("--wall-seconds", 14400), ("--case-seconds", 120), ("--disk-bytes", 6 << 30), ("--transfer-bytes", 40 << 30)):
         run.add_argument(name, type=int, default=default)
     args = parser.parse_args(argv)
     output = Path(args.output_dir)
     try:
         if not REPOSITORY_RE.match(args.repository) or not FULL_SHA_RE.match(args.target_sha):
             raise GateError("repository must be owner/name and target sha a full commit")
-        if not 1 <= args.workers <= 4 or min(args.wall_seconds, args.case_seconds, args.disk_bytes) < 1:
+        if not 1 <= args.workers <= 4 or min(args.wall_seconds, args.case_seconds, args.disk_bytes, args.transfer_bytes) < 1:
             raise GateError("workers must be 1-4 and every budget positive")
         if output.exists() and any(output.iterdir()):
             raise GateError(f"output directory {output} is not empty")

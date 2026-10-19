@@ -664,6 +664,12 @@ func recordWorkerJobRevisionForTest(t *testing.T, s *Store, workID string, actor
 		"reserved_integration": "integration evidence binds at the parent effect step",
 		"ready":                true, "readiness_evidence": []string{"evidence:coordinator-ready"},
 	}
+	// A size-capable pin takes the per-job scope the size members author,
+	// so coexisting jobs never share measured paths; earlier pins keep the
+	// shared store scope.
+	if !sizeCapablePinForWork(t, s, workID) {
+		fields["path_scope"] = []string{"internal/store"}
+	}
 	if err := recordWorkerJobFieldsForTest(t, s, workID, actor, fields); err != nil {
 		t.Fatalf("record worker-job %s: %v", job.JobID, err)
 	}

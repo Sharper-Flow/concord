@@ -24,15 +24,19 @@ func sizeDispatchFixture(t *testing.T, workID string) workflowReturnRouteFixture
 
 // recordSizeDispatchAttempt records one implementation-lane dispatch of the
 // named job — its dispatch_worker authorization, the worker.dispatched
-// evidence through the authoritative lane-actor route, and the rejection
-// that disposes the attempt — so the job sits in correction: an
-// implementation attempt rejected since its last satisfaction.
+// evidence through the authoritative lane-actor route, its completion, and
+// the rejection that disposes the completed result — so the job sits in
+// correction: an implementation attempt completed since its last
+// satisfaction.
 func recordSizeDispatchAttempt(t *testing.T, fixture workflowReturnRouteFixture, workID, attemptID string, job WorkerJobBinding) {
 	t.Helper()
 	s := workerJobSizeStore(fixture)
 	recordSizeDispatchAuthorization(t, s, workID, attemptID, job)
 	if err := appendJobBoundWorkerDispatch(t, s, workID, attemptID, &job); err != nil {
 		t.Fatalf("record implementation dispatch %s: %v", attemptID, err)
+	}
+	if err := completeJobBoundAttemptForTest(s, workID, attemptID, reviewGateLane(t, "implementation"), &job); err != nil {
+		t.Fatalf("complete implementation attempt %s: %v", attemptID, err)
 	}
 	version := readWorkVersion(t, s, workID)
 	rejection := map[string]any{
@@ -71,10 +75,17 @@ func recordSizeDispatchAttempt(t *testing.T, fixture workflowReturnRouteFixture,
 func recordSizeDispatchAuthorization(t *testing.T, s *Store, workID, attemptID string, job WorkerJobBinding) {
 	t.Helper()
 	version := readWorkVersion(t, s, workID)
+	// The authorization binds the active claimed worktree, the Project the
+	// completion route resolves from the dispatch.
+	var directory string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active' ORDER BY project_id LIMIT 1`, WorktreeSetID(workID)).Scan(&directory); err != nil {
+		t.Fatalf("read the claimed worktree of %s: %v", workID, err)
+	}
 	authorization := map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"action_id": "dispatch_worker", "step_id": "repair", "attempt_epoch": 1, "worker_attempt_id": attemptID,
-		"worker_job": map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest},
+		"worker_job":               map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest},
+		"worker_worktree_identity": workerWorktreeIdentity(filepath.Clean(directory)),
 	}
 	raw, err := json.Marshal(authorization)
 	if err != nil {
@@ -420,14 +431,49 @@ func TestWorkerJobSizeCorrectionAncestry(t *testing.T) {
 	recordEditingJobForTest(t, workflowReturnRouteFixture{store: f.store, owner: f.owner}, workID, fields, job)
 	recordSizeDispatchAttempt(t, workflowReturnRouteFixture{store: f.store, owner: f.owner}, workID, "attempt:rejected", *job)
 	j := &candidateJourney{fixture: f, s: f.store, workID: workID, repo: dir}
+	t.Run("descendant prepared against another base refuses", func(t *testing.T) {
+		descendantCommit(t, j, "draft-a")
+		rerecordJobRevisionForTest(t, f, job, head)
+		step := currentStep(t, f.store, f.workID)
+		lane := reviewGateLane(t, "implementation")
+		packet := joinPacketFor(t, f.store, f.workID, step, "attempt:other-base", lane.ID, lane.Version, lane.Digest)
+		packet["inputs"].(map[string]any)["worker_job"] = sizeDispatchPacketJob(t, f.store, f.workID, *job, nil)
+		packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, f.store, f.workID)
+		correction, err := workflowCorrectionContextForDispatch(context.Background(), f.store.db, f.workID, step, "attempt:other-base")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if correction != nil {
+			packet["inputs"].(map[string]any)["correction"] = correction
+		}
+		prepared, err := PrepareWorkerDispatchFreshness(context.Background(), f.store, PrepareWorkerDispatchRequest{WorkID: f.workID, SessionWorktree: dir, WorkerJob: job})
+		if err != nil {
+			t.Fatal(err)
+		}
+		prepared.proof.correctionBase = strings.Repeat("d", 40)
+		_, err = dispatchJoinAttempt(WithWorkerDispatchPreparation(context.Background(), prepared), t, f.store, f.workID, verdictItemVersion(t, f.store, f.workID), f.owner, packet)
+		if err == nil || !strings.Contains(err.Error(), "was prepared against base") {
+			t.Fatalf("mismatched sealed base error = %v, want the re-prepare refusal", err)
+		}
+	})
 	t.Run("subject at the base admits", func(t *testing.T) {
 		gitRunStore(t, dir, "reset", "--hard", head)
 		j.observeRun(t, "reset-base")
+		rerecordJobRevisionForTest(t, f, job, head)
 		if err := sizeJourneyDispatch(t, f, dir, "attempt:at-base", *job, nil); err != nil {
 			t.Fatalf("correction dispatch at the base refused: %v", err)
 		}
 	})
-	t.Run("draft descending from the base admits", func(t *testing.T) {
+	t.Run("draft over accepted disjoint work descending from the base admits", func(t *testing.T) {
+		// Another job's accepted work lands on a disjoint path above the
+		// base; the correction's draft follows it on the same line.
+		if err := os.MkdirAll(filepath.Join(dir, "adapter", "opencode"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "adapter", "opencode", "accepted.ts"), []byte("accepted disjoint work\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		j.commit(t, "coordinator@example.invalid", "accepted-disjoint")
 		descendantCommit(t, j, "draft-b")
 		rerecordJobRevisionForTest(t, f, job, head)
 		if err := sizeJourneyDispatch(t, f, dir, "attempt:draft", *job, nil); err != nil {
@@ -492,6 +538,46 @@ func TestWorkerJobSizeCorrectionKeepsTheOriginalBaseAtRecord(t *testing.T) {
 	fields["measurement_basis"].(map[string]any)["base_commit"] = testJobSizeBaseCommit()
 	if err := recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, fields); err != nil {
 		t.Fatalf("correction revision on the original base refused: %v", err)
+	}
+}
+
+// A fresh revision recorded before the first dispatch moves the foundation;
+// the correction then keeps the base its first implementation dispatch
+// bound, not the lowest revision's base.
+func TestWorkerJobSizeCorrectionKeepsTheFirstDispatchedBase(t *testing.T) {
+	const workID = "worker-job-size-record-dispatched-base"
+	fixture := sizeDispatchFixture(t, workID)
+	stale := strings.Repeat("c", 40)
+	job := &WorkerJobBinding{JobID: "job:refreshed-base", Revision: 1}
+	fields := workerJobSizeEditingFields(t, workID, fixture)
+	fields["measurement_basis"].(map[string]any)["base_commit"] = stale
+	recordEditingJobForTest(t, fixture, workID, fields, job)
+	recordEditingJobForTest(t, fixture, workID, workerJobSizeEditingFields(t, workID, fixture), job)
+	recordSizeDispatchAttempt(t, fixture, workID, "attempt:refreshed", *job)
+	fields = workerJobSizeEditingFields(t, workID, fixture)
+	fields["job_id"] = job.JobID
+	fields["measurement_basis"].(map[string]any)["base_commit"] = stale
+	err := recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, fields)
+	if err == nil || !strings.Contains(err.Error(), "hides the correction's original base") {
+		t.Fatalf("lowest-revision base error = %v, want the first-dispatched-base refusal", err)
+	}
+	fields["measurement_basis"].(map[string]any)["base_commit"] = testJobSizeBaseCommit()
+	if err := recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, fields); err != nil {
+		t.Fatalf("correction revision on the first-dispatched base refused: %v", err)
+	}
+}
+
+// The recovery the uncapped-dispatch refusal names stays reachable: a
+// capped revision of a job whose earlier revision was read-only records,
+// because an uncapped revision holds no cap to inherit.
+func TestWorkerJobSizeCappedRevisionFollowsReadOnlyRevision(t *testing.T) {
+	const workID = "worker-job-size-capped-after-read-only"
+	fixture := sizeDispatchFixture(t, workID)
+	job := &WorkerJobBinding{JobID: "job:capped-after-read-only", Revision: 1}
+	recordEditingJobForTest(t, fixture, workID, workerJobSizeReadOnlyFields(t, workID, fixture), job)
+	recordEditingJobForTest(t, fixture, workID, workerJobSizeEditingFields(t, workID, fixture), job)
+	if job.Revision != 2 {
+		t.Fatalf("capped revision after a read-only revision = %#v, want revision 2", job)
 	}
 }
 

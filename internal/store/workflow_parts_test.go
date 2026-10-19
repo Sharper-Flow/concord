@@ -127,20 +127,26 @@ func stripWorkerJobSizeMembers(t *testing.T, shape string) string {
 	if !ok {
 		t.Fatal("rendered shape carries no action_definitions list")
 	}
+	seen := map[string]bool{}
 	for _, action := range actions {
 		entry, ok := action.(map[string]any)
 		if !ok {
+			t.Fatalf("rendered action definition is not an object: %#v", action)
+		}
+		id, _ := entry["id"].(string)
+		if id != "record_worker_job" && id != "dispatch_worker" {
 			continue
 		}
+		seen[id] = true
 		payload, ok := entry["payload"].(map[string]any)
 		if !ok {
-			continue
+			t.Fatalf("rendered %s carries no payload object", id)
 		}
 		fields, ok := payload["fields"].([]any)
 		if !ok {
-			continue
+			t.Fatalf("rendered %s payload carries no fields list", id)
 		}
-		if entry["id"] == "record_worker_job" {
+		if id == "record_worker_job" {
 			kept := fields[:0]
 			for _, field := range fields {
 				if named, ok := field.(map[string]any); ok && members[named["name"].(string)] {
@@ -150,13 +156,16 @@ func stripWorkerJobSizeMembers(t *testing.T, shape string) string {
 			}
 			payload["fields"] = kept
 		}
-		if entry["id"] == "dispatch_worker" {
+		if id == "dispatch_worker" {
 			for _, field := range fields {
 				if named, ok := field.(map[string]any); ok && named["name"] == "worker_packet" {
 					named["schema_ref"] = "worker_packet3"
 				}
 			}
 		}
+	}
+	if !seen["record_worker_job"] || !seen["dispatch_worker"] {
+		t.Fatalf("rendered shape declares record_worker_job=%v dispatch_worker=%v, want both", seen["record_worker_job"], seen["dispatch_worker"])
 	}
 	raw, err := json.Marshal(document)
 	if err != nil {

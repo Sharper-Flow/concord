@@ -165,7 +165,19 @@ func TestReadWorkerDiffRequiresNonemptyLiteralJobScope(t *testing.T) {
 	for i, scope := range [][]string{{"internal/store/*"}, {}} {
 		jobID := fmt.Sprintf("diff-scope-%d", i)
 		fields := map[string]any{"job_id": jobID, "objective": "read only the declared literal scope", "stopping_condition": "the bounded review delta is read", "path_scope": scope, "checks": []string{}, "ready": true, "readiness_evidence": []string{"evidence:ready"}}
-		if err := recordWorkerJobFieldsForTest(t, j.s, j.workID, j.fixture.owner, fields); err != nil {
+		var err error
+		if len(scope) == 0 {
+			// A read-only job keeps the declared empty scope; the shared
+			// helper's size members would author a per-job scope instead.
+			if oracleCapablePinForWork(t, j.s, j.workID) {
+				bootstrapOracleFixtureSubject(t, j.s, j.workID)
+				fields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, j.s, j.workID)
+			}
+			err = recordWorkerJobActionForTest(t, j.s, j.workID, j.fixture.owner, fields)
+		} else {
+			err = recordWorkerJobFieldsForTest(t, j.s, j.workID, j.fixture.owner, fields)
+		}
+		if err != nil {
 			t.Fatal(err)
 		}
 		views, err := readWorkerJobRevisions(context.Background(), j.s.db, j.workID)
@@ -181,10 +193,8 @@ func TestReadWorkerDiffRequiresNonemptyLiteralJobScope(t *testing.T) {
 		req := workerDiffDispatchJob(t, j, fmt.Sprintf("scope-review-%d", i), binding)
 		page, err := j.s.ReadWorkerDiff(context.Background(), req)
 		if i == 1 {
-			// The per-job scope covers no committed path, so the bounded
-			// read exposes nothing.
-			if err != nil || len(page.Data) != 0 {
-				t.Fatalf("unmatched scope exposed bytes: %+v %v", page, err)
+			if !hasFailureKind(err, KindUnauthorizedDispatch) || len(page.Data) != 0 {
+				t.Fatalf("empty scope exposed bytes: %+v %v", page, err)
 			}
 		} else if err != nil || !bytes.Contains(page.Data, []byte("+literal star")) || bytes.Contains(page.Data, []byte("must not match")) {
 			t.Fatalf("literal scope widened to a glob: %s %v", page.Data, err)

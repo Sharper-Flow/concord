@@ -521,16 +521,19 @@ func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work strin
 	if err != nil {
 		return err
 	}
+	var corrections map[string][]string
+	if sizeCapable {
+		if corrections, err = workerJobCorrectionMeasuredTx(ctx, tx, work); err != nil {
+			return err
+		}
+	}
 	for _, view := range views {
 		if !view.Ready {
 			continue
 		}
 		job := packetJobFromView(view)
 		if sizeCapable {
-			exclusions, err := workerJobCorrectionPathsTx(ctx, tx, work, view.Binding.JobID)
-			if err != nil {
-				return err
-			}
+			exclusions := workerJobCorrectionExclusions(corrections, view.Binding.JobID)
 			if len(exclusions) > 0 && len(exclusions) <= WorkerJobCallerExclusionsMax {
 				job.CallerExclusions = exclusions
 			}

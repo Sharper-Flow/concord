@@ -677,6 +677,127 @@ done:
 	}
 }
 
+// A parameter resolves through its function's static calls, one site
+// evaluation per call; a call result resolves through the callee's returns.
+// A function whose calls are not all visible keeps its parameters open.
+func TestSitePairsThroughCalls(t *testing.T) {
+	const anchor = "func ReadEvent("
+	base := analyzeFixture(t)
+	known := map[string]bool{}
+	for _, s := range base.Open {
+		known[s.Function+" "+s.Expression] = true
+	}
+	for name, c := range map[string]struct {
+		code   string
+		writes []string
+		open   []string
+	}{
+		"parameter": {`func F(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }
+
+func G() { F("thing.a"); F("thing.b") }`, []string{"thing.a v1", "thing.b v1"}, nil},
+		"one evaluation per call": {`func F(kind string, version int) Event { return Event{Kind: kind, PayloadVersion: version} }
+
+func G() { F("thing.a", 1); F("thing.b", 2) }`, []string{"thing.a v1", "thing.b v2"}, nil},
+		"through two calls": {`func F(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }
+
+func G(kind string) Event { return F(kind) }
+
+func H() { G("thing.a"); F("thing.b") }`, []string{"thing.a v1", "thing.b v1"}, nil},
+		"call result": {`func kindOf() string { return "thing.c" }
+
+func F() Event { return Event{Kind: kindOf(), PayloadVersion: 1} }`, []string{"thing.c v1"}, nil},
+		"call result with bound arms": {`func pick(first bool) string {
+	if first {
+		return "thing.a"
+	} else {
+		return "thing.b"
+	}
+}
+
+func F() Event { return Event{Kind: pick(true), PayloadVersion: 1} }`, []string{"thing.a v1"}, nil},
+		"recursion": {`func F(kind string, n int) Event {
+	if n > 0 {
+		return F(kind, n-1)
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}
+
+func G() { F("thing.a", 3) }`, []string{"thing.a v1"}, nil},
+		"unexported method": {`type maker struct{}
+
+func (maker) make(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }
+
+func G() { maker{}.make("thing.a") }`, []string{"thing.a v1"}, nil},
+		"parameter in a condition": {`func F(mode string) Event {
+	kind := "thing.a"
+	if mode == "y" {
+		kind = "thing.c"
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}
+
+func G() { F("y") }`, []string{"thing.a v1", "thing.c v1"}, nil},
+		"no call": {`func F(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }`, nil, []string{"* v1"}},
+		"assigned parameter": {`func F(kind string) Event {
+	kind = "thing.c"
+	return Event{Kind: kind, PayloadVersion: 1}
+}
+
+func G() { F("thing.a") }`, []string{"thing.a v1", "thing.c v1"}, nil},
+		"parameter field": {`func F(event Event) Event {
+	event.PayloadVersion = 4
+	return event
+}
+
+func G() { F(Event{Kind: "thing.b", PayloadVersion: 3}) }`, []string{"thing.b v3", "thing.b v4"}, nil},
+		"function value": {`func F(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }
+
+var hook = F
+
+func G() { F("thing.a") }`, nil, []string{"* v1"}},
+		"exported method": {`type Maker struct{}
+
+func (Maker) Make(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }
+
+func G() { Maker{}.Make("thing.a") }`, nil, []string{"* v1"}},
+		"method an interface call names": {`type maker struct{}
+
+func (maker) make(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }
+
+type making interface{ make(string) Event }
+
+func G(m making) { maker{}.make("thing.a"); m.make("thing.b") }`, nil, []string{"* v1"}},
+		"method expression": {`type maker struct{}
+
+func (maker) make(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }
+
+func G() { maker{}.make("thing.a"); maker.make(maker{}, "thing.b") }`, nil, []string{"* v1"}},
+		"named result and defer": {`func kindOf() (kind string) {
+	defer func() { kind = "thing.c" }()
+	return "thing.a"
+}
+
+func F() Event { return Event{Kind: kindOf(), PayloadVersion: 1} }`, nil, []string{"* v1"}},
+		"interface method result": {`type namer interface{ kind() string }
+
+func F(n namer) Event { return Event{Kind: n.kind(), PayloadVersion: 1} }`, nil, []string{"* v1"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			analysis := analyzeFixture(t, mutation{"internal/store/store.go", anchor, c.code + "\n\n" + anchor})
+			writes := slices.DeleteFunc(slices.Clone(analysis.Writes), func(pair string) bool { return pair == "thing.a v2" })
+			var open []string
+			for _, s := range analysis.Open {
+				if !known[s.Function+" "+s.Expression] {
+					open = append(open, s.Pairs...)
+				}
+			}
+			if !slices.Equal(writes, c.writes) || !slices.Equal(open, c.open) {
+				t.Fatalf("writes %q, open %q", writes, open)
+			}
+		})
+	}
+}
+
 // A holder reaches an interface or unsafe pointer through a variadic
 // argument, a slice of holders, or a pointer conversion.
 func TestHolderEscapesAreSites(t *testing.T) {

@@ -93,13 +93,13 @@ type sizeAcceptance struct {
 	tree      string
 }
 
-func seedSizeAcceptance(t *testing.T, workID string, sizeCap int64, mutate func(payload *WorkerCompletedPayload)) sizeAcceptance {
+func seedSizeAcceptance(t *testing.T, workID string, mutate func(payload *WorkerCompletedPayload)) sizeAcceptance {
 	t.Helper()
 	fixture := sizeDispatchFixture(t, workID)
 	t.Cleanup(func() { fixture.store.Close() })
 	s := workerJobSizeStore(fixture)
 	fields := workerJobSizeEditingFields(t, workID, fixture)
-	fields["production_size_max"] = sizeCap
+	fields["production_size_max"] = 10
 	job := &WorkerJobBinding{JobID: "job:size-accept", Revision: 1}
 	recordEditingJobForTest(t, fixture, workID, fields, job)
 	attemptID := "attempt:" + workID
@@ -179,7 +179,7 @@ func requireNoAcceptance(t *testing.T, a sizeAcceptance) {
 
 func TestWorkerJobSizeAcceptanceCap(t *testing.T) {
 	t.Run("a count at the cap accepts", func(t *testing.T) {
-		a := seedSizeAcceptance(t, "size-accept-at-cap", 10, sizedPaths(WorkerObservedPath{Path: "internal/store/worker_jobs.go", Added: 6, Deleted: 4}))
+		a := seedSizeAcceptance(t, "size-accept-at-cap", sizedPaths(WorkerObservedPath{Path: "internal/store/worker_jobs.go", Added: 6, Deleted: 4}))
 		if err := a.accept(t, nil); err != nil {
 			t.Fatalf("in-cap acceptance refused: %v", err)
 		}
@@ -188,7 +188,7 @@ func TestWorkerJobSizeAcceptanceCap(t *testing.T) {
 		}
 	})
 	t.Run("a count above the cap refuses with the typed overrun and the split route", func(t *testing.T) {
-		a := seedSizeAcceptance(t, "size-accept-overrun", 10, sizedPaths(WorkerObservedPath{Path: "internal/store/worker_jobs.go", Added: 7, Deleted: 4}))
+		a := seedSizeAcceptance(t, "size-accept-overrun", sizedPaths(WorkerObservedPath{Path: "internal/store/worker_jobs.go", Added: 7, Deleted: 4}))
 		err := a.accept(t, nil)
 		var failure *Failure
 		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.SizeOverrun == nil {
@@ -204,7 +204,7 @@ func TestWorkerJobSizeAcceptanceCap(t *testing.T) {
 		requireNoAcceptance(t, a)
 	})
 	t.Run("a report that disagrees with the observation refuses", func(t *testing.T) {
-		a := seedSizeAcceptance(t, "size-accept-disagree", 10, func(payload *WorkerCompletedPayload) {
+		a := seedSizeAcceptance(t, "size-accept-disagree", func(payload *WorkerCompletedPayload) {
 			sizedPaths(WorkerObservedPath{Path: "internal/store/worker_jobs.go", Added: 3})(payload)
 			payload.ProductionSize.Count = 2
 		})
@@ -223,7 +223,7 @@ func TestWorkerJobSizeAcceptanceCap(t *testing.T) {
 		{"a binary production path", "size-accept-binary", "is binary", sizedPaths(WorkerObservedPath{Path: "internal/store/icon.png", Binary: true})},
 	} {
 		t.Run(unavailable.name+" establishes no size", func(t *testing.T) {
-			a := seedSizeAcceptance(t, unavailable.workID, 10, unavailable.mutate)
+			a := seedSizeAcceptance(t, unavailable.workID, unavailable.mutate)
 			var failure *Failure
 			if err := a.accept(t, nil); !errors.As(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, unavailable.want) {
 				t.Fatalf("unmeasurable acceptance error = %v, want the unavailable-evidence refusal %q", err, unavailable.want)
@@ -238,7 +238,7 @@ func TestWorkerJobSizeAcceptanceSupplementalClassifications(t *testing.T) {
 	// overruns the cap; its classification at acceptance excludes it.
 	paths := sizedPaths(WorkerObservedPath{Path: "internal/store/worker_jobs.go", Added: 5}, WorkerObservedPath{Path: "internal/store/worker_jobs_test.go", Added: 30})
 	t.Run("a binary path excluded by classification establishes the final size", func(t *testing.T) {
-		a := seedSizeAcceptance(t, "size-accept-supplemental-binary", 10, sizedPaths(
+		a := seedSizeAcceptance(t, "size-accept-supplemental-binary", sizedPaths(
 			WorkerObservedPath{Path: "internal/store/worker_jobs.go", Added: 5},
 			WorkerObservedPath{Path: "internal/store/fixture.bin", Binary: true}))
 		classification := []WorkerJobMeasuredPath{{Path: "internal/store/fixture.bin", Class: "test"}}
@@ -251,14 +251,14 @@ func TestWorkerJobSizeAcceptanceSupplementalClassifications(t *testing.T) {
 		}
 	})
 	t.Run("an unclassified path defaults to production", func(t *testing.T) {
-		a := seedSizeAcceptance(t, "size-accept-default-production", 10, paths)
+		a := seedSizeAcceptance(t, "size-accept-default-production", paths)
 		var failure *Failure
 		if err := a.accept(t, nil); !errors.As(err, &failure) || failure.SizeOverrun == nil || failure.SizeOverrun.Observed != 35 {
 			t.Fatalf("unclassified acceptance error = %v, want the overrun counting the test path as production", err)
 		}
 	})
 	t.Run("a recorded classification excludes the path and records with the acceptance", func(t *testing.T) {
-		a := seedSizeAcceptance(t, "size-accept-supplemental", 10, paths)
+		a := seedSizeAcceptance(t, "size-accept-supplemental", paths)
 		classification := []WorkerJobMeasuredPath{{Path: "internal/store/worker_jobs_test.go", Class: "test"}}
 		if err := a.accept(t, map[string]any{"supplemental_classifications": classification}); err != nil {
 			t.Fatalf("classified acceptance refused: %v", err)
@@ -292,7 +292,7 @@ func TestWorkerJobSizeAcceptanceSupplementalClassifications(t *testing.T) {
 		}
 	})
 	t.Run("the executor cannot approve a non-production classification", func(t *testing.T) {
-		a := seedSizeAcceptance(t, "size-accept-self-classify", 10, paths)
+		a := seedSizeAcceptance(t, "size-accept-self-classify", paths)
 		executor := workflowActorForRef(t, a.s, crossAttemptDispatchedLaneActor(t, a.s, a.workID, a.attemptID))
 		fields := map[string]any{"attempt_id": a.attemptID, "attempt_epoch": 1,
 			"supplemental_classifications": []WorkerJobMeasuredPath{{Path: "internal/store/worker_jobs_test.go", Class: "test"}}}
@@ -304,7 +304,7 @@ func TestWorkerJobSizeAcceptanceSupplementalClassifications(t *testing.T) {
 		requireNoAcceptance(t, a)
 	})
 	t.Run("a worker cannot pre-apply the coordinator's exclusion", func(t *testing.T) {
-		a := seedSizeAcceptance(t, "size-accept-premature-exclusion", 10, func(payload *WorkerCompletedPayload) {
+		a := seedSizeAcceptance(t, "size-accept-premature-exclusion", func(payload *WorkerCompletedPayload) {
 			paths(payload)
 			payload.ProductionSize.Count = 5
 		})
@@ -324,7 +324,7 @@ func TestWorkerJobSizeAcceptanceSupplementalClassifications(t *testing.T) {
 		{"a generated class needs its generator", "size-accept-generator", "without its owning generator_ref", WorkerJobMeasuredPath{Path: "internal/store/worker_jobs_test.go", Class: "generated"}},
 	} {
 		t.Run(refusal.name, func(t *testing.T) {
-			a := seedSizeAcceptance(t, refusal.workID, 10, paths)
+			a := seedSizeAcceptance(t, refusal.workID, paths)
 			err := a.accept(t, map[string]any{"supplemental_classifications": []WorkerJobMeasuredPath{refusal.classification}})
 			if err == nil || !strings.Contains(err.Error(), refusal.want) {
 				t.Fatalf("classification error = %v, want %q", err, refusal.want)
@@ -359,27 +359,27 @@ func TestWorkerJobSizeAcceptanceCallerRepairContainment(t *testing.T) {
 		}
 	}
 	t.Run("an evidenced repair of an allowance mechanism accepts", func(t *testing.T) {
-		a := seedSizeAcceptance(t, "size-accept-caller-repair", 10, withCaller(repair(mechanism)))
+		a := seedSizeAcceptance(t, "size-accept-caller-repair", withCaller(repair(mechanism)))
 		if err := a.accept(t, nil); err != nil {
 			t.Fatalf("contained caller repair refused: %v", err)
 		}
 	})
 	t.Run("a changed path outside the scope without a repair refuses", func(t *testing.T) {
-		a := seedSizeAcceptance(t, "size-accept-caller-unrepaired", 10, withCaller())
+		a := seedSizeAcceptance(t, "size-accept-caller-unrepaired", withCaller())
 		if err := a.accept(t, nil); err == nil || !strings.Contains(err.Error(), "changed path "+callerPath+" outside its path_scope without an evidenced direct-caller repair") {
 			t.Fatalf("unrepaired caller acceptance error = %v, want the containment refusal", err)
 		}
 		requireNoAcceptance(t, a)
 	})
 	t.Run("a repair of an owner outside the allowance refuses", func(t *testing.T) {
-		a := seedSizeAcceptance(t, "size-accept-caller-owner", 10, withCaller(repair(WorkerCallerMechanism{Path: "internal/store/worker_jobs.go", EntryPoint: "readWorkerJobRevisions"})))
+		a := seedSizeAcceptance(t, "size-accept-caller-owner", withCaller(repair(WorkerCallerMechanism{Path: "internal/store/worker_jobs.go", EntryPoint: "readWorkerJobRevisions"})))
 		if err := a.accept(t, nil); err == nil || !strings.Contains(err.Error(), "which is not a mechanism of its direct-caller allowance") {
 			t.Fatalf("foreign-owner repair acceptance error = %v, want the allowance refusal", err)
 		}
 		requireNoAcceptance(t, a)
 	})
 	t.Run("a repaired path another work item claims refuses", func(t *testing.T) {
-		a := seedSizeAcceptance(t, "size-accept-caller-claimed", 10, withCaller(repair(mechanism)))
+		a := seedSizeAcceptance(t, "size-accept-caller-claimed", withCaller(repair(mechanism)))
 		seedHeldPathClaimForTest(t, a.s, "size-accept-caller-claim-holder", "path:adapter/opencode")
 		if err := a.accept(t, nil); err == nil || !strings.Contains(err.Error(), "holds through claim path:adapter/opencode") {
 			t.Fatalf("claimed caller acceptance error = %v, want the foreign-claim refusal", err)
@@ -387,7 +387,7 @@ func TestWorkerJobSizeAcceptanceCallerRepairContainment(t *testing.T) {
 		requireNoAcceptance(t, a)
 	})
 	t.Run("a path claim in another Project does not own this caller", func(t *testing.T) {
-		a := seedSizeAcceptance(t, "size-accept-caller-other-project", 10, withCaller(repair(mechanism)))
+		a := seedSizeAcceptance(t, "size-accept-caller-other-project", withCaller(repair(mechanism)))
 		const holder = "size-caller-other-project-holder"
 		seedHeldPathClaimForTest(t, a.s, holder, "path:adapter/opencode")
 		if err := ApplyOperation(context.Background(), a.s, Operation{
@@ -410,7 +410,7 @@ func TestWorkerJobSizeAcceptanceCallerRepairContainment(t *testing.T) {
 		}
 	})
 	t.Run("multiple uncontained paths refuse in stable path order", func(t *testing.T) {
-		a := seedSizeAcceptance(t, "size-accept-caller-stable-refusal", 10, sizedPaths(WorkerObservedPath{Path: "z.go", Added: 1}, WorkerObservedPath{Path: "a.go", Added: 1}))
+		a := seedSizeAcceptance(t, "size-accept-caller-stable-refusal", sizedPaths(WorkerObservedPath{Path: "z.go", Added: 1}, WorkerObservedPath{Path: "a.go", Added: 1}))
 		for range 16 {
 			err := a.accept(t, nil)
 			var failure *Failure
@@ -569,13 +569,14 @@ func TestWorkerJobSizeCompletionPayloadVersionBoundary(t *testing.T) {
 			version := readWorkVersion(t, f.store, workID)
 			fields := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 				"step_id": "repair", "attempt_epoch": 1, "worker_job": WorkerJobBinding{JobID: "job:boundary", Revision: 1, Digest: "sha256:" + strings.Repeat("a", 64)}}
-			if member == "worker_caller_exclusions" {
+			switch member {
+			case "worker_caller_exclusions":
 				fields["action_id"] = "dispatch_worker"
 				fields[member] = []string{"caller.go"}
-			} else if member == "supplemental_classifications" {
+			case "supplemental_classifications":
 				fields["action_id"] = "accept_worker_result"
 				fields[member] = []WorkerJobMeasuredPath{{Path: "caller_test.go", Class: "test"}}
-			} else {
+			default:
 				fields["action_id"] = "accept_worker_result"
 				fields[member] = WorkerProductionSize{Base: testJobSizeBaseCommit(), Tree: strings.Repeat("3", 40), Count: 1}
 			}

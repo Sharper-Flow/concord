@@ -161,12 +161,12 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 				}
 			}
 			var digest string
-			var cap int64
-			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.digest'), json_extract(payload,'$.production_size_max') FROM domain_events WHERE subject_id='work-1' AND kind=? ORDER BY seq DESC LIMIT 1`, store.WorkerJobRecorded).Scan(&digest, &cap); err != nil {
+			var sizeCap int64
+			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.digest'), json_extract(payload,'$.production_size_max') FROM domain_events WHERE subject_id='work-1' AND kind=? ORDER BY seq DESC LIMIT 1`, store.WorkerJobRecorded).Scan(&digest, &sizeCap); err != nil {
 				t.Fatal(err)
 			}
-			if digest != job.Digest || cap != 10 {
-				t.Fatalf("acceptance changed the original digest/cap: %s / %d", digest, cap)
+			if digest != job.Digest || sizeCap != 10 {
+				t.Fatalf("acceptance changed the original digest/cap: %s / %d", digest, sizeCap)
 			}
 			if scenario == "contained" {
 				var final int64

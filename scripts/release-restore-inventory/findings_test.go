@@ -66,11 +66,12 @@ func TestExemptedSitesAreReportedApartFromHeldSites(t *testing.T) {
 	}
 }
 
-// A replay-decoder site is exempted under its own class.
-func TestReplayDecoderSiteKeepsItsClass(t *testing.T) {
-	analysis := findingAnalysis()
+// A replay-decoder site is exempted under its own class and holds the kinds
+// whose folds admit a work_item subject, or every kind once checkSubject
+// drifts. A site the entry does not cover holds nothing by kind.
+func TestReplayDecoderHoldsWorkItemKinds(t *testing.T) {
 	data, err := json.Marshal(exemptionTable{Schema: exemptionsSchema, Entries: []exemption{
-		{ID: "replay", Class: "replay_decoder", Function: "store.upcast", Expression: "event.PayloadVersion = 2", FunctionDigest: "sha256:1111", Check: "test"},
+		{ID: "replay", Class: "replay_decoder", Function: "store.upcast", Expression: "event.PayloadVersion = 2", FunctionDigest: "sha256:1111", CheckSubjectDigest: "sha256:2222", Check: "test"},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -79,8 +80,18 @@ func TestReplayDecoderSiteKeepsItsClass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f := finding(t, analysis, table); !reflect.DeepEqual(f.Exempted, []exemptedSite{{analysis.Open[1], "replay", "replay_decoder"}}) {
-		t.Fatalf("exempted %+v", f.Exempted)
+	analysis := findingAnalysis()
+	analysis.WorkItemFolds, analysis.CheckSubject = []string{"thing.a"}, "sha256:2222"
+	f := finding(t, analysis, table)
+	if !reflect.DeepEqual(f.Exempted, []exemptedSite{{analysis.Open[1], "replay", "replay_decoder"}}) || !reflect.DeepEqual(f.ReplayHeld, []string{"thing.a"}) {
+		t.Fatalf("exempted %+v replay held %v", f.Exempted, f.ReplayHeld)
+	}
+	analysis.CheckSubject = "sha256:3333"
+	if f := finding(t, analysis, table); !reflect.DeepEqual(f.ReplayHeld, []string{"*"}) {
+		t.Fatalf("drifted checkSubject: replay held %v", f.ReplayHeld)
+	}
+	if f := finding(t, analysis, findingTable(t)); f.ReplayHeld != nil {
+		t.Fatalf("uncovered decoder: replay held %v", f.ReplayHeld)
 	}
 }
 
@@ -116,16 +127,18 @@ func TestRefusedOrMissingAnalysisIsRecorded(t *testing.T) {
 func TestExemptionTableRefusesMalformedEntries(t *testing.T) {
 	const entry = `{"id":"x","class":"read_back","function":"f","expression":"e","function_digest":"d","check":"c"}`
 	for name, data := range map[string]string{
-		"unknown class": `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"x","class":"other","function":"f","expression":"e","function_digest":"d","check":"c"}]}`,
-		"missing key":   `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"x","class":"read_back","function":"f","expression":"e","check":"c"}]}`,
-		"missing check": `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"x","class":"read_back","function":"f","expression":"e","function_digest":"d"}]}`,
-		"missing id":    `{"schema":"concord.release-writer-exemptions.v1","entries":[{"class":"read_back","function":"f","expression":"e","function_digest":"d","check":"c"}]}`,
-		"repeated id":   `{"schema":"concord.release-writer-exemptions.v1","entries":[` + entry + `,` + entry + `]}`,
-		"unknown field": `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"x","class":"read_back","function":"f","expression":"e","function_digest":"d","check":"c","note":"n"}]}`,
-		"wrong schema":  `{"schema":"other","entries":[]}`,
-		"data after":    `{"schema":"concord.release-writer-exemptions.v1","entries":[]} {}`,
-		"closing after": `{"schema":"concord.release-writer-exemptions.v1","entries":[]}}`,
-		"repeated key":  `{"schema":"concord.release-writer-exemptions.v1","entries":[` + entry + `,` + strings.Replace(entry, `"x"`, `"y"`, 1) + `]}`,
+		"unknown class":                `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"x","class":"other","function":"f","expression":"e","function_digest":"d","check":"c"}]}`,
+		"missing key":                  `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"x","class":"read_back","function":"f","expression":"e","check":"c"}]}`,
+		"missing check":                `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"x","class":"read_back","function":"f","expression":"e","function_digest":"d"}]}`,
+		"missing id":                   `{"schema":"concord.release-writer-exemptions.v1","entries":[{"class":"read_back","function":"f","expression":"e","function_digest":"d","check":"c"}]}`,
+		"repeated id":                  `{"schema":"concord.release-writer-exemptions.v1","entries":[` + entry + `,` + entry + `]}`,
+		"unknown field":                `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"x","class":"read_back","function":"f","expression":"e","function_digest":"d","check":"c","note":"n"}]}`,
+		"wrong schema":                 `{"schema":"other","entries":[]}`,
+		"data after":                   `{"schema":"concord.release-writer-exemptions.v1","entries":[]} {}`,
+		"closing after":                `{"schema":"concord.release-writer-exemptions.v1","entries":[]}}`,
+		"repeated key":                 `{"schema":"concord.release-writer-exemptions.v1","entries":[` + entry + `,` + strings.Replace(entry, `"x"`, `"y"`, 1) + `]}`,
+		"replay without check subject": `{"schema":"concord.release-writer-exemptions.v1","entries":[` + strings.Replace(entry, "read_back", "replay_decoder", 1) + `]}`,
+		"read-back with check subject": `{"schema":"concord.release-writer-exemptions.v1","entries":[` + strings.Replace(entry, `"check":"c"`, `"check_subject_digest":"s","check":"c"`, 1) + `]}`,
 	} {
 		if _, err := parseExemptions([]byte(data)); err == nil {
 			t.Errorf("%s: table admitted", name)

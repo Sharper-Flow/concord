@@ -287,7 +287,8 @@
    "function": "github.com/sharper-flow/concord/internal/agent.decodeWorkflowReplayEvents",
    "expression": "store.Event{EventID: entry.EventID, Kind: entry.Kind, SubjectType: store.SubjectWorkItem, SubjectID: entry.WorkID, Actor: entry.ActorRef, OccurredAt: occurredAt.UTC(), PayloadVersion: entry.PayloadVersion, Payload: append(json.RawMessage(nil), entry.Payload...)}",
    "function_digest": "sha256:e4271e89107976f07c7536471d4003945596d60b117d777cee2a1be1ed61c35f",
-   "check": "reviewed source: the workflow replay decoder builds work_item events from caller input"
+   "check_subject_digest": "sha256:721efe113e7706a5bfb8c7dbf0657e1a3f524ca35132e6d960a33f7fc00aa52b",
+   "check": "reviewed source: the workflow replay decoder builds work_item events from caller input; it holds every kind whose fold does not begin by refusing a work_item subject through checkSubject, the reviewed function a fold refusal rolls the import back through"
   }
  ]
 }

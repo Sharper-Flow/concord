@@ -1053,14 +1053,13 @@ def _schema_sample(node, root, path="$"):
         return value
     if kind == "array":
         minimum = node.get("minItems", 0)
-        item = _schema_sample(node.get("items", {}), root, f"{path}[]")
-        return [item for _ in range(max(minimum, 0))]
+        return [_schema_sample(node.get("items", {}), root, f"{path}[]") for _ in range(max(minimum, 0))]
     if kind in ("integer", "number"):
         return node.get("minimum", 1)
     if kind == "boolean":
         return False
     if kind == "string":
-        minimum, maximum = node.get("minLength", 0), node.get("maxLength", 64)
+        minimum, maximum = node.get("minLength", 0), node.get("maxLength", float("inf"))
         pattern = node.get("pattern")
         if pattern is not None:
             candidates = ["id-1", "conformance", "TestOne", "predicate:x", "control:c-1", "case:c-1", "owner:o-1",
@@ -1147,16 +1146,27 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
         defs = payload_schema["$defs"]
         self.assertNotIn("work_transition_action_legacy_input", defs)
         current = _condition_branches(_action_condition(defs, "record_worker_job"))
-        self.assertEqual(len(current), 1)
-        oracle_fields = _schema_sample(_fields_object(current[0]), payload_schema)
         envelope = {"work_id": "work-1", "expected_version": 1, "action_id": "record_worker_job", "idempotency_key": "job-1"}
-        generator.schema_validate(envelope | {"fields": oracle_fields}, defs["work_transition_action_input"], payload_schema, "core")
-        generator.schema_validate(envelope | {"fields": oracle_fields}, defs["work_transition_action_public_input"], payload_schema, "public")
-        historical = copy.deepcopy(oracle_fields)
-        historical.pop("acceptance_oracle")
-        for name in ("work_transition_action_input", "work_transition_action_public_input"):
-            with self.assertRaises(ValueError, msg=f"{name} admits a historical layout"):
-                generator.schema_validate(envelope | {"fields": historical}, defs[name], payload_schema, name)
+        ordinary = [branch for branch in current if "acceptance_oracle" in _fields_object(branch).get("required", [])]
+        self.assertEqual(len(ordinary), 1)
+        for branch in current:
+            fields = _schema_sample(_fields_object(branch), payload_schema)
+            historical = copy.deepcopy(fields)
+            if "split" in historical:
+                for successor in historical["split"]["successors"]:
+                    successor.pop("acceptance_oracle")
+            else:
+                historical.pop("acceptance_oracle")
+            for name in ("work_transition_action_input", "work_transition_action_public_input"):
+                generator.schema_validate(envelope | {"fields": fields}, defs[name], payload_schema, name)
+                with self.assertRaises(ValueError, msg=f"{name} admits a historical layout"):
+                    generator.schema_validate(envelope | {"fields": historical}, defs[name], payload_schema, name)
+
+    def test_sampler_preserves_declared_string_bounds(self):
+        digest = {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+        self.assertEqual(_schema_sample(digest, payload_schema), "sha256:" + "0" * 64)
+        with self.assertRaises(AssertionError):
+            _schema_sample(digest | {"maxLength": 64}, payload_schema)
 
     def test_no_merged_union_admits_combinations_no_definition_allows(self):
         defs = payload_schema["$defs"]
@@ -2828,7 +2838,7 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
             for key in schema.get("required", []):
                 result[key] = self._sample(self._property(schema, fallback_properties, key), f"{path}.{key}")
             return result
-        if kind == "array": return [] if not schema.get("minItems") else [self._sample(schema.get("items", {"type": "string"}), path)]
+        if kind == "array": return [self._sample(schema.get("items", {"type": "string"}), path) for _ in range(schema.get("minItems", 0))]
         if kind == "integer": return schema.get("minimum", 0)
         if kind == "boolean": return True
         if schema.get("format") == "date-time": return "2026-08-08T00:00:00Z"

@@ -940,7 +940,7 @@ func TestLawChangeBeforeStateBindsWhatTheItemMade(t *testing.T) {
 		requireFailureKind(t, enactLawChange(t, s, workID, v1, nil, nil), KindOutcomeMismatch, "v1 completion of an undeclared registry edit")
 
 		narrow := &WorkflowArchitectureBinding{DomainModifies: []string{"agent-surface"}}
-		v2, err := deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, reason), []string{"law-agent"}, narrow, []string{})
+		_, err = deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, reason), []string{"law-agent"}, narrow, []string{})
 		requireFailureKind(t, err, KindInvalidPayload, "a successor declaring the wrong registry entry without pins")
 		wide := &WorkflowArchitectureBinding{DomainModifies: []string{"workflow-engine"}}
 		var enacted string
@@ -948,7 +948,7 @@ func TestLawChangeBeforeStateBindsWhatTheItemMade(t *testing.T) {
 			t.Fatal(err)
 		}
 		pinned := map[string]any{workflowLawChangeReasonField: "revise", workflowLawChangeTextPinsField: lawChangePins("law-agent"), workflowLawChangeRegistryHashField: enacted}
-		v2, err = deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, pinned), []string{"law-agent"}, wide, []string{})
+		v2, err := deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, pinned), []string{"law-agent"}, wide, []string{})
 		if err != nil || !v2.Serious || !v2.EditsRegistry || !reflect.DeepEqual(v2.DomainIDs, []string{"agent-surface", "workflow-engine"}) || !reflect.DeepEqual(v2.RegistryBefore, v1.RegistryBefore) {
 			t.Fatalf("v2 = %+v, %v; want a serious change counting the edited entry against the first snapshot", v2, err)
 		}

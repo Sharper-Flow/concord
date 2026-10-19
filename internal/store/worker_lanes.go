@@ -1784,8 +1784,9 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 
 // validateWorkerCompletedSourceVersion refuses completion content a replayed
 // event's recorded source payload version predates: worker_job, context
-// findings, oracle report content, and the terminal delivery identity. Oracle
-// report content also requires the dispatched worker-job revision.
+// findings, oracle report content, the terminal delivery identity, and the
+// job's size members. Oracle report content also requires the dispatched
+// worker-job revision.
 func validateWorkerCompletedSourceVersion(event Event, payload WorkerCompletedPayload) error {
 	// CD-0205: worker_job was introduced at the worker.completed job-capable
 	// payload version (workerCompletedWorkerJobVersion). A replayed event
@@ -1899,7 +1900,7 @@ func validateWorkerCompletedLaneEvidence(ctx context.Context, tx *sql.Tx, event 
 		// carries neither member. Replay trusts the recorded log: the live
 		// fold already held it when it landed.
 		if live {
-			if err := bindWorkerCompletedReportSizeTx(ctx, tx, attempt, dispatchedJob, lane, event.replaySourcePayloadVersion, &payload); err != nil {
+			if err := bindWorkerCompletedReportSizeTx(ctx, tx, attempt, dispatchedJob, lane, event.replaySourcePayloadVersion, payload); err != nil {
 				return err
 			}
 		}
@@ -1976,7 +1977,7 @@ func verifyWorkerCompletedPredicateTies(ctx context.Context, tx *sql.Tx, workID 
 // owes none. Every other completion carries neither size member. A capped
 // completion without a sealed observation has no measured delta, which
 // acceptance refuses as unavailable evidence.
-func bindWorkerCompletedReportSizeTx(ctx context.Context, tx *sql.Tx, attempt workerTerminalAttempt, dispatchedJob *WorkerJobBinding, lane LaneDefinition, sourceVersion int, payload *WorkerCompletedPayload) error {
+func bindWorkerCompletedReportSizeTx(ctx context.Context, tx *sql.Tx, attempt workerTerminalAttempt, dispatchedJob *WorkerJobBinding, lane LaneDefinition, sourceVersion int, payload WorkerCompletedPayload) error {
 	basisBase, err := workerJobBasisBase(ctx, tx, attempt.WorkID, dispatchedJob)
 	if err != nil {
 		return err

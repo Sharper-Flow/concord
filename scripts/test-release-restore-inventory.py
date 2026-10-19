@@ -214,6 +214,10 @@ class InventoryTest(unittest.TestCase):
         (cls.repo / "go.sum").write_text("")
         store = cls.repo / "internal" / "store"
         store.mkdir(parents=True)
+        # The binary compiles no store.Event, so every writer analysis refuses
+        # (writers_test.go covers analysis).
+        (cls.repo / "cmd" / "concord").mkdir(parents=True)
+        (cls.repo / "cmd" / "concord" / "main.go").write_text("package main\n\nfunc main() {}\n")
         # (tag, registry, annotated); v1.0.1 differs outside internal/ only.
         for tag, registry, annotated in (
             ("v0.1.0", FORM_A_REGISTRY, False),
@@ -489,6 +493,16 @@ class InventoryTest(unittest.TestCase):
         typed = self.shapes(json.loads(coverage.read_text()))[("thing.typed", 2)]
         self.assertEqual((typed["covered"], typed["witnesses"]), (True, ["TestTypedBase", "release:v1.0.0@domain-v2"]))
 
+    def test_each_group_records_its_writer_analysis(self) -> None:
+        self.assertEqual(set(self.first["analyses"]), {row["group"] for row in self.first["rows"] if "group" in row})
+        for analysis in self.first["analyses"].values():
+            self.assertIn("does not compile internal/store.Event", analysis["refused"])
+        findings = {f["tag"]: f for f in self.coverage["writer_findings"]}
+        self.assertEqual(sorted(findings), ["v0.40.0", "v1.0.0", "v1.0.1"])
+        for finding in findings.values():
+            self.assertNotIn("held_sites", finding)
+            self.assertTrue(finding["refused"])
+
     def test_cache_and_batch_compute_groups_in_bounded_runs(self) -> None:
         cache, log = self.scratch / "cache", self.scratch / "cache.jsonl"
         log.write_text("".join(json.dumps(w) + "\n" for w in WITNESSES))
@@ -506,7 +520,7 @@ class InventoryTest(unittest.TestCase):
         result = run(args, self.repo)
         self.assertEqual(result.returncode, 1, result.stderr)
         batched = json.loads((self.scratch / "cache.json").read_text())
-        for key in ("groups", "types"):
+        for key in ("groups", "analyses", "types"):
             self.assertEqual(batched[key], self.first[key], key)
         self.assertEqual([(r["tag"], r["status"]) for r in batched["rows"]], [(r["tag"], r["status"]) for r in self.first["rows"]])
         self.assertEqual(len(list(cache.glob("*.json"))), groups)

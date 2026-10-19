@@ -88,10 +88,11 @@ type olderCoverage struct {
 
 // coverageReport is coverage.json.
 type coverageReport struct {
-	Schema  string          `json:"schema"`
-	Shapes  []shapeCoverage `json:"shapes"`
-	Older   []olderCoverage `json:"older_versions"`
-	Unbound []string        `json:"unbound_writer_witnesses"`
+	Schema   string          `json:"schema"`
+	Shapes   []shapeCoverage `json:"shapes"`
+	Older    []olderCoverage `json:"older_versions"`
+	Unbound  []string        `json:"unbound_writer_witnesses"`
+	Findings []writerFinding `json:"writer_findings"`
 }
 
 // readWitnesses loads one witness log before any probe runs.
@@ -120,8 +121,10 @@ func readWitnesses(witnessLog string) ([]witness, error) {
 // release registers for its (kind, version), and only when it conforms to it,
 // or that release's older accepted version when its payload is a JSON object;
 // a writer row from an approved excluded release is excluded with it; any
-// other writer row is returned as unbound.
+// other writer row is returned as unbound. Each release's writer finding is
+// reported beside coverage.
 func cover(inv inventory, rows []witness) (coverageReport, error) {
+	findings := writerFindings(inv)
 	shapes, older := map[string]*shapeCoverage{}, map[string]*olderCoverage{}
 	registered, accepted, excluded := map[string]string{}, map[string]bool{}, map[string]bool{}
 	for _, result := range inv.Rows {
@@ -227,7 +230,7 @@ func cover(inv inventory, rows []witness) (coverageReport, error) {
 		}
 		return a.Type < b.Type
 	})
-	return coverageReport{Schema: "concord.release-restore-coverage.v1", Shapes: coverage, Older: olderCoverages, Unbound: unbound}, nil
+	return coverageReport{Schema: "concord.release-restore-coverage.v1", Shapes: coverage, Older: olderCoverages, Unbound: unbound, Findings: findings}, nil
 }
 
 // paths lists every JSON path a shape can present: "[]" steps into elements,

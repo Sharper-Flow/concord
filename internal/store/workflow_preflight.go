@@ -226,6 +226,7 @@ func workflowImpactBoundary(actionID string, consequence ActionConsequence) bool
 }
 
 func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionPreflightRequest) (RegisteredDefinition, error) {
+	ctx = withWorkflowDispatchHost(ctx, request.ActionID, request.Actor.SessionRef, request.SessionWorktree)
 	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, request.WorkID)
 	if err != nil {
 		return RegisteredDefinition{}, err

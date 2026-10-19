@@ -39,6 +39,7 @@ func hostConvergenceFailureEvent(workID, attemptID, eventID string, observation 
 func hostConvergenceSeedEscalated(t *testing.T, workID string, observation *WorkerFailureObservation) (*Store, WorkflowActor, WorkPin) {
 	t.Helper()
 	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
+	claimRetryWorktree(t, s, workID)
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	workerEpoch := int64(1)
 	for correctionAttempt := int64(1); correctionAttempt <= 3; correctionAttempt++ {
@@ -84,12 +85,9 @@ func hostConvergencePinOccupancy(t *testing.T, s *Store, workID, sessionRef stri
 	if err != nil {
 		t.Fatalf("cannot read the test process start: %v", err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`
-		INSERT INTO fold_guard(active) VALUES(1);
-		INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,host_pid,host_pid_start,has_process_identity)
-		VALUES(?,?,?,?,?,1);
-		DELETE FROM fold_guard`,
-		worktreeOccupancyID(WorktreeSetID(workID), "project-1", "claim-1"), sessionRef, "1970-01-01T00:00:00Z", pid, pidStart); err != nil {
+	if _, err := s.RecordWorktreeClaimLanding(context.Background(), WorktreeClaimLandingRequest{
+		WorkID: workID, SessionRef: sessionRef, LandedDirectory: dispatchSessionWorktree(t, s, workID), HostPID: pid,
+	}); err != nil {
 		t.Fatalf("record the session occupancy: %v", err)
 	}
 	return pid, pidStart
@@ -98,7 +96,8 @@ func hostConvergencePinOccupancy(t *testing.T, s *Store, workID, sessionRef stri
 // hostConvergenceLeaseContext carries the live host lease observation for
 // the given process the way the CLI does before a transaction (CD-0179 D3).
 func hostConvergenceLeaseContext(ctx context.Context, pid int) context.Context {
-	return WithHostLeaseSet(ctx, HostLeaseSet{Leases: []hostlease.Lease{{PID: pid}}})
+	start, _ := hostlease.ProcessStart(pid)
+	return WithHostLeaseSet(ctx, HostLeaseSet{Leases: []hostlease.Lease{{PID: pid, PidStart: start}}})
 }
 
 // hostConvergencePinWallStart pins the hostLeaseWallStart seam to one
@@ -116,6 +115,7 @@ func hostConvergencePinWallStart(t *testing.T, start time.Time) {
 // seam and refetches the pin.
 func hostConvergenceDispatch(t *testing.T, s *Store, workID, attemptID string, owner WorkflowActor, pin WorkPin, ctx context.Context, identity string) error {
 	t.Helper()
+	owner.AgentRef = "agent/worker"
 	payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", attemptID, pin.Correction)
 	_, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload,
@@ -140,66 +140,6 @@ func hostConvergenceRecordedConvergence(t *testing.T, s *Store, workID, attemptI
 		t.Fatalf("recorded convergence %s is not a WorkflowRetryConvergence", raw)
 	}
 	return basis
-}
-
-// hostConvergenceFailureRecordSeqs reads the sequences the recorded basis
-// may name: the worker.failed terminal and the derived failure record.
-func hostConvergenceFailureRecordSeqs(t *testing.T, s *Store, workID, terminalEventID string) []int64 {
-	t.Helper()
-	var terminalSeq, recordSeq int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE event_id=?`, terminalEventID).Scan(&terminalSeq); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted).Scan(&recordSeq); err != nil {
-		t.Fatal(err)
-	}
-	return []int64{terminalSeq, recordSeq}
-}
-
-// hostConvergenceNamesFailureRecord reports whether the recorded basis
-// points back at the failure record it was derived from.
-func hostConvergenceNamesFailureRecord(basis WorkflowRetryConvergence, seqs ...int64) bool {
-	for _, seq := range seqs {
-		if seq > 0 && (basis.PreviousRecordSeq == seq || basis.LatestRecordSeq == seq) {
-			return true
-		}
-	}
-	return false
-}
-
-// hostConvergenceRecordsProcessIdentity proves the recorded convergence
-// carries the host process id and its start time somewhere in its payload,
-// wherever the basis extension places them.
-func hostConvergenceRecordsProcessIdentity(t *testing.T, s *Store, workID, attemptID string, pid int, pidStart uint64) {
-	t.Helper()
-	var raw string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.retry_convergence') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted, attemptID).Scan(&raw); err != nil {
-		t.Fatal(err)
-	}
-	var decoded any
-	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
-		t.Fatalf("recorded convergence %s is not JSON: %v", raw, err)
-	}
-	numbers := map[float64]bool{}
-	var walk func(any)
-	walk = func(node any) {
-		switch value := node.(type) {
-		case float64:
-			numbers[value] = true
-		case []any:
-			for _, entry := range value {
-				walk(entry)
-			}
-		case map[string]any:
-			for _, entry := range value {
-				walk(entry)
-			}
-		}
-	}
-	walk(decoded)
-	if !numbers[float64(pid)] || !numbers[float64(pidStart)] {
-		t.Fatalf("recorded convergence %s carries neither the host process id %d nor its start %d", raw, pid, pidStart)
-	}
 }
 
 // hostConvergenceReportPhaseObservation is the invalid-report shape the law
@@ -238,6 +178,15 @@ func TestHostChangedConvergenceAdmitsOneDispatchFromARestartedHost(t *testing.T)
 
 		attempt := "attempt:" + workID + ":4"
 		pin = issue1013Pin(t, s, workID)
+		dispatchVisible := false
+		for _, intent := range pin.NextValidIntents {
+			if intent.ActionID == "dispatch_worker" {
+				dispatchVisible = intent.ReasonCode == "escalated_retry_requires_convergence"
+			}
+		}
+		if !dispatchVisible {
+			t.Fatal("the host-free work pin must retain the visible convergence-required dispatch")
+		}
 		if err := hostConvergenceDispatch(t, s, workID, attempt, owner, pin, ctx, "host-convergence-admit-4"); err != nil {
 			t.Fatalf("dispatch from the restarted host: %v", err)
 		}
@@ -245,10 +194,13 @@ func TestHostChangedConvergenceAdmitsOneDispatchFromARestartedHost(t *testing.T)
 		if basis.Basis != "host_changed" {
 			t.Fatalf("recorded convergence = %+v, want the host_changed basis", basis)
 		}
-		if !hostConvergenceNamesFailureRecord(basis, hostConvergenceFailureRecordSeqs(t, s, workID, "failed-host-"+workID)...) {
-			t.Fatalf("recorded basis %+v names neither the terminal nor the derived failure record", basis)
+		var terminalSeq int64
+		if err := s.db.QueryRow(`SELECT seq FROM domain_events WHERE event_id=?`, "failed-host-"+workID).Scan(&terminalSeq); err != nil {
+			t.Fatal(err)
 		}
-		hostConvergenceRecordsProcessIdentity(t, s, workID, attempt, pid, pidStart)
+		if basis.LatestRecordSeq != terminalSeq || basis.HostPID != pid || basis.HostPIDStart != pidStart {
+			t.Fatalf("recorded basis = %+v; want terminal %d and process %d/%d", basis, terminalSeq, pid, pidStart)
+		}
 
 		// CD-0164: the basis opens no window. The recorded correction count
 		// survives the admitted attempt.
@@ -367,19 +319,19 @@ func TestHostChangedConvergenceNeedsARestartAfterEachFailure(t *testing.T) {
 		}
 	})
 
-	t.Run("a dead recorded process derives no basis", func(t *testing.T) {
+	t.Run("a stale recorded process identity derives no basis", func(t *testing.T) {
 		const workID = "host-convergence-dead-process"
 		s, owner, pin := hostConvergenceSeedEscalated(t, workID, workerFailureObservationFixture())
 		defer s.Close()
-		pid, _ := hostConvergencePinOccupancy(t, s, workID, owner.SessionRef)
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE worktree_occupancy SET host_pid_start=host_pid_start+1 WHERE worktree_id=? AND session_ref=?; DELETE FROM fold_guard`, worktreeOccupancyID(WorktreeSetID(workID), "project-1", "claim-1"), owner.SessionRef); err != nil {
+		pid, start := hostConvergencePinOccupancy(t, s, workID, owner.SessionRef)
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE worktree_occupancy SET host_pid_start=host_pid_start+1 WHERE session_ref=?; DELETE FROM fold_guard`, owner.SessionRef); err != nil {
 			t.Fatalf("corrupt the recorded process start: %v", err)
 		}
-		ctx := hostConvergenceLeaseContext(context.Background(), pid)
+		ctx := WithHostLeaseSet(context.Background(), HostLeaseSet{Leases: []hostlease.Lease{{PID: pid, PidStart: start + 1}}})
 		hostConvergencePinWallStart(t, hostConvergenceFailureAt.Add(time.Minute+time.Second))
 		pin = issue1013Pin(t, s, workID)
 		if err := hostConvergenceDispatch(t, s, workID, "attempt:"+workID+":4", owner, pin, ctx, "host-convergence-dead-process-4"); !hasFailureKind(err, KindMissingEvidence) {
-			t.Fatalf("dispatch behind a dead recorded process = %v, want missing_evidence", err)
+			t.Fatalf("dispatch with matching recorded and leased identity but a different live start = %v, want missing_evidence", err)
 		}
 	})
 
@@ -411,10 +363,10 @@ func TestHostChangedConvergenceNeedsARestartAfterEachFailure(t *testing.T) {
 		}
 		applyRecordWorkerFailureForTest(t, s, workID, owner, fourth, epoch, readWorkVersion(t, s, workID), "host-convergence-second-record-4")
 
-		// The first restart predates the new failure: no derivation.
+		// The spent host basis refuses even before another restart.
 		pin = issue1013Pin(t, s, workID)
 		if err := hostConvergenceDispatch(t, s, workID, "attempt:"+workID+":5", owner, pin, ctx, "host-convergence-second-5-stale"); !hasFailureKind(err, KindMissingEvidence) {
-			t.Fatalf("dispatch behind a stale restart = %v, want missing_evidence", err)
+			t.Fatalf("dispatch after spending the host basis = %v, want missing_evidence", err)
 		}
 
 		// A second restart after the new failure is still one host_changed

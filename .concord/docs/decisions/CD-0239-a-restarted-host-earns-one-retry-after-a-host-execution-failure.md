@@ -13,7 +13,9 @@
   [CD-0201](CD-0201-workflow-action-admission-is-derived-once-and-every-reachable-state-stays-live.md)
   its equal-answer consequence (equal history and equal host inputs);
   [CD-0178](CD-0178-each-repository-gets-its-own-coordinator-session.md) D3
-  (a same-session landing records a replacement host process)
+  (a same-session landing records a replacement host process);
+  [the workflow-engine contract](../workflow-engine-contract.md) §12.1 Correction escalation wall
+  (the closed basis families and their recorded facts)
 - **Preserves:** [CD-0164](CD-0164-correction-attempt-counting-population.md)
   D1 to D4: every dispatch counts, no failure kind is exempt, the limit stays
   three, and only a productive acceptance opens a new window; CD-0148's
@@ -23,7 +25,8 @@
   record and of the amendments it makes (CD-0230 D4).
 - **P12 declaration:** Serious. The footprint spans the workflow-engine,
   agent-surface, and durable-authority Domains. The change adds an execution
-  admission basis; it changes no UI/UX and removes no user-visible behavior.
+  authorization basis; it changes no UI/UX, removes no user-visible behavior,
+  and changes no secrets or destructive data operation.
 
 ## Context
 
@@ -79,6 +82,11 @@ It is derived in the transaction that folds the dispatch, and the dispatch
 consumes it. It admits exactly one fresh fenced attempt and opens no window.
 Only one `host_changed` dispatch is permitted per nonprogress window, even
 after another host restart. Further dispatches need another basis family.
+As with the other bases at the wall, the basis admits dispatch without an
+exact retry approval or a retry approval challenge. Below the wall, failed
+retries still require CD-0148's exact operator approval.
+All other dispatch prerequisites, including disposition of the failed
+attempt, remain in force.
 
 Dispatch completion records the token `host_changed`, the sequence of the
 failure record it was derived from, and the host process id and start time
@@ -94,23 +102,26 @@ approach basis exists. Equal history and equal host inputs give equal answers.
 
 CD-0201 D2's abstract liveness checks count no `host_changed` exit without the
 required host observation. Contract supersession remains their counted exit.
-The dispatch fold's `missing_evidence` refusal names the available recovery:
-repair the host fault, restart the host, resume the item, and dispatch again.
-It states that this family is single-use for the nonprogress window.
+The dispatch fold's `missing_evidence` refusal names host recovery only as a
+conditional route for an eligible host execution failure and an unused host
+basis: repair the fault, start the host more than one minute after the failure,
+resume the item, and dispatch once. It does not assert those conditions hold.
 
 A same-session resume landing from a different process appends a new landing
 event carrying that identity. Its fold updates the occupancy row instead of
-returning the older process as already recorded. The core validates liveness
+returning the older process as already recorded. A legacy occupancy without
+process identity receives the same refresh. The core validates liveness
 and derives the start time as on the existing landing route (CD-0178 D3).
-The caller reads the host lease set and process start before the dispatch
-transaction opens; only SQL-backed joins run inside it (CD-0179 D3).
+The caller reads the host lease set before the dispatch transaction opens
+(CD-0179 D3). The wall-start comparison uses the existing core `/proc`
+observation and its one-minute skew bound.
 
 ### D4. Attribution is an eligibility condition, not an authority
 
 Attribution still supplies no retry authority by itself. The store reads the
 recorded observer and phase of an authenticated terminal record only as
 condition 2 of D1. The admission comes from the store-derived basis, which also
-needs the store-observed host restart.
+needs the live leased process identity and time conditions of D1.
 
 ## Alternatives considered
 
@@ -131,11 +142,18 @@ restart without a contract change. It gets at most one additional counted
 attempt from this family before productive acceptance. File edits, a new
 session in an old process, and asserted causes supply no basis.
 
+The skew bound requires starting the host more than one minute after the
+failure. Waiting in a host started earlier does not change its start time.
 The restart is evidence that new host code can run, not proof that the fault is
 fixed. A host restarted without a repair may spend the single additional
 attempt and fail again. Repeated restarts cannot create an unbounded loop.
-The process and lease inputs retain the existing adapter-only host trust
-boundary; they do not establish cryptographic identity of loaded plugins.
+The landing and host-lease CLI verbs are not signed producer attestations.
+They supply a recorded process claim that the core checks against the live
+process and lease; they prove neither that this session runs in that process
+nor that it loaded repaired plugin code. A local caller able to invoke these
+verbs and authorized workflow mutations can arrange a qualifying identity
+without a real host repair. This decision permits that caller to spend at most
+one counted recovery attempt, not to accept a result or reset the window.
 
 Recorded events do not change. Failures with absent or `legacy_unavailable`
 attribution derive no host basis. An existing failure with the recorded
@@ -145,15 +163,20 @@ backfill. Rebuild uses the recorded basis facts, not the current host.
 ## Verification
 
 - `internal/store.TestHostChangedConvergenceAdmitsOneDispatchFromARestartedHost`
-  proves an escalated host execution failure refuses a dispatch from the same
-  host process with `missing_evidence`, admits one dispatch from a host process
-  started after the failure, and records the basis, the failure sequence, and
-  the process identity.
+  must prove an insufficient restart interval refuses with `missing_evidence`,
+  a restart beyond the interval admits one dispatch, and the recorded basis
+  names the failure sequence and process identity.
 - `internal/store.TestHostChangedConvergenceNeverFollowsAWorkerAttributedFailure`
-  proves a worker-reported failure and an invalid report derive no basis from a
+  must prove a worker-reported failure and an invalid report derive no basis from a
   restarted host.
 - `internal/store.TestHostChangedConvergenceNeedsARestartAfterEachFailure`
-  proves the admitted attempt counts, and neither the same host nor another
+  must prove the admitted attempt counts, and neither the same host nor another
   restart derives a second host basis before productive acceptance.
+- `internal/store.TestClaimLandingRefreshesRestartedHostIdentity` must prove the
+  replacement process gets a recorded landing, same-process replay appends
+  nothing, and rebuild preserves the refreshed identity.
+- `internal/agent.TestEscalatedHostRetryReadsHostLeaseBeforeAdmission`
+  must prove the public boundary reads the lease before preflight, exposes conditional host recovery
+  in its refusal, and replays one admitted dispatch without an approval ask.
 - `python3 scripts/check-knowledge-closure.py` and
-  `python3 scripts/check-doc-contract.py` pass with this record registered.
+  `python3 scripts/check-doc-contract.py` must pass after approval and registration.

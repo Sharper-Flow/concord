@@ -38,9 +38,9 @@ import (
 // resolution cut a cycle is never constant. Overwriting applies only to a
 // local no closure captures, and only across statements with no branch
 // statement. A parameter, result, receiver, global, call result, or local
-// whose address escapes is "*". A site whose pairs all resolve to finite values adds them to
-// the release's writes; any other site is open. Pairs are "kind vVERSION",
-// and "*" is any value. A zero kind or version is a value like any other: a
+// whose address escapes is "*". A site whose pairs all resolve to finite
+// values adds them to the release's writes; any other site is open. Pairs are
+// "kind vVERSION", and "*" is any value. A zero kind or version is a value like any other: a
 // recognized insert can write an Event that append never validated.
 //
 // The analysis sees only what ./cmd/concord compiles at the tag, with the local

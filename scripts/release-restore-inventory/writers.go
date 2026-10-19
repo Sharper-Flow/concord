@@ -1666,7 +1666,7 @@ func (a *analyzer) workItemFolds(store *checkedPackage, literal *ast.CompositeLi
 func (a *analyzer) foldOf(p *checkedPackage, expr ast.Expr, e *env, depth int) *types.Func {
 	switch v := ast.Unparen(expr).(type) {
 	case *ast.Ident:
-		if f, ok := p.info.Uses[v].(*types.Func); ok && f.Signature().Recv() == nil {
+		if f, ok := p.info.Uses[v].(*types.Func); ok {
 			return f
 		}
 		obj, _ := p.info.Uses[v].(*types.Var)
@@ -1686,7 +1686,7 @@ func (a *analyzer) foldOf(p *checkedPackage, expr ast.Expr, e *env, depth int) *
 		}
 	case *ast.CallExpr:
 		f, ok := p.info.Uses[calleeIdent(v.Fun)].(*types.Func)
-		if !ok || depth > callDepth || v.Ellipsis.IsValid() {
+		if !ok || f.Signature().Recv() != nil || depth > callDepth || v.Ellipsis.IsValid() {
 			return nil
 		}
 		name := f.Origin().FullName()

@@ -156,7 +156,7 @@ func writerFindings(inv inventory, table exemptionTable) []writerFinding {
 					if analysis.CheckSubject != e.CheckSubjectDigest {
 						held = []string{"*"}
 					}
-					finding.ReplayHeld = slices.Compact(slices.Sorted(slices.Values(append(slices.Clone(finding.ReplayHeld), held...))))
+					finding.ReplayHeld = slices.Compact(slices.Sorted(slices.Values(append(finding.ReplayHeld, held...))))
 				}
 			}
 		}

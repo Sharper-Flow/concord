@@ -448,13 +448,13 @@ func TestSitePairsResolve(t *testing.T) {
 	kind := SubjectProduct
 	return Event{Kind: string(kind), PayloadVersion: 1}
 }`, []string{"product v1"}, nil},
-		// Resolution is flow-insensitive: each field keeps its zero value.
+		// Each field assignment overwrites the declaration's zero value.
 		"field assignments": {`func F() Event {
 	var event Event
 	event.Kind = "thing.b"
 	event.PayloadVersion = 2
 	return event
-}`, []string{" v2", "thing.b v0", "thing.b v2"}, nil},
+}`, []string{"thing.b v2"}, nil},
 		"zero version": {`func F() Event { return Event{Kind: "thing.b", PayloadVersion: 0} }`, []string{"thing.b v0"}, nil},
 		"copied event": {`func F() Event {
 	base := Event{Kind: "thing.b", PayloadVersion: 2}
@@ -495,6 +495,13 @@ func F() Event {
 	version++
 	return Event{Kind: "thing.a", PayloadVersion: version}
 }`, nil, []string{"thing.a v*"}},
+		"concatenation in a loop": {`func F(n int) Event {
+	kind := "thing.a"
+	for range n {
+		kind = kind + ".x"
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, nil, []string{"* v1"}},
 		"tuple declaration": {`func F() Event {
 	var event, err = pairEvent()
 	_ = err
@@ -542,6 +549,129 @@ func F() Event { return Event{Kind: defaultKind, PayloadVersion: 1} }`, nil, []s
 			}
 			if !slices.Equal(writes, c.writes) || !slices.Equal(open, c.open) {
 				t.Fatalf("writes %q, open %q", writes, open)
+			}
+		})
+	}
+}
+
+// An assignment in a constantly skipped arm, or overwritten before any read,
+// supplies no value; anything that could carry it past the overwrite keeps it.
+func TestSitePairsPrune(t *testing.T) {
+	const anchor = "func ReadEvent("
+	for name, c := range map[string]struct {
+		code   string
+		writes []string
+	}{
+		"constant false arm": {`const debug = false
+
+func F() Event {
+	kind := "thing.a"
+	if debug {
+		kind = "thing.c"
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, []string{"thing.a v1"}},
+		"constant true condition skips else": {`const live = true
+
+func F() Event {
+	kind := "thing.a"
+	if live {
+	} else {
+		kind = "thing.c"
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, []string{"thing.a v1"}},
+		"local comparison": {`func F() Event {
+	mode, kind := "x", "thing.a"
+	if mode == "y" || mode != "x" && true {
+		kind = "thing.c"
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, []string{"thing.a v1"}},
+		"interface comparison": {`func F() Event {
+	var mode any = int64(1)
+	kind := "thing.a"
+	if mode != 1 {
+		kind = "thing.c"
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, []string{"thing.a v1", "thing.c v1"}},
+		"read in an if init": {`func F() Event {
+	kind := "thing.c"
+	if first := kind; true {
+		kind = "thing.a"
+		return Event{Kind: first, PayloadVersion: 1}
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, []string{"thing.a v1", "thing.c v1"}},
+		"overwritten": {`func F() Event {
+	kind := "thing.c"
+	kind = "thing.a"
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, []string{"thing.a v1"}},
+		"overwritten in a constant true arm": {`func F() Event {
+	kind := "thing.c"
+	if true {
+		kind = "thing.a"
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, []string{"thing.a v1"}},
+		"read before the overwrite": {`func F() Event {
+	kind := "thing.c"
+	first := Event{Kind: kind, PayloadVersion: 1}
+	kind = "thing.a"
+	_ = first
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, []string{"thing.a v1", "thing.c v1"}},
+		"captured by a closure": {`func F() Event {
+	kind := "thing.b"
+	f := func() Event { return Event{Kind: kind, PayloadVersion: 1} }
+	kind = "thing.c"
+	_ = f()
+	kind = "thing.a"
+	return f()
+}`, []string{"thing.a v1", "thing.b v1", "thing.c v1"}},
+		"break before the overwrite": {`func F(n int) Event {
+	kind := "thing.a"
+	for range n {
+		kind = "thing.c"
+		if n > 1 {
+			break
+		}
+		kind = "thing.a"
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, []string{"thing.a v1", "thing.c v1"}},
+		"goto past the overwrite": {`func F(n int) Event {
+	kind := "thing.c"
+	if n > 0 {
+		goto done
+	}
+	kind = "thing.a"
+done:
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, []string{"thing.a v1", "thing.c v1"}},
+		"condition through a cycle": {`func F() Event {
+	kind, other := "thing.r", "thing.q"
+	for range 3 {
+		if other == "thing.r" {
+			kind = "thing.s"
+		}
+		other = kind
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, []string{"thing.r v1", "thing.s v1"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			analysis := analyzeFixture(t, mutation{"internal/store/store.go", anchor, c.code + "\n\n" + anchor})
+			writes := slices.DeleteFunc(slices.Clone(analysis.Writes), func(pair string) bool { return pair == "thing.a v2" })
+			for _, s := range analysis.Open {
+				if s.Function == storePkg+".F" {
+					t.Fatalf("open site %+v", s)
+				}
+			}
+			if !slices.Equal(writes, c.writes) {
+				t.Fatalf("writes %q", writes)
 			}
 		})
 	}

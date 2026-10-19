@@ -30,9 +30,9 @@
 - **Amended:** 2026-10-19, pending the operator's approval of the exact text
   for [Concord (CON) issue 1200](https://linear.app/sharper-flow/issue/CON-1200).
   D4's P12 Domain test counts the child Domains of the laws a change adds,
-  modifies, or removes, not its footprint record. The change is serious under P12 because
-  it narrows when an operator approval applies, which removes behavior the
-  operator sees.
+  modifies, or removes, not its footprint record. The change is serious under
+  P12 because it narrows when an operator approval applies, which removes
+  behavior the operator sees.
 
 ## Context
 
@@ -98,13 +98,16 @@ contributes its home Domain and its `applies_to_domain_ids` (CD-0222 D3), as
 recorded before and after the change. The Product-root Domain is not counted:
 a root-homed law is Product-wide by placement, and its applicability names the
 child Domains it reaches. A reference record is not law and adds no Domain.
-The test holds when the count exceeds one.
+A change to the Domain registry, itself Product law (CD-0222 D2), counts each
+child Domain whose entry it adds, modifies, or removes, and both child ends of
+each architecture relation it adds, modifies, or removes. The test holds when
+the count exceeds one.
 
 The count reads recorded law homes and applicability, so it needs no
 declaration. It does not count the Domains of the code that ships with the law
 change. Those Domains are the work's footprint, which reaches every Domain of
 each touched package (CD-0222 D2) and sizes the work under CD-0229. Review
-checks that each added law's home follows CD-0222 D2, so the root Domain does
+checks that each added law's home follows CD-0222 D3, so the root Domain does
 not become a catch-all that lowers the count.
 
 The agent declares the other three tests: whether the change removes or
@@ -191,9 +194,8 @@ the D6 label duty as a gap.
 A non-serious law change no longer costs an operator turn. The cost moves to
 the declaration of the P12 tests and its review.
 
-The P12 Domain test reads the changed laws' child Domains, while work sizing
-under CD-0229 and the footprint read keep their package-grain counts. A change
-to root-homed law without applicability is no longer serious by the Domain
+The P12 Domain test reads the changed laws' child Domains. A change to
+root-homed law without applicability is no longer serious by the Domain
 test alone; the other three tests and the `crucial`-size rule still apply.
 
 A record the operator legislated becomes `derived` when an agent revises it
@@ -222,7 +224,9 @@ Every change to `goals.md` moves its content hash, so the change that edits
   `applies_to_domain_ids` count toward the test, that a change removing or
   superseding laws homed in two child Domains requires approval, that a law
   whose `applies_to_domain_ids` the same change narrows still counts the
-  Domain it dropped, that a change modifying laws homed in one child Domain
+  Domain it dropped, that a law moved between two child Domains counts both,
+  that a change adding an architecture relation between two child Domains
+  requires approval, that a change modifying laws homed in one child Domain
   and in the root Domain, with code in `internal/agent` and `internal/store`,
   counts one Domain, that an amendment of one law homed in `agent-surface`
   that also edits `scripts/install.py` counts one Domain, that every law

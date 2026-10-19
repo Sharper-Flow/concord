@@ -56,7 +56,7 @@ func TestChecksRepairDispatchPropagatesUnreadableAuthorization(t *testing.T) {
 	}
 }
 
-// The checks repair regression set (CD-0205 D4, as amended for CON-1221):
+// The checks repair regression set (CD-0205 D4):
 // recording, local acceptance, the one funded confirming review at the wall,
 // the void paths, and the productive reset.
 

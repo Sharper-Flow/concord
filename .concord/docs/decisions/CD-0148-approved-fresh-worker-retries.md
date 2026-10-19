@@ -7,6 +7,9 @@
 - **Related:** CD-0013, CD-0059, CD-0102
 - **Amended by:** [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
   (the third basis family, `host_changed`)
+- **Amended by:** [CD-0205 D4](CD-0205-worker-jobs-bind-dispatch-and-separate-local-acceptance-from-delivery.md#d4-only-the-satisfying-acceptance-closes-a-failed-jobs-window-refines-cd-0164-d1-d2),
+  [Concord (CON) issue 1221](https://linear.app/sharper-flow/issue/CON-1221): the one funded
+  confirming-review admission on repair-capable definition versions.
 
 ## Context
 
@@ -37,12 +40,22 @@ when the nonprogress wall of CD-0164 D1 reaches three. The work pin keeps
 `dispatch_worker` visible under the escalation reason of CD-0173 D1. The
 wall is basis-gated, not a dead end.
 
-A store-derived convergence basis alone admits a `dispatch_worker` against
+Except for the confirming-review admission below, a store-derived
+convergence basis alone admits a `dispatch_worker` against
 an escalated correction, and the boundary mints no retry approval challenge
 at the wall. The store derives the basis in the same transaction that folds
 the dispatch. Without a derivable basis the fold refuses the dispatch with
 `missing_evidence` and mints no challenge. An operator approval neither
 substitutes for a basis nor opens the wall.
+
+On a repair-capable definition version, an accepted checks repair under
+CD-0205 D4 admits exactly one independent confirming review without a
+convergence basis, including at the escalation wall. This adds one named
+admission to the closed set, not a convergence-basis family. The dispatch
+carries the satisfied repairing revision as its job binding and records its
+admission bound to the repairing acceptance and exact revision. The fresh
+fenced dispatch consumes that admission once; it funds no authoring attempt
+or other dispatch. A voided repair restores no admission.
 
 The basis families are closed. Findings convergence requires a latest open
 findings set that is non-empty and a strict subset of the previous comparable
@@ -93,13 +106,15 @@ verdicts, completion, or resume a failed worker session.
 - The approval challenge exposes the failed attempt and contract bindings.
 - A valid retry creates a distinct worker attempt and step epoch.
 - Invalid approval and retry identity changes have no durable workflow effect.
-- A dispatch without a basis refuses with `missing_evidence`, mints no
-  challenge, and an operator approval has no effect.
+- Except for the one CD-0205 D4 confirming review, a dispatch without a basis
+  refuses with `missing_evidence`, mints no challenge, and an operator
+  approval has no effect.
 - An escalated correction admits a dispatch only behind a store-derived
-  convergence basis, and the exact approval decision stays a below-limit
-  mechanism.
+  convergence basis or the one CD-0205 D4 confirming-review admission. The
+  exact approval decision stays a below-limit mechanism.
 - Dispatch completion records the derived basis and its sequence references,
-  so every escalated dispatch carries the basis that admitted it.
+  or the funded confirming-review admission bound to the repairing
+  acceptance, so every escalated dispatch records what admitted it.
 - CD-0027's fresh dispatch path remains stateless and does not become typed restart.
 
 ## Verification

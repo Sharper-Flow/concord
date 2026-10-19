@@ -20,11 +20,11 @@ type workflowApprovalBindingSubject struct {
 // against the durable approval row and consumes the row before the event
 // exists, so the recorded fields are exactly what admission checked.
 type workflowApprovalBinding struct {
-	ApprovalRef     string
-	OperationDigest string
-	ScopeJSON       string
-	VersionsJSON    string
-	Consequence     string
+	ApprovalRef     string `json:"approval_ref"`
+	OperationDigest string `json:"operation_digest"`
+	ScopeJSON       string `json:"scope_json"`
+	VersionsJSON    string `json:"versions_json"`
+	Consequence     string `json:"consequence"`
 }
 
 var (

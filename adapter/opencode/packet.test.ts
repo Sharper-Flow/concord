@@ -2,7 +2,7 @@ import { test, expect, mock } from "bun:test"
 import { createHash } from "node:crypto"
 import { manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
-import { configureCoreBinary, validateAgentLanePacket, type AgentLanePacketBinding, type AgentLanePacketCorrection, type AgentLanePacketLawContext, type AgentLanePacketWorkContext, type AgentLanePacketWorkContextResearchEntryResolved, type AgentLanePacketWorkContextResearchEntryUnresolved, type AgentLanePacketWorkContextResearchFindingView } from "./dispatch"
+import { configureCoreBinary, validateAgentLanePacket, type AgentLanePacketBinding, type AgentLanePacketCorrection, type AgentLanePacketLawContext, type AgentLanePacketWorkerJob, type AgentLanePacketWorkContext, type AgentLanePacketWorkContextResearchEntryResolved, type AgentLanePacketWorkContextResearchEntryUnresolved, type AgentLanePacketWorkContextResearchFindingView } from "./dispatch"
 import { agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
 import { fakeTool } from "./plugin-tool.fixture"
 
@@ -1488,6 +1488,37 @@ const ORACLE = {
   }],
 }
 const ORACLE_JOB = { ...READY_JOB, predicate_ids: ["predicate:primary"], acceptance_oracle: ORACLE }
+
+test("size bindings ride unchanged while caller exclusions remain implementation-only", async () => {
+  const job: AgentLanePacketWorkerJob = {
+    ...ORACLE_JOB,
+    production_size_max: 200,
+    measurement_basis: {
+      base_commit: "1".repeat(40),
+      paths: [
+        { path: "internal/store/worker_jobs.go", class: "production" },
+        { path: "internal/store/worker_jobs_test.go", class: "test" },
+        { path: "internal/store/generated.go", class: "generated", generator_ref: "scripts/generate.go" },
+      ],
+    },
+    direct_caller_allowance: {
+      project_id: "project-1",
+      mechanisms: [ORACLE.owners[0].mechanism],
+      domain_ids: [ORACLE.owners[0].domain_id],
+      law_bindings: ORACLE.owners[0].law_bindings,
+    },
+    caller_exclusions: ["internal/store/unresolved.go"],
+  }
+  const before = structuredClone(job)
+  for (const laneId of ["implement", "verify", "review"]) {
+    const built = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [job]) }, { laneId })
+    expect(built.failure).toBeUndefined()
+    expect(validateAgentLanePacket(built.packet!)).toBe(true)
+    const { caller_exclusions: _excluded, ...withoutExclusions } = job
+    expect(built.packet!.inputs.worker_job).toEqual(laneId === "implement" ? job : withoutExclusions)
+    expect(job).toEqual(before)
+  }
+})
 
 test("a ready oracle job rides verbatim beside typed records and the report protocol", async () => {
   const continuity = jobContinuity(["dispatch_worker", "record_worker_job"], [ORACLE_JOB])

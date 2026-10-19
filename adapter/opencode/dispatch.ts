@@ -149,6 +149,18 @@ export interface AgentLanePacketWorkerJob {
   // revision a pre-oracle definition recorded; required by oracle-capable
   // definition versions. The same copy reaches every admitted lane.
   acceptance_oracle?: AgentLaneAcceptanceOracle
+  production_size_max?: number
+  measurement_basis?: {
+    base_commit: string
+    paths: { path: string; class: "production" | "test" | "documentation" | "generated"; generator_ref?: string }[]
+  }
+  direct_caller_allowance?: {
+    project_id: string
+    mechanisms: AgentLaneOracleMechanism[]
+    domain_ids: string[]
+    law_bindings: AgentLaneOracleLawBinding[]
+  }
+  caller_exclusions?: string[]
 }
 
 // The acceptance-oracle members mirror internal/store worker_oracle.go

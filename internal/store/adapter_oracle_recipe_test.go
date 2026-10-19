@@ -78,8 +78,8 @@ func TestAdapterDispatchRecipeRecordsReady(t *testing.T) {
 	}
 	o := f.authorize(t, "adapter-execute", seed.owner)
 	r, err := f.s.VerifyWorktree(ctx, f.request("adapter-execute", &o))
-	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 || f.launches != 1 {
-		t.Fatalf("execute pinned adapter checks: %+v, %v launches=%d", r, err, f.launches)
+	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 || f.launches != len(p.SelectedWitnessIDs) {
+		t.Fatalf("execute pinned adapter checks: oracle=%+v, %v launches=%d output=%s", r.Oracle, err, f.launches, r.Output)
 	}
 	assertNativeTargetReceipt(t, r, "bun", "check", f.root)
 	t.Logf("recipe_commit=%s recipe_blob=%s native_preparation=%s qualification=%s native_execution=%s", head, manifestFile.BlobOID, f.prepare.OperationRef, p.Qualification, r.OperationRef)

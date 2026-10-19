@@ -296,6 +296,67 @@ func TestFixtureAnalysisListsEachSite(t *testing.T) {
 	if !slices.Equal(analysis.Writes, []string{"thing.a v2"}) {
 		t.Fatalf("writes = %q", analysis.Writes)
 	}
+	if !slices.Equal(analysis.WorkItemFolds, []string{"thing.b"}) || analysis.CheckSubject == "" {
+		t.Fatalf("work-item folds %q, check subject %q", analysis.WorkItemFolds, analysis.CheckSubject)
+	}
+}
+
+// A fold refuses a work_item subject only when the registration sets it,
+// directly or through constructors, and it begins with a checkSubject guard
+// on its Event parameter for a constant other than SubjectWorkItem.
+func TestWorkItemFoldsNeedAProvenRefusal(t *testing.T) {
+	const store = "internal/store/store.go"
+	const foldB = "func foldB(tx *Tx, state *State, event Event) error { return nil }"
+	guard := func(body string) mutation {
+		return mutation{store, foldB, "func foldB(tx *Tx, state *State, event Event) error {\n" + body + "\n\treturn nil\n}"}
+	}
+	const refusal = "\tif err := checkSubject(event, SubjectProduct); err != nil {\n\t\treturn err\n\t}"
+	registered := func(entries, extra string) []mutation {
+		return []mutation{
+			{store, `"thing.b": {CurrentVersion: 3`, entries + "\n\t\"thing.b\": {CurrentVersion: 3"},
+			{store, "func upcastA1(", `func register(fold func(*Tx, *State, Event) error) EventKindRegistration {
+	return EventKindRegistration{CurrentVersion: 1, MinSupported: 1, Fold: fold}
+}
+
+func scoped(fold func(*Tx, *State, Event) error) EventKindRegistration {
+` + extra + `	return register(fold)
+}
+
+func upcastA1(`},
+		}
+	}
+	declare := func(entry, decls string) []mutation {
+		return []mutation{
+			{store, `"thing.b": {CurrentVersion: 3`, entry + "\n\t\"thing.b\": {CurrentVersion: 3"},
+			{store, "func upcastA1(", decls + "\n\nfunc upcastA1("},
+		}
+	}
+	for name, c := range map[string]struct {
+		mutations []mutation
+		want      []string
+	}{
+		"through constructors":   {registered(`"thing.c": scoped(foldA),`+"\n\t"+`"thing.d": scoped(foldB),`, ""), []string{"thing.b", "thing.d"}},
+		"method expression":      {[]mutation{{store, `"thing.b": {CurrentVersion: 3`, `"thing.c": foldFunc.with(foldA, foldB),` + "\n\t\"thing.b\": {CurrentVersion: 3"}, {store, "func upcastA1(", "type foldFunc func(*Tx, *State, Event) error\n\nfunc (f foldFunc) with(fold func(*Tx, *State, Event) error) EventKindRegistration {\n\treturn EventKindRegistration{Fold: fold}\n}\n\nfunc upcastA1("}}, []string{"thing.b", "thing.c"}},
+		"constructor reassigns":  {registered(`"thing.c": scoped(foldA),`, "\tfold = foldB\n"), []string{"thing.b", "thing.c"}},
+		"both refuse":            {[]mutation{guard(refusal)}, nil},
+		"guard for work_item":    {[]mutation{guard(strings.Replace(refusal, "SubjectProduct", "SubjectWorkItem", 1))}, []string{"thing.b"}},
+		"guard ignored":          {[]mutation{guard(strings.Replace(refusal, "return err", "return nil", 1))}, []string{"thing.b"}},
+		"guard not first":        {[]mutation{guard("\t_ = state\n" + refusal)}, []string{"thing.b"}},
+		"guard on another event": {[]mutation{guard(strings.Replace(refusal, "(event,", "(blank,", 1)), {store, "func upcastA1(", "var blank Event\n\nfunc upcastA1("}}, []string{"thing.b"}},
+		"registry written":       {[]mutation{guard(refusal), {store, "func upcastA1(", "func init() { eventKindRegistry[\"thing.c\"] = EventKindRegistration{Fold: foldB} }\n\nfunc upcastA1("}}, []string{"*"}},
+		"deferred constructor":   {declare(`"thing.c": deferred(foldA),`, "func deferred(fold func(*Tx, *State, Event) error) (r EventKindRegistration) {\n\tdefer func() { r.Fold = foldB }()\n\treturn EventKindRegistration{Fold: fold}\n}"), []string{"thing.b", "thing.c"}},
+		"returns disagree":       {declare(`"thing.c": either(foldA, true),`, "func either(fold func(*Tx, *State, Event) error, other bool) EventKindRegistration {\n\tif other {\n\t\treturn EventKindRegistration{Fold: foldB}\n\t}\n\treturn EventKindRegistration{Fold: fold}\n}"), []string{"thing.b", "thing.c"}},
+		"address taken":          {declare(`"thing.c": taken(foldA),`, "func taken(fold func(*Tx, *State, Event) error) EventKindRegistration {\n\tswap(&fold)\n\treturn EventKindRegistration{Fold: fold}\n}\n\nfunc swap(fold *func(*Tx, *State, Event) error) { *fold = foldB }"), []string{"thing.b", "thing.c"}},
+		"condition inverted":     {[]mutation{guard(strings.Replace(refusal, "err != nil", "err == nil", 1))}, []string{"thing.b"}},
+		"another guard":          {[]mutation{guard(strings.Replace(refusal, "checkSubject(", "check(", 1)), {store, "func upcastA1(", "func check(event Event, want SubjectType) error { return nil }\n\nfunc upcastA1("}}, []string{"thing.b"}},
+		"non-constant key":       {declare("dynamicKind: {Fold: foldA},", "var dynamicKind = \"thing.c\""), []string{"*"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := analyzeFixture(t, c.mutations...).WorkItemFolds; !slices.Equal(got, c.want) {
+				t.Fatalf("work-item folds %q, want %q", got, c.want)
+			}
+		})
+	}
 }
 
 // Each mutation adds one way to set an Event's kind or version; each must

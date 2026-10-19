@@ -16,10 +16,16 @@ import (
 // site is held. Neither a reported write nor an exemption is a discharge: no
 // finding discharges a release's obligation for any (kind, version).
 //
-// One exemption class is admitted, by a recorded ruling:
+// Two exemption classes are admitted, each by a recorded ruling, and each
+// keyed by function, exact expression, and function digest:
 //
-//   - read_back: a site that reads a stored row's kind and version back; keyed
-//     by function, exact expression, and function digest.
+//   - read_back: a site that reads a stored row's kind and version back.
+//   - replay_decoder: the v0.3-v0.39 workflow replay decoder, which builds
+//     work_item events from caller input. Its finding names, as
+//     replay_held_kinds, every registered kind whose fold is not shown to
+//     refuse a work_item subject, or "*" when the registry is not a fact or
+//     checkSubject differs from the entry's reviewed digest. Every version of
+//     a named kind stays held at that release.
 //
 // Any drift of a keyed digest or expression leaves the site held.
 
@@ -36,7 +42,10 @@ type exemption struct {
 	Function       string `json:"function"`
 	Expression     string `json:"expression"`
 	FunctionDigest string `json:"function_digest"`
-	Check          string `json:"check"`
+	// CheckSubjectDigest is the reviewed checkSubject a replay_decoder's
+	// fold refusals rely on; no other class has one.
+	CheckSubjectDigest string `json:"check_subject_digest,omitempty"`
+	Check              string `json:"check"`
 }
 
 type exemptionTable struct {
@@ -62,11 +71,14 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 	}
 	seen := map[string]bool{}
 	for _, e := range table.Entries {
-		if e.Class != "read_back" {
+		if e.Class != "read_back" && e.Class != "replay_decoder" {
 			return table, fmt.Errorf("exemption %q has unknown class %q", e.ID, e.Class)
 		}
 		if slices.Contains([]string{e.ID, e.Function, e.Expression, e.FunctionDigest, e.Check}, "") {
 			return table, fmt.Errorf("exemption %q lacks a key, its identity, or its check record", e.ID)
+		}
+		if (e.Class == "replay_decoder") != (e.CheckSubjectDigest != "") {
+			return table, fmt.Errorf("exemption %q: only a replay_decoder entry, and every one, has a check_subject_digest", e.ID)
 		}
 		key := e.Function + "\x00" + e.Expression + "\x00" + e.FunctionDigest
 		if seen[e.ID] || seen[key] {
@@ -84,8 +96,8 @@ func (e exemption) covers(site writerSite) bool {
 }
 
 // writerFinding is one release's writer result: the analyzer and exemption
-// table it used, its refusal, the pairs it writes, the sites left held, and
-// the exempted sites.
+// table it used, its refusal, the pairs it writes, the sites left held, the
+// exempted sites, and the kinds an exempted replay decoder holds.
 type writerFinding struct {
 	Tag           string         `json:"tag"`
 	Analyzer      string         `json:"analyzer"`
@@ -94,6 +106,7 @@ type writerFinding struct {
 	Writes        []string       `json:"writes,omitempty"`
 	Held          []writerSite   `json:"held_sites,omitempty"`
 	Exempted      []exemptedSite `json:"exempted_sites,omitempty"`
+	ReplayHeld    []string       `json:"replay_held_kinds,omitempty"`
 	FindingSource string         `json:"finding_source"`
 }
 
@@ -101,6 +114,7 @@ type writerFinding struct {
 type exemptedSite struct {
 	writerSite
 	Exemption string `json:"exemption"`
+	Class     string `json:"class"`
 }
 
 //go:embed findings.go
@@ -133,8 +147,16 @@ func writerFindings(inv inventory, table exemptionTable) []writerFinding {
 				i := slices.IndexFunc(table.Entries, func(e exemption) bool { return e.covers(site) })
 				if i < 0 {
 					finding.Held = append(finding.Held, site)
-				} else {
-					finding.Exempted = append(finding.Exempted, exemptedSite{site, table.Entries[i].ID})
+					continue
+				}
+				e := table.Entries[i]
+				finding.Exempted = append(finding.Exempted, exemptedSite{site, e.ID, e.Class})
+				if e.Class == "replay_decoder" {
+					held := analysis.WorkItemFolds
+					if analysis.CheckSubject != e.CheckSubjectDigest {
+						held = []string{"*"}
+					}
+					finding.ReplayHeld = slices.Compact(slices.Sorted(slices.Values(append(finding.ReplayHeld, held...))))
 				}
 			}
 		}

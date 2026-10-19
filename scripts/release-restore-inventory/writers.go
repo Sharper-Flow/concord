@@ -78,11 +78,14 @@ type writerSite struct {
 
 // writerAnalysis is one release binary's event writers. Writes are the pairs
 // fully resolved sites produce.
+// WorkItemFolds and CheckSubject are workItemFolds' result.
 type writerAnalysis struct {
-	Analyzer string       `json:"analyzer"`
-	Refused  string       `json:"refused,omitempty"`
-	Writes   []string     `json:"writes,omitempty"`
-	Open     []writerSite `json:"open_sites,omitempty"`
+	Analyzer      string       `json:"analyzer"`
+	Refused       string       `json:"refused,omitempty"`
+	Writes        []string     `json:"writes,omitempty"`
+	Open          []writerSite `json:"open_sites,omitempty"`
+	WorkItemFolds []string     `json:"work_item_folds,omitempty"`
+	CheckSubject  string       `json:"check_subject,omitempty"`
 }
 
 type listedPackage struct {
@@ -327,7 +330,8 @@ func analyzeWritersIn(dir string) (writerAnalysis, error) {
 		a.instances(p)
 		a.index(p)
 	}
-	a.registry, a.registered = readRegistry(store)
+	var literal *ast.CompositeLit
+	a.registry, a.registered, literal = readRegistry(store)
 	result := writerAnalysis{Analyzer: analyzerVersion()}
 	for _, p := range packages {
 		a.collect(p)
@@ -338,6 +342,7 @@ func analyzeWritersIn(dir string) (writerAnalysis, error) {
 		x, y := result.Open[i], result.Open[j]
 		return x.Function < y.Function || x.Function == y.Function && x.Expression < y.Expression
 	})
+	result.WorkItemFolds, result.CheckSubject = a.workItemFolds(store, literal)
 	return result, nil
 }
 
@@ -1573,19 +1578,19 @@ func (a *analyzer) mentions(p *checkedPackage, node ast.Node, obj types.Object) 
 	return found
 }
 
-// readRegistry returns the store's event kind registry and its literal's
-// constant keys when it is a package-level map literal of
+// readRegistry returns the store's event kind registry, its literal's
+// constant keys, and the literal when it is a package-level map literal of
 // EventKindRegistration values that the binary only reads by index, range, or
 // len; otherwise nil.
-func readRegistry(store *checkedPackage) (types.Object, map[string]bool) {
+func readRegistry(store *checkedPackage) (types.Object, map[string]bool, *ast.CompositeLit) {
 	registry, ok := store.types.Scope().Lookup("eventKindRegistry").(*types.Var)
 	if !ok {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if m, ok := registry.Type().Underlying().(*types.Map); !ok || !types.Identical(m.Key(), types.Typ[types.String]) {
-		return nil, nil
+		return nil, nil, nil
 	} else if named, ok := types.Unalias(m.Elem()).(*types.Named); !ok || named.Obj().Name() != "EventKindRegistration" || named.Obj().Pkg() != store.types {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var literal *ast.CompositeLit
 	for _, file := range store.files {
@@ -1612,7 +1617,7 @@ func readRegistry(store *checkedPackage) (types.Object, map[string]bool) {
 		})
 	}
 	if literal == nil || registry == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	keys := map[string]bool{}
 	for _, element := range literal.Elts {
@@ -1622,7 +1627,121 @@ func readRegistry(store *checkedPackage) (types.Object, map[string]bool) {
 			}
 		}
 	}
-	return registry, keys
+	return registry, keys, literal
+}
+
+// workItemFolds lists the registered kinds whose fold is not shown to refuse
+// a work_item subject, or "*" when the registry is not a fact, and the digest
+// of checkSubject, on which a refusal relies. A fold refuses when it is the
+// registration's fold and begins
+// `if err := checkSubject(event, C); err != nil { return err }`, with event its
+// Event parameter and C a constant other than SubjectWorkItem.
+func (a *analyzer) workItemFolds(store *checkedPackage, literal *ast.CompositeLit) ([]string, string) {
+	check := ""
+	if fn := a.funcs[a.store+".checkSubject"]; fn != nil && fn.decl != nil {
+		_, check = a.declName(store, fn.decl)
+	}
+	workItem, _ := store.types.Scope().Lookup("SubjectWorkItem").(*types.Const)
+	if literal == nil || check == "" || workItem == nil {
+		return []string{"*"}, check
+	}
+	var open []string
+	for _, element := range literal.Elts {
+		pair, ok := element.(*ast.KeyValueExpr)
+		if !ok || store.info.Types[pair.Key].Value == nil || store.info.Types[pair.Key].Value.Kind() != constant.String {
+			return []string{"*"}, check
+		}
+		if fold := a.foldOf(store, pair.Value, nil, 0); fold == nil || !a.refusesWorkItem(fold, workItem) {
+			open = append(open, constant.StringVal(store.info.Types[pair.Key].Value))
+		}
+	}
+	sort.Strings(open)
+	return open, check
+}
+
+// foldOf names the declared function a registration expression sets as its
+// Fold: a literal's Fold field, or the fold every return of a static call
+// sets, with the callee's unassigned parameters bound to the call's
+// arguments. It is nil when unknown.
+func (a *analyzer) foldOf(p *checkedPackage, expr ast.Expr, e *env, depth int) *types.Func {
+	switch v := ast.Unparen(expr).(type) {
+	case *ast.Ident:
+		if f, ok := p.info.Uses[v].(*types.Func); ok {
+			return f
+		}
+		obj, _ := p.info.Uses[v].(*types.Var)
+		param, ok := a.formals[obj]
+		if !ok || e == nil || e.function != param.function || param.index >= len(e.args) || a.unknown[obj] || len(a.assigns[obj]) > 0 {
+			return nil
+		}
+		return a.foldOf(e.pkg, e.args[param.index], e.caller, depth)
+	case *ast.CompositeLit:
+		if !a.isNamed(p.info.Types[v].Type, "EventKindRegistration") {
+			return nil
+		}
+		for _, element := range v.Elts {
+			if pair, ok := element.(*ast.KeyValueExpr); ok && pair.Key.(*ast.Ident).Name == "Fold" {
+				return a.foldOf(p, pair.Value, e, depth)
+			}
+		}
+	case *ast.CallExpr:
+		f, ok := p.info.Uses[calleeIdent(v.Fun)].(*types.Func)
+		if !ok || f.Signature().Recv() != nil || depth > callDepth || v.Ellipsis.IsValid() {
+			return nil
+		}
+		name := f.Origin().FullName()
+		fn := a.funcs[name]
+		if fn == nil || fn.decl == nil || fn.decl.Body == nil || fn.deferred || len(fn.returns) == 0 {
+			return nil
+		}
+		inner := &env{function: name, args: v.Args, pkg: p, caller: e}
+		var fold *types.Func
+		for _, ret := range fn.returns {
+			if len(ret.results) != 1 {
+				return nil
+			}
+			got := a.foldOf(fn.pkg, ret.results[0], inner, depth+1)
+			if got == nil || fold != nil && got != fold {
+				return nil
+			}
+			fold = got
+		}
+		return fold
+	}
+	return nil
+}
+
+// refusesWorkItem reports whether fold begins by refusing any subject but a
+// constant other than SubjectWorkItem through checkSubject.
+func (a *analyzer) refusesWorkItem(fold *types.Func, workItem *types.Const) bool {
+	fn := a.funcs[fold.Origin().FullName()]
+	sig := fold.Origin().Signature()
+	if fn == nil || fn.decl == nil || fn.decl.Body == nil || len(fn.decl.Body.List) == 0 || sig.Params().Len() == 0 || !a.isEvent(sig.Params().At(sig.Params().Len()-1).Type()) {
+		return false
+	}
+	p := fn.pkg
+	stmt, ok := fn.decl.Body.List[0].(*ast.IfStmt)
+	if !ok || stmt.Else != nil || types.ExprString(stmt.Cond) != "err != nil" || len(stmt.Body.List) != 1 {
+		return false
+	}
+	if ret, ok := stmt.Body.List[0].(*ast.ReturnStmt); !ok || len(ret.Results) != 1 || types.ExprString(ret.Results[0]) != "err" {
+		return false
+	}
+	init, ok := stmt.Init.(*ast.AssignStmt)
+	if !ok || init.Tok != token.DEFINE || len(init.Lhs) != 1 || len(init.Rhs) != 1 || types.ExprString(init.Lhs[0]) != "err" {
+		return false
+	}
+	call, ok := init.Rhs[0].(*ast.CallExpr)
+	if !ok || len(call.Args) != 2 {
+		return false
+	}
+	callee, ok := p.info.Uses[calleeIdent(call.Fun)].(*types.Func)
+	event, isIdent := call.Args[0].(*ast.Ident)
+	if !ok || callee.FullName() != a.store+".checkSubject" || !isIdent || p.info.Uses[event] != sig.Params().At(sig.Params().Len()-1) {
+		return false
+	}
+	subject := p.info.Types[call.Args[1]].Value
+	return subject != nil && !constant.Compare(subject, token.EQL, workItem.Val())
 }
 
 // registeredAll resolves a registry read's ok: "true" when every kind is a

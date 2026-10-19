@@ -405,6 +405,8 @@ class InventoryTest(unittest.TestCase):
             result = run([str(self.binary), "-out", str(self.scratch / "m.json"), "-coverage", str(self.scratch / "m.cov"), "-witnesses", str(log)], self.repo)
             self.assertEqual(result.returncode, 1)
             self.assertIn(refusal, result.stderr)
+            # The log is read before any probe runs, so nothing is written.
+            self.assertFalse((self.scratch / "m.json").exists())
 
     def test_container_shapes_preserve_wire_distinctions(self) -> None:
         fields = {f["name"]: f["shape"] for f in self.shape("thing.containers")["fields"]}

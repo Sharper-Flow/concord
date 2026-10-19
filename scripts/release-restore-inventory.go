@@ -295,6 +295,10 @@ func run(output, coverageOut, witnessLog string) error {
 	if witnessLog == "" {
 		return errors.New("-witnesses is required: shapes without a witness join are not coverage")
 	}
+	witnesses, err := readWitnesses(witnessLog)
+	if err != nil {
+		return err
+	}
 	tags, err := listTags()
 	if err != nil || len(tags) == 0 {
 		return fmt.Errorf("release tags unavailable or empty: %v", err)
@@ -349,7 +353,7 @@ func run(output, coverageOut, witnessLog string) error {
 	if err := os.WriteFile(output, append(data, '\n'), 0o600); err != nil {
 		return err
 	}
-	coverage, err := cover(inv, witnessLog)
+	coverage, err := cover(inv, witnesses)
 	if err != nil {
 		return err
 	}
@@ -397,7 +401,8 @@ type shapeCoverage struct {
 	Covered        bool     `json:"covered"`
 }
 
-func cover(inv inventory, witnessLog string) ([]shapeCoverage, error) {
+// readWitnesses loads the corpus witness log before any probe runs.
+func readWitnesses(witnessLog string) ([]witness, error) {
 	data, err := os.ReadFile(filepath.Clean(witnessLog))
 	if err != nil {
 		return nil, fmt.Errorf("witness log: %w", err)
@@ -414,6 +419,10 @@ func cover(inv inventory, witnessLog string) ([]shapeCoverage, error) {
 		}
 		rows = append(rows, w)
 	}
+	return rows, nil
+}
+
+func cover(inv inventory, rows []witness) ([]shapeCoverage, error) {
 	shapes := map[string]*shapeCoverage{}
 	for _, result := range inv.Rows {
 		if result.Status != "inventoried" {

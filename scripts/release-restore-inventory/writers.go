@@ -35,9 +35,8 @@ import (
 // parameter, result, receiver, global, call result, or local whose address
 // escapes is "*". A site whose pairs all resolve to finite values adds them to
 // the release's writes; any other site is open. Pairs are "kind vVERSION",
-// and "*" is any value. A zero kind or version pairs with nothing: every
-// release's append refuses an event with no kind or a version below 1, and a
-// SQL write is always open.
+// and "*" is any value. A zero kind or version is a value like any other: a
+// recognized insert can write an Event that append never validated.
 //
 // The analysis sees only what ./cmd/concord compiles at the tag, with the local
 // toolchain. A tree that does not list or type-check, or whose binary compiles
@@ -342,9 +341,6 @@ func (a *analyzer) markUnknown(p *checkedPackage, expr ast.Expr) {
 		switch v := ast.Unparen(expr).(type) {
 		case *ast.Ident:
 			if obj := p.info.Uses[v]; obj != nil {
-				a.unknown[obj] = true
-			}
-			if obj := p.info.Defs[v]; obj != nil {
 				a.unknown[obj] = true
 			}
 			return
@@ -708,14 +704,12 @@ func (a *analyzer) collectLiteral(p *checkedPackage, lit *ast.CompositeLit, site
 	}
 }
 
-// pairs crosses kinds with versions, skipping a zero kind or version.
+// pairs crosses kinds with versions.
 func pairs(kinds, versions []string) []string {
 	var out []string
 	for _, kind := range kinds {
 		for _, version := range versions {
-			if kind != "" && version != "0" {
-				out = append(out, kind+" v"+version)
-			}
+			out = append(out, kind+" v"+version)
 		}
 	}
 	return out
@@ -945,10 +939,11 @@ func (a *analyzer) resolve(p *checkedPackage, expr ast.Expr, seen map[seenKey]bo
 }
 
 // resolveVar resolves a declared local, or with a field that Event field of
-// it, as the union of every value assigned to it.
+// a local Event, as the union of every value assigned to it. A field of any
+// other holder, such as one promoted from an embedded Event, is "*".
 func (a *analyzer) resolveVar(p *checkedPackage, id *ast.Ident, field string, seen map[seenKey]bool) []string {
 	obj, ok := p.info.Uses[id].(*types.Var)
-	if !ok || !a.declared[obj] || a.unknown[obj] {
+	if !ok || !a.declared[obj] || a.unknown[obj] || field != "" && !a.isEvent(obj.Type()) {
 		return anyValue
 	}
 	key := seenKey{obj, field}
@@ -977,8 +972,6 @@ func (a *analyzer) resolveAssigned(assign assignment, field string, seen map[see
 		return a.resolve(assign.pkg, assign.rhs, seen)
 	case assign.rhs == nil && field != "":
 		return zeroField(field)
-	case assign.rhs == nil:
-		return anyValue
 	case field == "":
 		return a.resolve(assign.pkg, assign.rhs, seen)
 	}

@@ -448,12 +448,14 @@ func TestSitePairsResolve(t *testing.T) {
 	kind := SubjectProduct
 	return Event{Kind: string(kind), PayloadVersion: 1}
 }`, []string{"product v1"}, nil},
+		// Resolution is flow-insensitive: each field keeps its zero value.
 		"field assignments": {`func F() Event {
 	var event Event
 	event.Kind = "thing.b"
 	event.PayloadVersion = 2
 	return event
-}`, []string{"thing.b v2"}, nil},
+}`, []string{" v2", "thing.b v0", "thing.b v2"}, nil},
+		"zero version": {`func F() Event { return Event{Kind: "thing.b", PayloadVersion: 0} }`, []string{"thing.b v0"}, nil},
 		"copied event": {`func F() Event {
 	base := Event{Kind: "thing.b", PayloadVersion: 2}
 	next := base
@@ -488,6 +490,27 @@ func F() Event {
 	version += 1
 	return Event{Kind: "thing.a", PayloadVersion: version}
 }`, nil, []string{"thing.a v*"}},
+		"increment": {`func F() Event {
+	version := 1
+	version++
+	return Event{Kind: "thing.a", PayloadVersion: version}
+}`, nil, []string{"thing.a v*"}},
+		"tuple declaration": {`func F() Event {
+	var event, err = pairEvent()
+	_ = err
+	event.Kind = "thing.b"
+	return event
+}
+
+func pairEvent() (Event, error) { return Event{}, nil }`, nil, []string{"thing.b v*"}},
+		"embedded event": {`type wrapped struct{ Event }
+
+func F() Event {
+	var w wrapped
+	w.Event = Event{Kind: "thing.a", PayloadVersion: 7}
+	w.Kind = "thing.b"
+	return w.Event
+}`, []string{"thing.a v7"}, []string{"thing.b v*"}},
 		"tuple result": {`func F() Event {
 	kind, version := pair()
 	return Event{Kind: kind, PayloadVersion: version}

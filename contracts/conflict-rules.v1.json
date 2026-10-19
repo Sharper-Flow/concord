@@ -394,8 +394,22 @@
         "decision_model",
         "coordinator"
       ],
-      "state": "outstanding",
-      "issue": "CON-1090"
+      "state": "satisfied",
+      "mechanism": "programmed_check",
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkSizeProofStopsTheWorkflowUntilARerun"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkSizeRerunSizesKeepsOrResizes"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestReviseIntentSizeRevisionsResizeTheWork"
+        }
+      ]
     },
     {
       "row": 9,

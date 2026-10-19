@@ -65,6 +65,69 @@ class CapabilityToolProjectionTests(unittest.TestCase):
             self.assertNotIn(f"  {tool_id}:", tools)
 
 
+class SubagentMethodProjectionTests(unittest.TestCase):
+    def test_every_subagent_executes_quietly_and_returns_one_final_result(self):
+        manifest, _ = generator.load_manifest()
+        projections = [lane_projection(lane) for lane in manifest["lanes"]]
+        projections.extend(generator.utility_projection(utility) for utility in manifest["utilities"])
+        self.assertEqual(len(projections), 8)
+        for projection in projections:
+            with self.subTest(agent=projection.split("\n# ", 1)[1].splitlines()[0]):
+                text = " ".join(projection.split())
+                self.assertEqual(projection.count("## Execution\n"), 1)
+                self.assertIn("without TODO tracking, progress updates, or direct operator questions", text)
+                self.assertIn("one final result in the required format", text)
+                self.assertIn("never a plan or promise of further work", text)
+                self.assertIn("blocker and missing evidence", text)
+                self.assertIn("do not invent fields or a second reporting channel", text)
+
+    def test_utility_definitions_deny_interactive_and_bookkeeping_tools(self):
+        manifest, _ = generator.load_manifest()
+        for utility in manifest["utilities"]:
+            with self.subTest(utility=utility["id"]):
+                tools = generator.utility_projection(utility).split("\ntools:\n", 1)[1].split("\npermission:\n", 1)[0]
+                for tool in ("question", "todowrite", "task"):
+                    self.assertIn(f"\n  {tool}: false\n", "\n" + tools + "\n")
+
+    def test_explore_handoff_answers_first_and_preserves_the_requested_deliverable(self):
+        manifest, _ = generator.load_manifest()
+        utility = next(item for item in manifest["utilities"] if item["id"] == "explore")
+        text = " ".join(generator.utility_projection(utility).split())
+        self.assertIn("Answer the bounded question first", text)
+        self.assertIn("complete requested inventory or report, not a summary of it", text)
+        self.assertIn("smallest caller -> owner -> consumer map", text)
+        self.assertIn("`path:line` for each observed connection", text)
+        self.assertIn("Mark unverified connections as unknown", text)
+        self.assertIn("Do not infer a root cause", text)
+
+    def test_explore_marks_an_incomplete_inventory_and_names_its_coverage(self):
+        manifest, _ = generator.load_manifest()
+        utility = next(item for item in manifest["utilities"] if item["id"] == "explore")
+        text = " ".join(generator.utility_projection(utility).split())
+        self.assertIn("If the cap or unavailable evidence prevents completeness", text)
+        self.assertIn("label the inventory partial", text)
+        self.assertIn("population covered and the remaining gaps", text)
+
+    def test_only_review_traces_changed_boundaries_and_classifies_findings(self):
+        manifest, _ = generator.load_manifest()
+        carrying = set()
+        for lane in manifest["lanes"]:
+            projection = lane_projection(lane)
+            if "## Review method\n" not in projection:
+                continue
+            carrying.add(lane["id"])
+            text = " ".join(projection.split())
+            self.assertIn("trace the producing code through the relevant consumer or dispatch path", text)
+            self.assertIn("Cite both sides", text)
+            self.assertIn("triggering input or state, impact, and exact source location", text)
+            self.assertIn("proven defects, missing required evidence, and optional suggestions", text)
+            self.assertIn("existing finding detail", text)
+            self.assertIn("use `review_finding.oracle.classification` and keep the detail consistent with it", text)
+            self.assertIn("Do not turn style preferences into defects or a `no_ship` verdict", text)
+            self.assertIn("do not broaden the review into an unrelated audit", text)
+        self.assertEqual(carrying, {"review"})
+
+
 class LaneDigestRetentionTests(unittest.TestCase):
     def test_generation_refuses_a_replaced_digest_without_retention(self):
         manifest = json.loads(generator.MANIFEST.read_text(encoding="utf-8"))

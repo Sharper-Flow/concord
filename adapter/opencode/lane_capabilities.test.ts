@@ -99,6 +99,18 @@ test("agent switches cannot widen the bound worker capability ceiling", async ()
   await expect(f.before("bash")).rejects.toThrow("does not grant")
 })
 
+test("every bound lane keeps its tool ceiling despite a broader selected agent", async () => {
+  for (const lane of agentLanes) {
+    const f = await fixture(lane.id)
+    await f.before("read")
+    f.state.agent = "build"
+    for (const tool of ["question", "task", "concord_work_transition"]) {
+      await expect(f.before(tool)).rejects.toThrow(`lane ${lane.id} does not grant tool ${tool}`)
+    }
+    await f.before("read")
+  }
+})
+
 test("a settling or retired attempt grants no further worker calls", async () => {
   const f = await fixture()
   await f.before("read")

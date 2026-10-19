@@ -2,16 +2,18 @@ package main
 
 import _ "embed"
 
-// A writer finding records, for one release, the analyzer that ran and every
-// open site of its analysis. Every open site is held: no finding discharges a
+// A writer finding records, for one release, the analyzer that ran, the pairs
+// its resolved sites write, and every open site of its analysis. Every open
+// site is held. A reported write is not a discharge: no finding discharges a
 // release's obligation for any (kind, version).
 
 // writerFinding is one release's writer result: the analyzer it used, its
-// refusal, and the sites left held.
+// refusal, the pairs it writes, and the sites left held.
 type writerFinding struct {
 	Tag           string       `json:"tag"`
 	Analyzer      string       `json:"analyzer"`
 	Refused       string       `json:"refused,omitempty"`
+	Writes        []string     `json:"writes,omitempty"`
 	Held          []writerSite `json:"held_sites,omitempty"`
 	FindingSource string       `json:"finding_source"`
 }
@@ -41,7 +43,7 @@ func writerFindings(inv inventory) []writerFinding {
 		case analysis.Refused != "":
 			finding.Refused = analysis.Refused
 		default:
-			finding.Held = analysis.Open
+			finding.Writes, finding.Held = analysis.Writes, analysis.Open
 		}
 		findings = append(findings, finding)
 	}

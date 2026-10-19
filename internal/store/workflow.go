@@ -129,6 +129,9 @@ type workflowContractApprovedPayload struct {
 	// records engineering and nil records historical absence. omitzero drops a
 	// nil fact from the encoding while a non-nil empty slice stays present.
 	DecisionDomains []string `json:"decision_domains,omitzero"`
+	// LawChange records a consequence_v1 contract's law change with its
+	// derived Domains and seriousness (CD-0230 D4); nil when it changes none.
+	LawChange *WorkflowLawChange `json:"law_change,omitempty"`
 }
 
 // workflowContractDecisionDomainsPayloadVersion is the workflow.contract_approved
@@ -137,10 +140,20 @@ type workflowContractApprovedPayload struct {
 // boundary are authored, never replayed.
 const workflowContractDecisionDomainsPayloadVersion = 5
 
+// workflowContractLawChangePayloadVersion is the workflow.contract_approved
+// payload version that introduced law_change. Bytes that claim it below the
+// boundary are authored, never replayed.
+const workflowContractLawChangePayloadVersion = 6
+
 // workflowContractSupersededDecisionDomainsPayloadVersion is the
 // workflow.contract_superseded payload version whose successor_contract may
 // carry the typed decision_domains fact.
 const workflowContractSupersededDecisionDomainsPayloadVersion = 4
+
+// workflowContractSupersededLawChangePayloadVersion is the
+// workflow.contract_superseded payload version whose successor_contract may
+// carry law_change.
+const workflowContractSupersededLawChangePayloadVersion = 5
 
 // workflowDecisionDomainSet is the closed canonical decision-domain set. It is
 // sorted, so canonical order is the slice order.
@@ -1154,6 +1167,28 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 	if workflowApprovalPolicyRequiresDecisionFact(registered.Definition) && p.DecisionDomains == nil {
 		return newFailure(KindInvalidPayload, "fold_event", "consequence_v1 contract approval requires the declared decision-domain fact; absence is a legacy shape", false, "declare the contract's decision domains explicitly")
 	}
+	// A successor that changes no law itself still carries the law change its
+	// predecessors recorded; the live check holds it to the item's baseline.
+	tracksLawChange := workflowApprovalPolicyRequiresDecisionFact(registered.Definition)
+	if p.LawChange != nil && !tracksLawChange {
+		return newFailure(KindInvalidPayload, "fold_event", "law_change is recorded only on a consequence_v1 contract", false, "omit law_change")
+	}
+	if p.LawChange == nil && tracksLawChange && workflowContractChangesLaw(p.LawModifies, p.ArchitectureBinding) && (event.replaySourcePayloadVersion == 0 || event.replaySourcePayloadVersion >= workflowContractLawChangePayloadVersion) {
+		return newFailure(KindInvalidPayload, "fold_event", "a consequence_v1 contract that changes law must record law_change", false, "record the law change with its reason")
+	}
+	if p.LawChange != nil {
+		if event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowContractLawChangePayloadVersion {
+			return newFailure(KindInvalidPayload, "fold_event", "law_change on a payload recorded before the law-change boundary is authored bytes no store ever recorded", false, "replay the recorded contract without law_change")
+		}
+		if err := validateWorkflowLawChangeShape(p.LawChange, p.DecisionDomains, p.LawModifies, p.ArchitectureBinding, changesProductTruth); err != nil {
+			return err
+		}
+	}
+	if !isWorkflowReplay(ctx) {
+		if err := validateLiveWorkflowLawChangeTx(ctx, tx, event.SubjectID, p, changesProductTruth); err != nil {
+			return err
+		}
+	}
 	if err := validateWorkflowContractApprovalLaw(ctx, tx, event, registered, contractFields, p, changesProductTruth); err != nil {
 		return err
 	}
@@ -1202,7 +1237,11 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 	if p.DecisionDomains != nil {
 		decisionDomains = workflowJSON(p.DecisionDomains)
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,self_repair_json,definition_ref,definition_version,definition_digest,decision_domains) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, workflowJSON(p.SelfRepair), registered.Definition.Ref, registered.Definition.Version, registered.Digest, decisionDomains)
+	var lawChange any
+	if p.LawChange != nil {
+		lawChange = workflowJSON(p.LawChange)
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,self_repair_json,definition_ref,definition_version,definition_digest,decision_domains,law_change) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, workflowJSON(p.SelfRepair), registered.Definition.Ref, registered.Definition.Version, registered.Digest, decisionDomains, lawChange)
 	if err != nil {
 		return workflowProjectionError(err, "cannot record immutable workflow contract")
 	}
@@ -1378,15 +1417,20 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		successorEvent := event
 		successorEvent.EventID = event.EventID + ":successor"
 		successorEvent.Kind = WorkflowContractApproved
-		successorEvent.PayloadVersion = 5
+		successorEvent.PayloadVersion = workflowContractLawChangePayloadVersion
 		successorEvent.Payload = successorPayload
 		// The inner contract's replay provenance is the supersession's own
-		// version boundary: a supersession recorded below its decision-domain
-		// boundary counts as pre-boundary source for the fact, and a current
-		// supersession installs its successor without a stale marker.
-		if event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowContractSupersededDecisionDomainsPayloadVersion {
+		// version boundaries: a supersession recorded below a boundary counts
+		// as pre-boundary source for that fact, and a current supersession
+		// installs its successor without a stale marker.
+		switch {
+		case event.replaySourcePayloadVersion == 0:
+			successorEvent.replaySourcePayloadVersion = 0
+		case event.replaySourcePayloadVersion < workflowContractSupersededDecisionDomainsPayloadVersion:
 			successorEvent.replaySourcePayloadVersion = workflowContractDecisionDomainsPayloadVersion - 1
-		} else {
+		case event.replaySourcePayloadVersion < workflowContractSupersededLawChangePayloadVersion:
+			successorEvent.replaySourcePayloadVersion = workflowContractLawChangePayloadVersion - 1
+		default:
 			successorEvent.replaySourcePayloadVersion = 0
 		}
 		if err := foldWorkflowContractApproved(workflowContractSupersessionContext(ctx), tx, successorEvent, scope); err != nil {
@@ -3960,6 +4004,14 @@ func upcastWorkflowContractApprovedV4(event Event) (Event, error) {
 	return event, nil
 }
 
+// upcastWorkflowContractApprovedV5 carries a v5 contract into the v6 payload
+// that may carry law_change. No recorded contract carried one, so the upcast
+// keeps the bytes; the fold's source-version gate refuses bytes that claim it.
+func upcastWorkflowContractApprovedV5(event Event) (Event, error) {
+	event.PayloadVersion = 6
+	return event, nil
+}
+
 // workflowPremiseConfirmedAuthorityTx validates a claimed confirmation
 // authority against the verified definition and the active contract's stored
 // decision fact: only consequence_v1 engineering admits coordinator authority,
@@ -4092,6 +4144,14 @@ func upcastWorkflowContractSupersededV2(event Event) (Event, error) {
 // claim the fact below the boundary.
 func upcastWorkflowContractSupersededV3(event Event) (Event, error) {
 	event.PayloadVersion = 4
+	return event, nil
+}
+
+// upcastWorkflowContractSupersededV4 carries a v4 supersession into the v5
+// payload whose successor_contract may carry law_change. No recorded successor
+// carried one, so the upcast keeps the bytes.
+func upcastWorkflowContractSupersededV4(event Event) (Event, error) {
+	event.PayloadVersion = 5
 	return event, nil
 }
 

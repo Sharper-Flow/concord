@@ -360,6 +360,55 @@ func TestRecordConflictApplicationTxRecordsTheLiveBinding(t *testing.T) {
 	}
 }
 
+func TestConflictApplicationRecordsEffectiveSizeAndReplaysItsPrefix(t *testing.T) {
+	for _, sizes := range []struct{ model, operator WorkSize }{
+		{WorkSizeSmall, WorkSizeCrucial},
+		{WorkSizeLarger, WorkSizeSmall},
+	} {
+		t.Run(string(sizes.model)+"-to-"+string(sizes.operator), func(t *testing.T) {
+			s := openTemp(t)
+			workID := "effective-size"
+			seedWork(t, s, workID)
+			inputs := workSizeInputsFixture()
+			if sizes.model == WorkSizeLarger {
+				inputs.Declared.EstimatedProductionLines = 61
+			}
+			if err := applyWorkEvent(t, s, workSizedEvent("model-size", workID, WorkSizeModelVersion, sizes.model, inputs), nil); err != nil {
+				t.Fatal(err)
+			}
+			beforeIDs, err := recordConflictApplication(t, s, conflictApplicationRequest(workID, "before-override", nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, _ := storedConflictApplication(t, s, beforeIDs[0])
+			insertWorkSizeOverrideApproval(t, s, workID, 1)
+			if err := runWorkSizeOverride(t, s, workSizeOverrideRequest(t, s, workID, "operator-size", sizes.operator)); err != nil {
+				t.Fatal(err)
+			}
+			afterIDs, err := recordConflictApplication(t, s, conflictApplicationRequest(workID, "after-override", nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			after, fields := storedConflictApplication(t, s, afterIDs[0])
+			if after.Size != sizes.operator || after.SizeAssessmentSequence != 1 || after.ModelVersion != WorkSizeModelVersion || len(fields) != 8 {
+				t.Fatalf("recorded %+v (%d fields), want effective size %q beside model assessment 1", after, len(fields), sizes.operator)
+			}
+			// A generic append cannot substitute the model answer for the
+			// operator size governing this event position.
+			err = applyWorkEvent(t, s, conflictAppliedEvent("wrong-effective-size", workID, map[string]any{"size": string(sizes.model)}), nil)
+			assertFailureKind(t, err, KindInvariantViolation)
+			if err := RebuildFromLog(context.Background(), s); err != nil {
+				t.Fatalf("rebuild the override and both settlements: %v", err)
+			}
+			replayedBefore, _ := storedConflictApplication(t, s, beforeIDs[0])
+			replayedAfter, _ := storedConflictApplication(t, s, afterIDs[0])
+			if replayedBefore != before || replayedAfter != after {
+				t.Fatalf("replay changed historical sizes: before %+v/%+v, after %+v/%+v", before, replayedBefore, after, replayedAfter)
+			}
+		})
+	}
+}
+
 func TestRecordConflictApplicationTxRetryReturnsTheOriginalRecord(t *testing.T) {
 	s := openTemp(t)
 	seedSizedWork(t, s, "retry")

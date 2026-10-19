@@ -27,7 +27,11 @@ package store
 //     validateDerivedLawModification / refuseNonDerivedLawModification
 //     surfaces); the manifest approval axis (one point per gated
 //     tool-surface operation behind the plan default); and
-//     challenge/receipt/authority caller sites. Comparison reads of the same
+//     challenge/receipt/authority caller sites. The classifier's own consent
+//     decisions count too: an assignment or return of WorkflowConsentRequired
+//     in workflow_approval_policy.go is a demand point keyed by its governing
+//     branch, while constant declarations, comparisons, and case-list
+//     validation reads are classified as reads. Comparison reads of the same
 //     names are classified as reads: reported in diagnostics, never points.
 //
 // Every census entry maps to exactly one contracts/conflict-rules.v1.json
@@ -149,7 +153,10 @@ var approvalInventoryAliases = map[string]string{
 	"internal/store/work_size_override.go\x00OverrideWorkSizeTx\x00workflowOperatorFromConsumedApprovalTx":                                             "live admission half anchored to revise-intent-operator-size-demand",
 	"internal/store/work_size_override.go\x00foldWorkSizeOverridden\x00authorizeWorkflowOperatorApprovalTx":                                            "fold recheck anchored to revise-intent-operator-size-demand",
 	"internal/store/workflow_completion.go\x00workflowPremiseConfirmationAuthority\x00workflow premise confirmation is not operator typed#2":           "the consequence_v1 decision-bearing arm of the same operator-typed premise check anchored to completion-premise-not-typed",
-	"internal/store/workflow_delivery_correction.go\x00foldWorkflowDeliveryCorrected\x00authorizeWorkflowOperatorApprovalTx":                           "fold recheck anchored to delivery-correction-demand",
+	"internal/store/workflow_approval_policy.go\x00classifyLegacyWorkflowApproval\x00failed-retry-below-wall":                                          "classified consent source of the same decision anchored to workflow-action-consent-demand",
+	"internal/store/workflow_approval_policy.go\x00classifyLegacyWorkflowApproval\x00operator-required":                                                "classified consent source of the same decision anchored to workflow-action-consent-demand",
+	"internal/store/workflow_approval_policy.go\x00classifyConsequenceV1WorkflowApproval\x00destructive":                                               "classified consent source of the same decision anchored to workflow-action-consent-demand",
+	"internal/store/workflow_approval_policy.go\x00classifyConsequenceV1Decision\x00classifyConsequenceV1Decision":                                     "classified consent source of the same decision anchored to workflow-action-consent-demand",
 }
 
 // approvalInventoryRetainedDeclarations witness retained consent declarations
@@ -262,6 +269,7 @@ type censusVisitor struct {
 	inBinary        int
 	inSel           int
 	inCall          int
+	inCaseList      int
 	ordinal         map[string]int
 	stack           []func()
 }
@@ -459,7 +467,22 @@ func (v *censusVisitor) Visit(node ast.Node) ast.Visitor {
 				break
 			}
 		}
+		// The case list compares against vocabulary constants: those
+		// occurrences are validation reads, not new decisions. The clause
+		// body walks outside that context, so a consent assignment inside a
+		// case arm stays a demand.
+		savedList := v.inCaseList
+		v.inCaseList++
+		for _, item := range n.List {
+			ast.Walk(v, item)
+		}
+		v.inCaseList = savedList
 		v.push(func() { v.branchToken = saved })
+		for _, statement := range n.Body {
+			ast.Walk(v, statement)
+		}
+		v.pop()
+		return nil
 	case *ast.AssignStmt:
 		// A consent flag assigned anything but literal false is a demand,
 		// whether the predicate is computed or literal. The manifest plan
@@ -477,6 +500,10 @@ func (v *censusVisitor) Visit(node ast.Node) ast.Visitor {
 				name = assigned.Sel.Name
 			}
 			if !approvalInventoryDemandFlags[name] || i >= len(n.Rhs) {
+				continue
+			}
+			if approvalInventoryIsFalseLiteral(n.Rhs[i]) {
+				v.read(n.Rhs[i].Pos(), name+" cleared")
 				continue
 			}
 			v.classifyDemand(n.Rhs[i], n.Pos())
@@ -602,6 +629,22 @@ func (v *censusVisitor) Visit(node ast.Node) ast.Visitor {
 				v.read(n.Pos(), "KindApprovalRequired comparison")
 			}
 			// Call-argument occurrences are classified at the call.
+		case n.Name == "WorkflowConsentRequired":
+			// A value assignment or return of the consent-required constant
+			// is the classifier demanding consent: an inventory point keyed
+			// by its governing branch. Comparisons, selector reads, call
+			// arguments, and case-list validation reads are reads, never
+			// new decisions.
+			switch {
+			case v.inBinary > 0 || v.inSel > 0 || v.inCall > 0 || v.inCaseList > 0:
+				v.read(n.Pos(), n.Name+" read")
+			default:
+				base := v.branchToken
+				if base == "" || base == "true" {
+					base = v.funcName
+				}
+				v.point(n.Pos(), "demand-assignment", base)
+			}
 		case approvalInventoryDemandFlags[n.Name]:
 			if v.inBinary > 0 || v.inSel > 0 || v.inCall > 0 {
 				v.read(n.Pos(), n.Name+" read")
@@ -992,6 +1035,9 @@ func syntheticConsentBranch(ctx context.Context) error {
 	case requiresApproval:
 		plan2.requiresApproval = true
 	}
+	if syntheticClearance {
+		plan3.requiresApproval = false
+	}
 	authority := store2.WorkflowOperatorRequired
 	_ = authority
 	return newFailure(KindApprovalRequired, "synthetic", "synthetic consent branch must be inventoried", false, "request_approval")
@@ -1033,6 +1079,22 @@ func syntheticConsentBranch(ctx context.Context) error {
 	if !qualified || len(demand) != 4 || demand[0] != "action-approval-required" || demand[1] != "retry-approval" || !guard {
 		t.Fatalf("census misclassified the synthetic consent branch: qualified=%v demand=%v guard=%v points=%v", qualified, demand, guard, visitor.points)
 	}
+	// A literal false assignment clears the consent flag: it contributes no
+	// consent point and is recorded as a read.
+	for _, branch := range demand {
+		if branch == "synthetic-clearance" {
+			t.Fatalf("the literal false assignment was counted as a consent demand: %v", demand)
+		}
+	}
+	cleared := false
+	for _, read := range visitor.reads {
+		if strings.Contains(read, "requiresApproval cleared") {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Fatalf("the literal false assignment recorded no cleared read: %v", visitor.reads)
+	}
 	// The same coverage check the real table satisfies must fail while the
 	// synthetic entries are uncovered.
 	table := approvalInventoryLoadTable(t)
@@ -1040,6 +1102,72 @@ func syntheticConsentBranch(ctx context.Context) error {
 	joined := strings.Join(problems, "; ")
 	if !strings.Contains(joined, "synthetic.go/syntheticConsentBranch") {
 		t.Fatalf("coverage check did not fail for the synthetic branch: %v", problems)
+	}
+}
+
+// TestOperatorApprovalInventoryCensusDetectsClassifierConsent proves the
+// census classifies the classifier's own consent decisions as demand points
+// keyed by their governing branch, records the constant's validation and
+// comparison occurrences as reads, and that the SAME coverage check the real
+// table satisfies fails while a new classified consent branch is uncovered.
+func TestOperatorApprovalInventoryCensusDetectsClassifierConsent(t *testing.T) {
+	source := `package store
+
+func syntheticClassifierConsent(facts WorkflowApprovalFacts) WorkflowApprovalPolicyResult {
+	consent := WorkflowConsentNone
+	switch consent {
+	case WorkflowConsentNone, WorkflowConsentConditional, WorkflowConsentRequired:
+	}
+	if facts.FailedRetryBelowWall {
+		consent = WorkflowConsentRequired
+	}
+	if facts.Destructive != "" {
+		return WorkflowApprovalPolicyResult{Consent: WorkflowConsentRequired}
+	}
+	if consent == WorkflowConsentRequired {
+		return WorkflowApprovalPolicyResult{Consent: WorkflowConsentRequired}
+	}
+	return WorkflowApprovalPolicyResult{Consent: WorkflowConsentRequired}
+}
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "synthetic_classifier.go")
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatalf("cannot write synthetic classifier source: %v", err)
+	}
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		t.Fatalf("cannot parse synthetic classifier source: %v", err)
+	}
+	visitor := &censusVisitor{fset: fset, relPath: "synthetic_classifier.go", ordinal: map[string]int{}}
+	ast.Walk(visitor, file)
+	var demand []string
+	var consentReads int
+	for _, point := range visitor.points {
+		if point.Owner.Symbol != "syntheticClassifierConsent" || point.Kind != "demand-assignment" {
+			continue
+		}
+		demand = append(demand, point.Owner.Branch)
+	}
+	for _, read := range visitor.reads {
+		if strings.Contains(read, "WorkflowConsentRequired read") {
+			consentReads++
+		}
+	}
+	// Each consent decision keys on its governing branch; the case-list
+	// validation read and the comparison read stay reads.
+	want := []string{"failed-retry-below-wall", "destructive", "workflow-consent-required", "syntheticClassifierConsent"}
+	if !slices.Equal(demand, want) || consentReads != 2 {
+		t.Fatalf("census misclassified the synthetic classifier consent: demand=%v consentReads=%d points=%v reads=%v", demand, consentReads, visitor.points, visitor.reads)
+	}
+	// The same coverage check the real table satisfies must fail while the
+	// new classified consent branches are uncovered.
+	table := approvalInventoryLoadTable(t)
+	problems := approvalInventoryCoverageProblems(visitor.points, table.ApprovalPoints, nil, nil)
+	joined := strings.Join(problems, "; ")
+	if !strings.Contains(joined, "synthetic_classifier.go/syntheticClassifierConsent") {
+		t.Fatalf("coverage check did not fail for the synthetic classifier consent: %v", problems)
 	}
 }
 

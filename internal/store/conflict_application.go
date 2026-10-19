@@ -16,7 +16,7 @@ import (
 
 // WorkConflictApplied records one applied conflict rule as an event-only
 // record in domain_events (CD-0230 D3). It is settlement evidence: it names
-// the rule, the model-owned size it was applied against, and the outcome. It
+// the rule, the effective size it was applied against, and the outcome. It
 // grants no approval, law authority, verification result, or permission to
 // execute a blocked action, and it never advances the work version or writes
 // a projection.
@@ -58,10 +58,6 @@ const (
 
 var conflictSourceHashShape = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
-func workSizeStored(size WorkSize) bool {
-	return size == WorkSizeSmall || size == WorkSizeLarger || size == WorkSizeCrucial
-}
-
 // validateWorkConflictAppliedPayload is the frozen v1 semantic validator. It
 // holds every field required, nonblank, and inside its bound, and never
 // consults the current generated table, so a later table or goals change
@@ -83,7 +79,7 @@ func validateWorkConflictAppliedPayload(_ Event, p ConflictApplication) error {
 		return invalid("size assessment sequence must be positive")
 	case p.ModelVersion < 1:
 		return invalid("size model version must be positive")
-	case !workSizeStored(p.Size):
+	case !validWorkSize(p.Size):
 		return invalid(fmt.Sprintf("size %q is outside the stored size vocabulary", p.Size))
 	case strings.TrimSpace(p.Outcome) == "":
 		return invalid("outcome is blank")
@@ -97,11 +93,11 @@ func validateWorkConflictAppliedPayload(_ Event, p ConflictApplication) error {
 	return nil
 }
 
-// foldWorkConflictApplied rechecks only the frozen payload: its closed shape
-// (the registered validator) and its size and model version against the exact
-// referenced size assessment at this event position. It never consults the
-// current generated table or the latest assessment, writes no projection, and
-// does not advance the work version.
+// foldWorkConflictApplied checks the payload against the size projection at
+// this event position, including the operator override when present. Rebuild
+// folds the prefix in order, so later sizes cannot rewrite the historical
+// record. It never consults the current rule table, writes a projection, or
+// advances the work version.
 func foldWorkConflictApplied(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
@@ -110,23 +106,20 @@ func foldWorkConflictApplied(ctx context.Context, tx *sql.Tx, event Event) error
 	if err := decodePayload(event, &p); err != nil {
 		return err
 	}
-	var modelVersion int
-	var size string
-	err := tx.QueryRowContext(ctx,
-		`SELECT model_version, size_class FROM work_size_assessments WHERE work_id=? AND sequence=?`,
-		event.SubjectID, p.SizeAssessmentSequence).Scan(&modelVersion, &size)
-	if err == sql.ErrNoRows {
+	decision, sized, err := readEffectiveWorkSize(ctx, tx, event.SubjectID)
+	if err != nil {
+		return err
+	}
+	if !sized || p.SizeAssessmentSequence > decision.Model.Sequence {
 		return newFailure(KindProjectionNotFound, "fold_event",
 			fmt.Sprintf("event %s references size assessment sequence %d, which is not recorded for work %s", event.EventID, p.SizeAssessmentSequence, event.SubjectID),
 			false, "reference a recorded size assessment for this work item")
-	} else if err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot read the referenced size assessment", true, "retry once the database is readable", err)
 	}
-	if modelVersion != p.ModelVersion || size != string(p.Size) {
+	if decision.Model.Sequence != p.SizeAssessmentSequence || decision.Model.ModelVersion != p.ModelVersion || decision.Effective != p.Size {
 		return newFailure(KindInvariantViolation, "fold_event",
-			fmt.Sprintf("event %s claims model version %d size %q, but the referenced assessment sequence %d recorded model version %d size %q",
-				event.EventID, p.ModelVersion, p.Size, p.SizeAssessmentSequence, modelVersion, size),
-			false, "record the size the referenced assessment carries")
+			fmt.Sprintf("event %s claims assessment sequence %d model version %d size %q, but this event position has assessment sequence %d model version %d effective size %q",
+				event.EventID, p.SizeAssessmentSequence, p.ModelVersion, p.Size, decision.Model.Sequence, decision.Model.ModelVersion, decision.Effective),
+			false, "record the effective size at this event position")
 	}
 	return nil
 }
@@ -195,7 +188,7 @@ func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, 
 	if !validConflictRuleID(request.RuleID) {
 		return nil, newFailure(KindInvalidPayload, op, fmt.Sprintf("rule ID %q is not in the checked conflict-rule table", request.RuleID), false, "record a rule the checked table carries")
 	}
-	record, sized, err := readWorkSize(ctx, tx, request.WorkID)
+	decision, sized, err := readEffectiveWorkSize(ctx, tx, request.WorkID)
 	if err != nil {
 		return nil, err
 	}
@@ -204,13 +197,14 @@ func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, 
 			fmt.Sprintf("work %s carries no recorded size; conflict applications refuse without effects until it is sized", request.WorkID),
 			false, "size the work item through its sizing route first")
 	}
+	record := decision.Model
 	application := ConflictApplication{
 		RuleID:                 request.RuleID,
 		RuleSourceHash:         conflictRuleSourceHash,
 		CatalogGeneration:      conflictRuleCatalogGeneration,
 		SizeAssessmentSequence: record.Sequence,
 		ModelVersion:           record.ModelVersion,
-		Size:                   record.Size,
+		Size:                   decision.Effective,
 		Outcome:                request.Outcome,
 		SettlementRef:          request.SettlementRef,
 	}

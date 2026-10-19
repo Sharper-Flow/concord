@@ -564,7 +564,7 @@ type WorkerJobRevisionView struct {
 // coordinator readiness is asserted ready with evidence, its unresolved
 // references are empty, and every exact prerequisite revision is recorded and
 // satisfied — pinned, when the prerequisite names a result reference, to the
-// exact recorded acceptance that satisfied it.
+// exact recorded acceptance or split discharge that satisfied it.
 const workerJobReadyPredicate = `j.state='recorded'
   AND j.revision=(SELECT MAX(latest.revision) FROM worker_job_revisions latest WHERE latest.work_id=j.work_id AND latest.job_id=j.job_id)
   AND j.contract_version=(SELECT MAX(contract.contract_version) FROM workflow_contracts contract WHERE contract.work_id=j.work_id AND contract.superseded_by IS NULL)
@@ -578,7 +578,14 @@ const workerJobReadyPredicate = `j.state='recorded'
         AND satisfied.revision=json_extract(prerequisite.value,'$.revision')
         AND satisfied.state='satisfied'
         AND (COALESCE(json_extract(prerequisite.value,'$.result_ref'),'')=''
-          OR COALESCE(json_extract(prerequisite.value,'$.result_ref'),'')=COALESCE(satisfied.satisfied_result_ref,''))))`
+          OR COALESCE(json_extract(prerequisite.value,'$.result_ref'),'')=COALESCE(satisfied.satisfied_result_ref,'')))
+      AND NOT EXISTS (SELECT 1 FROM domain_events discharged
+        WHERE discharged.subject_type='work_item' AND discharged.subject_id=j.work_id
+          AND discharged.kind='worker.job_split_discharged'
+          AND json_extract(discharged.payload,'$.predecessor.job_id')=json_extract(prerequisite.value,'$.job_id')
+          AND json_extract(discharged.payload,'$.predecessor.revision')=json_extract(prerequisite.value,'$.revision')
+          AND (COALESCE(json_extract(prerequisite.value,'$.result_ref'),'')=''
+            OR json_extract(prerequisite.value,'$.result_ref')=discharged.event_id)))`
 
 // readWorkerJobRevisions reads every recorded revision of the work, in job
 // and revision order, with the derived readiness of each. The oracle member

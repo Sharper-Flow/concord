@@ -1868,6 +1868,15 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 			completionValues["worker_caller_exclusions"] = exclusions
 		}
 	}
+	// CD-0225 D3: an escalated dispatch funded by a split_leaf_progress
+	// acceptance targets one never-dispatched required sibling of the
+	// accepted leaf's lineage. The folded admission carries the basis; the
+	// guard binds the packet's job to the funding the log still supplies.
+	if in.admission != nil && in.admission.RetryConvergence.Basis == workflowSplitLeafProgressBasis {
+		if err := admitWorkerJobSplitProgressDispatchTx(in.ctx, in.tx, in.request.WorkID, in.admission.RetryConvergence, job); err != nil {
+			return err
+		}
+	}
 	// Revalidate the sealed pre-transaction preparation with SQL only,
 	// including the accepted implementation subject for a review dispatch.
 	if err := admitWorkerDispatchSubjectFreshness(in.ctx, in.tx, in.request, in.entry.Definition, lane, admittedContext); err != nil {

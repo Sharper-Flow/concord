@@ -34,7 +34,8 @@ func workflowRetryConvergenceFailure(state WorkflowAdmissionState) *Failure {
 
 // workflowRetryConvergence derives a basis rather than trusting a caller's
 // assessment. The latest dispatch consumes its basis, including an authorized
-// dispatch whose host worker never materialized.
+// dispatch whose host worker never materialized. A split_leaf_progress basis
+// is consumed by the one sibling dispatch the accepted leaf funds.
 func workflowRetryConvergence(ctx context.Context, q queryer, workID, stepID string) (WorkflowRetryConvergence, error) {
 	var lastDispatch, superseded int64
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker'`, string(SubjectWorkItem), workID, WorkflowActionCompleted).Scan(&lastDispatch); err != nil {
@@ -45,6 +46,10 @@ func workflowRetryConvergence(ctx context.Context, q queryer, workID, stepID str
 	}
 	if superseded != 0 {
 		return WorkflowRetryConvergence{Basis: "approach_changed", SupersededSeq: superseded}, nil
+	}
+	progress, progressErr := workflowSplitLeafProgressConvergenceTx(ctx, q, workID, lastDispatch)
+	if progressErr != nil || progress.Basis != "" {
+		return progress, progressErr
 	}
 	history, err := workflowCorrectionWalk(ctx, q, workID, int64(1)<<62, "worker_convergence")
 	if err != nil || len(history.records) == 0 {
@@ -216,6 +221,11 @@ func (c WorkflowRetryConvergence) valid() bool {
 		return c.SupersededSeq > 0 && c.PreviousRecordSeq == 0 && c.LatestRecordSeq == 0 && c.HostPID == 0 && c.HostPIDStart == 0
 	case "host_changed":
 		return c.LatestRecordSeq > 0 && c.PreviousRecordSeq == 0 && c.SupersededSeq == 0 && c.HostPID > 0 && c.HostPIDStart > 0
+	case workflowSplitLeafProgressBasis:
+		// The funding acceptance's sequence is the exact reference the
+		// dispatch consumes; no supersession, host identity, or second
+		// record rides this basis.
+		return c.LatestRecordSeq > 0 && c.PreviousRecordSeq == 0 && c.SupersededSeq == 0 && c.HostPID == 0 && c.HostPIDStart == 0
 	}
 	return false
 }

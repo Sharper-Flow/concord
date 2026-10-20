@@ -342,6 +342,8 @@ jobs:
         run: python3 scripts/check-package-domains.py
       - name: Test legislative reference grammar and defaults
         run: python3 scripts/test-knowledge-authority.py
+      - name: Test census resource admission
+        run: python3 scripts/test-release-restore-census.py
       - name: Test release and installer tooling
         env:
           OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache

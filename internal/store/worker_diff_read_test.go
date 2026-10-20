@@ -327,3 +327,70 @@ func TestReadWorkerDiffCorrectionSupersessionKeepsPredecessorBase(t *testing.T) 
 		t.Fatalf("correction supersession lost the predecessor editing base: %+v %s", page, page.Data)
 	}
 }
+
+// A failed review retry between two correction supersessions is not editing
+// history: the retry's own dispatch must not qualify the newer supersession
+// as a boundary with editing work under it, or the retry re-orphans the
+// window the boundary fallback just repaired — the exact sequence a review
+// escalation forces (supersede for the dispatch basis, review fails,
+// supersede again, review retries).
+func TestReadWorkerDiffReviewRetryDoesNotResetEditingBase(t *testing.T) {
+	j, base := descendantReviewFixture(t, "diff-review-retry-base")
+	workerDiffCommit(t, j, "first", "delivered change\n")
+	reviewSubjectImplementComplete(t, j.fixture, "correction-editor", "correction-completed", true)
+	reviewSubjectAccept(t, j.s, j.workID, "correction-editor")
+	head := workerDiffCommit(t, j, "second", "delivered change\nmore delivered change\n")
+	reviewSubjectSupersedeContract(t, j.s, j.workID)
+	first := workerDiffDispatch(t, j, "review-first")
+	if page, err := j.s.ReadWorkerDiff(context.Background(), first); err != nil || page.BaseCommit != base || page.SubjectCommit != head {
+		t.Fatalf("first review after the supersession lost its base: %+v %v", page, err)
+	}
+	// The first review attempt ends without new editing work; the
+	// correction machinery forces a second supersession before the retry
+	// dispatches. The retry's own dispatch must not qualify the newer
+	// supersession, and neither must the first review's.
+	workerDiffSecondSupersede(t, j.s, j.workID)
+	retry := workerDiffDispatch(t, j, "review-retry")
+	page, err := j.s.ReadWorkerDiff(context.Background(), retry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.BaseCommit != base || page.SubjectCommit != head || !bytes.Contains(page.Data, []byte("+delivered change\n")) {
+		t.Fatalf("review retry re-orphaned the editing base: %+v %s", page, page.Data)
+	}
+}
+
+
+// workerDiffSecondSupersede records the fixture's second contract
+// supersession (v2 -> v3) with its own event identity, for sequences that
+// exercise the correction machinery's repeated basis supersessions.
+func workerDiffSecondSupersede(t *testing.T, s *Store, workID string) {
+	t.Helper()
+	version := readWorkVersion(t, s, workID)
+	ownerRef, err := WorkflowActorRef(WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"previous_contract_version": 2, "new_contract_version": 3,
+		"supersede_reason":          "the correction window forces a fresh basis supersession before the review retry",
+		"audit_evidence":            []string{"evidence:review-subject-supersede-2"},
+		"successor_contract": map[string]any{
+			"contract_version": 3, "premise": "deliver the checked change under the third contract", "outcome_kind": "check",
+			"outcome_predicates": []map[string]any{{"predicate_id": "predicate:review-subject", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:review-subject", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}}},
+			"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
+			"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+			"architecture_binding": WorkflowArchitectureBinding{
+				DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
+				DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
+			},
+		},
+	}
+	event := workflowEventWithActor("review-supersede-2-"+workID, WorkflowContractSuperseded, workID, ownerRef, payload)
+	event.PayloadVersion = 1
+	event = withPinnedDecisionFact(t, pinnedWorkflowDefinitionForTest(t, s, workID), event)
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatalf("supersede contract v2: %v", err)
+	}
+}

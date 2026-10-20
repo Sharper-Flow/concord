@@ -418,6 +418,14 @@ func TestAdaptRoute(t *testing.T) {
 	mutated := analyzeFixture(t, mutation{store, "func upcastB2(event Event) (Event, error) {\n\tevent.PayloadVersion = 3\n\treturn event, nil\n}", "func upcastB2(event Event) (Event, error) {\n\tevent.PayloadVersion = 3\n\tevent.Payload = nil\n\treturn event, nil\n}"})
 	if mutated.Adapt == nil || slices.Equal(mutated.Adapt.Values, route.Values) {
 		t.Fatalf("a mutated adapt value must change the pinned digests: %+v", mutated.Adapt)
+		elided := analyzeFixture(t, mutation{store, "RecordedSchemas map[int][]recordedPayloadSchema", "RecordedSchemas map[int][]*recordedPayloadSchema"}, mutation{store, "RecordedSchemas: map[int][]recordedPayloadSchema{", "RecordedSchemas: map[int][]*recordedPayloadSchema{"})
+		if elided.Adapt == nil || !slices.Equal(elided.Adapt.Values, route.Values) {
+			t.Fatalf("an elided &recordedPayloadSchema literal must pin its adapt value: %+v", elided.Adapt)
+		}
+		delegating := analyzeFixture(t, mutation{store, "func upcastB2(event Event) (Event, error) {\n\tevent.PayloadVersion = 3\n\treturn event, nil\n}", "func upcastB2(event Event) (Event, error) {\n\treturn adaptDelegate(event)\n}\n\nfunc adaptDelegate(event Event) (Event, error) {\n\tevent.PayloadVersion = 3\n\treturn event, nil\n}"})
+		if delegating.Adapt == nil || !slices.ContainsFunc(delegating.Adapt.Values, func(v namedHash) bool { return v.Function == storePkg+".adaptDelegate" }) {
+			t.Fatalf("a value that delegates its event must pin its callee: %+v", delegating.Adapt)
+		}
 	}
 	// tail replaces prepareRecordedEvent's adapt tail; escape runs between
 	// the adapt assignment and the forwarder call.
@@ -438,6 +446,8 @@ func TestAdaptRoute(t *testing.T) {
 		"adapt result in a loop": {mutation{store, "\tif schemas := registration.RecordedSchemas[event.PayloadVersion]; len(schemas) != 0 {", "\tif schemas := registration.RecordedSchemas[event.PayloadVersion]; len(schemas) != 0 {\n\tfor i := 0; i < 1; i++ {"}, mutation{store, "\t\t}\n\t}\n\treturn prepareEventWithRegistration(event, registration)\n}", "\t\t}\n\t\t}\n\t}\n\treturn prepareEventWithRegistration(event, registration)\n}"}},
 		"adapt target captured":  {mutation{store, "\t\tevent, err = schemas[selected].adapt(event)", "\t\tcapture = func() { _ = event }\n\t\tevent, err = schemas[selected].adapt(event)"}, mutation{store, "func ReadEvent(", "var capture func()\n\nfunc ReadEvent("}},
 		"adapt field handed on":  {mutation{store, "func ReadEvent(", "func handAdapt(adapt func(Event) (Event, error), event Event) (Event, error) { return adapt(event) }\n\nfunc ReadEvent("}, handAdapt},
+		"adapt value a literal":  {mutation{store, "adapt: upcastB2}", "adapt: func(event Event) (Event, error) { return event, nil }}"}},
+		"adapt value a variable": {mutation{store, "adapt: upcastB2}", "adapt: heldAdapt}"}, mutation{store, "func ReadEvent(", "var heldAdapt = upcastB2\n\nfunc ReadEvent("}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if analysis := analyzeFixture(t, mutations...); analysis.Adapt != nil {

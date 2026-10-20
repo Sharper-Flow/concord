@@ -102,10 +102,12 @@ type namedHash struct {
 
 // adaptRoute names the one function that calls the recorded-schema adapt
 // field, the forwarders its result passes through, and every function the
-// registry's schema literals name as an adapt value, when the analysis
+// registry's schema literals name as an adapt value together with every
+// static callee of one whose result holds an Event, when the analysis
 // proves every adapt result reaches only the upcast dispatcher. The value
-// digests pin what an adapt can do to an event; a changed adapt function
-// changes a digest and refuses every adapt-keyed entry.
+// digests pin what an adapt can do to an event; a changed adapt function,
+// or a changed function an adapt delegates its event to, changes a digest
+// and refuses every adapt-keyed entry.
 type adaptRoute struct {
 	Function       string      `json:"function"`
 	FunctionDigest string      `json:"function_digest"`
@@ -258,6 +260,7 @@ type analyzer struct {
 	captured   map[types.Object]bool
 	formals    map[types.Object]formal
 	funcs      map[string]*function
+	funcNames  map[*function]string
 	callees    map[*ast.Ident]bool
 	dynamic    map[string]bool
 	registry   types.Object
@@ -273,9 +276,9 @@ type analyzer struct {
 	dispatcher    *upcastDispatcher
 	// adaptField is recordedPayloadSchema's adapt func field; adaptCalls the
 	// top-level declarations that call it, adaptEscapes how often the field
-	// is mentioned anywhere else but a call or a nil comparison, and
-	// adaptValues the function identifiers the registry's schema literals
-	// name as adapt values.
+	// is mentioned anywhere else but a call or a nil comparison or a schema
+	// literal sets it to anything but an identifier, and adaptValues the
+	// identifiers the schema literals name as adapt values.
 	adaptField   *types.Var
 	adaptCalls   map[ast.Decl]*checkedPackage
 	adaptValues  map[*ast.Ident]bool
@@ -385,6 +388,7 @@ func analyzeWritersIn(dir string) (writerAnalysis, error) {
 	a.params, a.typeArgs = map[*types.TypeParam]string{}, map[string][]types.Type{}
 	a.assigns, a.declared, a.unknown, a.writes = map[types.Object][]assignment{}, map[types.Object]bool{}, map[types.Object]bool{}, map[string]bool{}
 	a.captured, a.formals, a.funcs, a.callees, a.dynamic = map[types.Object]bool{}, map[types.Object]formal{}, map[string]*function{}, map[*ast.Ident]bool{}, map[string]bool{}
+	a.funcNames = map[*function]string{}
 	a.upcastValues, a.upcasterExprs, a.upcasterCalls = map[*ast.Ident]bool{}, map[ast.Decl]*checkedPackage{}, map[ast.Decl]*checkedPackage{}
 	a.adaptCalls, a.adaptValues = map[ast.Decl]*checkedPackage{}, map[*ast.Ident]bool{}
 	if schema, ok := store.types.Scope().Lookup("recordedPayloadSchema").(*types.TypeName); ok {
@@ -492,20 +496,29 @@ func (a *analyzer) index(p *checkedPackage) {
 					a.markUnknown(p, e)
 				}
 			case *ast.CompositeLit:
-				if a.adaptField != nil && a.isNamed(p.info.Types[v].Type, "recordedPayloadSchema") {
-					fields := p.info.Types[v].Type.Underlying().(*types.Struct)
+				typ := p.info.Types[v].Type
+				if pointer, ok := typ.(*types.Pointer); ok {
+					typ = pointer.Elem()
+				}
+				if a.adaptField != nil && a.isNamed(typ, "recordedPayloadSchema") {
+					fields := typ.Underlying().(*types.Struct)
 					for i, element := range v.Elts {
-						at := -1
+						adapt := false
 						if pair, ok := element.(*ast.KeyValueExpr); ok {
 							element = pair.Value
 							if key, ok := pair.Key.(*ast.Ident); ok && key.Name == "adapt" {
-								at = 0
+								adapt = true
 							}
 						} else if i < fields.NumFields() && fields.Field(i) == a.adaptField {
-							at = 0
+							adapt = true
 						}
-						if id, ok := ast.Unparen(element).(*ast.Ident); ok && at == 0 {
+						if !adapt {
+							continue
+						}
+						if id, ok := ast.Unparen(element).(*ast.Ident); ok {
 							a.adaptValues[id] = true
+						} else {
+							a.adaptEscapes++
 						}
 					}
 				}
@@ -520,6 +533,7 @@ func (a *analyzer) function(f *types.Func) *function {
 	name := f.Origin().FullName()
 	if a.funcs[name] == nil {
 		a.funcs[name] = &function{}
+		a.funcNames[a.funcs[name]] = name
 	}
 	return a.funcs[name]
 }
@@ -1278,20 +1292,57 @@ func (a *analyzer) adaptRoute() *adaptRoute {
 		route.Forwarders = append(route.Forwarders, forwarder)
 	}
 	slices.SortFunc(route.Forwarders, func(x, y namedHash) int { return strings.Compare(x.Function, y.Function) })
-	seen := map[string]bool{}
-	for id := range a.adaptValues {
-		f, ok := p.info.Uses[id].(*types.Func)
-		if !ok {
-			return nil
+	// outbound lists, per function name, the static calls its declaration
+	// makes, read once from the index's inbound call records.
+	outbound := map[string][]*ast.CallExpr{}
+	for _, fn := range a.funcs {
+		if fn == nil {
+			continue
 		}
-		target := a.funcs[f.Origin().FullName()]
+		for _, site := range fn.calls {
+			if site.caller != nil {
+				outbound[a.funcNames[site.caller]] = append(outbound[a.funcNames[site.caller]], site.call)
+			}
+		}
+	}
+	// pin records one function in the value set and follows its static
+	// callees: an adapt value's event can come from a callee, so every
+	// callee whose result holds an Event is pinned too, recursively. What
+	// the adapt does to an event stays bound by a digest or the route
+	// refuses.
+	seen := map[string]bool{}
+	var pin func(string) bool
+	pin = func(name string) bool {
+		target := a.funcs[name]
 		if target == nil || target.decl == nil {
-			return nil
+			return false
 		}
 		valueName, valueDigest := a.declName(target.pkg, target.decl)
-		if !seen[valueName+"\x00"+valueDigest] {
-			seen[valueName+"\x00"+valueDigest] = true
-			route.Values = append(route.Values, namedHash{valueName, valueDigest})
+		if seen[valueName+"\x00"+valueDigest] {
+			return true
+		}
+		seen[valueName+"\x00"+valueDigest] = true
+		route.Values = append(route.Values, namedHash{valueName, valueDigest})
+		for _, call := range outbound[name] {
+			callee, ok := target.pkg.info.Uses[calleeIdent(call.Fun)].(*types.Func)
+			if !ok {
+				return false
+			}
+			results := callee.Origin().Signature().Results()
+			reaches := false
+			for i := range results.Len() {
+				reaches = reaches || a.isEvent(results.At(i).Type()) || a.holdsEvent(results.At(i).Type(), map[types.Type]bool{})
+			}
+			if reaches && !pin(callee.Origin().FullName()) {
+				return false
+			}
+		}
+		return true
+	}
+	for id := range a.adaptValues {
+		f, ok := p.info.Uses[id].(*types.Func)
+		if !ok || !pin(f.Origin().FullName()) {
+			return nil
 		}
 	}
 	slices.SortFunc(route.Values, func(x, y namedHash) int { return strings.Compare(x.Function, y.Function) })

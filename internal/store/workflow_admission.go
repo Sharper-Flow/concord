@@ -1008,6 +1008,9 @@ func workflowAdmitStepRefused(definition WorkflowDefinition, state WorkflowAdmis
 // evidence-binding recoveries stay guard checks beside the payloads they
 // read; this answer is the route the state proves.
 func workflowAdmissionStepAllows(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string) bool {
+	if actionID == "accept_worker_evidence" && workflowRefineReviewEvidenceStep(definition, state.Step) {
+		return state.RefineReviewEvidenceAttemptID != ""
+	}
 	if definitionStepAllows(definition, state.Step, actionID) {
 		return true
 	}

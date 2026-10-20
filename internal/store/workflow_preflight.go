@@ -345,7 +345,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		if fieldsErr != nil {
 			return RegisteredDefinition{}, fieldsErr
 		}
-		if request.ActionID == "accept_worker_evidence" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+		if request.ActionID == "accept_worker_evidence" && (!definitionStepAllows(entry.Definition, currentStep, request.ActionID) || workflowRefineReviewEvidenceStep(entry.Definition, currentStep)) {
 			if err := validateRefineReviewEvidenceDisposition(ctx, tx, request.WorkID, entry.Definition, currentStep, fields, "workflow_action_preflight", 0); err != nil {
 				return RegisteredDefinition{}, err
 			}

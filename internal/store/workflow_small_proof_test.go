@@ -2,6 +2,9 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -89,6 +92,7 @@ func TestSmallReviewDebtAdmissionKeepsRepairAndReviewRoutes(t *testing.T) {
 		state := WorkflowAdmissionState{
 			Step: step, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding,
 			ActiveContracts: 1, ConfirmationAuthority: WorkflowConfirmationCoordinator, CorrectionRequestRecovery: true,
+			RefineReviewEvidenceAttemptID: "review-ready",
 		}
 		action := "confirm_premise"
 		if step == "release" {
@@ -227,4 +231,139 @@ func TestSmallReviewEvidenceUsesTheDispositionOwner(t *testing.T) {
 			t.Fatalf("exact review disposition at small %s = %v; want %v", step, got, want)
 		}
 	}
+}
+
+// The sizing/contract and step walker seed prerequisites; dispatch, worker
+// completion and disposition use the existing native mutation seams. Oracle
+// preparation fixtures make no execution claim. This tests disposition, not
+// whole-item proof acceptance.
+func smallReviewDispositionJourney(t *testing.T, workID string) *candidateJourney {
+	t.Helper()
+	s, definition := footprintBindingItem(t, workID, true)
+	owner := WorkflowActor{PrincipalRef: "principal/agent", ClientRef: "client/concord", AgentRef: "agent/size", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	events, err := footprintBindingApproval(t, s, definition, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appendFootprintBindingEvents(s, workID, readWorkVersion(t, s, workID), events); err != nil {
+		t.Fatal(err)
+	}
+	if err := advanceWorkflowTestInstanceToStep(context.Background(), s, workID, "execution", footprintBindingActorRef(t, workID)); err != nil {
+		t.Fatal(err)
+	}
+	dir, _ := reviewSubjectClaim(t, s, workID)
+	var branch string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND project_id='project'`, WorktreeSetID(workID)).Scan(&branch); err != nil {
+		t.Fatal(err)
+	}
+	gitRunStore(t, dir, "branch", "-m", branch)
+	j := &candidateJourney{s: s, workID: workID, repo: dir, fixture: workContextFixture{store: s, workID: workID, owner: owner}}
+	job := WorkerJobBinding{JobID: "job:small-disposition"}
+	recordWorkerJobRevisionForTest(t, s, workID, owner, &job)
+	j.dispatchJob(t, "small-implementation", "implement", "implementation", job)
+	if err := os.MkdirAll(filepath.Join(dir, "internal/store"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "internal/store/value.txt"), []byte("bounded candidate\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	j.commit(t, "worker@example.invalid", "deliver the bounded candidate")
+	j.completeLane(t, "small-implementation", "implementation", &job, nil)
+	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": "small-implementation", "attempt_epoch": j.dispatchEpoch(t, "small-implementation")}, owner); err != nil {
+		t.Fatalf("accept native implementation: %v", err)
+	}
+	verify := j.request("small-integration", nil)
+	run, err := s.VerifyWorktree(context.Background(), verify)
+	if err != nil || run.ExitCode != 0 {
+		t.Fatalf("verify integration: %+v, %v", run, err)
+	}
+	if err := j.action(t, "bind_evidence", map[string]string{
+		"evidence_kind": "verification", "evidence_ref": run.OperationRef, "immutable_subject_ref": run.OperationRef,
+		"producer_id": verify.PrincipalRef, "producer_run_ref": run.OperationRef, "producer_watermark": verify.RequestID,
+	}, owner); err != nil {
+		t.Fatalf("bind native integration: %v", err)
+	}
+	if err := j.action(t, "record_delivery", map[string]string{"delivery_artifact": "artifact:small-candidate", "delivery_state": "asserted"}, owner); err != nil {
+		t.Fatalf("deliver native implementation: %v", err)
+	}
+	reviewGateRequireStep(t, s, workID, "acceptance")
+	j.dispatchReview(t, "small-review")
+	j.completeLane(t, "small-review", "review", nil, nil)
+	return j
+}
+
+func TestSmallReviewDispositionRefusesTheWrongEpoch(t *testing.T) {
+	j := smallReviewDispositionJourney(t, "small-review-disposition")
+	payload := mustJSONValue(map[string]any{"attempt_id": "small-review", "attempt_epoch": j.dispatchEpoch(t, "small-review") + 1})
+	version := readWorkVersion(t, j.s, j.workID)
+	if err := WorkflowActionPreflightWithRegistry(context.Background(), j.s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
+		WorkID: j.workID, ExpectedVersion: version, ActionID: "accept_worker_evidence", Payload: json.RawMessage(payload), Actor: j.fixture.owner,
+	}); err == nil {
+		t.Error("preflight admitted a review under the wrong epoch")
+	}
+	if err := runVerdictActionAs(t, j.s, j.workID, "accept_worker_evidence", payload, 0, j.fixture.owner); err == nil {
+		t.Error("direct action accepted a review under the wrong epoch")
+	}
+	if got := readWorkVersion(t, j.s, j.workID); got != version {
+		t.Errorf("refused review disposition changed version %d to %d", version, got)
+	}
+}
+
+func TestSmallReviewDispositionTracksTheCurrentNativeAttempt(t *testing.T) {
+	j := smallReviewDispositionJourney(t, "small-current-review")
+	ctx := context.Background()
+	ownerRef := footprintBindingActorRef(t, j.workID)
+	foldDisposition := func(id, attempt string, epoch int64) error {
+		version := readWorkVersion(t, j.s, j.workID)
+		event := workflowEventWithActor(id, WorkflowActionCompleted, j.workID, ownerRef, map[string]any{
+			"work_id": j.workID, "expected_version": version, "resulting_version": version + 1,
+			"step_id": "acceptance", "action_id": "accept_worker_evidence", "attempt_epoch": epoch,
+			"worker_attempt_id": attempt, "actor_ref": ownerRef, "result_evidence_refs": []string{}, "changed_refs": []string{},
+		})
+		event.PayloadVersion = 5
+		return appendFootprintBindingEvents(j.s, j.workID, version, []Event{event})
+	}
+	pin, err := ReadWorkPin(ctx, j.s, j.workID)
+	if err != nil || !workPinContainsAction(pin.NextValidIntents, "accept_worker_evidence") {
+		t.Fatalf("current native review is not offered: %+v, %v", pin.NextValidIntents, err)
+	}
+	if err := j.acceptEvidence(t, "small-review"); err != nil {
+		t.Fatalf("accept the exact current native review: %v", err)
+	}
+	version := readWorkVersion(t, j.s, j.workID)
+	if err := j.acceptEvidence(t, "small-review"); err == nil {
+		t.Error("the same native review was accepted twice")
+	}
+	if got := readWorkVersion(t, j.s, j.workID); got != version {
+		t.Errorf("repeated disposition changed version %d to %d", version, got)
+	}
+	if err := foldDisposition("small-repeat-review-disposition", "small-review", j.dispatchEpoch(t, "small-review")); err == nil || !strings.Contains(err.Error(), "current undispositioned completed review") {
+		t.Errorf("the raw fold did not reject the repeated native review: %v", err)
+	}
+	if got := readWorkVersion(t, j.s, j.workID); got != version {
+		t.Errorf("raw repeated disposition changed version %d to %d", version, got)
+	}
+	pin, err = ReadWorkPin(ctx, j.s, j.workID)
+	if err != nil || workPinContainsAction(pin.NextValidIntents, "accept_worker_evidence") {
+		t.Errorf("disposed review remains offered: %+v, %v", pin.NextValidIntents, err)
+	}
+	if !workPinContainsAction(pin.NextValidIntents, "dispatch_worker") {
+		t.Error("review disposition closed the fresh-review route")
+	}
+	j.dispatchReview(t, "small-review-fresh")
+	j.completeLane(t, "small-review-fresh", "review", nil, nil)
+	version = readWorkVersion(t, j.s, j.workID)
+	if err := foldDisposition("small-old-review-disposition", "small-review", j.dispatchEpoch(t, "small-review-fresh")); err == nil || !strings.Contains(err.Error(), "current undispositioned completed review") {
+		t.Errorf("the raw fold did not enforce the current native review: %v", err)
+	}
+	if got := readWorkVersion(t, j.s, j.workID); got != version {
+		t.Errorf("refused raw disposition changed version %d to %d", version, got)
+	}
+	if err := j.acceptEvidence(t, "small-review-fresh"); err != nil {
+		t.Fatalf("accept the fresh native review: %v", err)
+	}
+	if err := RebuildFromLog(ctx, j.s); err != nil {
+		t.Fatalf("rebuild the accepted native review sequence: %v", err)
+	}
+	reviewGateRequireStep(t, j.s, j.workID, "acceptance")
 }

@@ -981,7 +981,7 @@ func guardAcceptWorkerEvidenceRoute(g *workflowActionGuardContext) error {
 	if workflowAcceptCarriesDeliveryAssertion(fields) {
 		return newFailure(KindInvalidPayload, "workflow_action", "review evidence acceptance cannot carry delivery fields", false, "assert delivery through the declared delivery route")
 	}
-	if definitionStepAllows(g.entry.Definition, g.currentStep, "accept_worker_evidence") {
+	if definitionStepAllows(g.entry.Definition, g.currentStep, "accept_worker_evidence") && !workflowRefineReviewEvidenceStep(g.entry.Definition, g.currentStep) {
 		return nil
 	}
 	return validateRefineReviewEvidenceDisposition(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, fields, "workflow_action", 0)

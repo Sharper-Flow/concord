@@ -3415,7 +3415,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	// record first, and the pair identity — not the admitting route — is
 	// what the skip keys on.
 	derivedPair := false
-	if !allowed && payload.ActionID == "accept_worker_evidence" {
+	if (!allowed || workflowRefineReviewEvidenceStep(definition, currentStep)) && payload.ActionID == "accept_worker_evidence" {
 		if err := validateRefineReviewEvidenceAttempt(ctx, tx, event.SubjectID, definition, currentStep, payload.WorkerAttemptID, payload.AttemptEpoch, "fold_event", event.Seq); err != nil {
 			return err
 		}

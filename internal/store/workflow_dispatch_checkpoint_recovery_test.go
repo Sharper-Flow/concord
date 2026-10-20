@@ -466,7 +466,7 @@ func walledResearchAssertRefused(t *testing.T, f crossAttemptFixture, err error,
 	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
 		t.Fatalf("%s = %v, want the convergence wall's missing-evidence refusal", stage, err)
 	}
-	if !strings.Contains(failure.Detail, "4 non-progress attempts since the last accepted productive result") || !strings.Contains(failure.Detail, "(step "+f.step+")") {
+	if !strings.Contains(failure.Detail, "4 non-progress attempts since the applicable nonprogress anchor") || !strings.Contains(failure.Detail, "(step "+f.step+")") {
 		t.Fatalf("%s refusal detail = %q, want the counted population at the walled step", stage, failure.Detail)
 	}
 	if after := walledResearchReadCounters(t, f); after != before {

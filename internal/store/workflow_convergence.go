@@ -22,14 +22,33 @@ func (s WorkflowAdmissionState) retryEscalated() bool {
 	return s.CorrectionEscalated || s.NonProgressAttempts >= workflowCorrectionAttemptLimit
 }
 
-func workflowRetryConvergenceFailure(state WorkflowAdmissionState) *Failure {
+// workflowRetryConvergenceFailure is the dispatch wall's typed refusal
+// (CD-0164 D5). It names which populations stand at their limits — the
+// correction window, the whole-work nonprogress population, or both — and
+// separates a one-use basis or funded review from a renewed window. The
+// nonprogress count runs since the applicable nonprogress anchor, which the
+// obligation-satisfaction policy renews from a qualified coordinator
+// satisfaction as well as a satisfying worker acceptance (CD-0164 D2a); the
+// two populations keep their own comparators (D4); and the host_changed
+// allowance stays one per worker-satisfaction window under both policies.
+func workflowRetryConvergenceFailure(definition WorkflowDefinition, state WorkflowAdmissionState) *Failure {
 	detail := "worker correction reached the three-attempt limit without a convergence basis"
-	if state.NonProgressAttempts >= workflowCorrectionAttemptLimit {
-		detail += fmt.Sprintf(": %d non-progress attempts since the last accepted productive result (step %s)", state.NonProgressAttempts, state.Step)
+	nonprogress := state.NonProgressAttempts >= workflowCorrectionAttemptLimit
+	switch {
+	case state.CorrectionEscalated && nonprogress:
+		detail += fmt.Sprintf(": both populations block the dispatch — %d non-progress attempts since the applicable nonprogress anchor (step %s), and the correction window sits at its escalation threshold", state.NonProgressAttempts, state.Step)
+	case state.CorrectionEscalated:
+		detail += ": the correction window sits at its escalation threshold"
+	default:
+		detail += fmt.Sprintf(": %d non-progress attempts since the applicable nonprogress anchor (step %s)", state.NonProgressAttempts, state.Step)
 	}
-	detail += ". Host recovery applies only to an eligible recorded host execution failure and an unused host basis in this nonprogress window: repair the fault, restart the host more than one minute after the failure, resume the item, then retry once"
+	renewal := "a satisfying worker acceptance"
+	if definition.ProgressPolicy == WorkflowProgressPolicyObligationSatisfactionV1 {
+		renewal = "a satisfying worker acceptance or the first qualified coordinator satisfaction"
+	}
+	detail += ". Dispatched attempts escalate the correction window at three or more; correction requests escalate it past three. A convergence basis or funded confirming review admits exactly one dispatch and renews no window; only " + renewal + " reopens the nonprogress window. Host recovery applies only to an eligible recorded host execution failure and an unused host basis in the current worker-satisfaction window: repair the fault, restart the host more than one minute after the failure, resume the item, then retry once"
 	return newFailure(KindMissingEvidence, "worker_dispatch", detail, false,
-		"record shrinking open_finding_ids, supersede_contract with a changed approach, or stop the work; after a host execution failure, repair and restart the host, resume the item, and dispatch once from the restarted host (one host_changed retry per nonprogress window)")
+		"record shrinking open_finding_ids, supersede_contract with a changed approach, or stop the work; after a host execution failure, repair and restart the host, resume the item, and dispatch once from the restarted host (one host_changed retry per worker-satisfaction window)")
 }
 
 // workflowRetryConvergence derives a basis rather than trusting a caller's

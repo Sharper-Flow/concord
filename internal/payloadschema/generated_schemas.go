@@ -12715,6 +12715,10 @@ const GeneratedPayloadSchemaDocument = `{
         "project_id": {
           "$ref": "#/$defs/id"
         },
+        "retry_window": {
+          "$ref": "#/$defs/workflow_retry_window",
+          "description": "CD-0164 D5: the active retry populations, counts, limits, and counting prefix, read where the wall is applied. The correction context's attempt_count is not always this whole-work nonprogress count."
+        },
         "self_repair": {
           "oneOf": [
             {
@@ -25525,6 +25529,47 @@ const GeneratedPayloadSchemaDocument = `{
       "minLength": 1,
       "type": "string"
     },
+    "workflow_progress_anchor": {
+      "additionalProperties": false,
+      "description": "CD-0164 D5: one derived retry-window boundary's exact global event-log position. event_id and kind are the domain_events row at seq, never the history page's per-kind version and never a timestamp inferred from a report. A boundary with no qualifying event is explicit null on the carrying window, never a zero value.",
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/id",
+          "description": "The workflow action whose recorded completion is the qualified satisfaction, where one exists."
+        },
+        "event_id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "$ref": "#/$defs/short"
+        },
+        "obligation_id": {
+          "$ref": "#/$defs/obligation_id"
+        },
+        "qualification": {
+          "enum": [
+            "satisfying_worker_acceptance",
+            "required_evidence_bound",
+            "comparable_predicate_satisfied",
+            "required_premise_confirmed",
+            "comparable_healthy_verdict_baseline"
+          ],
+          "type": "string"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event_id",
+        "kind",
+        "seq",
+        "qualification"
+      ],
+      "type": "object"
+    },
     "workflow_proposal_record": {
       "additionalProperties": false,
       "description": "The recorded proposal fields the dispatched lane packet renders. Absent when no proposal is recorded.",
@@ -25731,6 +25776,10 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "ready": {
           "type": "boolean"
+        },
+        "retry_window": {
+          "$ref": "#/$defs/workflow_retry_window",
+          "description": "CD-0164 D5: the active retry populations, counts, limits, and counting prefix, read in the same transaction as the rest of the projection."
         },
         "stale_law_revision": {
           "additionalProperties": false,
@@ -25958,6 +26007,151 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "kind",
         "allowed"
+      ],
+      "type": "object"
+    },
+    "workflow_retry_window": {
+      "additionalProperties": false,
+      "description": "CD-0164 D5: the readable retry window behind the dispatch wall, derived from the same immutable event-prefix interpretation admission uses. Anchors are explicit null when no qualifying event exists. Worker-satisfaction, nonprogress, and healthy-verdict boundaries stay distinguishable, and unresolved obligation identities are bounded with an explicit omitted count, never silent truncation.",
+      "properties": {
+        "blocking_population": {
+          "enum": [
+            "none",
+            "nonprogress",
+            "correction",
+            "both"
+          ],
+          "type": "string"
+        },
+        "convergence_basis": {
+          "description": "The one-use basis a convergence-admitted retry consumed, or the empty string when no basis is currently available; a one-use basis is not a renewed window.",
+          "enum": [
+            "",
+            "findings_shrinking",
+            "approach_changed",
+            "host_changed"
+          ],
+          "type": "string"
+        },
+        "correction_escalated": {
+          "type": "boolean"
+        },
+        "count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "dispatch_count": {
+          "description": "CD-0164 D1/D4: the open correction window's dispatched attempts since the last accepted productive result. It escalates the failure and rejection path at dispatch_count >= dispatch_limit.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "dispatch_limit": {
+          "$ref": "#/$defs/version"
+        },
+        "funded_confirming_reviews": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "limit": {
+          "$ref": "#/$defs/version"
+        },
+        "nonprogress_anchor": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/workflow_progress_anchor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "omitted_unresolved_obligations": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "policy": {
+          "enum": [
+            "worker_acceptance",
+            "obligation_satisfaction_v1"
+          ],
+          "type": "string"
+        },
+        "population": {
+          "enum": [
+            "distinct_failed_rejected_no_ship"
+          ],
+          "type": "string"
+        },
+        "prefix": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "step": {
+          "$ref": "#/$defs/short",
+          "description": "The workflow step the window's counts and blocking population were derived for."
+        },
+        "unresolved_obligation_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unresolved_obligations": {
+          "items": {
+            "$ref": "#/$defs/obligation_id"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "verification_baseline": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/workflow_progress_anchor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "verification_count": {
+          "description": "CD-0164 D4: recorded request_correction actions since the comparable-healthy baseline, including the open request. It escalates the verification path at verification_count > verification_limit.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "verification_limit": {
+          "$ref": "#/$defs/version"
+        },
+        "worker_satisfaction_anchor": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/workflow_progress_anchor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "population",
+        "policy",
+        "count",
+        "limit",
+        "prefix",
+        "nonprogress_anchor",
+        "worker_satisfaction_anchor",
+        "verification_baseline",
+        "dispatch_count",
+        "dispatch_limit",
+        "verification_count",
+        "verification_limit",
+        "correction_escalated",
+        "blocking_population",
+        "convergence_basis",
+        "funded_confirming_reviews",
+        "unresolved_obligations",
+        "unresolved_obligation_count",
+        "omitted_unresolved_obligations"
       ],
       "type": "object"
     },

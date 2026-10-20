@@ -15689,6 +15689,21 @@
                 "native_run",
                 "artifact"
               ]
+            },
+            "delivery_artifact": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "x-minBytes": 2,
+              "x-maxBytes": 128,
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
+            },
+            "delivery_state": {
+              "type": "string",
+              "enum": [
+                "asserted"
+              ]
             }
           },
           "required": [

@@ -16434,6 +16434,21 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string",
               "x-maxBytes": 128
             },
+            "delivery_artifact": {
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "delivery_state": {
+              "enum": [
+                "asserted"
+              ],
+              "type": "string"
+            },
             "evidence_commit": {
               "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
               "maxLength": 128,

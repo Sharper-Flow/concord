@@ -68,6 +68,28 @@ func TestWorkflowCompletionImpactVerdictIsPublicAndRequired(t *testing.T) {
 	}
 }
 
+func TestWorkflowCompletionSubmissionIsPublicWithoutCallerTiming(t *testing.T) {
+	t.Parallel()
+	for _, schema := range []string{"work_transition_action_input", "work_transition_action_public_input"} {
+		payload := func(fields string) json.RawMessage {
+			return json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"complete","idempotency_key":"complete-1","fields":` + fields + `}`)
+		}
+		if err := ValidatePayloadSchema(schema, payload(`{"impact_verdict":"non-breaking","delivery_artifact":"https://github.com/example/project/pull/7","delivery_state":"asserted"}`)); err != nil {
+			t.Fatalf("%s rejected completion submission: %v", schema, err)
+		}
+		for _, fields := range []string{
+			`{"impact_verdict":"non-breaking","delivery_state":"queued"}`,
+			`{"impact_verdict":"non-breaking","delivery_artifact":7}`,
+			`{"impact_verdict":"non-breaking","queue_entered_at":"2026-10-20T00:00:00Z"}`,
+			`{"impact_verdict":"non-breaking","timing":{"root_work_id":"another-work"}}`,
+		} {
+			if err := ValidatePayloadSchema(schema, payload(fields)); err == nil {
+				t.Fatalf("%s accepted invalid submission or caller timing: %s", schema, fields)
+			}
+		}
+	}
+}
+
 func TestWorkflowActionSchemaIsActionSpecificAndUsesPublicDispatchFields(t *testing.T) {
 	t.Parallel()
 	dispatch := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"dispatch_worker","idempotency_key":"dispatch-1","fields":{"lane_id":"research"}}`)

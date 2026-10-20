@@ -483,6 +483,12 @@ class InvokeUnitTest(unittest.TestCase):
                                                '{Required: []string{"work_id", "observation_id", "idempotency_key"}')
             with self.assertRaises(invoke.InvokeError):
                 invoke.observation_support(BASE_CONTRACTS + OBSERVATION_CONTRACTS.replace(OBSERVATION_INPUTS, moved), "v0.31.0-family")
+        for missing in ("refs", "tags"):
+            with self.subTest(missing_property=missing):
+                stripped = OBSERVATION_INPUTS.replace(f', "{missing}"', '')
+                with self.assertRaises(invoke.InvokeError) as raised:
+                    invoke.observation_support(BASE_CONTRACTS + OBSERVATION_ENTRY + stripped, "v0.31.0-family")
+                self.assertIn(missing, raised.exception.detail)
         with self.subTest(case="observation properties without the optional lists hold"):
             stripped = OBSERVATION_INPUTS.replace(', "refs", "tags"', '')
             with self.assertRaises(invoke.InvokeError):

@@ -1154,9 +1154,19 @@ func workflowPostRejectionFrontier(ctx context.Context, q queryer, workID string
 // follows the rejection, or 0 when none exists. Activity after a review's
 // dispatch means the review never saw the result it would cover.
 func workflowPostRejectionRepairFrontier(ctx context.Context, q queryer, workID, producerStep string, rejectSeq int64, subject string) (int64, error) {
+	return workflowPostRejectionRepairFrontierBefore(ctx, q, workID, producerStep, rejectSeq, subject, 0)
+}
+
+func workflowPostRejectionRepairFrontierBefore(ctx context.Context, q queryer, workID, producerStep string, rejectSeq int64, subject string, beforeSeq int64) (int64, error) {
 	var frontier int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(e.seq),0) FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.kind IN (?,?) AND e.seq>? AND EXISTS(SELECT 1 FROM domain_events d WHERE d.subject_type=e.subject_type AND d.subject_id=e.subject_id AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=json_extract(e.payload,'$.attempt_id') AND json_extract(d.payload,'$.capability_class')<>'review') AND EXISTS(SELECT 1 FROM domain_events a WHERE a.subject_type=e.subject_type AND a.subject_id=e.subject_id AND a.kind=? AND json_extract(a.payload,'$.action_id')='dispatch_worker' AND json_extract(a.payload,'$.step_id')=? AND json_extract(a.payload,'$.worker_attempt_id')=json_extract(e.payload,'$.attempt_id'))`,
-		string(SubjectWorkItem), workID, WorkerDispatched, WorkerCompleted, rejectSeq, WorkerDispatched, WorkflowActionCompleted, producerStep).Scan(&frontier); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(e.seq),0) FROM domain_events e
+		WHERE e.subject_type=? AND e.subject_id=? AND e.kind IN (?,?) AND e.seq>? AND (?=0 OR e.seq<?)
+		AND EXISTS(SELECT 1 FROM domain_events d WHERE d.subject_type=e.subject_type AND d.subject_id=e.subject_id AND d.kind=?
+			AND json_extract(d.payload,'$.attempt_id')=json_extract(e.payload,'$.attempt_id') AND json_extract(d.payload,'$.capability_class')<>'review' AND (?=0 OR d.seq<?))
+		AND EXISTS(SELECT 1 FROM domain_events a WHERE a.subject_type=e.subject_type AND a.subject_id=e.subject_id AND a.kind=?
+			AND json_extract(a.payload,'$.action_id')='dispatch_worker' AND json_extract(a.payload,'$.step_id')=?
+			AND json_extract(a.payload,'$.worker_attempt_id')=json_extract(e.payload,'$.attempt_id') AND (?=0 OR a.seq<?))`,
+		string(SubjectWorkItem), workID, WorkerDispatched, WorkerCompleted, rejectSeq, beforeSeq, beforeSeq, WorkerDispatched, beforeSeq, beforeSeq, WorkflowActionCompleted, producerStep, beforeSeq, beforeSeq).Scan(&frontier); err != nil {
 		return 0, wrapFailure(KindUnavailable, subject, "cannot read the proof producer's repair history", true, "retry once the worker dispatch projection is readable", err)
 	}
 	return frontier, nil

@@ -12,6 +12,37 @@ import (
 	"time"
 )
 
+// This isolates the accepted-delivery query's prefix, not native dispatch
+// admission. The existing native journeys exercise its actual producers.
+func TestReviewDeliveryAnchorQueryIsPrefixBound(t *testing.T) {
+	t.Parallel()
+	db, appendEvent := correctionHistoryFixture(t)
+	if _, err := db.Exec(`ALTER TABLE domain_events ADD COLUMN payload_version INTEGER NOT NULL DEFAULT 1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE worker_attempts(attempt_id TEXT,work_id TEXT,capability_class TEXT,lifecycle_state TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	var accepts []int64
+	for _, attempt := range []string{"earlier", "later"} {
+		if _, err := db.Exec(`INSERT INTO worker_attempts VALUES(?,'work-history','implementation','completed')`, attempt); err != nil {
+			t.Fatal(err)
+		}
+		appendEvent(WorkflowActionCompleted, map[string]any{"action_id": "dispatch_worker", "worker_attempt_id": attempt, "worker_worktree_identity": "claim"})
+		appendEvent(WorkerCompleted, map[string]any{"attempt_id": attempt})
+		accepts = append(accepts, appendEvent(WorkflowActionCompleted, map[string]any{"action_id": "accept_worker_result", "worker_attempt_id": attempt}))
+	}
+	for boundary, want := range map[int64]int{accepts[0]: 0, accepts[0] + 1: 1, accepts[1]: 1, accepts[1] + 1: 2, 0: 2} {
+		anchors, err := readReviewDeliveryAnchorsBefore(context.Background(), db, "work-history", boundary)
+		if err != nil || len(anchors) != want {
+			t.Fatalf("anchors before %d = %+v, %v; want %d", boundary, anchors, err, want)
+		}
+		if want == 1 && anchors[0].attemptID != "earlier" {
+			t.Fatalf("later accepted delivery displaced the earlier prefix: %+v", anchors)
+		}
+	}
+}
+
 // The review subject: a review-lane dispatch on implementation and break_fix
 // work reviews one immutable subject, the clean delivery the core observed on
 // the latest accepted implementation-lane completion, which must equal the

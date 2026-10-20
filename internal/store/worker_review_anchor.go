@@ -15,6 +15,10 @@ type reviewDeliveryAnchor struct {
 }
 
 func readReviewDeliveryAnchors(ctx context.Context, q queryer, workID string) ([]reviewDeliveryAnchor, error) {
+	return readReviewDeliveryAnchorsBefore(ctx, q, workID, 0)
+}
+
+func readReviewDeliveryAnchorsBefore(ctx context.Context, q queryer, workID string, beforeSeq int64) ([]reviewDeliveryAnchor, error) {
 	rows, err := q.QueryContext(ctx, `SELECT a.attempt_id,COALESCE(json_extract(auth.payload,'$.worker_worktree_identity'),''),
  acc.seq,auth.seq,completed.payload_version,completed.payload
  FROM domain_events acc JOIN worker_attempts a ON a.work_id=acc.subject_id
@@ -27,7 +31,9 @@ func readReviewDeliveryAnchors(ctx context.Context, q queryer, workID string) ([
  WHERE acc.subject_type='work_item' AND acc.subject_id=? AND acc.kind=?
  AND json_extract(acc.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence')
  AND a.capability_class='implementation' AND a.lifecycle_state='completed'
- AND auth.seq<completed.seq AND completed.seq<acc.seq ORDER BY acc.seq DESC`, WorkflowActionCompleted, WorkerCompleted, workID, WorkflowActionCompleted)
+ AND auth.seq<completed.seq AND completed.seq<acc.seq
+ AND (?=0 OR (auth.seq<? AND completed.seq<? AND acc.seq<?))
+ ORDER BY acc.seq DESC`, WorkflowActionCompleted, WorkerCompleted, workID, WorkflowActionCompleted, beforeSeq, beforeSeq, beforeSeq, beforeSeq)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, workerDispatchFreshnessOp, "cannot read accepted implementation deliveries", true, "retry once the worker projection is readable", err)
 	}

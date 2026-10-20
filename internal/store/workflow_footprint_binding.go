@@ -91,12 +91,17 @@ func checkWorkflowFootprintBindingTx(ctx context.Context, q queryer, workID stri
 // after which the contract's proof must be produced. The binding is nil when
 // that contract carries none.
 func readWorkflowFootprintBindingTx(ctx context.Context, q queryer, workID string, contractVersion int64) (*workflowFootprintBinding, int64, error) {
+	return readWorkflowFootprintBindingBeforeTx(ctx, q, workID, contractVersion, 0)
+}
+
+func readWorkflowFootprintBindingBeforeTx(ctx context.Context, q queryer, workID string, contractVersion, beforeSeq int64) (*workflowFootprintBinding, int64, error) {
 	var assessment sql.NullString
 	var seq int64
 	err := q.QueryRowContext(ctx, `SELECT coalesce(json_extract(payload,'$.footprint_binding.assessment_event_id'),json_extract(payload,'$.successor_contract.footprint_binding.assessment_event_id')),seq FROM domain_events
 		WHERE subject_type='work_item' AND subject_id=?
 		  AND ((kind=? AND json_extract(payload,'$.contract_version')=?) OR (kind=? AND json_extract(payload,'$.successor_contract.contract_version')=?))
-		ORDER BY seq DESC LIMIT 1`, workID, WorkflowContractApproved, contractVersion, WorkflowContractSuperseded, contractVersion).Scan(&assessment, &seq)
+		  AND (?=0 OR seq<?)
+		ORDER BY seq DESC LIMIT 1`, workID, WorkflowContractApproved, contractVersion, WorkflowContractSuperseded, contractVersion, beforeSeq, beforeSeq).Scan(&assessment, &seq)
 	if err == sql.ErrNoRows {
 		return nil, 0, nil
 	}

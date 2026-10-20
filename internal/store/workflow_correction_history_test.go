@@ -23,7 +23,7 @@ func correctionHistoryFixture(t *testing.T) (*sql.DB, func(string, any) int64) {
 	return db, func(kind string, payload any) int64 {
 		t.Helper()
 		seq++
-		if _, err := db.Exec(`INSERT INTO domain_events VALUES(?,?,?,?,?)`, seq, string(SubjectWorkItem), "work-history", kind, mustJSONValue(payload)); err != nil {
+		if _, err := db.Exec(`INSERT INTO domain_events(seq,subject_type,subject_id,kind,payload) VALUES(?,?,?,?,?)`, seq, string(SubjectWorkItem), "work-history", kind, mustJSONValue(payload)); err != nil {
 			t.Fatal(err)
 		}
 		return seq

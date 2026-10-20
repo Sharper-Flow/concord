@@ -17,6 +17,9 @@ type workflowFootprintProofBasis struct {
 	ProjectID string
 	Commit    string
 	Frontier  int64
+	// BeforeSeq is the exclusive event-prefix boundary for a fold. Zero
+	// reads live state; a later binding cannot qualify an earlier boundary.
+	BeforeSeq int64
 }
 
 // workflowFootprintProof is one footprint check's proof state. Supported is
@@ -38,14 +41,23 @@ type workflowFootprintProof struct {
 const workflowFootprintReceiptSQL = `SELECT l.result_json, l.principal_ref` + oracleVerifyReceiptJoinSQL + `
 	AND l.project_id=? AND l.command_json=? AND json_extract(l.result_json,'$.subject_ref')=?
 	AND l.event_watermark>=?
+	AND EXISTS (SELECT 1 FROM domain_events bound
+		WHERE bound.subject_type='work_item' AND bound.subject_id=l.work_id AND bound.kind=?
+		AND json_extract(bound.payload,'$.evidence_kind')='verification'
+		AND json_extract(bound.payload,'$.producer_run_ref')=d.op_id
+		AND json_extract(bound.payload,'$.producer_id')=d.principal_ref
+		AND json_extract(bound.payload,'$.producer_watermark')=d.request_id
+		AND EXISTS (SELECT 1 FROM json_each(d.evidence_refs)
+			WHERE value=json_extract(bound.payload,'$.immutable_subject_ref'))
+		AND bound.seq>? AND (?=0 OR bound.seq<?))
 	ORDER BY d.rowid DESC`
 
 // readWorkflowFootprintProofs resolves each check against the work's
 // qualified verify receipts. It performs SQL only, so the caller's queryer
 // may be its transaction.
 func readWorkflowFootprintProofs(ctx context.Context, q queryer, basis workflowFootprintProofBasis, checks []FootprintCheck) ([]workflowFootprintProof, error) {
-	if !worktreeSHAPattern.MatchString(basis.Commit) || basis.Frontier <= 0 {
-		return nil, newFailure(KindInvariantViolation, "footprint_receipt_read", "the footprint proof basis names no commit or frontier", false, "resolve the accepted candidate commit and its contract frontier first")
+	if !worktreeSHAPattern.MatchString(basis.Commit) || basis.Frontier <= 0 || basis.BeforeSeq < 0 {
+		return nil, newFailure(KindInvariantViolation, "footprint_receipt_read", "the footprint proof basis has no valid commit, frontier or event prefix", false, "resolve the accepted candidate commit and its contract frontier first")
 	}
 	proofs := make([]workflowFootprintProof, 0, len(checks))
 	for _, check := range checks {
@@ -68,7 +80,7 @@ func readWorkflowFootprintReceipt(ctx context.Context, q queryer, basis workflow
 	if err != nil {
 		return "", "", wrapFailure(KindInvariantViolation, "footprint_receipt_read", "cannot encode the derived check command", false, "repair the footprint check", err)
 	}
-	rows, err := q.QueryContext(ctx, workflowFootprintReceiptSQL, basis.WorkID, basis.ProjectID, string(commandJSON), "commit:"+basis.Commit, basis.Frontier)
+	rows, err := q.QueryContext(ctx, workflowFootprintReceiptSQL, basis.WorkID, basis.ProjectID, string(commandJSON), "commit:"+basis.Commit, basis.Frontier, WorkflowEvidenceBound, basis.Frontier, basis.BeforeSeq, basis.BeforeSeq)
 	if err != nil {
 		return "", "", wrapFailure(KindUnavailable, "footprint_receipt_read", "cannot read the footprint verify receipts", true, "retry once the database is readable", err)
 	}

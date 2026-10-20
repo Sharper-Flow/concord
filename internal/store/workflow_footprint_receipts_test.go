@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -105,6 +106,31 @@ func workflowFootprintVerify(t *testing.T, s *Store, git *fakeWorktreeGit, run s
 	return result
 }
 
+// Bind the actual native producer through the ordinary bind_evidence action;
+// the accepting actor need not be the producer principal.
+func bindWorkflowFootprintVerify(t *testing.T, s *Store, workID, operationRef string) int64 {
+	t.Helper()
+	var principal, watermark string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT principal_ref,request_id FROM durable_operations WHERE work_id=? AND op_id=?`, workID, operationRef).Scan(&principal, &watermark); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(map[string]string{
+		"evidence_kind": "verification", "evidence_ref": operationRef, "immutable_subject_ref": operationRef,
+		"producer_id": principal, "producer_run_ref": operationRef, "producer_watermark": watermark,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runVerdictAction(t, s, workID, "bind_evidence", payload, 0); err != nil {
+		t.Fatalf("binding actual footprint producer: %v", err)
+	}
+	var seq int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT max(seq) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.producer_run_ref')=?`, workID, WorkflowEvidenceBound, operationRef).Scan(&seq); err != nil {
+		t.Fatal(err)
+	}
+	return seq
+}
+
 func TestWorkflowFootprintProofsBindExactCommandProjectCommitAndFrontier(t *testing.T) {
 	ctx := context.Background()
 	const workID = workflowFootprintReceiptWork
@@ -143,6 +169,11 @@ func TestWorkflowFootprintProofsBindExactCommandProjectCommitAndFrontier(t *test
 	}
 	basis := workflowFootprintProofBasis{WorkID: workID, ProjectID: "project-w", Commit: commit, Frontier: watermark}
 	proofs := read(basis)
+	if proofs[0].OperationRef != "" {
+		t.Fatalf("an unbound green run proved the footprint check: %+v", proofs[0])
+	}
+	boundAt := bindWorkflowFootprintVerify(t, s, workID, green.OperationRef)
+	proofs = read(basis)
 	if proofs[0].OperationRef != green.OperationRef || proofs[0].PrincipalRef != "principal-1" || !proofs[0].Supported {
 		t.Fatalf("exact green validator receipt did not prove its check: %+v", proofs[0])
 	}
@@ -153,6 +184,26 @@ func TestWorkflowFootprintProofsBindExactCommandProjectCommitAndFrontier(t *test
 	}
 	if proofs[4].Supported || proofs[4].OperationRef != "" {
 		t.Fatalf("scenario check without a receipt consumer was supported: %+v", proofs[4])
+	}
+	for boundary, want := range map[int64]string{boundAt: "", boundAt + 1: green.OperationRef} {
+		prefix := basis
+		prefix.BeforeSeq = boundary
+		if proof := read(prefix)[0]; proof.OperationRef != want {
+			t.Fatalf("binding at seq %d was read before %d: %+v; want %q", boundAt, boundary, proof, want)
+		}
+	}
+	var repairFrontier int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT max(seq) FROM domain_events WHERE subject_id=?`, workID).Scan(&repairFrontier); err != nil {
+		t.Fatal(err)
+	}
+	lateBinding := bindWorkflowFootprintVerify(t, s, workID, green.OperationRef)
+	if lateBinding <= repairFrontier {
+		t.Fatal("the late binding fixture did not follow its frontier")
+	}
+	late := basis
+	late.Frontier = repairFrontier
+	if proof := read(late)[0]; proof.OperationRef != "" {
+		t.Fatalf("late binding rehabilitated a pre-frontier run: %+v", proof)
 	}
 
 	for name, other := range map[string]workflowFootprintProofBasis{
@@ -165,8 +216,9 @@ func TestWorkflowFootprintProofsBindExactCommandProjectCommitAndFrontier(t *test
 		}
 	}
 	for name, incomplete := range map[string]workflowFootprintProofBasis{
-		"no commit":   {WorkID: workID, ProjectID: "project-w", Frontier: watermark},
-		"no frontier": {WorkID: workID, ProjectID: "project-w", Commit: commit},
+		"no commit":       {WorkID: workID, ProjectID: "project-w", Frontier: watermark},
+		"no frontier":     {WorkID: workID, ProjectID: "project-w", Commit: commit},
+		"negative prefix": {WorkID: workID, ProjectID: "project-w", Commit: commit, Frontier: watermark, BeforeSeq: -1},
 	} {
 		if _, err := readWorkflowFootprintProofs(ctx, s.DatabaseForTesting(), incomplete, checks); err == nil {
 			t.Fatalf("a basis with %s resolved proofs", name)
@@ -248,6 +300,7 @@ func TestWorkflowFootprintProofsConsumeRealGoVerifyReceipts(t *testing.T) {
 			if err != nil || result.ExitCode != 0 || result.SubjectRef != "commit:"+commit {
 				t.Fatalf("real Go verify=%+v, %v", result, err)
 			}
+			bindWorkflowFootprintVerify(t, s, workID, result.OperationRef)
 			proofs := read(t)
 			if proof := proofs[index]; proof.OperationRef != result.OperationRef || proof.PrincipalRef != req.PrincipalRef {
 				t.Fatalf("real Go receipt did not prove its check: %+v; verify=%+v", proof, result)

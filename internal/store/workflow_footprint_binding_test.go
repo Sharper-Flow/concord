@@ -169,6 +169,20 @@ func TestSmallContractBindsItsSizeAssessment(t *testing.T) {
 		if got := readFootprintBindingForTest(t, s, workID, 2); got == nil || *got != want {
 			t.Fatalf("contract 2 binding = %+v; want %+v", got, want)
 		}
+		for _, version := range []int64{1, 2} {
+			binding, seq, err := readWorkflowFootprintBindingTx(context.Background(), s.DatabaseForTesting(), workID, version)
+			if err != nil || binding == nil {
+				t.Fatalf("live binding for contract %d: %+v, %v", version, binding, err)
+			}
+			before, _, err := readWorkflowFootprintBindingBeforeTx(context.Background(), s.DatabaseForTesting(), workID, version, seq)
+			if err != nil || before != nil {
+				t.Fatalf("contract %d's future binding leaked into its prefix: %+v, %v", version, before, err)
+			}
+			after, gotSeq, err := readWorkflowFootprintBindingBeforeTx(context.Background(), s.DatabaseForTesting(), workID, version, seq+1)
+			if err != nil || after == nil || *after != *binding || gotSeq != seq {
+				t.Fatalf("contract %d's binding missing from the next prefix: %+v, %d, %v", version, after, gotSeq, err)
+			}
+		}
 		if err := RebuildFromLog(context.Background(), s); err != nil {
 			t.Fatalf("replay: %v", err)
 		}

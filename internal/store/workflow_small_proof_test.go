@@ -166,3 +166,65 @@ func TestSmallReviewDebtRequiresAnExplicitShipVerdict(t *testing.T) {
 		})
 	}
 }
+
+func TestSmallProofRepairFrontierIsPrefixBound(t *testing.T) {
+	t.Parallel()
+	for _, alias := range []string{"repair", "completion", "authorization", "dispatch"} {
+		t.Run(alias, func(t *testing.T) {
+			t.Parallel()
+			db, appendEvent := correctionHistoryFixture(t)
+			auth := func(attempt string) int64 {
+				return appendEvent(WorkflowActionCompleted, map[string]any{"action_id": "dispatch_worker", "step_id": "execution", "worker_attempt_id": attempt})
+			}
+			dispatch := func(attempt string) int64 {
+				return appendEvent(WorkerDispatched, map[string]any{"attempt_id": attempt, "capability_class": "implementation"})
+			}
+			complete := func(attempt string) int64 {
+				return appendEvent(WorkerCompleted, map[string]any{"attempt_id": attempt})
+			}
+			var boundary, want int64
+			switch alias {
+			case "repair":
+				auth("earlier")
+				dispatch("earlier")
+				want = complete("earlier")
+				boundary = auth("later")
+				dispatch("later")
+				complete("later")
+			case "completion":
+				auth("later")
+				want = dispatch("later")
+				boundary = complete("later")
+			case "authorization":
+				dispatch("later")
+				complete("later")
+				boundary = auth("later")
+			case "dispatch":
+				auth("later")
+				complete("later")
+				boundary = dispatch("later")
+			}
+			frontier, err := workflowPostRejectionRepairFrontierBefore(context.Background(), db, "work-history", "execution", 0, "test", boundary)
+			if err != nil || frontier != want {
+				t.Fatalf("future %s leaked through prefix %d: %d, %v; want %d", alias, boundary, frontier, err, want)
+			}
+			live, err := workflowPostRejectionRepairFrontier(context.Background(), db, "work-history", "execution", 0, "test")
+			if err != nil || live <= want {
+				t.Fatalf("the intact-journal fixture has no later %s: %d, %v", alias, live, err)
+			}
+		})
+	}
+}
+
+func TestSmallReviewEvidenceUsesTheDispositionOwner(t *testing.T) {
+	t.Parallel()
+	small, err := builtinWorkflowDefinitionForSize("workflow.implementation", WorkSizeSmall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for step, want := range map[string]bool{"alignment": false, "planning": false, "execution": false, "acceptance": true, "release": false} {
+		if got := workflowRefineReviewEvidenceStep(small.Definition, step); got != want {
+			t.Fatalf("exact review disposition at small %s = %v; want %v", step, got, want)
+		}
+	}
+}

@@ -9,7 +9,8 @@ import (
 // Refinement evidence disposition uses the existing hold-mode acceptance;
 // neither the frozen definition nor the combined delivery route changes.
 func workflowRefineReviewEvidenceStep(definition WorkflowDefinition, step string) bool {
-	return workflowAcceptDeliveryAdmissionActive(definition, step) &&
+	roles := workflowReviewProofRoles(definition)
+	return (workflowAcceptDeliveryAdmissionActive(definition, step) || roles.explicitShip && roles.review == step) &&
 		workflowActionDefinitionByID(definition, "accept_worker_evidence").ID != ""
 }
 
@@ -35,17 +36,18 @@ FROM worker_attempts a JOIN domain_events d ON d.subject_type='work_item'
 JOIN domain_events completed ON completed.subject_type=d.subject_type AND completed.subject_id=d.subject_id
  AND completed.kind=? AND json_extract(completed.payload,'$.attempt_id')=a.attempt_id
 WHERE a.work_id=? AND a.capability_class='review' AND a.lifecycle_state='completed'
- AND a.readback_model<>'' AND d.seq>? AND (?=0 OR completed.seq<?)
+ AND a.readback_model<>'' AND d.seq>? AND (?=0 OR (d.seq<? AND completed.seq<?))
  AND EXISTS (SELECT 1 FROM domain_events authorization WHERE authorization.subject_type=d.subject_type
   AND authorization.subject_id=d.subject_id AND authorization.kind=? AND authorization.seq>=?
   AND json_extract(authorization.payload,'$.action_id')='dispatch_worker'
   AND json_extract(authorization.payload,'$.step_id')=?
+  AND (?=0 OR authorization.seq<?)
   AND json_extract(authorization.payload,'$.worker_attempt_id')=a.attempt_id)
  AND NOT EXISTS (SELECT 1 FROM domain_events r WHERE r.subject_type=d.subject_type
  AND r.subject_id=d.subject_id AND r.kind=? AND (?=0 OR r.seq<?)
   AND json_extract(r.payload,'$.worker_attempt_id')=a.attempt_id
   AND json_extract(r.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result'))
-ORDER BY completed.seq DESC LIMIT 1`, WorkerDispatched, WorkerCompleted, workID, boundary, beforeSeq, beforeSeq, WorkflowActionCompleted, boundary, step, WorkflowActionCompleted, beforeSeq, beforeSeq).Scan(&attemptID)
+ORDER BY completed.seq DESC LIMIT 1`, WorkerDispatched, WorkerCompleted, workID, boundary, beforeSeq, beforeSeq, beforeSeq, WorkflowActionCompleted, boundary, step, beforeSeq, beforeSeq, WorkflowActionCompleted, beforeSeq, beforeSeq).Scan(&attemptID)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}

@@ -64,6 +64,43 @@
       "reason": "These pure accessors supply canonical recovery payloads, the consequence_v1 decision-fact action payloads, cross-field declarations, and guard-owned teaching to scripts/workflow-action-contracts. The projector generates the authoring contract from the engine-owned fields and rules; it grants no runtime admission. The analysis roots ./cmd/... only and cannot see this build-time edge. CI runs generate-agent-contracts.py --check to detect projection drift. Core preflight and recovery validation retain the runtime field and cross-field owners."
     },
     {
+      "id": "contract-generator-schema-guidance",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/payloadschema.AnnotateGuidance",
+        "internal/payloadschema.applyGuidance",
+        "internal/payloadschema.boundNumber",
+        "internal/payloadschema.classAdmits",
+        "internal/payloadschema.guidanceAllOfExample",
+        "internal/payloadschema.guidanceArrayExample",
+        "internal/payloadschema.guidanceClassRune",
+        "internal/payloadschema.guidanceCombinatorExample",
+        "internal/payloadschema.guidanceCompositionTeaches",
+        "internal/payloadschema.guidanceDeepCopy",
+        "internal/payloadschema.guidanceExample",
+        "internal/payloadschema.guidanceFitBounds",
+        "internal/payloadschema.guidanceHasValueConstraints",
+        "internal/payloadschema.guidanceNodeType",
+        "internal/payloadschema.guidanceNumberExample",
+        "internal/payloadschema.guidanceNumberRangeText",
+        "internal/payloadschema.guidanceObjectExample",
+        "internal/payloadschema.guidancePatternCandidates",
+        "internal/payloadschema.guidanceRangeText",
+        "internal/payloadschema.guidanceShape",
+        "internal/payloadschema.guidanceSource",
+        "internal/payloadschema.guidanceStricterBound",
+        "internal/payloadschema.guidanceStringExample",
+        "internal/payloadschema.guidanceTeaches",
+        "internal/payloadschema.guidanceUnionStrings",
+        "internal/payloadschema.joinRange",
+        "internal/payloadschema.planDefinition",
+        "internal/payloadschema.planNode",
+        "internal/payloadschema.planSchemaTree",
+        "internal/payloadschema.writePatternLiteral"
+      ],
+      "reason": "These pure generator functions derive and validate canonical contract-field shapes and illustrative examples for scripts/schema-guidance, called by scripts/generate-agent-contracts.py. They share the runtime schema validator rather than maintaining a second example validator. The analysis roots ./cmd/... only and cannot see these build-time edges. CI runs generate-agent-contracts.py --check and the annotation tests to prove the projection; runtime refusals consume the generated descriptions without generating examples. No new operator command is warranted."
+    },
+    {
       "id": "workflow-admission-inspection-seam",
       "state": "out_of_scope",
       "functions": [

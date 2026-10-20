@@ -167,7 +167,7 @@ func TestWitnessJobFailureBeforeDispositionKeepsWindowThroughUnrelatedSuccess(t 
 	// The same failed dispatch stays counted in the same-step wall's window
 	// too: the wall anchor and the counting window share the same walk's
 	// opening, and the unrelated success moved neither.
-	before, err := workflowNonProgressAttemptCount(context.Background(), s.DatabaseForTesting(), workID, "witness")
+	before, err := workflowNonProgressAttemptCountForRegistry(context.Background(), s.DatabaseForTesting(), workID, "witness", BuiltinWorkflowRegistry())
 	if err != nil || before != 1 {
 		t.Fatalf("same-step failed count after the unrelated acceptance = (%d, %v), want the one failed dispatch still counted", before, err)
 	}
@@ -259,7 +259,7 @@ func TestAuthorizedFailedWorkerRetryBindingPrecedesDisposition(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	state, _, _, err := loadWorkflowAdmissionStateTx(context.Background(), tx, workID, entry.Definition, "execution", "authorized_failure_test")
+	state, _, _, err := loadWorkflowAdmissionStateTxForRegistry(context.Background(), tx, workID, entry.Definition, "execution", "authorized_failure_test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}

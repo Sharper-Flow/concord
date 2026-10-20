@@ -951,7 +951,7 @@ func TestVerdictCorrectionRefusesUnacceptedReviewDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	available, missing, err := workflowCorrectionRequestAdmissionState(context.Background(), s.db, workID, registered.Definition, "verify", "return_route_test", 0)
+	available, missing, err := workflowCorrectionRequestAdmissionStateForRegistry(context.Background(), s.db, workID, registered.Definition, "verify", "return_route_test", 0, BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}

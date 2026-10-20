@@ -69,7 +69,7 @@ func TestSameStepWallWithoutCorrectionRecordStaysConvergenceGated(t *testing.T) 
 	if refused.Error == nil || refused.Error.Kind != "missing_evidence" {
 		t.Fatalf("same-step retry without a basis = %+v, want missing_evidence", refused.Error)
 	}
-	if !strings.Contains(refused.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step refine)") {
+	if !strings.Contains(refused.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the applicable nonprogress anchor (step refine)") {
 		t.Fatalf("same-step refusal does not name the counted population: %q", refused.Error.Message)
 	}
 	if refused.Error.RecoveryAction.Kind != "provide_evidence" {

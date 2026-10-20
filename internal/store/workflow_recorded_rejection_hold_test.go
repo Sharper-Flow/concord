@@ -125,7 +125,7 @@ func TestRecordedRejectionEligibilityDoesNotReadmitHistory(t *testing.T) {
 			}
 			check := func(ctx context.Context) error {
 				if owner == "off_step" {
-					return admitWorkflowActionOffStep(ctx, tx, event, p, entry, "refine")
+					return admitWorkflowActionOffStep(ctx, tx, event, p, entry, "refine", BuiltinWorkflowRegistry())
 				}
 				return validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, "refine", "completed")
 			}

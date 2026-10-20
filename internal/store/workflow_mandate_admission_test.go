@@ -80,7 +80,7 @@ func TestMandateAdmissionAgreement(t *testing.T) {
 		if bound {
 			mandate = "bound"
 		}
-		conformanceCheckpoint(t, s, workID, definition, admissionModelState{
+		conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, definition, admissionModelState{
 			step: pin.Step, debt: ReviewDebtNone, contracts: 1, mandate: mandate,
 		}, mandate)
 		decision := workflowAdmit(definition, state, "record_verdict")

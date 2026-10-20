@@ -386,6 +386,8 @@ limit, the two comparators of CD-0164 D4, and the approval wall of CD-0148 do
 not change, except that the wall admits the one confirming review a checks
 repair funds.
 
+CD-0164 D2a may qualify coordinator-side satisfaction for the nonprogress window on a definition that declares that policy. It does not discharge a failed revision or confirm a checks repair. This section remains the sole authority for those satisfactions, and unrelated success resets no failed job's window.
+
 ### D5. The combined accept keeps CD-0198 D4 for delivery (amends CD-0198 D4)
 
 On a job-capable pin the payload-blind admission of `accept_worker_result` is

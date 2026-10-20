@@ -117,6 +117,13 @@ import (
 // break_fix 33 repin the v3 catalog, whose record_worker_job adds the size
 // members and the closed split variant (CD-0225 D1, CD-0227 D1, CD-0225 D3).
 //
+// The obligation-satisfaction heads (CD-0164 D2a) ship one new version per
+// live authoring family: implementation 36, break_fix 33, and research 22
+// declare progress_policy obligation_satisfaction_v1 and carry the closed
+// per-action satisfaction taxonomy compiled from the canonical mapping.
+// Every released version above keeps its digest; the four retired families
+// freeze outside the policy.
+//
 // Editing a definition changes its computed digest and fails this test. Ship
 // the new content as a new version and add its digest here; never edit a row
 // that already holds a digest.
@@ -280,6 +287,12 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.ops_runbook", "18"}:        "sha256:354390116b3faf7a73524ca4bfbbfe962650f8ed8eaf73a68845d812daade63a",
 	{"workflow.static_analysis", "15"}:    "sha256:5a561e9d53d26fc0ddec0f84aa72ca5cd2a0018e92dfa5dd0732efd0a8b32ade",
 	{"workflow.generic_one_off", "16"}:    "sha256:05e53c76e3f6c712cc62f7421c22a3df4719767aba91f7a07049ba973190d8d7",
+	// The obligation-satisfaction heads derive their digests in the merge
+	// test window; the zero digests fail loudly until the draft test above
+	// supplies the computed values.
+	{"workflow.implementation", "37"}: "sha256:27379015255636ef43ef65cc81ccd279ea86975bc8c1fb80795e90c1368e1e4c",
+	{"workflow.break_fix", "34"}:      "sha256:d8e81a6fd7df6c55df2fda70e6671ac9d93f68cbbd94f8fc417dd8ddca77a550",
+	{"workflow.research", "22"}:       "sha256:4108141b47f055806cd0f2f3e3e0cfba5e3c44b22c2b90f53a47364a820abea5",
 }
 
 // TestWorkflowDefinitionDraftVersionDigests prints only the unreleased
@@ -287,8 +300,9 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 // Run with: bin/oc-test targeted -- go test ./internal/store -run '^TestWorkflowDefinitionDraftVersionDigests$' -v -count=1 -timeout=180s
 func TestWorkflowDefinitionDraftVersionDigests(t *testing.T) {
 	for _, definition := range []WorkflowDefinition{
-		mustCompileWorkflowComposition(implementationCompositionV36()),
-		mustCompileWorkflowComposition(breakFixCompositionV33()),
+		mustCompileWorkflowComposition(implementationObligationV37()),
+		mustCompileWorkflowComposition(breakFixObligationV34()),
+		mustCompileWorkflowComposition(researchObligationV22()),
 	} {
 		digest, err := WorkflowDefinitionDigest(definition)
 		if err != nil {

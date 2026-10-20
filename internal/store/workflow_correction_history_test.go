@@ -80,7 +80,7 @@ func TestCorrectionHistoryAcceptanceCutoffs(t *testing.T) {
 	correctionHistoryRecord(t, db, "", 0, 0)
 
 	// A later acceptance must not alter the historical prefix's open record.
-	history, err := workflowCorrectionWalk(context.Background(), db, "work-history", acceptedSeq-1, "history_test")
+	history, err := workflowCorrectionWalkForRegistry(context.Background(), db, "work-history", acceptedSeq-1, "history_test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}

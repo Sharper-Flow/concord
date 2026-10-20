@@ -59,11 +59,11 @@ func retainedAtDeliveryContract(definition WorkflowDefinition) WorkflowDefinitio
 // fails until it does.
 var builtinWorkflowCurrentVersions = map[string]int64{
 	"workflow.architecture_spike": 17,
-	"workflow.break_fix":          33,
+	"workflow.break_fix":          34,
 	"workflow.generic_one_off":    16,
-	"workflow.implementation":     36,
+	"workflow.implementation":     37,
 	"workflow.ops_runbook":        18,
-	"workflow.research":           21,
+	"workflow.research":           22,
 	"workflow.static_analysis":    15,
 }
 
@@ -127,6 +127,7 @@ func implementationVersionChain() []WorkflowDefinition {
 		mustCompileWorkflowComposition(implementationConsequenceV34()),
 		mustCompileWorkflowComposition(implementationCompositionV35()),
 		mustCompileWorkflowComposition(implementationCompositionV36()),
+		mustCompileWorkflowComposition(implementationObligationV37()),
 	}
 }
 
@@ -167,6 +168,7 @@ func breakFixVersionChain() []WorkflowDefinition {
 		mustCompileWorkflowComposition(breakFixConsequenceV31()),
 		mustCompileWorkflowComposition(breakFixCompositionV32()),
 		mustCompileWorkflowComposition(breakFixCompositionV33()),
+		mustCompileWorkflowComposition(breakFixObligationV34()),
 	}
 }
 
@@ -195,6 +197,7 @@ func researchVersionChain() []WorkflowDefinition {
 		researchResearchContextV19(),
 		mustCompileWorkflowComposition(researchCompositionV20()),
 		mustCompileWorkflowComposition(researchConsequenceV21()),
+		mustCompileWorkflowComposition(researchObligationV22()),
 	}
 }
 

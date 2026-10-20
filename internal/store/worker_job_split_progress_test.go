@@ -165,7 +165,7 @@ func splitProgressRejectLeaf(t *testing.T, route workflowReturnRouteFixture, wor
 
 func splitProgressBasis(t *testing.T, fixture workflowReturnRouteFixture, workID string) WorkflowRetryConvergence {
 	t.Helper()
-	convergence, err := workflowRetryConvergence(context.Background(), workerJobSizeStore(fixture).db, workID, "repair")
+	convergence, err := workflowRetryConvergenceForRegistry(context.Background(), workerJobSizeStore(fixture).db, workID, "repair", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatalf("derive convergence: %v", err)
 	}
@@ -233,10 +233,10 @@ func TestWorkerJobSplitProgressSkipsDispatchedSiblingForUntouchedTarget(t *testi
 	}
 	defer tx.Rollback()
 	convergence := WorkflowRetryConvergence{Basis: "split_leaf_progress", LatestRecordSeq: acceptanceSeq}
-	if guardErr := admitWorkerJobSplitProgressDispatchTx(context.Background(), tx, workID, convergence, &bindingC); guardErr != nil {
+	if guardErr := admitWorkerJobSplitProgressDispatchTx(context.Background(), tx, workID, convergence, &bindingC, BuiltinWorkflowRegistry()); guardErr != nil {
 		t.Fatalf("untouched sibling dispatch = %v, want admission", guardErr)
 	}
-	if guardErr := admitWorkerJobSplitProgressDispatchTx(context.Background(), tx, workID, convergence, &bindingB); guardErr == nil || !strings.Contains(guardErr.Error(), "job:successor-c") || strings.Contains(guardErr.Error(), "job:successor-b,") {
+	if guardErr := admitWorkerJobSplitProgressDispatchTx(context.Background(), tx, workID, convergence, &bindingB, BuiltinWorkflowRegistry()); guardErr == nil || !strings.Contains(guardErr.Error(), "job:successor-c") || strings.Contains(guardErr.Error(), "job:successor-b,") {
 		t.Fatalf("dispatched sibling dispatch = %v, want a refusal naming only the untouched sibling", guardErr)
 	}
 }
@@ -283,7 +283,7 @@ func TestWorkerJobSplitProgressFundsOuterSiblingAcrossNestedSplit(t *testing.T) 
 	}
 	defer tx.Rollback()
 	convergence := WorkflowRetryConvergence{Basis: "split_leaf_progress", LatestRecordSeq: acceptanceSeq}
-	if guardErr := admitWorkerJobSplitProgressDispatchTx(context.Background(), tx, workID, convergence, &bindingB); guardErr != nil {
+	if guardErr := admitWorkerJobSplitProgressDispatchTx(context.Background(), tx, workID, convergence, &bindingB, BuiltinWorkflowRegistry()); guardErr != nil {
 		t.Fatalf("outer sibling dispatch = %v, want admission", guardErr)
 	}
 }
@@ -493,7 +493,7 @@ func TestWorkerJobSplitProgressFundsFirstSiblingDispatch(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerDispatched, leafB).Scan(&dispatched); err != nil || dispatched != 0 {
 		t.Fatalf("sibling dispatch materialization = %d, %v; want none", dispatched, err)
 	}
-	convergence, err := workflowRetryConvergence(context.Background(), s.db, workID, "repair")
+	convergence, err := workflowRetryConvergenceForRegistry(context.Background(), s.db, workID, "repair", BuiltinWorkflowRegistry())
 	if err != nil || convergence.Basis != "" {
 		t.Fatalf("basis after the funded dispatch = %+v, %v; want the acceptance consumed without worker materialization", convergence, err)
 	}

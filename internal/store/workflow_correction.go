@@ -155,7 +155,7 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, registry D
 	if err != nil {
 		return nil, err
 	}
-	state, _, _, err := loadWorkflowAdmissionStateTx(ctx, q, workID, definition, stepID, "workflow_correction")
+	state, _, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, q, workID, definition, stepID, "workflow_correction", registry)
 	if err != nil {
 		return nil, err
 	}
@@ -449,6 +449,14 @@ func workflowCorrectionAttemptCount(ctx context.Context, q queryer, workID strin
 	if err != nil {
 		return 0, err
 	}
+	return workflowCorrectionAttemptCountSinceBoundary(ctx, q, workID, boundary, seq, subject)
+}
+
+// workflowCorrectionAttemptCountSinceBoundary is the same CD-0164 D1
+// population from a caller-resolved window boundary, so a caller that
+// already walked the history — the retry-window read, whose boundary is its
+// own fold's acceptance boundary — counts without a second fold.
+func workflowCorrectionAttemptCountSinceBoundary(ctx context.Context, q queryer, workID string, boundary, seq int64, subject string) (int64, error) {
 	var count int64
 	// Authorization already creates an attempt. Dispatch evidence corroborates
 	// that same identity, so count it once rather than requiring or doubling it.
@@ -467,27 +475,73 @@ WHERE a.work_id=? AND opening.seq<=? AND opening.seq>?`, string(SubjectWorkItem)
 	return count, nil
 }
 
+// workflowVerificationRequestCountSince counts the CD-0164 D4 verification
+// population: the recorded request_correction completions in the half-open
+// window (baseline, throughSeq]. The admission packet sites that count only
+// prior requests pass throughSeq-1; the dispatched packet and the CD-0164 D5
+// window read count the open request itself and pass it inclusive.
+func workflowVerificationRequestCountSince(ctx context.Context, q queryer, workID, subject string, baseline, throughSeq int64) (int64, error) {
+	var count int64
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' AND seq>? AND seq<=?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, baseline, throughSeq).Scan(&count); err != nil {
+		return 0, wrapFailure(KindUnavailable, subject, "cannot count correction requests", true, "retry once the workflow correction projection is readable", err)
+	}
+	return count, nil
+}
+
 // workflowCorrectionWindowBoundary excludes acceptance at seq: that result
 // cannot reset the window whose attempts its own admission must count.
 func workflowCorrectionWindowBoundary(ctx context.Context, q queryer, workID string, seq int64, subject string) (int64, error) {
-	history, err := workflowCorrectionWalk(ctx, q, workID, seq-1, subject)
+	history, err := workflowCorrectionWalkWorkerSatisfaction(ctx, q, workID, seq-1, subject)
 	if err != nil {
 		return 0, err
 	}
 	return history.boundary, nil
 }
 
-// workflowCorrectionWalk folds one inclusive event-log prefix. Both correction
-// projections use this history's obligation discharge rule (CD-0205 D4), not
-// the current attempt lifecycle, so historical reads keep replay parity.
-func workflowCorrectionWalk(ctx context.Context, q queryer, workID string, prefix int64, subject string) (*workflowCorrectionHistory, error) {
-	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.kind, COALESCE(json_extract(e.payload,'$.attempt_id'),''), COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''), COALESCE(json_extract(e.payload,'$.action_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.job_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.revision'),0), COALESCE(json_extract(e.payload,'$.worker_job.digest'),''), e.payload, e.event_id FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? AND ((e.kind=? AND json_extract(e.payload,'$.attempt_id') IS NOT NULL) OR (e.kind=? AND json_extract(e.payload,'$.action_id') IN ('record_worker_failure','reject_worker_result','request_correction','accept_worker_result','dispatch_worker')) OR e.kind=? OR e.kind=? OR e.kind=? OR e.kind=? OR e.kind=? OR e.kind=?) ORDER BY e.seq`, string(SubjectWorkItem), workID, prefix, WorkerDispatched, WorkflowActionCompleted, WorkerJobRecorded, WorkerFailed, WorkerCompleted, WorkerJobSplit, WorkflowContractSuperseded, WorkerJobSplitDischarged)
+// workflowCorrectionWalkForRegistry folds the same prefix with the caller's
+// authoritative registry: every recorded definition selection verifies
+// through it, fail closed, with no builtin retry or silent legacy fallback.
+func workflowCorrectionWalkForRegistry(ctx context.Context, q queryer, workID string, prefix int64, subject string, registry DefinitionRegistry) (*workflowCorrectionHistory, error) {
+	return workflowCorrectionWalkCore(ctx, q, workID, prefix, subject, registry, true)
+}
+
+// workflowCorrectionWalkWorkerSatisfaction folds the same prefix for the
+// callers that consume only the worker-satisfaction history — the acceptance
+// boundary, the correction records, the job debt, and the dispatch bindings.
+// These walks process no coordinator qualification, so a recorded selection
+// is neither resolved nor refused here: worker semantics never read it.
+func workflowCorrectionWalkWorkerSatisfaction(ctx context.Context, q queryer, workID string, prefix int64, subject string) (*workflowCorrectionHistory, error) {
+	return workflowCorrectionWalkCore(ctx, q, workID, prefix, subject, nil, false)
+}
+
+func workflowCorrectionWalkCore(ctx context.Context, q queryer, workID string, prefix int64, subject string, registry DefinitionRegistry, qualifyProgress bool) (*workflowCorrectionHistory, error) {
+	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.kind, COALESCE(json_extract(e.payload,'$.attempt_id'),''), COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''), COALESCE(json_extract(e.payload,'$.action_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.job_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.revision'),0), COALESCE(json_extract(e.payload,'$.worker_job.digest'),''), e.payload, e.event_id FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? ORDER BY e.seq`, string(SubjectWorkItem), workID, prefix)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot read the correction window history", true, "retry once the workflow event log is readable", err)
 	}
-	defer func() { _ = rows.Close() }()
+	// Buffer the prefix before folding. The progress fold qualifies evidence,
+	// verdicts, and premises through the shared semantic guards, which query
+	// the store; on the one pooled connection those queries deadlock behind
+	// this cursor, so the cursor closes first.
+	var events []workflowCorrectionHistoryRow
+	for rows.Next() {
+		var row workflowCorrectionHistoryRow
+		if err := rows.Scan(&row.seq, &row.kind, &row.dispatchAttempt, &row.actionAttempt, &row.actionID, &row.jobID, &row.jobRevision, &row.jobDigest, &row.payload, &row.eventID); err != nil {
+			_ = rows.Close()
+			return nil, wrapFailure(KindUnavailable, subject, "cannot scan the correction window history", true, "retry once the workflow event log is readable", err)
+		}
+		events = append(events, row)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, wrapFailure(KindUnavailable, subject, "cannot scan the correction window history", true, "retry once the workflow event log is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, wrapFailure(KindUnavailable, subject, "cannot close the correction window history", true, "retry once the workflow event log is readable", err)
+	}
 	history := &workflowCorrectionHistory{
 		prefix:          prefix,
+		registry:        registry,
 		unresolved:      make(map[string]bool),
 		dispatchJob:     make(map[string]string),
 		dispatchBinding: make(map[string]WorkerJobBinding),
@@ -497,25 +551,30 @@ func workflowCorrectionWalk(ctx context.Context, q queryer, workID string, prefi
 		reviewVerdict:   make(map[string]string),
 		checksRepairs:   make(map[string]*workflowChecksRepairState),
 		splits:          make(map[string]WorkerJobSplitPayload),
+		progress:        newWorkflowProgressHistory(),
 	}
-	for rows.Next() {
-		var row workflowCorrectionHistoryRow
-		if err := rows.Scan(&row.seq, &row.kind, &row.dispatchAttempt, &row.actionAttempt, &row.actionID, &row.jobID, &row.jobRevision, &row.jobDigest, &row.payload, &row.eventID); err != nil {
-			return nil, wrapFailure(KindUnavailable, subject, "cannot scan the correction window history", true, "retry once the workflow event log is readable", err)
-		}
+	for _, row := range events {
 		if err := history.observe(row, subject); err != nil {
 			return nil, err
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, wrapFailure(KindUnavailable, subject, "cannot scan the correction window history", true, "retry once the workflow event log is readable", err)
+		if qualifyProgress {
+			if err := history.observeProgress(ctx, q, workID, row); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return history, nil
 }
 
 type workflowCorrectionHistory struct {
-	prefix      int64
-	boundary    int64
+	prefix              int64
+	boundary            int64
+	nonprogressBoundary int64
+	// registry is the authoritative resolver for the recorded definition
+	// selections this walk qualifies: nil selects the builtin registry. A
+	// worker-satisfaction-only walk resolves no selection at all.
+	registry    DefinitionRegistry
+	progress    workflowProgressHistory
 	unresolved  map[string]bool
 	dispatchJob map[string]string
 	// dispatchBinding retains the full dispatched job binding of each
@@ -889,16 +948,18 @@ func workerJobObligationKey(payload WorkerJobRecordedPayload) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// workflowNonProgressAttemptCount counts distinct failed, rejected, no_ship,
-// or split-replaced overrun attempts across the work item. Authorization and
-// dispatch evidence name the
-// same attempt, so they consume one slot. Only productive acceptance that
-// discharges the correction window renews the budget.
-func workflowNonProgressAttemptCount(ctx context.Context, q queryer, workID, subject string) (int64, error) {
-	anchor, err := workflowNonProgressWindowAnchor(ctx, q, workID, subject, 0)
+// workflowNonProgressAttemptCountForRegistry counts the same whole-work
+// nonprogress population with the qualification resolved through the
+// caller's authoritative registry: nil selects the builtin registry.
+func workflowNonProgressAttemptCountForRegistry(ctx context.Context, q queryer, workID, subject string, registry DefinitionRegistry) (int64, error) {
+	history, err := workflowCorrectionWalkForRegistry(ctx, q, workID, int64(1)<<62, subject, registry)
 	if err != nil {
 		return 0, err
 	}
+	return workflowNonProgressAttemptCountAfter(ctx, q, workID, subject, history.nonprogressBoundary)
+}
+
+func workflowNonProgressAttemptCountAfter(ctx context.Context, q queryer, workID, subject string, anchor int64) (int64, error) {
 	var count int64
 	args := []any{string(SubjectWorkItem), WorkflowActionCompleted, WorkerDispatched, workID, anchor, WorkflowActionCompleted, WorkerCompleted, WorkerJobSplit}
 	population := ` FROM worker_attempts a JOIN domain_events dc ON dc.subject_type=? AND dc.subject_id=a.work_id
@@ -1035,9 +1096,9 @@ func workflowVerdictCorrectionFromState(ctx context.Context, q queryer, workID s
 			return nil, nil
 		}
 	}
-	var priorCorrections int64
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' AND seq>? AND seq<?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, lastHealthySeq, seq).Scan(&priorCorrections); err != nil {
-		return nil, wrapFailure(KindUnavailable, subject, "cannot count correction requests", true, "retry once the workflow correction projection is readable", err)
+	priorCorrections, countErr := workflowVerificationRequestCountSince(ctx, q, workID, subject, lastHealthySeq, seq-1)
+	if countErr != nil {
+		return nil, countErr
 	}
 	attempts := priorCorrections + 1
 	predicates := make([]string, 0, len(verdicts))
@@ -1289,15 +1350,10 @@ func workflowPostRejectionReviewMissing(ctx context.Context, q queryer, workID, 
 	return reviewed == 0, nil
 }
 
-// workflowDeliveryGateCorrectionContext is the correction context of a
-// workflow instance parked on a CD-0166 delivery gate whose refinement history
-// carries an outstanding review after rejection or an accepted no_ship report.
-// The context names the rejected result's predicates, or the active contract's
-// predicates, so the evidence-bearing return names what the fresh review must
-// cover. A gate without the outstanding review admits no
-// correction: record_delivery stays the only route off an ordinary parked
-// gate.
-func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (*WorkflowCorrectionContext, error) {
+// workflowDeliveryGateCorrectionContextForRegistry resolves the same gate
+// context with the caller's authoritative registry folding the admission
+// state's historical progress. A nil registry selects the builtin registry.
+func workflowDeliveryGateCorrectionContextForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, registry DefinitionRegistry) (*WorkflowCorrectionContext, error) {
 	if !workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
 		// The gate shape owns this route (CD-0166), not a work kind: the
 		// correction it admits is the post-rejection review return, and
@@ -1331,7 +1387,7 @@ func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workI
 	// the pool-backed queryer the continuation's queries would park behind
 	// the read transaction this wrapper holds (the store connection
 	// invariant).
-	state, _, _, err := loadWorkflowAdmissionStateTx(ctx, lawTx, workID, definition, currentStep, subject)
+	state, _, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, lawTx, workID, definition, currentStep, subject, registry)
 	if err != nil {
 		return nil, err
 	}
@@ -1375,9 +1431,9 @@ func workflowDeliveryGateCorrectionContextFolded(ctx context.Context, q queryer,
 	if baselineErr != nil {
 		return nil, baselineErr
 	}
-	var priorCorrections int64
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' AND seq>? AND seq<?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, lastHealthySeq, rejectSeq).Scan(&priorCorrections); err != nil {
-		return nil, wrapFailure(KindUnavailable, subject, "cannot count correction requests", true, "retry once the workflow correction projection is readable", err)
+	priorCorrections, countErr := workflowVerificationRequestCountSince(ctx, q, workID, subject, lastHealthySeq, rejectSeq-1)
+	if countErr != nil {
+		return nil, countErr
 	}
 	target := workflowCorrectionReturnTarget(definition, currentStep)
 	if target == "" {
@@ -1500,9 +1556,9 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 	if lastHealthySeq, err = workflowCorrectionHealthyBaseline(ctx, q, workID, state.contractVersion, state.verdictSeq); err != nil {
 		return nil, workflowCorrectionMissingNone, err
 	}
-	var priorCorrections int64
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' AND seq>? AND seq<?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, lastHealthySeq, state.verdictSeq).Scan(&priorCorrections); err != nil {
-		return nil, workflowCorrectionMissingNone, wrapFailure(KindUnavailable, subject, "cannot count correction requests", true, "retry once the workflow correction projection is readable", err)
+	priorCorrections, countErr := workflowVerificationRequestCountSince(ctx, q, workID, subject, lastHealthySeq, state.verdictSeq-1)
+	if countErr != nil {
+		return nil, workflowCorrectionMissingNone, countErr
 	}
 	target := workflowUnhealthyVerdictRouteTarget(definition, currentStep)
 	if target == "" {
@@ -1527,7 +1583,7 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 	}, workflowCorrectionMissingNone, nil
 }
 
-// workflowCorrectionRequestAdmission derives the correction request the
+// workflowCorrectionRequestAdmissionForRegistry derives the correction request the
 // current step admits and names the one missing prerequisite when it admits
 // none. It is the single derivation behind the availability check, the work
 // pin, the preflight, the fold, and the dispatch refusal, so every surface
@@ -1537,9 +1593,11 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 // checkpoint with a dispositioned failed review corrects through the
 // failed-review return; every other step corrects through the verification
 // verdict.
-func workflowCorrectionRequestAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64) (*WorkflowCorrectionContext, string, error) {
+// The caller's registry resolves the folded state's historical progress;
+// a nil registry selects the builtin registry.
+func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64, registry DefinitionRegistry) (*WorkflowCorrectionContext, string, error) {
 	if workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
-		context, err := workflowDeliveryGateCorrectionContext(ctx, q, workID, definition, currentStep, subject)
+		context, err := workflowDeliveryGateCorrectionContextForRegistry(ctx, q, workID, definition, currentStep, subject, registry)
 		if err != nil || context != nil {
 			return context, workflowCorrectionMissingNone, err
 		}
@@ -1569,12 +1627,11 @@ func workflowCorrectionRequestAdmission(ctx context.Context, q queryer, workID s
 	return nil, workflowCorrectionMissingVerdict, nil
 }
 
-// workflowCorrectionRequestAdmissionState reports the admission as the
-// boolean surfaces hold plus the missing-prerequisite class the refusal
-// constructor reads. excludeSeq names the fold's own in-flight completion so
-// the anchor judges settled entries only; read surfaces pass zero.
-func workflowCorrectionRequestAdmissionState(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64) (bool, string, error) {
-	context, missing, err := workflowCorrectionRequestAdmission(ctx, q, workID, definition, currentStep, subject, excludeSeq)
+// workflowCorrectionRequestAdmissionStateForRegistry resolves the same
+// admission with the caller's authoritative registry. A nil registry selects
+// the builtin registry.
+func workflowCorrectionRequestAdmissionStateForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64, registry DefinitionRegistry) (bool, string, error) {
+	context, missing, err := workflowCorrectionRequestAdmissionForRegistry(ctx, q, workID, definition, currentStep, subject, excludeSeq, registry)
 	return context != nil, missing, err
 }
 
@@ -1724,9 +1781,9 @@ func workflowCorrectionContextForDispatch(ctx context.Context, q queryer, workID
 		if baselineErr != nil {
 			return nil, baselineErr
 		}
-		var attempts int64
-		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' AND seq>? AND seq<=?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, lastHealthySeq, record.seq).Scan(&attempts); err != nil {
-			return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot count correction requests", true, "retry once the workflow correction projection is readable", err)
+		attempts, attemptsErr := workflowVerificationRequestCountSince(ctx, q, workID, "workflow_correction", lastHealthySeq, record.seq)
+		if attemptsErr != nil {
+			return nil, attemptsErr
 		}
 		return &WorkflowCorrectionContext{
 			Disposition: "verification", AttemptCount: attempts, AttemptLimit: workflowCorrectionAttemptLimit, Escalated: attempts > workflowCorrectionAttemptLimit,
@@ -1784,7 +1841,7 @@ func workflowCorrectionOpenRecord(ctx context.Context, q queryer, workID, dispat
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&watermark); err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot read the correction window watermark", true, "retry once the workflow event log is readable", err)
 	}
-	history, err := workflowCorrectionWalk(ctx, q, workID, watermark, subject)
+	history, err := workflowCorrectionWalkWorkerSatisfaction(ctx, q, workID, watermark, subject)
 	if err != nil {
 		return nil, err
 	}

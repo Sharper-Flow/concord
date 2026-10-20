@@ -23,9 +23,9 @@ import (
 func TestLiveAuthoringSelectorPublishesThreeFamiliesAndRefusesRetiredOnes(t *testing.T) {
 	t.Parallel()
 	heads := map[string]int64{
-		"workflow.implementation": 36,
-		"workflow.break_fix":      33,
-		"workflow.research":       21,
+		"workflow.implementation": 37,
+		"workflow.break_fix":      34,
+		"workflow.research":       22,
 	}
 	for ref, want := range heads {
 		registered, err := LiveWorkflowDefinitionForRef(ref)
@@ -608,9 +608,9 @@ func TestBuiltinWorkflowCurrentVersionsMatchLiveAuthoringHeads(t *testing.T) {
 	t.Parallel()
 	current := builtinWorkflowCurrentVersions
 	want := map[string]int64{
-		"workflow.implementation":     36,
-		"workflow.break_fix":          33,
-		"workflow.research":           21,
+		"workflow.implementation":     37,
+		"workflow.break_fix":          34,
+		"workflow.research":           22,
 		"workflow.architecture_spike": 17,
 		"workflow.ops_runbook":        18,
 		"workflow.static_analysis":    15,
@@ -842,6 +842,7 @@ func TestCutoverAllowsExactCanonicalHeadsAtReadiness(t *testing.T) {
 		{"workflow.research", 21, "canonical-research-21"},
 		{"workflow.implementation", 35, "canonical-impl-35"},
 		{"workflow.break_fix", 32, "canonical-break-32"},
+		{"workflow.research", 22, "canonical-research-22"},
 		{"workflow.implementation", 36, "canonical-impl-36"},
 		{"workflow.break_fix", 33, "canonical-break-33"},
 	} {

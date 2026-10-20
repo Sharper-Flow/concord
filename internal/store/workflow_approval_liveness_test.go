@@ -41,8 +41,8 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		}
 		// The model lifts engineering to no pending operator question; the
 		// real fold must agree on every compared dimension.
-		conformanceCheckpoint(t, s, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true, engineering: true}, "engineering at acceptance")
-		state := foldedApprovalAdmission(t, s, definition, workID)
+		conformanceCheckpoint(t, s, registry, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true, engineering: true}, "engineering at acceptance")
+		state := foldedApprovalAdmission(t, s, registry, definition, workID)
 		decision := workflowAdmit(definition, state, "confirm_premise")
 		if !decision.Admitted {
 			t.Fatalf("engineering confirm_premise is no exit at all: %v", decision.Failure)
@@ -52,7 +52,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		}
 		// The work pin projects no operator question and no withheld reason
 		// for engineering work.
-		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry), workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry), workID)
 		if question != nil || withheld != nil {
 			t.Fatalf("engineering work projects question %+v withheld %+v, want neither", question, withheld)
 		}
@@ -73,7 +73,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		// The real fold over the seeded history: the investigation
 		// observation is absent, so the confirmation refuses with the
 		// folded missing-evidence prerequisite.
-		state := foldedApprovalAdmission(t, s, definition, workID)
+		state := foldedApprovalAdmission(t, s, registry, definition, workID)
 		foldDecision := workflowAdmit(definition, state, "confirm_premise")
 		// The model lift over the same dimensions must reach the same
 		// decision: engineering without its recorded investigation folds the
@@ -96,7 +96,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		if !admissionConformanceViewOf(model).AcceptanceDeliverablesMissing {
 			t.Fatal("the conformance view of the model lift reports no missing deliverable; the dimension is not lifted")
 		}
-		conformanceCheckpoint(t, s, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: false, engineering: true}, "engineering without the recorded investigation")
+		conformanceCheckpoint(t, s, registry, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: false, engineering: true}, "engineering without the recorded investigation")
 	})
 
 	t.Run("decision keeps the open question exit and the evaluator's admitted route", func(t *testing.T) {
@@ -105,21 +105,21 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		s, registry, definition, _, actors := seedApprovalItemAtAcceptance(t, workID, []string{"product"})
 		// The independently authenticated evaluator's action is admitted at
 		// the acceptance step, not assumed.
-		if decision := workflowAdmit(definition, foldedApprovalAdmission(t, s, definition, workID), "record_verdict"); !decision.Admitted {
+		if decision := workflowAdmit(definition, foldedApprovalAdmission(t, s, registry, definition, workID), "record_verdict"); !decision.Admitted {
 			t.Fatalf("the evaluator's record_verdict route is not admitted at acceptance: %v", decision.Failure)
 		}
 		if err := recordApprovalVerdict(t, s, registry, workID, actors.reviewer); err != nil {
 			t.Fatalf("the independent evaluator's verdict refused: %v", err)
 		}
-		conformanceCheckpoint(t, s, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true}, "decision at acceptance")
-		state := foldedApprovalAdmission(t, s, definition, workID)
+		conformanceCheckpoint(t, s, registry, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true}, "decision at acceptance")
+		state := foldedApprovalAdmission(t, s, registry, definition, workID)
 		if decision := workflowAdmit(definition, state, "confirm_premise"); !decision.Admitted {
 			t.Fatalf("decision confirm_premise refused behind its open question: %v", decision.Failure)
 		}
 		// The work pin projects the real question, and its digest is the
 		// exact verified one.
 		digest := approvalDecisionDigest(t, s, workID)
-		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry), workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry), workID)
 		if question == nil || withheld != nil {
 			t.Fatalf("decision work projects question %+v withheld %+v, want the open question without a withheld reason", question, withheld)
 		}
@@ -138,7 +138,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		advanceResolutionToExecution(t, s, registry, workID, owner, []string{"product"})
 		advanceResolutionDelivery(t, s, registry, workID, owner)
 		// No investigation observation: the decision question never opens.
-		state := foldedApprovalAdmission(t, s, definition, workID)
+		state := foldedApprovalAdmission(t, s, registry, definition, workID)
 		if state.PendingOperatorDecision {
 			t.Fatal("the decision question opened without its recorded investigation")
 		}
@@ -181,7 +181,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		})
 		// The loader folds the current failed binding once; the same fold
 		// answers for both policies over the identical seeded history.
-		newState := foldedApprovalAdmission(t, s, definition, workID)
+		newState := foldedApprovalAdmission(t, s, registry, definition, workID)
 		if newState.Step != "execution" {
 			t.Fatalf("the retry seed left the step at %q, want execution", newState.Step)
 		}
@@ -213,7 +213,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		// declares no worker jobs, so the job-binding member of the retry
 		// binding stays outside this witness's scope.
 		legacy := workflowFixtureDefinition(t, 2).Definition
-		legacyState := foldedApprovalAdmission(t, s, legacy, workID)
+		legacyState := foldedApprovalAdmission(t, s, registry, legacy, workID)
 		if legacyState.FailedWorkerRetry == nil || legacyState.FailedWorkerRetry.FailedAttemptID != "attempt:approval-retry" {
 			t.Fatalf("the legacy fold lost the failed binding: %+v", legacyState.FailedWorkerRetry)
 		}
@@ -270,8 +270,8 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		}
 		// The model and the fold agree: the unhealthy artifact opens the
 		// correction route at the verdict step.
-		conformanceCheckpoint(t, s, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "bad", artifact: true, artifactStale: true, engineering: true}, "unhealthy artifact at acceptance")
-		state := foldedApprovalAdmission(t, s, definition, workID)
+		conformanceCheckpoint(t, s, registry, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "bad", artifact: true, artifactStale: true, engineering: true}, "unhealthy artifact at acceptance")
+		state := foldedApprovalAdmission(t, s, registry, definition, workID)
 		if !state.CorrectionRequestRecovery {
 			t.Fatal("the fold opened no correction route behind the unhealthy verdict")
 		}
@@ -291,7 +291,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		// The model and the fold agree at the returned producer state: the
 		// prefix's fenced execution start anchors the delivery-bearing epoch
 		// the fold still carries.
-		conformanceCheckpoint(t, s, workID, definition, admissionModelState{step: target, contracts: 1, verdict: "bad", artifact: true, artifactStale: true, started: true, engineering: true}, "correction returned to the producer")
+		conformanceCheckpoint(t, s, registry, workID, definition, admissionModelState{step: target, contracts: 1, verdict: "bad", artifact: true, artifactStale: true, started: true, engineering: true}, "correction returned to the producer")
 		// The route is spent at the target: a second correction refuses with
 		// no version advance and no stranded fold guard.
 		baselineVersion := readWorkVersion(t, s, workID)
@@ -308,7 +308,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		// legacy-shaped fixture definition keeps the correction route, and no
 		// approval route replaces it.
 		legacy := workflowFixtureDefinition(t, 2).Definition
-		legacyState := foldedApprovalAdmission(t, s, legacy, workID)
+		legacyState := foldedApprovalAdmission(t, s, registry, legacy, workID)
 		if legacyState.CorrectionRequestRecovery {
 			t.Fatalf("the legacy twin opened a correction route at the producer step: %+v", legacyState)
 		}
@@ -339,7 +339,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		if err := recordApprovalVerdict(t, s, registry, workID, actors.reviewer); err != nil {
 			t.Fatalf("the independent evaluator's verdict refused: %v", err)
 		}
-		conformanceCheckpoint(t, s, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true, engineering: true}, "engineering before the revision")
+		conformanceCheckpoint(t, s, registry, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true, engineering: true}, "engineering before the revision")
 		predecessorDigest := approvalDecisionDigest(t, s, workID)
 		// The class revision authors the successor fact through the
 		// registered fold; the supersession stales the judged artifact until
@@ -351,14 +351,14 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		// The revision stales the judged artifact: a fresh healthy verdict
 		// needs real production at the route target, so the successor's
 		// acceptance obligations stay unmet by design.
-		conformanceCheckpoint(t, s, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true, artifactStale: true}, "decision successor after the revision")
+		conformanceCheckpoint(t, s, registry, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true, artifactStale: true}, "decision successor after the revision")
 		// The successor's projected question carries its own digest: the
 		// predecessor's recorded digest cannot answer it.
 		successorDigest := approvalDecisionDigest(t, s, workID)
 		if successorDigest == predecessorDigest {
 			t.Fatal("the successor's decision digest equals the predecessor's; a stale digest could answer the successor")
 		}
-		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry), workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry), workID)
 		if question == nil || withheld != nil {
 			t.Fatalf("the decision successor projects question %+v withheld %+v, want the open question without a withheld reason", question, withheld)
 		}
@@ -389,7 +389,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		if err := recordApprovalVerdict(t, s, registry, workID, actors.reviewer); err != nil {
 			t.Fatalf("the independent evaluator's verdict refused: %v", err)
 		}
-		conformanceCheckpoint(t, s, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true}, "decision before the revision")
+		conformanceCheckpoint(t, s, registry, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true}, "decision before the revision")
 		appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 			Events:           []Event{approvalClassRevisionEvent(t, s, workID, ownerRefForTest(t, owner), []string{})},
 			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): readWorkVersion(t, s, workID)},
@@ -397,10 +397,10 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		// The revision stales the judged artifact: a fresh healthy verdict
 		// needs real production at the route target, so the successor's
 		// acceptance obligations stay unmet by design.
-		conformanceCheckpoint(t, s, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true, artifactStale: true, engineering: true}, "engineering successor after the revision")
+		conformanceCheckpoint(t, s, registry, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true, artifactStale: true, engineering: true}, "engineering successor after the revision")
 		// The work pin projects no operator question for the engineering
 		// successor.
-		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry), workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry), workID)
 		if question != nil || withheld != nil {
 			t.Fatalf("the engineering successor projects question %+v withheld %+v, want neither", question, withheld)
 		}

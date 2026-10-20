@@ -75,7 +75,7 @@ func TestHistoricalAcceptedNoShipReviewWithoutRejectionRecovers(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			state, _, _, loadErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, registered.Definition, "delivery", "test")
+			state, _, _, loadErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, registered.Definition, "delivery", "test", BuiltinWorkflowRegistry())
 			_ = tx.Rollback()
 			if loadErr != nil {
 				t.Fatal(loadErr)
@@ -229,7 +229,7 @@ func TestAcceptedNoShipReviewCorrectionCounting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, _, _, loadErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, registered.Definition, "execution", "test")
+	state, _, _, loadErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, registered.Definition, "execution", "test", BuiltinWorkflowRegistry())
 	_ = tx.Rollback()
 	if loadErr != nil {
 		t.Fatal(loadErr)

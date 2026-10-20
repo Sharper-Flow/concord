@@ -207,7 +207,7 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {
   // action (approve_contract and supersede_contract) must teach the rule,
   // or a drop from one branch hides behind its siblings.
   const delivery: unknown = carrier.fields.properties.outcome_predicates?.description;
-  if (delivery !== "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.") {
+  if (typeof delivery !== "string" || delivery.split(" Accepted shape:", 1)[0] !== "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.") {
     gaps.push(`outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action ${carrier.actionId}`);
   }
   }

@@ -442,6 +442,17 @@ func TestGuidanceIntersectsRepeatedReferenceBounds(t *testing.T) {
 	}
 }
 
+func TestGuidanceRequiredPatternProperty(t *testing.T) {
+	root := decodeSchema(t, `{"$defs":{"object":{"type":"object","required":["key"],"patternProperties":{"^key$":{"type":"string"}},"additionalProperties":false}}}`)
+	if err := AnnotateGuidance(root, []string{"object"}); err != nil {
+		t.Fatal(err)
+	}
+	schema := guidanceNodeAtPath(t, root, "$defs", "object")
+	if err := ValidateValue(schema["examples"].([]any)[0], schema, root, "$"); err != nil {
+		t.Fatalf("required pattern-property example is invalid: %v", err)
+	}
+}
+
 // A minLength floor beside a pattern with optional and star constructs is met
 // by expanding the pattern's own optional structure, not by dropping it.
 func TestAnnotateGuidanceMeetsMinLengthThroughOptionalExpansion(t *testing.T) {
@@ -493,12 +504,10 @@ func TestAnnotateGuidanceFailsExplicitlyAndLeavesTheDocumentUntouched(t *testing
 
 // An oversized example fails explicitly rather than being published or cut.
 func TestAnnotateGuidanceFailsOnOversizedExample(t *testing.T) {
-	names := make([]string, 0, 60)
 	properties := map[string]any{}
 	required := make([]any, 0, 60)
 	for i := 0; i < 60; i++ {
 		name := fmt.Sprintf("field%02d", i)
-		names = append(names, name)
 		properties[name] = map[string]any{"type": "string"}
 		required = append(required, name)
 	}

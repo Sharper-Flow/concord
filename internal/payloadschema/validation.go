@@ -416,7 +416,7 @@ func applicableBranchFailures(value any, branches []any, branchFailures []error,
 		accepting := []int{}
 		for i, schema := range resolved {
 			property := schemaPropertyName(schema, name)
-			if property == nil || !propertyPinsValue(property, supplied) {
+			if property == nil || !propertyPinsValue(property) {
 				continue
 			}
 			pinning = append(pinning, i)
@@ -489,7 +489,7 @@ func branchPinsContradictedValue(object map[string]any, schema map[string]any) b
 		if property == nil {
 			continue
 		}
-		if propertyPinsValue(property, object[name]) && !propertyAcceptsValue(property, object[name]) {
+		if propertyPinsValue(property) && !propertyAcceptsValue(property, object[name]) {
 			return true
 		}
 	}
@@ -506,7 +506,7 @@ func schemaPropertyName(schema map[string]any, name string) map[string]any {
 
 // propertyPinsValue reports whether the property schema constrains the value
 // with const or enum, so a mismatch discriminates between variants.
-func propertyPinsValue(property map[string]any, supplied any) bool {
+func propertyPinsValue(property map[string]any) bool {
 	if _, ok := property["const"]; ok {
 		return true
 	}

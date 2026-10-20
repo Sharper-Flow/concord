@@ -473,7 +473,7 @@ func guidanceObjectExample(schema map[string]any, root map[string]any, depth int
 		}
 		if !ok {
 			for _, pattern := range sortedKeys(patterns) {
-				if candidate, ok := patterns[pattern].(map[string]any); ok {
+				if candidate, isSchema := patterns[pattern].(map[string]any); isSchema {
 					child, ok = candidate, true
 					break
 				}
@@ -826,7 +826,7 @@ func guidanceShape(schema map[string]any, root map[string]any, depth int) string
 		return "one of " + strings.Join(values, ", ")
 	}
 	kind := guidanceNodeType(source)
-	head := ""
+	var head string
 	switch kind {
 	case "object":
 		head = "object"

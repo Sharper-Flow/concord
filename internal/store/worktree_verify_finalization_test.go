@@ -77,7 +77,8 @@ func TestRunWorktreeVerifyCommandCancellationLetsWrapperCleanUp(t *testing.T) {
 	pidPath := filepath.Join(dir, "child.pid")
 	marker := filepath.Join(dir, "terminated")
 	script := filepath.Join(dir, "wrapper")
-	body := "#!/bin/sh\ntrap 'kill -TERM \"$child\"; wait \"$child\"; printf cleaned > \"$2\"; exit 0' TERM\nsetsid sleep 30 &\nchild=$!\nprintf 'before cancellation\\n'\nprintf '%s\\n' \"$child\" > \"$1\"\nwait \"$child\"\n"
+	// Cleanup may take longer than one second within the runner's TERM grace.
+	body := "#!/bin/sh\ntrap 'sleep 2; kill -TERM \"$child\"; wait \"$child\"; printf cleaned > \"$2\"; exit 0' TERM\nsetsid sleep 30 &\nchild=$!\nprintf 'before cancellation\\n'\nprintf '%s\\n' \"$child\" > \"$1\"\nwait \"$child\"\n"
 	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -94,14 +95,19 @@ func TestRunWorktreeVerifyCommandCancellationLetsWrapperCleanUp(t *testing.T) {
 		done <- runResult{code, out, err}
 	}()
 	pid := waitVerifyFixturePID(t, pidPath)
-	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	t.Cleanup(func() {
+		if t.Failed() {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	})
 	cancel()
+	// Allow the runner's cleanup window plus a bounded return/scheduling margin.
 	select {
 	case result := <-done:
 		if !errors.Is(result.err, context.Canceled) || result.code == 0 || !strings.Contains(string(result.out), "before cancellation") {
 			t.Fatalf("cancelled wrapper result=%+v", result)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(2 * worktreeVerifyFinalizeTimeout):
 		t.Fatal("verification cancellation left a wrapper child holding output")
 	}
 	if data, err := os.ReadFile(marker); err != nil || string(data) != "cleaned" {

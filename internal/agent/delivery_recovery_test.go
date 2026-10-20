@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -344,11 +345,12 @@ func agentWorkerCompletedThroughSeam(t *testing.T, s *store.Store, attemptID, ev
 
 // agentReportedProductionSize is the production_size a compliant worker
 // reports for a capped implementation job: the recorded base its packet
-// carries and its delivered HEAD. Any other attempt reports none.
+// carries, its delivered HEAD, and the independently counted text delta.
+// Any other attempt reports none.
 func agentReportedProductionSize(t *testing.T, s *store.Store, workID, attemptID, directory string) *store.WorkerProductionSize {
 	t.Helper()
-	var base string
-	err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(r.payload,'$.measurement_basis.base_commit') FROM domain_events d JOIN domain_events r ON r.subject_id=d.subject_id AND r.kind=? AND json_extract(r.payload,'$.job_id')=json_extract(d.payload,'$.worker_job.job_id') AND json_extract(r.payload,'$.revision')=json_extract(d.payload,'$.worker_job.revision') WHERE d.subject_id=? AND d.kind=? AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=? AND json_extract(d.payload,'$.worker_capability_class')='implementation' AND json_extract(r.payload,'$.measurement_basis.base_commit') IS NOT NULL ORDER BY d.seq DESC LIMIT 1`, store.WorkerJobRecorded, workID, store.WorkflowActionCompleted, attemptID).Scan(&base)
+	var base, rawBasis string
+	err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(r.payload,'$.measurement_basis.base_commit'), json_extract(r.payload,'$.measurement_basis') FROM domain_events d JOIN domain_events r ON r.subject_id=d.subject_id AND r.kind=? AND json_extract(r.payload,'$.job_id')=json_extract(d.payload,'$.worker_job.job_id') AND json_extract(r.payload,'$.revision')=json_extract(d.payload,'$.worker_job.revision') WHERE d.subject_id=? AND d.kind=? AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=? AND json_extract(d.payload,'$.worker_capability_class')='implementation' AND json_extract(r.payload,'$.measurement_basis.base_commit') IS NOT NULL ORDER BY d.seq DESC LIMIT 1`, store.WorkerJobRecorded, workID, store.WorkflowActionCompleted, attemptID).Scan(&base, &rawBasis)
 	if err == sql.ErrNoRows {
 		return nil
 	}
@@ -359,7 +361,47 @@ func agentReportedProductionSize(t *testing.T, s *store.Store, workID, attemptID
 	if err != nil {
 		t.Fatalf("read the delivered HEAD of %s: %v", directory, err)
 	}
-	return &store.WorkerProductionSize{Base: base, Tree: strings.TrimSpace(string(head)), Count: 0}
+	tree := strings.TrimSpace(string(head))
+	var basis store.WorkerJobMeasurementBasis
+	if err := json.Unmarshal([]byte(rawBasis), &basis); err != nil {
+		t.Fatal(err)
+	}
+	return &store.WorkerProductionSize{Base: base, Tree: tree, Count: fixtureReportedProductionCount(t, directory, base, tree, basis)}
+}
+
+// Fixture reports count Git's text delta independently of the sealed observation.
+// Inventory classes apply before the production default; binaries cannot prove zero.
+func fixtureReportedProductionCount(t *testing.T, directory, base, tree string, basis store.WorkerJobMeasurementBasis) int64 {
+	t.Helper()
+	classes := map[string]string{}
+	for _, measured := range basis.Paths {
+		classes[measured.Path] = measured.Class
+	}
+	raw := runFixtureGit(t, directory, "--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames", "--diff-algorithm=myers", "--no-indent-heuristic", "--numstat", "-z", base, tree)
+	var count int64
+	for _, record := range strings.Split(strings.TrimSuffix(raw, "\x00"), "\x00") {
+		if record == "" {
+			continue
+		}
+		parts := strings.SplitN(record, "\t", 3)
+		if len(parts) != 3 {
+			t.Fatalf("fixture numstat record %q lacks two counts and a path", record)
+		}
+		path, added, deleted := parts[2], parts[0], parts[1]
+		if class, classified := classes[path]; classified && class != "production" {
+			continue
+		}
+		if added == "-" || deleted == "-" {
+			t.Fatalf("fixture numstat records production path %s binary; the fixture writes text only", path)
+		}
+		addedLines, addedErr := strconv.ParseInt(added, 10, 64)
+		deletedLines, deletedErr := strconv.ParseInt(deleted, 10, 64)
+		if addedErr != nil || deletedErr != nil || addedLines < 0 || deletedLines < 0 {
+			t.Fatalf("fixture numstat record %q does not carry two nonnegative integers", record)
+		}
+		count += addedLines + deletedLines
+	}
+	return count
 }
 
 func agentWorkerDirectory(t *testing.T, s *store.Store, workID string) string {

@@ -421,17 +421,47 @@ func seedOracleVerifySubjectForWork(t *testing.T, s *store.Store, workID string)
 // and qualifies the new subject before the live terminal observation reads it.
 func deliverAgentFixtureChange(t *testing.T, s *store.Store, workID, attemptID string) {
 	t.Helper()
+	delivery := recordedJobDeliveryPath(t, s, workID, attemptID)
 	path, _ := oracleFixtureActiveClaimFor(t, s, workID)
 	before := fixtureClaimSubject(t, path)
-	if err := os.WriteFile(filepath.Join(path, "delivery.txt"), []byte(attemptID+"\n"), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(path, filepath.Dir(delivery)), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	runFixtureGit(t, path, "add", "delivery.txt")
+	if err := os.WriteFile(filepath.Join(path, delivery), []byte(attemptID+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runFixtureGit(t, path, "add", delivery)
 	runFixtureGit(t, path, "commit", "-m", "implementation delivery")
 	seedOracleVerifySubjectForWork(t, s, workID)
 	if subject := fixtureOracleSubjectFor(t, s, workID); subject == before || subject != strings.TrimSpace(runFixtureGit(t, path, "rev-parse", "HEAD")) {
 		t.Fatalf("qualified delivery subject = %q, want a changed committed HEAD after %q", subject, before)
 	}
+}
+
+// Size-capable fixtures record one production path. Deliver there rather than
+// changing an unscoped path and claiming an unevidenced caller repair.
+func recordedJobDeliveryPath(t *testing.T, s *store.Store, workID, attemptID string) string {
+	t.Helper()
+	binding := authorizedWorkerJobFor(t, s, workID, attemptID)
+	if binding == nil {
+		return "delivery.txt"
+	}
+	var raw []byte
+	err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=?`, workID, store.WorkerJobRecorded, binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
+	if err != nil {
+		t.Fatalf("read the authorized worker job %+v: %v", binding, err)
+	}
+	var job store.WorkerJobRecordedPayload
+	if err := json.Unmarshal(raw, &job); err != nil {
+		t.Fatal(err)
+	}
+	if job.MeasurementBasis == nil {
+		return "delivery.txt"
+	}
+	if len(job.MeasurementBasis.Paths) != 1 || job.MeasurementBasis.Paths[0].Class != "production" {
+		t.Fatalf("delivery fixture requires one recorded production path: %+v", job.MeasurementBasis.Paths)
+	}
+	return job.MeasurementBasis.Paths[0].Path
 }
 
 // seedOraclePreparationReceiptForWork records the exact native preparation

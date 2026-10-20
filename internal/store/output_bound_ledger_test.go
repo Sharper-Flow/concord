@@ -290,15 +290,10 @@ type outputBoundRegistration struct {
 	invalid string
 }
 
-var (
-	// ledgerRegistrations holds the family-file rows. Registration must be
-	// complete before the closure test runs: register from init() or a
-	// file-level var, never from another Test function body.
-	ledgerRegistrations []outputBoundRegistration
-	// ledgerOutputRoots holds explicitly registered host/internal output
-	// nodes that extend the manifest-owned census.
-	ledgerOutputRoots []censusRootRequest
-)
+// ledgerRegistrations holds the family-file rows. Registration must be
+// complete before the closure test runs: register from init() or a
+// file-level var, never from another Test function body.
+var ledgerRegistrations []outputBoundRegistration
 
 // registerOutputBound registers one census row. pattern is a JSON pointer to
 // a bound keyword (for example /$defs/workflow_read/properties/
@@ -2934,7 +2929,7 @@ func TestOutputBoundLedgerClosure(t *testing.T) {
 		t.Fatal(err)
 	}
 	rt.ddl = ddl
-	census, censusFailures := buildCensus(rt, ledgerOutputRoots, ledgerPayloadInputRoots())
+	census, censusFailures := buildCensus(rt, nil, ledgerPayloadInputRoots())
 	if len(censusFailures) > 0 {
 		details := make([]string, 0, len(censusFailures))
 		for _, failure := range censusFailures {

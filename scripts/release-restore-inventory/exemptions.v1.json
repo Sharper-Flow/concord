@@ -266,6 +266,14 @@
    "check": "reviewed source: the payload_version reaches the local Event only from Scan of the stored row; its kind is the query's own kind filter; the event is only validated; the function inserts no row"
   },
   {
+   "id": "read_back:sampleWorkerDiff:aa52f9076b05:&event.PayloadVersion",
+   "class": "read_back",
+   "function": "github.com/sharper-flow/concord/internal/store.sampleWorkerDiff",
+   "expression": "&event.PayloadVersion",
+   "function_digest": "sha256:aa52f9076b059b38bf3a601b1f87edea5a0092efbb6075d0a78196fb9e28e5f9",
+   "check": "reviewed source: the payload_version reaches the local Event only from Scan of the stored row; its kind is the query's own kind filter; the event is only validated; the function inserts no row"
+  },
+  {
    "id": "read_back:validateWorkContextFindingRefs:4a009d5d4da6:&event.Kind",
    "class": "read_back",
    "function": "github.com/sharper-flow/concord/internal/store.validateWorkContextFindingRefs",

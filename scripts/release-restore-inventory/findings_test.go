@@ -347,6 +347,72 @@ func TestDriftLeavesTheSiteHeld(t *testing.T) {
 	}
 }
 
+// The corrected census holds sampleWorkerDiff's &event.PayloadVersion site
+// at sha256:aa52f907… on v17.28.4-v17.33.1; its wildcard pair is the only
+// block on those releases' six old discharge-only kinds. The committed
+// read-back entry must cover the exact site and discharge each of those
+// pairs on that entry alone, and any function, expression, or digest drift
+// must leave the site held with every pair blocked.
+func TestCommittedReadBackCoversTheCensusedSampleWorkerDiffSite(t *testing.T) {
+	const (
+		sampleWorkerDiff = "github.com/sharper-flow/concord/internal/store.sampleWorkerDiff"
+		siteDigest       = "sha256:aa52f9076b059b38bf3a601b1f87edea5a0092efbb6075d0a78196fb9e28e5f9"
+		entryID          = "read_back:sampleWorkerDiff:aa52f9076b05:&event.PayloadVersion"
+	)
+	table, err := parseExemptions(exemptionsSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lostKinds := []string{
+		"product.renamed",
+		"product_project.removed",
+		"product_project.role_changed",
+		"project.governing_requirement_declared",
+		"project.governing_requirement_withdrawn",
+		"project.renamed",
+	}
+	lostPairs := []string{
+		"product.renamed v1",
+		"product_project.removed v1",
+		"product_project.role_changed v1",
+		"project.governing_requirement_declared v1",
+		"project.governing_requirement_withdrawn v1",
+		"project.renamed v1",
+	}
+	inventoryFor := func(site writerSite) inventory {
+		inv := findingInventory(writerAnalysis{Analyzer: "test", Open: []writerSite{site}})
+		inv.Groups["g"] = nil
+		for _, kind := range lostKinds {
+			inv.Groups["g"] = append(inv.Groups["g"], registration{Kind: kind, CurrentVersion: 1, MinSupported: 1, Type: "t"})
+		}
+		return inv
+	}
+	site := writerSite{Function: sampleWorkerDiff, Expression: "&event.PayloadVersion", FunctionDigest: siteDigest, Pairs: []string{"* v*"}}
+	f := writerFindings(inventoryFor(site), table)[0]
+	if len(f.Exempted) != 1 || f.Exempted[0].Exemption != entryID || f.Exempted[0].Class != "read_back" || len(f.Held) != 0 {
+		t.Fatalf("censused site held %+v exempted %+v", f.Held, f.Exempted)
+	}
+	want := []discharge{}
+	for _, kind := range lostKinds {
+		want = append(want, discharge{Kind: kind, PayloadVersion: 1, Exemptions: []string{entryID}})
+	}
+	if !reflect.DeepEqual(f.Discharged, want) || len(f.Undischarged) != 0 {
+		t.Fatalf("discharged %+v undischarged %v", f.Discharged, f.Undischarged)
+	}
+	for name, edit := range map[string]func(*writerSite){
+		"function changed":   func(s *writerSite) { s.Function = sampleWorkerDiff + "V2" },
+		"expression changed": func(s *writerSite) { s.Expression = "&event.Kind" },
+		"digest changed":     func(s *writerSite) { s.FunctionDigest = "sha256:9999" },
+	} {
+		drifted := site
+		edit(&drifted)
+		f := writerFindings(inventoryFor(drifted), table)[0]
+		if len(f.Exempted) != 0 || !reflect.DeepEqual(f.Held, []writerSite{drifted}) || len(f.Discharged) != 0 || !reflect.DeepEqual(f.Undischarged, lostPairs) {
+			t.Errorf("%s: held %+v exempted %+v discharged %+v undischarged %v", name, f.Held, f.Exempted, f.Discharged, f.Undischarged)
+		}
+	}
+}
+
 func TestRefusedOrMissingAnalysisIsRecorded(t *testing.T) {
 	refused := findingAnalysis()
 	refused.Refused = "type-check failed"

@@ -227,7 +227,8 @@ These are not shipped features or release-date commitments:
 Concord supports Linux amd64. Read the [full prerequisites](.concord/docs/installation.md#prerequisites)
 before you install. Run the installer with Python 3.
 
-Before an upgrade introduces the `Concord` and `Concord-RTE` profiles, complete
+Before an upgrade introduces the `Concord`, `Concord-RTE`, or optional
+`Concord-Planner` profiles, complete
 the [primary-agent authorization step](adapter/opencode/README.md#authorize-the-primary-agent-names-before-activation)
 for every affected trusted client. Installation does not grant agent scope;
 verify the exact names before activation or selecting the profiles.

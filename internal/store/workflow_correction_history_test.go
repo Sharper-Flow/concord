@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
 )
 
@@ -16,14 +17,14 @@ func correctionHistoryFixture(t *testing.T) (*sql.DB, func(string, any) int64) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(`CREATE TABLE domain_events(seq INTEGER PRIMARY KEY,subject_type TEXT,subject_id TEXT,kind TEXT,payload BLOB)`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE domain_events(seq INTEGER PRIMARY KEY,subject_type TEXT,subject_id TEXT,kind TEXT,payload BLOB,event_id TEXT)`); err != nil {
 		t.Fatal(err)
 	}
 	var seq int64
 	return db, func(kind string, payload any) int64 {
 		t.Helper()
 		seq++
-		if _, err := db.Exec(`INSERT INTO domain_events VALUES(?,?,?,?,?)`, seq, string(SubjectWorkItem), "work-history", kind, mustJSONValue(payload)); err != nil {
+		if _, err := db.Exec(`INSERT INTO domain_events VALUES(?,?,?,?,?,?)`, seq, string(SubjectWorkItem), "work-history", kind, mustJSONValue(payload), fmt.Sprintf("history-e%d", seq)); err != nil {
 			t.Fatal(err)
 		}
 		return seq

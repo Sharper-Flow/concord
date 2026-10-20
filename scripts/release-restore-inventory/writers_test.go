@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -55,6 +56,11 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"thing.a": {CurrentVersion: 2, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastA1}, Fold: foldA},
 	"thing.b": {CurrentVersion: 3, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastB1, 2: upcastB2},
 		RecordedSchemas: map[int][]recordedPayloadSchema{2: {{matches: matchB, adapt: upcastB2}}}, Fold: foldB},
+}
+
+func registeredEventKind(kind string) (EventKindRegistration, bool) {
+	registration, ok := eventKindRegistry[kind]
+	return registration, ok
 }
 
 func checkSubject(event Event, want SubjectType) error {
@@ -127,7 +133,7 @@ func upcastEventWithRegistration(event Event, registration EventKindRegistration
 }
 
 func prepareRecordedEvent(event Event) (Event, error) {
-	registration, ok := eventKindRegistry[event.Kind]
+	registration, ok := registeredEventKind(event.Kind)
 	if !ok {
 		return Event{}, errors.New("unknown")
 	}
@@ -395,6 +401,122 @@ func TestUpcasterConfinement(t *testing.T) {
 	}
 }
 
+// The analysis proves the recorded-schema adapt route: the one adapt caller,
+// and every adapt result passing through the forwarder to the dispatcher.
+// The analysis proves the recorded-schema adapt route: the one adapt caller,
+// and every adapt result passing through the forwarder to the dispatcher.
+// Each escape a reviewed route must exclude leaves no route.
+func TestAdaptRoute(t *testing.T) {
+	const store = "internal/store/store.go"
+	analysis := analyzeFixture(t)
+	route := analysis.Adapt
+	if route == nil || route.Function != storePkg+".prepareRecordedEvent" {
+		t.Fatalf("adapt route %+v", route)
+	}
+	if route.FunctionDigest == "" || !slices.Equal(route.Forwarders, []namedHash{{storePkg + ".prepareEventWithRegistration", route.Forwarders[0].Digest}}) {
+		t.Fatalf("adapt route %+v", route)
+	}
+	// The registry names upcastB2 as an adapt value, so the route pins its
+	// digest: a changed adapt function must change the pinned value set.
+	if !slices.ContainsFunc(route.Values, func(v namedHash) bool { return v.Function == storePkg+".upcastB2" && v.Digest != "" }) {
+		t.Fatalf("adapt route values %v", route.Values)
+	}
+	mutated := analyzeFixture(t, mutation{store, "func upcastB2(event Event) (Event, error) {\n\tevent.PayloadVersion = 3\n\treturn event, nil\n}", "func upcastB2(event Event) (Event, error) {\n\tevent.PayloadVersion = 3\n\tevent.Payload = nil\n\treturn event, nil\n}"})
+	if mutated.Adapt == nil || slices.Equal(mutated.Adapt.Values, route.Values) {
+		t.Fatalf("a mutated adapt value must change the pinned digests: %+v", mutated.Adapt)
+		elided := analyzeFixture(t, mutation{store, "RecordedSchemas map[int][]recordedPayloadSchema", "RecordedSchemas map[int][]*recordedPayloadSchema"}, mutation{store, "RecordedSchemas: map[int][]recordedPayloadSchema{", "RecordedSchemas: map[int][]*recordedPayloadSchema{"})
+		if elided.Adapt == nil || !slices.Equal(elided.Adapt.Values, route.Values) {
+			t.Fatalf("an elided &recordedPayloadSchema literal must pin its adapt value: %+v", elided.Adapt)
+		}
+		delegating := analyzeFixture(t, mutation{store, "func upcastB2(event Event) (Event, error) {\n\tevent.PayloadVersion = 3\n\treturn event, nil\n}", "func upcastB2(event Event) (Event, error) {\n\treturn adaptDelegate(event)\n}\n\nfunc adaptDelegate(event Event) (Event, error) {\n\tevent.PayloadVersion = 3\n\treturn event, nil\n}"})
+		if delegating.Adapt == nil || !slices.ContainsFunc(delegating.Adapt.Values, func(v namedHash) bool { return v.Function == storePkg+".adaptDelegate" }) {
+			t.Fatalf("a value that delegates its event must pin its callee: %+v", delegating.Adapt)
+		}
+	}
+	// tail replaces prepareRecordedEvent's adapt tail; escape runs between
+	// the adapt assignment and the forwarder call.
+	tail := func(escape string) mutation {
+		old := "\t\tevent, err = schemas[selected].adapt(event)\n\t\tif err != nil {\n\t\t\treturn Event{}, err\n\t\t}\n\t}\n\treturn prepareEventWithRegistration(event, registration)\n}"
+		now := "\t\tevent, err = schemas[selected].adapt(event)\n\t\tif err != nil {\n\t\t\treturn Event{}, err\n\t\t}\n\t\t" + escape + "\n\t}\n\treturn prepareEventWithRegistration(event, registration)\n}"
+		return mutation{store, old, now}
+	}
+	written := tail("if err := appendEvent(nil, event); err != nil {\n\t\t\treturn Event{}, err\n\t\t}")
+	compared := tail("if event.Kind == \"thing.b\" {\n\t\t\treturn Event{}, nil\n\t\t}")
+	handAdapt := tail("if _, err := handAdapt(schemas[selected].adapt, event); err != nil {\n\t\t\treturn Event{}, err\n\t\t}")
+	for name, mutations := range map[string][]mutation{
+		"adapt result written":   {written},
+		"adapt result returned":  {mutation{store, "\treturn prepareEventWithRegistration(event, registration)\n}", "\treturn event, nil\n}"}},
+		"adapt result compared":  {compared},
+		"forwarder leaks result": {mutation{store, "return upcastEventWithRegistration(event, registration)\n}", "sink(event)\n\treturn upcastEventWithRegistration(event, registration)\n}"}, mutation{store, "func ReadEvent(", "func sink(Event) {}\n\nfunc ReadEvent("}},
+		"second adapt caller":    {mutation{store, "func ReadEvent(", "func secondAdaptCaller(schemas []recordedPayloadSchema, event Event) (Event, error) { return schemas[0].adapt(event) }\n\nfunc ReadEvent("}},
+		"adapt result in a loop": {mutation{store, "\tif schemas := registration.RecordedSchemas[event.PayloadVersion]; len(schemas) != 0 {", "\tif schemas := registration.RecordedSchemas[event.PayloadVersion]; len(schemas) != 0 {\n\tfor i := 0; i < 1; i++ {"}, mutation{store, "\t\t}\n\t}\n\treturn prepareEventWithRegistration(event, registration)\n}", "\t\t}\n\t\t}\n\t}\n\treturn prepareEventWithRegistration(event, registration)\n}"}},
+		"adapt target captured":  {mutation{store, "\t\tevent, err = schemas[selected].adapt(event)", "\t\tcapture = func() { _ = event }\n\t\tevent, err = schemas[selected].adapt(event)"}, mutation{store, "func ReadEvent(", "var capture func()\n\nfunc ReadEvent("}},
+		"adapt field handed on":  {mutation{store, "func ReadEvent(", "func handAdapt(adapt func(Event) (Event, error), event Event) (Event, error) { return adapt(event) }\n\nfunc ReadEvent("}, handAdapt},
+		"adapt value a literal":  {mutation{store, "adapt: upcastB2}", "adapt: func(event Event) (Event, error) { return event, nil }}"}},
+		"adapt value a variable": {mutation{store, "adapt: upcastB2}", "adapt: heldAdapt}"}, mutation{store, "func ReadEvent(", "var heldAdapt = upcastB2\n\nfunc ReadEvent("}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if analysis := analyzeFixture(t, mutations...); analysis.Adapt != nil {
+				t.Fatalf("adapt route survived: %+v", analysis.Adapt)
+			}
+		})
+	}
+}
+
+// A comparison-only site's function returns an Event that its one caller
+// binds and feeds only to a bool comparator. Each escape leaves no route.
+func TestComparisonSite(t *testing.T) {
+	const main = "cmd/concord/main.go"
+	analysis := analyzeFixture(t)
+	var route *comparisonRoute
+	found := false
+	for _, s := range analysis.Open {
+		if s.Comparison != nil && strings.HasSuffix(s.Function, ".reconstruct") {
+			found = true
+			route = s.Comparison
+		}
+	}
+	if !found || route.Caller != mainPkg+".main" || route.Comparator != mainPkg+".same" || route.CallerDigest == "" || route.ComparatorDigest == "" {
+		t.Fatalf("comparison route %+v found=%v", route, found)
+	}
+	t.Run("call inside a closure pins the enclosing function", func(t *testing.T) {
+		analysis := analyzeFixture(t, mutation{main,
+			"acknowledgment, err := reconstruct(existing, store.Event{Kind: existing.Kind})\n\tif err != nil || !same(existing, acknowledgment) {\n\t\treturn\n\t}",
+			"func() {\n\t\tacknowledgment, err := reconstruct(existing, store.Event{Kind: existing.Kind})\n\t\tif err == nil {\n\t\t\tsame(existing, acknowledgment)\n\t\t}\n\t}()"})
+		closureFound := false
+		for _, s := range analysis.Open {
+			if s.Comparison != nil && strings.HasSuffix(s.Function, ".reconstruct") {
+				closureFound = true
+				if s.Comparison.Caller != mainPkg+".main" || s.Comparison.Comparator != mainPkg+".same" {
+					t.Fatalf("closure comparison route %+v", s.Comparison)
+				}
+			}
+		}
+		if !closureFound {
+			t.Fatal("comparison route lost when the call sits in a closure")
+		}
+	})
+	for name, mutations := range map[string][]mutation{
+		"result handed on":               {mutation{main, "acknowledgment, err := reconstruct(existing, store.Event{Kind: existing.Kind})", "acknowledgment, err := reconstruct(existing, store.Event{Kind: existing.Kind})\n\tkeep(acknowledgment)"}},
+		"second caller":                  {mutation{main, "func main() {", "func again(existing, requested store.Event) bool {\n\tack, err := reconstruct(existing, requested)\n\treturn err == nil && same(existing, ack)\n}\n\nfunc main() {"}},
+		"function value":                 {mutation{main, "func reconstruct(", "var _ = reconstruct\n\nfunc reconstruct("}},
+		"comparator writes its event":    {mutation{main, "func same(existing, requested store.Event) bool {", "func same(existing, requested store.Event) bool {\n\trequested.Kind = existing.Kind"}},
+		"comparator addresses its event": {mutation{main, "func same(existing, requested store.Event) bool {", "func same(existing, requested store.Event) bool {\n\talias := &requested\n\t_ = alias.Kind"}},
+		"comparator leaks its event":     {mutation{main, "return bytes.Equal(existing.Payload, requested.Payload) && reflect.DeepEqual(existing.SubjectType, requested.SubjectType)", "keep(requested)\n\treturn bytes.Equal(existing.Payload, requested.Payload) && reflect.DeepEqual(existing.SubjectType, requested.SubjectType)"}},
+		"target held by a pointer":       {mutation{main, "func reconstruct(existing, requested store.Event) (store.Event, error) {\n\trequested.PayloadVersion = existing.PayloadVersion\n\treturn requested, nil\n}", "func reconstruct(existing, requested store.Event) (store.Event, error) {\n\tpointer := &requested\n\tpointer.PayloadVersion = existing.PayloadVersion\n\treturn requested, nil\n}"}},
+		"target captured early":          {mutation{main, "func reconstruct(existing, requested store.Event) (store.Event, error) {", "func reconstruct(existing, requested store.Event) (store.Event, error) {\n\thold := func() { _ = requested.Kind }\n\t_ = hold"}},
+		"site inside a loop":             {mutation{main, "func reconstruct(existing, requested store.Event) (store.Event, error) {", "func reconstruct(existing, requested store.Event) (store.Event, error) {\n\tfor i := 0; i < 1; i++ {"}, mutation{main, "\trequested.PayloadVersion = existing.PayloadVersion\n\treturn requested, nil\n}", "\t\trequested.PayloadVersion = existing.PayloadVersion\n\t}\n\treturn requested, nil\n}"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, s := range analyzeFixture(t, mutations...).Open {
+				if s.Comparison != nil {
+					t.Fatalf("comparison route survived: %+v", s.Comparison)
+				}
+			}
+		})
+	}
+}
+
 // A function that calls the dispatcher once with a lookup and once with its
 // own registration parameter forwards it: its callers are dispatcher callers.
 func TestDispatcherCallersFollowEveryForwardingCall(t *testing.T) {
@@ -409,6 +531,32 @@ func TestDispatcherCallersFollowEveryForwardingCall(t *testing.T) {
 	}
 	if !slices.Equal(callers, []string{"Stray", "prepareEventWithRegistration", "prepareRecordedEvent", "twice"}) {
 		t.Fatalf("dispatcher callers %q", callers)
+	}
+}
+
+// The analysis pins the registry-lookup helper the reviewed callers pass
+// event.Kind through by its exact declaration bytes: the recorded digest
+// follows the helper's body while every dispatcher key stays fixed, and the
+// pin serializes into the analysis.
+func TestRegisteredKindPinFollowsTheDeclaration(t *testing.T) {
+	const store = "internal/store/store.go"
+	analysis := analyzeFixture(t)
+	d := analysis.Dispatcher
+	if d == nil || d.RegisteredKind == nil || d.RegisteredKind.Function != storePkg+".registeredEventKind" {
+		t.Fatalf("dispatcher %+v", d)
+	}
+	drifted := analyzeFixture(t, mutation{store, "return registration, ok", "return registration, ok // the reviewed lookup"})
+	if drifted.Dispatcher == nil || drifted.Dispatcher.RegisteredKind == nil ||
+		drifted.Dispatcher.RegisteredKind.Digest == d.RegisteredKind.Digest ||
+		drifted.Dispatcher.RegisteredKind.Function != d.RegisteredKind.Function ||
+		drifted.Dispatcher.Function != d.Function || drifted.Dispatcher.FunctionDigest != d.FunctionDigest ||
+		!slices.Equal(drifted.Dispatcher.Guards, d.Guards) ||
+		!slices.Equal(drifted.Dispatcher.Callers, d.Callers) {
+		t.Fatalf("drifted %+v want %+v", drifted.Dispatcher, d)
+	}
+	data, err := json.Marshal(analysis)
+	if err != nil || !strings.Contains(string(data), `"registered_event_kind"`) {
+		t.Fatalf("analysis serialization %s: %v", data, err)
 	}
 }
 

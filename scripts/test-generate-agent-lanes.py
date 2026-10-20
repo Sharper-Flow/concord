@@ -17,6 +17,13 @@ if spec is None or spec.loader is None:
     raise RuntimeError("unable to load lane generator")
 generator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(generator)
+prompt_spec = importlib.util.spec_from_file_location("primary_prompt_checker", ROOT / "scripts/check-primary-prompts.py")
+if prompt_spec is None or prompt_spec.loader is None:
+    raise RuntimeError("unable to load scripts/check-primary-prompts.py")
+prompt_checker = importlib.util.module_from_spec(prompt_spec)
+prompt_spec.loader.exec_module(prompt_checker)
+FULL_PROFILES = ("Concord-RTE", "Concord")
+PLANNER_WRITERS = ["concord_work_compact", "concord_work_define", "concord_work_relate", "concord_work_start", "concord_work_transition"]
 REPORT_SCHEMA = json.loads((ROOT / "contracts/agent-lane-report.schema.json").read_text(encoding="utf-8"))
 PACKET_SCHEMA = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").read_text(encoding="utf-8"))
 
@@ -875,6 +882,163 @@ class CommittedContentRuleTests(unittest.TestCase):
                     generator.committed_content_rule()
 
 
+class JobSizeProjectionTests(unittest.TestCase):
+    # CD-0225 D2 and CD-0227 D2: the capped job's size accounting, the
+    # coordinator-owned overrun split, and the direct-caller repair boundary
+    # are generated lane instructions, so the tests prove the projected
+    # behavior for every relevant lane, not only the helper.
+
+    @staticmethod
+    def normalized(lane):
+        return " ".join(lane_projection(lane).split())
+
+    def manifest_lane(self, lane_id):
+        manifest, _ = generator.load_manifest()
+        return next(lane for lane in manifest["lanes"] if lane["id"] == lane_id)
+
+    def test_capped_size_rule_is_stated_for_every_registered_lane(self):
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            with self.subTest(lane=lane["id"]):
+                text = self.normalized(lane)
+                self.assertIn("## Job size and caller boundary", text)
+                self.assertIn("carries `production_size_max` and `measurement_basis`", text)
+                self.assertIn(
+                    "measured against the recorded `measurement_basis.base_commit` under the recorded path inventory",
+                    text,
+                )
+                self.assertIn("counts as `production`", text)
+                self.assertIn("additions plus deletions of text lines over the whole base..tree delta", text)
+                self.assertIn("a binary path adds no text lines and never establishes available production size", text)
+
+    def test_only_the_implementation_lane_carries_the_size_report_and_split_boundary(self):
+        manifest, _ = generator.load_manifest()
+        carrying = set()
+        for lane in manifest["lanes"]:
+            text = self.normalized(lane)
+            if "completed report carries `production_size`" not in text:
+                continue
+            carrying.add(lane["id"])
+            self.assertIn(
+                "`base` is the packet's `measurement_basis.base_commit`, `tree` is the raw delivered commit OID, "
+                "and `count` is that whole base..tree text count",
+                text,
+            )
+            self.assertIn(
+                "Never pre-apply a proposed supplemental classification and never subtract another job's accepted paths",
+                text,
+            )
+            self.assertIn(
+                "the coordinator alone applies final classifications and foreign subtraction, "
+                "records the accepted size, and holds it to the fixed cap",
+                text,
+            )
+            self.assertIn("an overrun stays reported", text)
+            self.assertIn(
+                "Never raise the cap, hide the delta, rebase the correction, invent an acceptance, "
+                "author a split, or reset the cumulative base",
+                text,
+            )
+        self.assertEqual(carrying, {"implement"})
+
+    def test_direct_caller_boundary_is_implementation_lane_text(self):
+        manifest, _ = generator.load_manifest()
+        repairs_max = REPORT_SCHEMA["properties"]["direct_caller_repairs"]["maxItems"]
+        for lane in manifest["lanes"]:
+            text = self.normalized(lane)
+            if lane["id"] != "implement":
+                self.assertNotIn("`direct_caller_repairs` entries", text)
+                continue
+            with self.subTest(lane=lane["id"]):
+                self.assertIn(
+                    "under the packet's `direct_caller_allowance` and outside its `caller_exclusions`, "
+                    "never as a widening of `path_scope`",
+                    text,
+                )
+                self.assertIn(f"Report at most {repairs_max} `direct_caller_repairs` entries", text)
+                self.assertIn(
+                    "the owner and caller mechanisms, the direct edge between them, "
+                    "the exposing request or fixture, the changed paths",
+                    text,
+                )
+                self.assertIn("the three checks `baseline_pass`, `owner_only_fail`, and `combined_pass`", text)
+                self.assertIn("its `observed` output apart from any `inferred_cause`", text)
+                self.assertIn("A compile-time break names the compile check in all three", text)
+                self.assertIn("minimum source and test change that preserves an existing direct caller's request behavior", text)
+                self.assertIn("names each generator input in `generator_ref` and among the changed paths", text)
+                self.assertIn("a generated output is never hand-edited", text)
+                self.assertIn("A transitive caller is not a direct edge and joins no repair", text)
+                self.assertIn("a path another work item owns is never claimed", text)
+                self.assertIn(
+                    "the Project, approved Domains, pinned law, and other work's scope, resource, and overlap boundaries stay",
+                    text,
+                )
+                self.assertIn(
+                    "Missing authority or evidence stops the repair: report the blocker through this report, "
+                    "never as a direct operator question",
+                    text,
+                )
+
+    def test_other_lanes_invent_no_size_fields_and_gain_no_capability(self):
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            if lane["id"] == "implement":
+                continue
+            with self.subTest(lane=lane["id"]):
+                text = self.normalized(lane)
+                self.assertIn("A capped packet expands no capability", text)
+                self.assertIn("reports no `production_size` and no `direct_caller_repairs`", text)
+                self.assertIn("never invents either field", text)
+
+    def test_review_distinguishes_missing_evidence_from_a_proven_defect(self):
+        text = self.normalized(self.manifest_lane("review"))
+        self.assertIn("Examine the size and caller-repair evidence a completed report carries", text)
+        self.assertIn("distinguish missing evidence from a proven defect", text)
+
+    def test_design_is_not_mislabelled_read_only_by_the_size_block(self):
+        # The design lane edits its scoped files; it is not the implementation
+        # capability class, and the size block must not call it read-only.
+        projection = lane_projection(self.manifest_lane("design"))
+        section = projection.split("## Job size and caller boundary", 1)[1]
+        self.assertNotIn("read-only", section)
+        self.assertIn("expands no capability", section)
+
+    def test_uncapped_and_historical_packets_gain_no_fields(self):
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            with self.subTest(lane=lane["id"]):
+                text = self.normalized(lane)
+                self.assertIn("A packet without these members is historical or uncapped", text)
+                self.assertIn("report without the absent fields and never invent them", text)
+
+    def test_repairs_ceiling_tracks_the_report_schema(self):
+        # The entries ceiling in the direct-caller paragraph is a parameter
+        # fed from the report schema, not a literal in the generator body.
+        changed = copy.deepcopy(REPORT_SCHEMA)
+        changed["properties"]["direct_caller_repairs"]["maxItems"] = 3
+        text = " ".join(lane_projection(self.manifest_lane("implement"), changed).split())
+        self.assertIn("at most 3 `direct_caller_repairs` entries", text)
+        self.assertNotIn("at most 8 `direct_caller_repairs` entries", text)
+
+    def test_implementation_projects_closed_size_and_repair_report_shapes(self):
+        fields = ("production_size", "direct_caller_repairs")
+        definitions = ("production_size", "direct_caller_repair", "caller_mechanism", "caller_repair_checks", "caller_repair_check")
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            lines = generator.report_projection_constraints(REPORT_SCHEMA, lane)
+            with self.subTest(lane=lane["id"]):
+                for name in fields:
+                    expected = f"{name}: implementation-only report member; schema={json.dumps(REPORT_SCHEMA['properties'][name], ensure_ascii=False)}."
+                    if lane["id"] == "implement":
+                        self.assertIn(expected, lines)
+                        self.assertIn(expected, lane_projection(lane))
+                    else:
+                        self.assertNotIn(expected, lines)
+                if lane["id"] == "implement":
+                    for name in definitions:
+                        self.assertIn(f"{name} shape: {json.dumps(REPORT_SCHEMA['$defs'][name], ensure_ascii=False)}.", lines)
+
+
 class AgentDirectoryInventoryTests(unittest.TestCase):
     def run_check(self, extra=None):
         with tempfile.TemporaryDirectory() as directory:
@@ -1037,15 +1201,18 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
                 generator.load_primary_profiles(self.manifest, path)
         return str(caught.exception)
 
-    def test_registry_holds_exactly_the_rte_and_concord(self):
-        # The ids are exactly Concord-RTE and Concord so the host UI shows
-        # those names; the role sources stay lowercase.
-        self.assertEqual([profile["id"] for profile in self.profiles["profiles"]], ["Concord-RTE", "Concord"])
+    def test_registry_holds_exactly_the_rte_concord_and_planner(self):
+        # The ids are exactly Concord-RTE, Concord, and Concord-Planner so the
+        # host UI shows those names; the role sources stay lowercase.
+        self.assertEqual([profile["id"] for profile in self.profiles["profiles"]], ["Concord-RTE", "Concord", "Concord-Planner"])
         self.assertEqual(self.profile("Concord-RTE")["role_source"], ".concord/roles/rte.md")
         self.assertEqual(self.profile("Concord")["role_source"], ".concord/roles/concord.md")
+        self.assertEqual(self.profile("Concord-Planner")["role_source"], ".concord/roles/planner.md")
 
     def test_primary_bash_rules_cannot_reallow_host_denials(self):
         for profile in self.profiles["profiles"]:
+            if profile["id"] not in FULL_PROFILES:
+                continue
             with self.subTest(agent=profile["id"]):
                 self.assertTrue(all(rule["action"] == "deny" for rule in profile["bash"]))
                 bash = self.frontmatter(self.projection(profile["id"])).split("\n  bash:\n", 1)[1].split("\n  task:\n", 1)[0]
@@ -1082,13 +1249,13 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
         self.assertNotIn("`work_id` and the second `project_id`", text)
 
     def test_projection_is_a_selectable_primary_agent(self):
-        for agent_id in ("Concord-RTE", "Concord"):
+        for agent_id in ("Concord-RTE", "Concord", "Concord-Planner"):
             frontmatter = self.frontmatter(self.projection(agent_id))
             self.assertIn("\nmode: primary\n", "\n" + frontmatter + "\n")
             self.assertNotIn("hidden:", frontmatter)
 
     def test_projection_body_is_the_role_source_verbatim(self):
-        for agent_id in ("Concord-RTE", "Concord"):
+        for agent_id in ("Concord-RTE", "Concord", "Concord-Planner"):
             profile = self.profile(agent_id)
             source = (ROOT / profile["role_source"]).read_text(encoding="utf-8")
             self.assertTrue(self.projection(agent_id).endswith("\n---\n\n" + source))
@@ -1158,7 +1325,7 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
         self.assertEqual(task.splitlines(), ['    "*": allow'])
 
     def test_installed_definitions_equal_the_projections(self):
-        for agent_id in ("Concord-RTE", "Concord"):
+        for agent_id in ("Concord-RTE", "Concord", "Concord-Planner"):
             path = ROOT / ".opencode/agents" / f"{agent_id}.md"
             self.assertEqual(path.read_text(encoding="utf-8"), self.projection(agent_id))
 
@@ -1202,8 +1369,13 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
                 self.assertIn("no general Concord tool access" if kind == "lane" else "no Concord tool access", denied["boundary"])
 
     def test_ts_projection_keeps_the_profile_entries(self):
-        # Neither primary profile denies a tool, so each entry carries the
-        # empty denial list and no refusal boundary.
+        # Neither full primary profile denies a tool, so each entry carries
+        # the empty denial list and no refusal boundary. Planner's entry
+        # carries its work-state writers and a boundary sentence.
+        planner = self.ts_role_map()["Concord-Planner"]
+        self.assertEqual(planner["tools"], PLANNER_WRITERS)
+        self.assertEqual(planner["tools"], self.profile("Concord-Planner")["denied_concord_tools"])
+        self.assertIn("writes work state", planner["boundary"])
         rte = self.ts_role_map()["Concord-RTE"]
         self.assertEqual(rte["tools"], self.profile("Concord-RTE")["denied_concord_tools"])
         self.assertEqual(rte["tools"], [])
@@ -1224,6 +1396,83 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
             text = (ROOT / ".opencode/agents" / f"{agent}.md").read_text(encoding="utf-8")
             denied = sorted(tool for tool in catalog if f"\n  {tool}: false\n" in text)
             self.assertEqual(denied, sorted(ts_map[agent]["tools"]), f"{agent} frontmatter and role map disagree")
+
+    def planner_rules(self, key):
+        return prompt_checker.permission_rules(self.frontmatter(self.projection("Concord-Planner")), key)
+
+    def test_planner_edits_resolve_only_under_planning(self):
+        # Evaluated with OpenCode's last-match wildcard rules against the
+        # worktree-relative path the edit tools ask with.
+        rules = self.planner_rules("edit")
+        self.assertEqual(rules[0], ("*", "deny"))
+        for path, expected in (
+            (".planning/notes.md", "allow"),
+            (".planning/deep/prototype/main.go", "allow"),
+            ("internal/store/store.go", "deny"),
+            (".opencode/agents/Concord.md", "deny"),
+            ("../sibling/file.go", "deny"),
+            ("src/.planning/notes.md", "deny"),
+            (".planning-other/notes.md", "deny"),
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(prompt_checker.evaluate(rules, path), expected)
+
+    def test_planner_grants_no_unscoped_editor(self):
+        frontmatter = self.frontmatter(self.projection("Concord-Planner"))
+        for tool in ("edit", "write", "patch"):
+            self.assertNotRegex(frontmatter, rf"(?m)^  {tool}: (?:allow|ask)$")
+        self.assertIn("\n  edit:\n", "\n" + frontmatter)
+
+    def test_planner_shell_denies_publication_and_asks_for_unnamed_commands(self):
+        rules = self.planner_rules("bash")
+        self.assertEqual(rules[0], ("*", "ask"))
+        for command, expected in (
+            ("git status", "allow"),
+            ("git diff --stat", "allow"),
+            ("gh pr view 12 --json state", "allow"),
+            ("gh pr diff 12", "allow"),
+            ("git commit -m change", "deny"),
+            ("git push", "deny"),
+            ("git push origin HEAD", "deny"),
+            ("git merge --ff-only origin/main", "deny"),
+            ("git rebase main", "deny"),
+            ("git tag v1", "deny"),
+            ("git stash push", "deny"),
+            ("gh pr create --fill", "deny"),
+            ("gh pr merge 12 --auto --squash", "deny"),
+            ("gh pr edit 12 --title x", "deny"),
+            ("gh release create v1", "deny"),
+            ("gh workflow run release.yml", "deny"),
+            ("rm -rf / --no-preserve-root", "deny"),
+            ("make deploy", "ask"),
+            ("python3 scripts/install.py", "ask"),
+            ("git checkout -b topic", "ask"),
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(prompt_checker.evaluate(rules, command), expected)
+
+    def test_planner_delegates_only_to_the_read_only_utilities(self):
+        rules = self.planner_rules("task")
+        utilities = {f"concord-{utility['id']}" for utility in self.manifest["utilities"]}
+        self.assertEqual(utilities, {"concord-explore", "concord-lookup", "concord-advisor"})
+        for agent in sorted(utilities):
+            self.assertEqual(prompt_checker.evaluate(rules, agent), "allow", agent)
+        for agent in [f"concord-{lane['id']}" for lane in self.manifest["lanes"]] + ["general", "build", "Concord"]:
+            self.assertEqual(prompt_checker.evaluate(rules, agent), "deny", agent)
+
+    def test_planner_frontmatter_denials_equal_the_ts_role_map(self):
+        frontmatter = self.frontmatter(self.projection("Concord-Planner"))
+        denied = re.findall(r"(?m)^  (concord_\w+): deny$", frontmatter)
+        self.assertEqual(denied, PLANNER_WRITERS)
+        self.assertEqual(denied, self.ts_role_map()["Concord-Planner"]["tools"])
+
+    def test_path_scoped_edits_beside_an_editor_grant_refuse(self):
+        message = self.broken(lambda p: p["profiles"][2]["tools"].update({"write": "allow"}))
+        self.assertIn("scopes edits by path", message)
+
+    def test_planner_task_rule_reaching_a_lane_refuses(self):
+        message = self.broken(lambda p: p["profiles"][2]["task"].append({"pattern": "concord-implement", "action": "allow"}))
+        self.assertIn("concord-implement", message)
 
     def test_unknown_denied_concord_tool_refuses(self):
         message = self.broken(lambda p: p["profiles"][0]["denied_concord_tools"].append("concord_work_launch"))
@@ -1265,6 +1514,11 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
             source = (ROOT / profile["role_source"]).read_text(encoding="utf-8")
             for name in names:
                 self.assertNotIn(name, source, f"{profile['role_source']} names {name}")
+
+    def test_planner_role_source_states_its_optional_boundary(self):
+        source = " ".join((ROOT / ".concord/roles/planner.md").read_text(encoding="utf-8").split())
+        for phrase in prompt_checker.PLANNER_REQUIRED_PHRASES:
+            self.assertIn(phrase, source)
 
     def test_role_sources_state_the_optional_rte_rule(self):
         # Concord performs the whole item without an RTE session, and the

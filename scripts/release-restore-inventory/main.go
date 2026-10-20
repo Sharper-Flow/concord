@@ -35,6 +35,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -43,7 +45,7 @@ import (
 
 const (
 	schemaID = "concord.release-restore-writers.v1"
-	workers  = 4
+	workers  = 1
 	// commandTimeout bounds one git, tar, or probe compile-and-run step.
 	commandTimeout = 10 * time.Minute
 	// A recorded ruling accepts form A (v0.1.0..v0.37.1) as a named exclusion.
@@ -104,7 +106,7 @@ func command(dir, name string, args ...string) ([]byte, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: name is a fixed program, argv values stay separate, and no shell runs.
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local", "GOWORK=off", "GOFLAGS=-mod=readonly -trimpath -p=2", "CGO_ENABLED=0", "GOMAXPROCS=2")
+	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local", "GOWORK=off", "GOFLAGS=-mod=readonly -trimpath -p=1", "CGO_ENABLED=0", "GOMAXPROCS=2", "GOMEMLIMIT=256MiB")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -315,7 +317,19 @@ func inspect(result row, toolchain string) (row, []string) {
 	return result, entries
 }
 
+// Go memory targets reduce collection pressure; the census runner separately
+// enforces a kernel limit on the original job and all its compiler children.
+func limitResources() {
+	if debug.SetMemoryLimit(-1) > 512<<20 {
+		debug.SetMemoryLimit(512 << 20)
+	}
+	if runtime.GOMAXPROCS(0) > 2 {
+		runtime.GOMAXPROCS(2)
+	}
+}
+
 func main() {
+	limitResources()
 	output := flag.String("out", "cmd/concord/testdata/release_restore/writers.json", "inventory to write")
 	coverageOut := flag.String("coverage", "cmd/concord/testdata/release_restore/coverage.json", "shape coverage to write")
 	cache := flag.String("cache", "", "directory that keeps each group's probe result and analysis between runs")

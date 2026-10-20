@@ -2624,6 +2624,35 @@ const GeneratedEnvelopeSchemaDocument = `{
               "consequence_summary"
             ]
           }
+        },
+        {
+          "if": {
+            "required": [
+              "size_overrun"
+            ]
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "const": "invalid_input"
+              },
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "use_declared_route"
+                  },
+                  "required_refs": {
+                    "contains": {
+                      "const": "record_worker_job"
+                    }
+                  }
+                },
+                "required": [
+                  "required_refs"
+                ]
+              }
+            }
+          }
         }
       ],
       "properties": {
@@ -3084,6 +3113,42 @@ const GeneratedEnvelopeSchemaDocument = `{
             "work_id",
             "project_id",
             "directory"
+          ],
+          "type": "object"
+        },
+        "size_overrun": {
+          "additionalProperties": false,
+          "description": "The worker job revision an acceptance refused because its observed production size exceeds the recorded cap (CD-0225 D2). The refusal routes to the recorded split through record_worker_job.",
+          "properties": {
+            "cap": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "job_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "observed": {
+              "minimum": 2,
+              "type": "integer"
+            },
+            "revision": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "subject": {
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "job_id",
+            "revision",
+            "cap",
+            "observed",
+            "subject"
           ],
           "type": "object"
         },

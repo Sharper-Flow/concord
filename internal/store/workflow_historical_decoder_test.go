@@ -497,6 +497,22 @@ func dispatchPacketSchemaRef(t *testing.T, definition WorkflowDefinition) string
 	return ""
 }
 
+// pinnedDispatchPacketSchemaRef names the packet schema the work's pinned
+// definition declares for its dispatch_worker worker_packet field.
+func pinnedDispatchPacketSchemaRef(t *testing.T, s *Store, workID string) string {
+	t.Helper()
+	var ref string
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
+		t.Fatalf("read pinned definition for %s: %v", workID, err)
+	}
+	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	if !ok {
+		t.Fatalf("pinned definition %s@%d is not registered", ref, version)
+	}
+	return dispatchPacketSchemaRef(t, registered.Definition)
+}
+
 // fullWorkContextPacket2 builds one packet2 carrying a fully populated
 // work-context view — readings, findings, and the domain groups the versioned
 // view resolves — so the nested closure, not the packet root alone, decides

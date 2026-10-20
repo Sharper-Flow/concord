@@ -139,6 +139,45 @@ never a measured failure. Never author `subject_commit`: the dispatch owns that
 identity. Receipts from earlier subjects are regression baselines only: report
 current-subject evidence for current acceptance.
 
+## Job size and caller boundary
+
+When `inputs.worker_job` carries `production_size_max` and `measurement_basis`,
+the job is capped: its production delta is measured against the recorded
+`measurement_basis.base_commit` under the recorded path inventory. A changed
+path the inventory does not classify, including one discovered during the work,
+counts as `production`. Count additions plus deletions of text lines over the
+whole base..tree delta; a binary path adds no text lines and never establishes
+available production size.
+
+A capped job's completed report carries `production_size`: `base` is the
+packet's `measurement_basis.base_commit`, `tree` is the raw delivered commit
+OID, and `count` is that whole base..tree text count. Never pre-apply a proposed
+supplemental classification and never subtract another job's accepted paths; the
+coordinator alone applies final classifications and foreign subtraction, records
+the accepted size, and holds it to the fixed cap. Report the actual count: an
+overrun stays reported. Never raise the cap, hide the delta, rebase the
+correction, invent an acceptance, author a split, or reset the cumulative base.
+
+A changed path outside the job's recorded scope is admitted only as an evidenced
+direct-caller repair under the packet's `direct_caller_allowance` and outside
+its `caller_exclusions`, never as a widening of `path_scope`. Report at most 8
+`direct_caller_repairs` entries; each names the owner and caller mechanisms, the
+direct edge between them, the exposing request or fixture, the changed paths,
+and the three checks `baseline_pass`, `owner_only_fail`, and `combined_pass`,
+each carrying its `observed` output apart from any `inferred_cause`. Make only
+the minimum source and test change that preserves an existing direct caller's
+request behavior. A compile-time break names the compile check in all three. A
+repair that changes a generated path names each generator input in
+`generator_ref` and among the changed paths and regenerates; a generated output
+is never hand-edited. A transitive caller is not a direct edge and joins no
+repair, and a path another work item owns is never claimed: the Project,
+approved Domains, pinned law, and other work's scope, resource, and overlap
+boundaries stay. Missing authority or evidence stops the repair: report the
+blocker through this report, never as a direct operator question.
+
+A packet without these members is historical or uncapped: report without the
+absent fields and never invent them.
+
 ## Objective and binding
 
 `inputs.task` is the canonical objective, carried verbatim: the approved
@@ -209,6 +248,13 @@ Report contract constraints:
 - evidence_entry.oracle_receipt: optional object; type=object, additionalProperties=false, required=["control_ids", "case_ids", "recipe_source", "result", "run_ref", "evidence_refs"]. Report one control execution: `result` is one of `pass`, `fail`, `unavailable`, `not_run`. An executed `pass`/`fail` carries its `exit_code` and a nonempty immutable `run_ref`; `unavailable`/`not_run` carry the empty `run_ref` and name the explanation in `evidence_refs`. A receipt is reported evidence, never native-run authority: when no producing route issued an immutable locator, report `unavailable` and name the missing producer honestly — never invent a run locator. `subject_commit` is the dispatch-owned raw OID identity: never author it; any echo is stripped and the observed subject is injected from the dispatch packet.
 - oracle_receipt.control_ids: type=array, minItems=1, maxItems=8, pattern="^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$".
 - oracle_receipt.recipe_source: the exact pinned harness identity the control declared (project_id, path, commit_oid at "#/$defs/oracle_recipe_source"); never the candidate's modified copy of the harness.
+- production_size: implementation-only report member; schema={"$ref": "#/$defs/production_size"}.
+- direct_caller_repairs: implementation-only report member; schema={"type": "array", "minItems": 1, "maxItems": 8, "description": "The evidenced direct-caller repairs this report made under the dispatched job's allowance (CD-0227 D2). Reserved for a capped implementation job's report: the core refuses the member on any other completion, and every changed path outside the job's explicit scope must match one evidenced repair.", "items": {"$ref": "#/$defs/direct_caller_repair"}}.
+- production_size shape: {"type": "object", "additionalProperties": false, "description": "The declared production size of this report (CD-0225 D2): the added plus deleted production lines between the dispatched job's recorded measurement base and the delivered tree. Required on a capped implementation job's completed report; the core binds base and tree to the recorded basis and the host's sealed observation and holds the count to the cap at acceptance. Missing on such a report is malformed output, and any other completion refuses the member.", "required": ["base", "tree", "count"], "properties": {"base": {"type": "string", "minLength": 40, "maxLength": 64, "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$", "description": "The dispatched job's recorded measurement base_commit: copy it from the packet's inputs.worker_job.measurement_basis.base_commit."}, "tree": {"type": "string", "minLength": 40, "maxLength": 64, "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$", "description": "The delivered tree this count measures: the raw commit OID the completion's observed delivery records."}, "count": {"type": "integer", "minimum": 0, "maximum": 2147483647}}}.
+- direct_caller_repair shape: {"type": "object", "additionalProperties": false, "description": "One evidenced direct-caller repair (CD-0227 D2): the minimum source and test change that preserves an existing direct caller's request behavior after the changed owner's edit. Minimum means the source and tests necessary for that request behavior, never a line allowance; the store checks identities and containment, and independent review judges the direct edge and semantic necessity.", "required": ["owner", "caller", "edge", "exposing", "changed_paths", "checks"], "properties": {"owner": {"$ref": "#/$defs/caller_mechanism"}, "caller": {"$ref": "#/$defs/caller_mechanism"}, "edge": {"type": "string", "minLength": 1, "maxLength": 256, "x-maxBytes": 256, "description": "The direct edge between caller and owner: the existing call or declared interface edge. A transitive caller chain is not a direct edge and joins no repair."}, "exposing": {"type": "string", "minLength": 1, "maxLength": 512, "x-maxBytes": 512, "description": "The request or fixture that exposes the break: the same request whose baseline pass, owner-only fail, and combined pass the checks name."}, "changed_paths": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 512}, "description": "The repository paths this repair changed, including the caller repair's source and tests. A generated path changes only through its owning input, named among these paths and in generator_ref."}, "checks": {"$ref": "#/$defs/caller_repair_checks"}, "generator_ref": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"type": "string", "minLength": 1, "maxLength": 512}, "description": "The owning generator inputs this repair changed to regenerate a generated output among its changed paths. A generated output is never hand-edited: name the input here and regenerate."}}}.
+- caller_mechanism shape: {"type": "object", "additionalProperties": false, "required": ["path", "entry_point"], "properties": {"path": {"type": "string", "minLength": 1, "maxLength": 512}, "entry_point": {"type": "string", "minLength": 1, "maxLength": 512, "x-maxBytes": 512, "description": "The entry point that owns the behavior, as the worker's recorded claim about the mechanism."}}, "description": "One endpoint of the direct edge (CD-0227 D2): the source file and the entry point that owns the behavior. owner names the changed owner mechanism the dispatched job's allowance names; caller names the existing direct caller whose request behavior the repair preserves."}.
+- caller_repair_checks shape: {"type": "object", "additionalProperties": false, "description": "The three verification signals of one direct-caller repair (CD-0227 D2): the same exposing request passes on the baseline, fails with the owner change alone, and passes with the combined change. A compile-time break names the compile check in all three.", "required": ["baseline_pass", "owner_only_fail", "combined_pass"], "properties": {"baseline_pass": {"$ref": "#/$defs/caller_repair_check"}, "owner_only_fail": {"$ref": "#/$defs/caller_repair_check"}, "combined_pass": {"$ref": "#/$defs/caller_repair_check"}}}.
+- caller_repair_check shape: {"type": "object", "additionalProperties": false, "required": ["observed"], "properties": {"observed": {"type": "string", "minLength": 1, "maxLength": 512, "x-maxBytes": 512, "description": "The recorded output reference of the observed result: the command and its recorded outcome, as the worker ran it."}, "inferred_cause": {"type": "string", "minLength": 1, "maxLength": 512, "x-maxBytes": 512, "description": "The worker's inferred cause, kept beside and apart from the observed output so the report never reads an inference as an observation."}}}.
 
 A successful report must carry at least one entry for every obligation below, and may name no other obligation.
 

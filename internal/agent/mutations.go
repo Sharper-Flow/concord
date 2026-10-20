@@ -1453,7 +1453,10 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	// CD-0198 D4: the combined accept_worker_result at the delivery-admitting
 	// refinement step runs the same admission, so it resolves the same
 	// default-ref manifest for that accept exactly as record_delivery does.
-	if in.ActionID == "record_delivery" || in.ActionID == "accept_worker_result" {
+	// CD-0225 D3: bind_evidence on a size-capable pin that holds a split
+	// resolves the same manifest, so the automatic integration discharge
+	// keeps only runs of declared tools.
+	if in.ActionID == "record_delivery" || in.ActionID == "accept_worker_result" || in.ActionID == "bind_evidence" {
 		tooling, toolingErr := r.refineProofToolingForAction(ctx, in.WorkID, in.ActionID)
 		if toolingErr != nil {
 			return failureEnvelope(base, toolingErr), nil
@@ -1551,7 +1554,13 @@ func (r runtime) prepareWorkerDispatchContext(ctx context.Context, workID, actio
 		return store.WithWorkerDispatchPreparation(ctx, preparation), nil
 	}
 	if actionID == "dispatch_worker" || (actionID == "reject_worker_result" && store.RejectRetryMemberPresent(payload)) {
-		preparation, err := store.PrepareWorkerDispatchFreshness(ctx, r.Store, store.PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: r.Envelope.Worktree})
+		request := store.PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: r.Envelope.Worktree}
+		if actionID == "dispatch_worker" {
+			request.WorkerJob = store.WorkerJobBindingFromDispatchPayload(payload)
+		} else {
+			request.WorkerAttemptID = store.WorkerAttemptIDFromRejectionPayload(payload)
+		}
+		preparation, err := store.PrepareWorkerDispatchFreshness(ctx, r.Store, request)
 		if err != nil {
 			return ctx, err
 		}

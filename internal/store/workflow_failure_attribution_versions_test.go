@@ -380,8 +380,9 @@ func TestWorkflowCorrectionAttributionFitsDerivedActionBudget(t *testing.T) {
 	}
 	// The dispatch walk resolves the worker packet through its context
 	// aggregate bound, exactly as the request derivation does, so the
-	// dispatch input stays the widest composition the budgets' roundings
-	// rest on.
+	// dispatch and correction shapes keep one shared construction; the
+	// ceilings' exact rounding derives from the widest admitted action
+	// shape in the agent package's widest-shape test.
 	packetOpt := schemawire.Options{
 		Defs: defs,
 		PathBounds: map[string]int{
@@ -430,6 +431,18 @@ func TestWorkflowCorrectionAttributionFitsDerivedActionBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the packet4 derivation hit an unbudgeted member: %v", err)
 	}
+	// The size-capable packet5 identity mirrors the checks-repair packet4
+	// shape beside the recorded production-size members: the measurement
+	// basis's base commit and the direct-caller allowance's knowledge
+	// content hash are anchored scalars the walker bounds at their exact
+	// quoted serializations.
+	packet5Opt := workerPacketCapacityOptions(defs, "worker_packet5", "worker_packet5_worker_job", packetOpt.FindingRefMax)
+	packet5Opt.PathBounds["worker_packet5/inputs/worker_job/worker_packet5_worker_job/measurement_basis/worker_job_measurement_basis/base_commit"] = 71
+	packet5Opt.PathBounds["worker_packet5/inputs/worker_job/worker_packet5_worker_job/direct_caller_allowance/worker_job_direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash"] = 71
+	packet5Parts, err := schemawire.Max(defs["worker_packet5"], "worker_packet5", packet5Opt)
+	if err != nil {
+		t.Fatalf("the packet5 derivation hit an unbudgeted member: %v", err)
+	}
 	dispatchOpt := schemawire.Options{
 		Defs: defs,
 		RefBounds: map[string]int{
@@ -437,6 +450,7 @@ func TestWorkflowCorrectionAttributionFitsDerivedActionBudget(t *testing.T) {
 			"worker_packet2":             packetParts + DispatchContextAggregateMaxBytes - 1,
 			"worker_packet3":             packet3Parts + DispatchContextAggregateMaxBytes - 1,
 			"worker_packet4":             packet4Parts + DispatchContextAggregateMaxBytes - 1,
+			"worker_packet5":             packet5Parts + DispatchContextAggregateMaxBytes - 1,
 		},
 		FindingRefMax: 2 + len("finding:") + 19 + 1 + 2,
 	}
@@ -450,7 +464,7 @@ func TestWorkflowCorrectionAttributionFitsDerivedActionBudget(t *testing.T) {
 			t.Fatal(err)
 		}
 		if composed >= dispatch {
-			t.Fatalf("the %s composed maxima %d bytes reach the dispatch composition %d bytes; the dispatch input must stay the widest derivation the request rounding rests on", name, composed, dispatch)
+			t.Fatalf("the %s composed maxima %d bytes reach the dispatch composition %d bytes; the correction attribution input must stay narrower than the dispatch composition this check pins", name, composed, dispatch)
 		}
 	}
 }

@@ -784,7 +784,7 @@ func diagnosisS1DispatchAttemptErr(t *testing.T, s *Store, workID, stepID, attem
 	var jobBinding map[string]any
 	if workflowWorkerJobsActive(entry.Definition) && stepDeclaresAction(entry.Definition, stepID, "record_worker_job") {
 		recordWorkerJobRevisionForTest(t, s, workID, dispatcher, job)
-		jobBinding = recordedPacketJobForTest(t, s, workID, *job)
+		jobBinding = recordedPacketJobForTest(t, s, workID, *job, laneID)
 	} else {
 		job = nil
 	}

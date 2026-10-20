@@ -25,7 +25,7 @@ PRIMARY_PROFILES = ROOT / "contracts/agent-primary-profiles.v1.json"
 PRIMARY_PROFILES_SCHEMA = ROOT / "contracts/agent-primary-profiles.schema.json"
 # The closed named primary set (CD-0154): Concord and an optional release train
 # engineer. Primaries are never lanes or utilities.
-PRIMARY_PROFILE_IDS = ("Concord-RTE", "Concord")
+PRIMARY_PROFILE_IDS = ("Concord-RTE", "Concord", "Concord-Planner")
 EVAL_PACKETS = ROOT / "adapter/opencode/evals/packets"
 AGENT_DIR = ROOT / ".opencode/agents"
 # The shipped conduct corpus owns the committed-content rule; lane bodies
@@ -397,6 +397,11 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         "the adapter and the store refuse a review block with a `ship` verdict and any P0 finding, "
         "and one with a `no_ship` verdict and zero findings.",
     ]
+    if lane.get("capability_class") == "implementation":
+        for name in ("production_size", "direct_caller_repairs"):
+            lines.append(f"{name}: implementation-only report member; schema={json.dumps(properties[name], ensure_ascii=False)}.")
+        for name in ("production_size", "direct_caller_repair", "caller_mechanism", "caller_repair_checks", "caller_repair_check"):
+            lines.append(f"{name} shape: {json.dumps(report_schema['$defs'][name], ensure_ascii=False)}.")
     if "review" in lane.get("required_report_blocks", []):
         return lines + review_lines
     return lines
@@ -840,6 +845,83 @@ current-subject evidence for current acceptance.
 {findings}"""
 
 
+def job_size_instructions(report_schema: dict, lane: dict) -> str:
+    # Size reporting follows the implementation class, not edit capability:
+    # design can edit scoped files but cannot report implementation size.
+    repairs_max = report_schema["properties"]["direct_caller_repairs"]["maxItems"]
+
+    def paragraph(text: str) -> str:
+        return textwrap.fill(text, width=80, break_on_hyphens=False, break_long_words=False)
+
+    shared = paragraph(
+        "When `inputs.worker_job` carries `production_size_max` and "
+        "`measurement_basis`, the job is capped: its production delta is "
+        "measured against the recorded `measurement_basis.base_commit` under "
+        "the recorded path inventory. A changed path the inventory does not "
+        "classify, including one discovered during the work, counts as "
+        "`production`. Count additions plus deletions of text lines over the "
+        "whole base..tree delta; a binary path adds no text lines and never "
+        "establishes available production size."
+    )
+    if lane.get("capability_class") == "implementation":
+        report_rule = paragraph(
+            "A capped job's completed report carries `production_size`: `base` "
+            "is the packet's `measurement_basis.base_commit`, `tree` is the "
+            "raw delivered commit OID, and `count` is that whole base..tree text count. "
+            "Never pre-apply a proposed supplemental classification and never "
+            "subtract another job's accepted paths; the coordinator alone "
+            "applies final classifications and foreign subtraction, records "
+            "the accepted size, and holds it to the fixed cap. Report the "
+            "actual count: an overrun stays reported. Never raise the cap, "
+            "hide the delta, rebase the correction, invent an acceptance, "
+            "author a split, or reset the cumulative base."
+        )
+        caller_rule = paragraph(
+            f"A changed path outside the job's recorded scope is admitted only "
+            f"as an evidenced direct-caller repair under the packet's "
+            f"`direct_caller_allowance` and outside its `caller_exclusions`, "
+            f"never as a widening of `path_scope`. Report at most {repairs_max} "
+            f"`direct_caller_repairs` entries; each names the owner and caller "
+            f"mechanisms, the direct edge between them, the exposing request "
+            f"or fixture, the changed paths, and the three checks "
+            f"`baseline_pass`, `owner_only_fail`, and `combined_pass`, each "
+            f"carrying its `observed` output apart from any `inferred_cause`. "
+            f"Make only the minimum source and test change that preserves an "
+            f"existing direct caller's request behavior. "
+            f"A compile-time break names the compile check in all three. A "
+            f"repair that changes a generated path names each generator input "
+            f"in `generator_ref` and among the changed paths and regenerates; a generated output is "
+            f"never hand-edited. A transitive caller is not a direct edge and "
+            f"joins no repair, and a path another work item owns is never "
+            f"claimed: the Project, approved Domains, pinned law, and other "
+            f"work's scope, resource, and overlap boundaries stay. Missing "
+            f"authority or evidence stops the repair: report the blocker "
+            f"through this report, never as a direct operator question."
+        )
+        paragraphs = [shared, report_rule, caller_rule]
+    else:
+        lane_rule = paragraph(
+            "A capped packet expands no capability: this lane reports no "
+            "`production_size` and no `direct_caller_repairs`, and never "
+            "invents either field."
+            + (
+                " Examine the size and caller-repair evidence a completed "
+                "report carries, and distinguish missing evidence from a "
+                "proven defect."
+                if "review" in lane.get("required_report_blocks", [])
+                else ""
+            )
+        )
+        paragraphs = [shared, lane_rule]
+    paragraphs.append(
+        paragraph(
+            "A packet without these members is historical or uncapped: report "
+            "without the absent fields and never invent them."
+        )
+    )
+    return "## Job size and caller boundary\n\n" + "\n\n".join(paragraphs) + "\n"
+
+
 def objective_binding_instructions() -> str:
     # The packet task is the objective verbatim and inputs.binding is the typed
     # authority for it, so the guidance teaches both.
@@ -991,6 +1073,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 {work_context_instructions(packet_schema)}{review_subject_instructions(lane)}
 {checkpoint_instructions()}
 {acceptance_oracle_instructions(packet_schema, lane)}
+{job_size_instructions(report_schema, lane)}
 {objective_binding_instructions()}
 {review_method_instructions(lane)}{concord_context_boundary_instructions()}
 {command_duration_instructions(lane)}
@@ -1221,6 +1304,10 @@ def load_primary_profiles(manifest: dict, path: Path = PRIMARY_PROFILES) -> dict
             for rule in profile["task"]:
                 if rule["action"] == "allow" and rule["pattern"] not in utilities:
                     raise ValueError(f"primary profile {name} cannot dispatch lanes, so its Task rule may not allow {rule['pattern']!r}")
+        if "edit" in profile:
+            editors = sorted(set(profile["tools"]) & {"edit", "write", "patch"})
+            if editors:
+                raise ValueError(f"primary profile {name} scopes edits by path, so its tool map may not also grant {editors}")
         if not (ROOT / profile["role_source"]).is_file():
             raise ValueError(f"primary profile {name} role source {profile['role_source']} does not exist")
     return profiles
@@ -1229,7 +1316,9 @@ def load_primary_profiles(manifest: dict, path: Path = PRIMARY_PROFILES) -> dict
 def primary_projection(profile: dict, role_source: str) -> str:
     lines = ["---", f"description: {json.dumps(profile['description'], ensure_ascii=False)}", "mode: primary", "permission:"]
     lines.extend(f"  {tool}: {action}" for tool, action in profile["tools"].items())
-    for key in ("bash", "task"):
+    for key in ("edit", "bash", "task"):
+        if key not in profile:
+            continue
         lines.append(f"  {key}:")
         lines.extend(f"    {json.dumps(rule['pattern'])}: {rule['action']}" for rule in profile[key])
         if key == "bash":
@@ -1243,7 +1332,9 @@ def primary_projection(profile: dict, role_source: str) -> str:
 # the profile's denied tools. Every profile that denies at least one tool must
 # carry one, so a new profile fails generation instead of refusing with an
 # empty boundary.
-PRIMARY_PROFILE_REFUSAL_BOUNDARIES: dict[str, str] = {}
+PRIMARY_PROFILE_REFUSAL_BOUNDARIES: dict[str, str] = {
+    "Concord-Planner": "this research and planning profile holds no Concord tool that writes work state; start or advance managed work from Concord",
+}
 LANE_REFUSAL_BOUNDARY = "this Concord worker lane holds no general Concord tool access: its dispatch packet is its complete Concord context"
 UTILITY_REFUSAL_BOUNDARY = "this Concord utility holds no Concord tool access: its declared tool set is its complete tool surface"
 

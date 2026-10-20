@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -411,6 +412,10 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return []byte(sha + "\n"), nil
 		}
 		return nil, fmt.Errorf("unknown ref")
+	case slices.Contains(args, "--numstat"):
+		// The terminal measured-delta probe over the fake's clean fixture
+		// tree: an empty numstat is the clean zero-delta observation.
+		return nil, nil
 	}
 	return nil, fmt.Errorf("unexpected git invocation: %s", join)
 }

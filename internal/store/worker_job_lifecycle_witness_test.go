@@ -105,7 +105,7 @@ func TestReviewJobAuthoritySurvivesSupersession(t *testing.T) {
 	// The dispatch boundary refuses the stale revision even when a caller
 	// builds the packet from the recorded revision directly.
 	packet := dispatchWorkerPacket(t, s, id, "repair", "attempt:"+id+":stale")
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, id, *job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, id, *job, "implement")
 	if err := dispatchJobPacketForTest(t, s, id, "attempt:"+id+":stale", f.owner, "review-stale-dispatch", packet); err == nil {
 		t.Fatalf("core authorized an old-contract job after contract supersession")
 	} else {

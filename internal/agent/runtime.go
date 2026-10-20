@@ -908,6 +908,9 @@ func failureEnvelope(base Envelope, err error) Envelope {
 		if sf.ExternalRefConflict != nil {
 			out.Error.ExternalRefConflict = &ExternalRefConflict{ExistingWorkID: sf.ExternalRefConflict.ExistingWorkID, ExternalRef: sf.ExternalRefConflict.ExternalRef}
 		}
+		if overrun := sf.SizeOverrun; overrun != nil {
+			out.Error.SizeOverrun = &SizeOverrun{JobID: overrun.JobID, Revision: overrun.Revision, Cap: overrun.Cap, Observed: overrun.Observed, Subject: overrun.Subject}
+		}
 		if len(sf.AdmittedEventKinds) > 0 {
 			// Add, not replace: the authored remedy prose above may already
 			// occupy the details map, and one store refusal can carry both

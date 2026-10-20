@@ -156,7 +156,7 @@ func TestOwnerOracleRealPacketAcceptance(t *testing.T) {
 	lane := reviewGateLane(t, "implementation")
 	attempt := "attempt:" + workID
 	packet := joinPacketFor(t, s, workID, "repair", attempt, lane.ID, lane.Version, lane.Digest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, "implement")
 	contextView, err := readWorkContextView(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
@@ -564,6 +564,11 @@ func recordOracleJobRevision(t *testing.T, s *Store, workID string, actor Workfl
 		"ready":                true, "readiness_evidence": []string{"evidence:coordinator-ready"},
 		"acceptance_oracle": &graph,
 	}
+	if sizeCapablePinForWork(t, s, workID) {
+		for member, value := range workerJobSizeMembersForTest(t, s, workID, fields) {
+			fields[member] = value
+		}
+	}
 	if err := recordWorkerJobActionForTest(t, s, workID, actor, fields); err != nil {
 		t.Fatalf("record oracle job %s: %v", jobID, err)
 	}
@@ -695,7 +700,11 @@ func oracleCompletionEvent(t *testing.T, s *Store, workID, attemptID, eventKey s
 			}
 		}
 	}
-	return Event{EventID: eventKey + "-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
+	event := Event{EventID: eventKey + "-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
+	if err := attachCompletedReportSizeForTest(context.Background(), s, workID, attemptID, dispatched, &event); err != nil {
+		t.Fatal(err)
+	}
+	return event
 }
 
 // withReceipt attaches one typed receipt to the report's first evidence

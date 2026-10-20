@@ -33,6 +33,14 @@ and every older accepted version it writes, and binds every writer row, so a
 gate run alone is never
 acceptance.
 
+The v0.1.0-v0.7.1 writers run the source-proven bootstrap-only variant:
+their complete whole-file owner fingerprints (scripts/release_restore_legacy.py)
+select the operator product-create/project-locator-add pair before any
+execution, the invoke phase registers and invokes nothing, and the case
+report carries the proof's variant, source commit, fingerprint, and
+component owner hashes. A drifted, disconnected, or unbound legacy source
+holds by name; it never becomes bootstrap-only.
+
 Writer processes get a constructed environment: synthetic HOME, XDG, TMPDIR,
 and CONCORD_DB_PATH roots, and no inherited variable. Earlier releases predate
 the installed-store refusal (CD-0240), so an inherited CONCORD_DB_PATH would
@@ -62,7 +70,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from release_restore_confine import STOP, CaseFailure, Guard, STREAM_LIMIT, checkpoint, install_interrupt_handlers, run_bounded
-from release_restore_invoke import INVOKE_PLAN, InvokeError, run_invoke_phase
+from release_restore_invoke import InvokeError, invoke_plan, run_invoke_phase, tag_facts
+from release_restore_legacy import LEGACY_VARIANT, LegacyProofError, select_variant
 from release_restore_population import (
     GateError, Writer, enumerate_writers, gh_release_page, gh_release_total, git_tags, list_releases, semver,
 )
@@ -140,8 +149,9 @@ def recipe_for(tag: str) -> list[tuple[str, dict]]:
     return [(verb, request) for first, verb, request in RECIPE if semver(first) <= semver(tag)]
 
 
-def recipe_sha256(steps: list[tuple[str, dict]]) -> str:
-    return hashlib.sha256(json.dumps([RECIPE_ID, steps, list(INVOKE_PLAN)], sort_keys=True).encode()).hexdigest()
+def recipe_sha256(steps: list[tuple[str, dict]], plan: tuple[str, ...]) -> str:
+    """Bind the domain steps and the tag's actual invoke plan: no variant reuses another's hash."""
+    return hashlib.sha256(json.dumps([RECIPE_ID, steps, list(plan)], sort_keys=True).encode()).hexdigest()
 
 
 def resolve(value, store: Path, case: Path, deadline: float):
@@ -407,8 +417,10 @@ def invoke_runner(binary: Path, env: dict[str, str], streams: Path, deadline: fl
 def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path, streams: Path, case_seconds: int,
                     wall_deadline: float, scratch: Scratch, transfer: Transfer) -> dict:
     started = time.monotonic()
+    repo = Path(__file__).resolve().parents[1]
     steps = recipe_for(writer.tag)
-    row = dataclasses.asdict(writer) | {"recipe": RECIPE_ID, "recipe_sha256": recipe_sha256(steps), "streams": str(streams), "witnesses": []}
+    # No hash claims a plan when the wall is exhausted or its source is unreadable.
+    row = dataclasses.asdict(writer) | {"recipe": RECIPE_ID, "recipe_sha256": "", "streams": str(streams), "witnesses": []}
     case = work / writer.tag
 
     def room() -> int:
@@ -423,6 +435,21 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
     try:
         if started >= wall_deadline:
             raise CaseFailure("unknown", "wall", "global budget exhausted before the case started")
+        try:
+            facts = tag_facts(repo, writer.tag)
+            selection = select_variant(repo, writer.tag, writer.commit)
+        except (InvokeError, LegacyProofError) as error:
+            raise CaseFailure("unknown", f"invoke-{error.stage}", error.detail) from None
+        if selection is not None and selection[0] == LEGACY_VARIANT:
+            # The complete whole-file proof selected bootstrap-only before any
+            # execution: the report carries the proof's variant, source commit,
+            # fingerprint, and component owner hashes.
+            variant, proof = selection
+            facts = {**facts, "bootstrap_only": True}
+            row["source_proof"] = {"variant": variant, "commit": proof["commit"],
+                                   "fingerprint": proof["fingerprint"], "owners": proof["owners"]}
+        plan = invoke_plan(facts)
+        row["recipe_sha256"] = recipe_sha256(steps, plan)
         deadline = min(started + case_seconds, wall_deadline)
         binary, asset_digest = verify_writer_asset(repository, writer, case, deadline, streams, transfer, guard, room)
         env = sandbox_env(case)
@@ -433,11 +460,11 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
             if rc != 0:
                 raise CaseFailure("unknown", verb, f"writer refused recipe step {step} {verb} with exit {rc}")
         try:
-            capture = run_invoke_phase(invoke_runner(binary, env, streams, deadline, guard), Path(__file__).resolve().parents[1],
-                                       writer.tag, case, store)
-            row["invoke"] = {"outcome": capture.get("outcome"), "plan": list(INVOKE_PLAN)}
+            record = run_invoke_phase(invoke_runner(binary, env, streams, deadline, guard), repo, writer.tag, case, store, facts=facts)
         except InvokeError as error:
             raise CaseFailure("unknown", f"invoke-{error.stage}", error.detail) from None
+        if record["outcome"] != "bootstrap-only":
+            row["invoke"] = {"outcome": record["outcome"], "plan": record["plan"]}
         snapshot = case / "snapshot.db"
         manifest = snapshot_fixture(store, snapshot, writer.tag, room, guard, deadline)
         row["source"] = {key: manifest[key] for key in ("schema_version", "event_watermark", "db_checksum")}

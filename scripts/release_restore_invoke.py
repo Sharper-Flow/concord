@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """The approval-free invoke phase of the release restore gate.
 
-Every released binary exposes `concord invoke`, and from v0.1.0 the operation
-`concord_work_define.capture` is approval-free in its CLI enum at every tag.
+Released binaries register `concord invoke` and the approval-free operation
+`concord_work_define.capture`. Registration alone does not prove a usable
+mutation response: execution errors keep the writer held, never green-skipped.
 Reaching it needs a registered client and, before v4.6.0, a grant minted from
 an Ed25519-signed canonical assertion; the binary has no keygen, so the key
 material comes from `openssl` on PATH. The signing eras, envelope shapes, and
@@ -24,6 +25,22 @@ digest changed formulas with the membership-set projection: the tag's own
 
 A refusal here is a named case failure, never a skip: the gate reports the
 stage that refused and the writer stays unevaluated.
+
+The invoke plan is per-tag and lists steps supported by tagged registrations:
+capture-only before `concord_work_relate.message_send` and
+`concord_work_relate.message_withdraw` are registered, and two distinct
+captures then send and withdraw once they are. The gate hashes the actual
+plan. Only successful execution reports that plan as completed; no failed
+capture becomes a bootstrap-only success without a separate source/behavior proof.
+
+The one exception is a source-proven legacy bootstrap candidate
+(scripts/release_restore_legacy.py): the eight v0.1.0-v0.7.1 writers whose
+complete whole-file source fingerprints match the pinned tuples run the
+operator product-create/project-locator-add pair only. Their invoke plan is
+the empty tuple, which hashes distinctly from every capture/message/grant
+variant, and run_invoke_phase returns without registering, granting, or
+invoking anything. The selection happens before any execution and never
+after a failed capture; a drifted or unbound legacy source holds by name.
 """
 
 from __future__ import annotations
@@ -33,6 +50,7 @@ import hashlib
 import json
 import re
 import subprocess
+import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -41,14 +59,21 @@ INVOKE_CLIENT = "gate-invoke-client"
 INVOKE_PRINCIPAL = "gate-invoke-principal"
 INVOKE_SESSION = "gate-invoke-session"
 INVOKE_AGENT = "gate-invoke-agent"
-INVOKE_CAPABILITIES = ("product_read", "work_define")
+# work_relate is offered at every tag: the capability is valid from v0.1.0 and
+# message_send needs it from v0.27.0, but offering it binds no message step.
+INVOKE_CAPABILITIES = ("product_read", "work_define", "work_relate")
 INVOKE_PRODUCT = "gate-product"
 INVOKE_PROJECT = "gate-project"
 INVOKE_REMOTE = "https://example.invalid/gate/project.git"
 INVOKE_TITLE = "Invoke Work"
-# The closed invoke plan: one capture through the client-keyed route. The
-# recipe hash pins this list, not the per-tag request bytes.
-INVOKE_PLAN = ("client-register", "grant", "invoke:concord_work_define.capture")
+INVOKE_MESSAGE_BODY = "gate release-restore message chain"
+# The message operations, their one closed required-input set, and the input
+# schema name both registrations have used since v0.27.0. A tag whose source
+# shows anything else holds by name instead of guessing.
+MESSAGE_OPERATIONS = {
+    "message_send": (frozenset({"work_id", "body", "expected_version", "idempotency_key"}), "work_relate_message_send_input"),
+    "message_withdraw": (frozenset({"work_id", "message_id", "expected_version", "idempotency_key"}), "work_relate_message_withdraw_input"),
+}
 
 
 class InvokeError(Exception):
@@ -136,8 +161,6 @@ def synthetic_repository(case: Path) -> Path:
 
 def scope_version(formula: str, store: Path) -> str:
     """The caller-computed scope version, in the formula the tag's own store uses."""
-    import sqlite3
-
     connection = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
     try:
         if formula == "triples":
@@ -156,13 +179,79 @@ def scope_version(formula: str, store: Path) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
+def message_support(contracts: str, tag: str) -> bool:
+    """Whether the tag's own generated registrations offer the approval-free message operations.
+
+    Both operations absent from a recognized source is an explicit capture-only
+    plan. Exactly one present, an operation that is not an approval-free
+    work_relate mutation, an input schema the harness does not know, or a
+    changed required-input list all hold by name.
+    """
+    if not re.search(r'ID: "concord_work_relate\.[a-z_]+"', contracts):
+        raise InvokeError("tag-facts", f"{tag} carries no readable concord_work_relate registration")
+    found = set()
+    for operation, (required, schema) in MESSAGE_OPERATIONS.items():
+        entry = re.search(r'\{ID: "concord_work_relate\.' + operation + r'",([^}]*)\}', contracts)
+        if entry is None:
+            continue
+        for needle, what in (('Kind: OperationKind("mutation")', "kind"),
+                             ('Capability: Capability("work_relate")', "capability"),
+                             ('Approval: ApprovalClass("none")', "approval")):
+            if needle not in entry.group(1):
+                raise InvokeError("tag-facts", f"{tag} registers {operation} with a {what} the harness cannot invoke approval-free")
+        bound = re.search(r'InputSchema: "([^"]+)"', entry.group(1))
+        if bound and bound.group(1) != schema:
+            raise InvokeError("tag-facts", f"{tag} binds {operation} to the input schema {bound.group(1)}, want {schema}")
+        found.add(operation)
+    if len(found) == 1:
+        missing = next(operation for operation in MESSAGE_OPERATIONS if operation not in found)
+        raise InvokeError("tag-facts", f"{tag} registers {next(iter(found))} without {missing}: partial message registration")
+    if not found:
+        # A source whose other work_relate rows are readable but whose message
+        # surface appears in any other shape is unknown support: it refuses,
+        # because a downgrade here would silently understate what ran.
+        traced = next((operation for operation in MESSAGE_OPERATIONS if operation in contracts), None)
+        if traced:
+            raise InvokeError("tag-facts", f"{tag} references {traced} outside the registration shape the harness can read")
+        return False
+    for operation, (required, schema) in MESSAGE_OPERATIONS.items():
+        listed = re.search('"' + schema + r'":\s*\{Required: \[\]string\{([^}]*)\}', contracts)
+        if listed is None:
+            raise InvokeError("tag-facts", f"{tag} lists no required inputs for {schema}")
+        fields = frozenset(field.strip().strip('"') for field in listed.group(1).split(","))
+        if fields != required:
+            raise InvokeError("tag-facts", f"{tag} requires {sorted(fields)} for {operation}, want {sorted(required)}")
+    return True
+
+
+def invoke_plan(facts: dict) -> tuple[str, ...]:
+    """The per-tag plan: only the steps this source can actually run, grant included only when it runs.
+
+    A source-proven legacy bootstrap candidate plans no invoke step at all:
+    the empty plan hashes distinctly from every capture/message/grant variant
+    and run_invoke_phase runs nothing for it.
+    """
+    if facts.get("bootstrap_only"):
+        return ()
+    plan = ["client-register"]
+    if facts["has_grant"]:
+        plan.append("grant")
+    plan.append("invoke:concord_work_define.capture")
+    if facts["has_messages"]:
+        plan += ["invoke:concord_work_define.capture",
+                 "invoke:concord_work_relate.message_send",
+                 "invoke:concord_work_relate.message_withdraw"]
+    return tuple(plan)
+
+
 def tag_facts(repo: Path, tag: str) -> dict:
     """Every tag-derived fact the invoke phase needs, read once per case.
 
     The grant-era boundary, the signed field list, the negotiated surface, the
-    manifest digest, the registration shape, and the scope-version formula all
-    come from the tag's own source, so a new release needs no harness change
-    until one of these surfaces moves — which then refuses by name here.
+    manifest digest, the registration shape, the message-operation support,
+    and the scope-version formula all come from the tag's own source, so a new
+    release needs no harness change until one of these surfaces moves — which
+    then refuses by name here.
     """
     main_src = _git_show(repo, tag, "cmd/concord/main.go")
     authority = _git_show(repo, tag, "internal/agent/authority.go")
@@ -195,6 +284,7 @@ def tag_facts(repo: Path, tag: str) -> dict:
             facts["surface"] = f"{major}.{minor}.{patch}"
     locator = _git_show(repo, tag, "internal/store/project_locator.go")
     facts["scope_formula"] = "triples" if "product_id,project_id,role" in locator else "pairs"
+    facts["has_messages"] = message_support(_git_show(repo, tag, "internal/agent/generated_contracts.go"), tag)
     return facts
 
 
@@ -226,9 +316,9 @@ def invoke_steps(facts: dict, case: Path, key: Path, public: str, worktree: Path
     return steps, grant
 
 
-def invoke_capture_envelope(facts: dict, grant: dict, worktree: Path, store: Path) -> dict:
-    """The capture call envelope in the era's shape."""
-    envelope = {"schema_version": "1.0", "request_id": "gate-invoke-request-1", "client_ref": INVOKE_CLIENT,
+def invoke_envelope(facts: dict, grant: dict, worktree: Path, store: Path, request_id: str) -> dict:
+    """One mutation's call envelope in the era's shape, with that invocation's request id."""
+    envelope = {"schema_version": "1.0", "request_id": request_id, "client_ref": INVOKE_CLIENT,
                 "principal_ref": INVOKE_PRINCIPAL, "session_ref": INVOKE_SESSION, "agent_ref": INVOKE_AGENT,
                 "directory": str(worktree), "worktree": str(worktree), "ambient_project_id": INVOKE_PROJECT,
                 "scope_version": grant.get("scope_version") or scope_version(facts["scope_formula"], store),
@@ -241,13 +331,63 @@ def invoke_capture_envelope(facts: dict, grant: dict, worktree: Path, store: Pat
     return envelope
 
 
-def run_invoke_phase(run, repo: Path, tag: str, case: Path, store: Path) -> dict:
+def work_ref(result: dict, stage: str) -> tuple[str, int]:
+    """The single work-item changed reference a mutation result must report.
+
+    Every era's ChangedRef.Version is a Go string (internal/agent/envelope.go,
+    unchanged since v0.1.0) carrying a positive decimal, so a number or any
+    other shape is a malformed ref, never a version to read past.
+    """
+    refs = result.get("changed_refs")
+    if not isinstance(refs, list):
+        raise InvokeError(stage, f"{result.get('outcome')} mutation reported no changed_refs list")
+    work = [item for item in refs if isinstance(item, dict) and item.get("entity_kind") == "work_item"]
+    if len(work) != 1:
+        raise InvokeError(stage, f"expected exactly one work_item changed ref, got {json.dumps(refs)[:200]}")
+    ident, version = work[0].get("id"), work[0].get("version")
+    if not isinstance(ident, str) or not ident:
+        raise InvokeError(stage, f"malformed work_item changed ref id: {json.dumps(work[0])[:200]}")
+    if not isinstance(version, str) or not re.fullmatch(r"[1-9][0-9]*", version):
+        raise InvokeError(stage, f"malformed work_item changed ref version: {json.dumps(work[0])[:200]}")
+    return ident, int(version)
+
+
+def sent_message_id(store: Path, sender: str, recipient: str) -> str:
+    """The one sent row the writer's own store must show for the exact sender/recipient pair.
+
+    Read-only: every mutation stays an invoke through the released writer.
+    """
+    try:
+        connection = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
+        try:
+            rows = connection.execute(
+                "SELECT message_id FROM work_messages WHERE sender_work_id=? AND recipient_work_id=? AND state='sent'",
+                (sender, recipient)).fetchall()
+        finally:
+            connection.close()
+    except sqlite3.Error as error:
+        raise InvokeError("message-id", f"the writer store has no readable work_messages projection: {error}") from None
+    ids = [row[0] for row in rows]
+    if len(ids) != 1 or not isinstance(ids[0], str) or not re.fullmatch(r"msg:[0-9a-f]{32}", ids[0]):
+        raise InvokeError("message-id", f"expected exactly one well-formed sent row for {sender} -> {recipient}, got {ids!r}")
+    return ids[0]
+
+
+def run_invoke_phase(run, repo: Path, tag: str, case: Path, store: Path, facts: dict | None = None) -> dict:
     """Drive the invoke phase through `run(verb, request) -> (rc, out, err)`.
 
-    Returns the capture result for the case record. Every refusal is named by
-    stage; the caller decides how a refusal classifies the writer.
+    Returns the phase record: the outcome and the plan actually executed, for
+    the gate's report and recipe hash. `facts` may carry the tag facts a caller
+    already derived. Every refusal is named by stage; the caller decides how a
+    refusal classifies the writer.
     """
-    facts = tag_facts(repo, tag)
+    facts = facts if facts is not None else tag_facts(repo, tag)
+    plan = invoke_plan(facts)
+    if not plan:
+        # A source-proven legacy bootstrap writer runs no registration, grant,
+        # or invoke. The record reports the skipped phase truthfully - it is
+        # never an invocation success - and the gate omits it from the row.
+        return {"outcome": "bootstrap-only", "plan": []}
     worktree = synthetic_repository(case)
     key, public = keypair(case)
     steps, grant_request = invoke_steps(facts, case, key, public, worktree)
@@ -263,13 +403,36 @@ def run_invoke_phase(run, repo: Path, tag: str, case: Path, store: Path) -> dict
         grant = json.loads(out)
         if "grant_token" not in grant:
             raise InvokeError("grant", f"no token in grant response: {sorted(grant)}")
-    envelope = invoke_capture_envelope(facts, grant, worktree, store)
-    rc, out, err = run("invoke", {"tool": "concord_work_define", "operation": "capture", "call_envelope": envelope,
-                                  "input": {"title": INVOKE_TITLE, "value_statement": "invoke recipe", "kind": "task",
-                                            "project_ids": [INVOKE_PROJECT], "idempotency_key": "gate-invoke-idempotency-1"}})
-    if rc != 0:
-        raise InvokeError("invoke", f"capture exited {rc}: {(err or out).strip()[-300:]}")
-    result = json.loads(out)
-    if result.get("outcome") != "ok":
-        raise InvokeError("invoke", f"capture outcome {result.get('outcome')}: {json.dumps(result.get('error', {}))[:300]}")
-    return result
+
+    def invoke(tool: str, operation: str, payload: dict, request_id: str, idempotency_key: str, stage: str) -> dict:
+        envelope = invoke_envelope(facts, grant, worktree, store, request_id)
+        rc, out, err = run("invoke", {"tool": tool, "operation": operation, "call_envelope": envelope,
+                                      "input": payload | {"idempotency_key": idempotency_key}})
+        if rc != 0:
+            raise InvokeError(stage, f"{operation} exited {rc}: {(err or out).strip()[-300:]}")
+        result = json.loads(out)
+        if result.get("outcome") != "ok":
+            raise InvokeError(stage, f"{operation} outcome {result.get('outcome')}: {json.dumps(result.get('error', {}))[:300]}")
+        return result
+
+    capture = {"title": INVOKE_TITLE, "value_statement": "invoke recipe", "kind": "task", "project_ids": [INVOKE_PROJECT]}
+    sender, sender_version = work_ref(invoke("concord_work_define", "capture", capture, "gate-invoke-request-1",
+                                             "gate-invoke-idempotency-1", "invoke"), "invoke")
+    if not facts["has_messages"]:
+        return {"outcome": "ok", "plan": list(plan)}
+    recipient_capture = capture | {"title": "Invoke Recipient Work", "value_statement": "invoke recipe recipient"}
+    recipient, _ = work_ref(invoke("concord_work_define", "capture", recipient_capture, "gate-invoke-request-2",
+                                   "gate-invoke-idempotency-2", "capture-2"), "capture-2")
+    if recipient == sender:
+        raise InvokeError("capture-2", f"the second capture returned the sender's work item {sender}")
+    send = {"work_id": sender, "recipient_work_id": recipient, "body": INVOKE_MESSAGE_BODY, "expected_version": sender_version}
+    sent_id, sent_version = work_ref(invoke("concord_work_relate", "message_send", send, "gate-invoke-request-3",
+                                            "gate-invoke-idempotency-3", "message-send"), "message-send")
+    if sent_id != sender:
+        raise InvokeError("message-send", f"send changed work ref {sent_id} is not the sender {sender}")
+    withdraw = {"work_id": sender, "message_id": sent_message_id(store, sender, recipient), "expected_version": sent_version}
+    withdrawn_id, _ = work_ref(invoke("concord_work_relate", "message_withdraw", withdraw, "gate-invoke-request-4",
+                                      "gate-invoke-idempotency-4", "message-withdraw"), "message-withdraw")
+    if withdrawn_id != sender:
+        raise InvokeError("message-withdraw", f"withdraw changed work ref {withdrawn_id} is not the sender {sender}")
+    return {"outcome": "ok", "plan": list(plan)}

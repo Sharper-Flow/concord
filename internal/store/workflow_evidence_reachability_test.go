@@ -105,7 +105,7 @@ func TestApproveContractRefusesUnproducibleRequiredEvidence(t *testing.T) {
 	}
 
 	runApprove := func(operationID string, requiredEvidence string) error {
-		payload := testApprovalPayload("approve_contract", json.RawMessage(`{"required_evidence":[`+requiredEvidence+`]}`))
+		payload := testApprovalPayload(t, s, workID, "approve_contract", json.RawMessage(`{"required_evidence":[`+requiredEvidence+`]}`))
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)

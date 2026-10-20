@@ -56,11 +56,12 @@
       "state": "out_of_scope",
       "functions": [
         "internal/store.BuiltinWorkflowCanonicalRecoveryActionDefinitions",
+        "internal/store.BuiltinWorkflowDecisionFactActionDefinitions",
         "internal/store.WorkflowActionCanonicalCrossFieldRules",
         "internal/store.WorkflowActionCrossFieldRules",
         "internal/store.WorkflowContractTeachingRules"
       ],
-      "reason": "These pure accessors supply canonical recovery payloads, cross-field declarations, and guard-owned teaching to scripts/workflow-action-contracts. The projector generates the authoring contract from the engine-owned fields and rules; it grants no runtime admission. The analysis roots ./cmd/... only and cannot see this build-time edge. CI runs generate-agent-contracts.py --check to detect projection drift. Core preflight and recovery validation retain the runtime field and cross-field owners."
+      "reason": "These pure accessors supply canonical recovery payloads, the consequence_v1 decision-fact action payloads, cross-field declarations, and guard-owned teaching to scripts/workflow-action-contracts. The projector generates the authoring contract from the engine-owned fields and rules; it grants no runtime admission. The analysis roots ./cmd/... only and cannot see this build-time edge. CI runs generate-agent-contracts.py --check to detect projection drift. Core preflight and recovery validation retain the runtime field and cross-field owners."
     },
     {
       "id": "workflow-admission-inspection-seam",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -378,5 +379,103 @@ func TestVerdictOmittingContractVersionResolvesActiveContract(t *testing.T) {
 	}
 	if recorded != 2 {
 		t.Fatalf("verdict contract_version=%d, want 2", recorded)
+	}
+}
+
+// An escalated correction window keeps the contract-correction route open
+// across a productive acceptance. The failure mode this pins: a supersession
+// forces every worker job to re-record, the reworded revision is a different
+// obligation whose acceptance cannot discharge the recorded debt (that rule
+// is deliberate), and once correction closed after the acceptance no
+// supersession could follow the last dispatch — so the escalated next
+// dispatch had no convergence basis and the work item could never dispatch
+// its next lane. The escape stays open exactly while the window is escalated.
+func TestEscalatedWindowKeepsContractCorrectionAfterProductiveAccept(t *testing.T) {
+	const id = "correction-open-after-productive-accept"
+	f := seedWorkflowReturnRouteFixture(t, id, "workflow.break_fix", "repair")
+	s := f.store
+	defer s.Close()
+	acceptor := reviewGateAcceptor(id)
+	job := &WorkerJobBinding{JobID: "job:escalated-corrective", Revision: 1}
+
+	// Three failed dispatches of the same revision escalate the window.
+	for i := 1; i <= 3; i++ {
+		attempt := fmt.Sprintf("attempt:%s:%d", id, i)
+		pin := issue1013Pin(t, s, id)
+		issue1013StartRepair(t, s, id, f.owner, pin.Version, latestStepStartEpoch(t, s, id, "repair")+1)
+		pin = issue1013Pin(t, s, id)
+		var correction *WorkflowCorrectionContext
+		if pin.Correction != nil && pin.Correction.AttemptCount >= 1 {
+			correction = pin.Correction
+		}
+		dispatchJobBoundAttempt(t, s, id, "repair", attempt, correction, f.owner, pin.Version, fmt.Sprintf("escalated-window-%d", i), job)
+		s2WorkerFailedAttributedLive(t, s, id, attempt, "corrective objective remains unsatisfied")
+	}
+	pin := issue1013Pin(t, s, id)
+	if pin.Correction == nil || !pin.Correction.Escalated {
+		t.Fatalf("correction after three failed dispatches = %#v, want the escalated window", pin.Correction)
+	}
+
+	// The pre-acceptance supersession is the sanctioned convergence basis.
+	// The fixture definition is Product-changing, so each successor carries
+	// the active contract's architecture binding.
+	var bindingRaw string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind='workflow.contract_approved' ORDER BY seq DESC LIMIT 1`, id).Scan(&bindingRaw); err != nil {
+		t.Fatal(err)
+	}
+	var approved struct {
+		ArchitectureBinding json.RawMessage `json:"architecture_binding"`
+	}
+	if err := json.Unmarshal([]byte(bindingRaw), &approved); err != nil {
+		t.Fatal(err)
+	}
+	successor := func(version int64, reason string) json.RawMessage {
+		payload := map[string]any{
+			"contract_version": version, "premise": "corrected premise " + strconv.FormatInt(version, 10),
+			"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
+				"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + id, "expected_result": "pass"}}},
+			"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
+			"law_modifies": []string{}, "rigor_class": "prototype_internal", "supersede_reason": reason,
+			"audit_evidence":       []string{"evidence:escalated-window-correction"},
+			"architecture_binding": approved.ArchitectureBinding,
+		}
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	if err := runIssue933OperatorAction(t, s, id, "supersede_contract", successor(2, "approach changed after the failures"), f.owner, operatorVerdictActor(t, id)); err != nil {
+		t.Fatalf("supersede while escalated before acceptance: %v", err)
+	}
+
+	// The supersession forces a re-recorded revision; its reworded objective
+	// is a different obligation, so its acceptance is productive for the
+	// step while the earlier debt survives by design.
+	if err := recordWorkerJobFieldsForTest(t, s, id, f.owner, map[string]any{
+		"job_id": job.JobID, "objective": "corrected corrective objective under the successor contract",
+		"stopping_condition": "the recorded checks pass with no unresolved reference",
+		"path_scope":         []string{"internal/store"}, "checks": []string{"go test ./internal/store/"},
+		"reserved_integration": "integration evidence binds at the parent effect step",
+		"ready":                true, "readiness_evidence": []string{"evidence:coordinator-ready"},
+	}); err != nil {
+		t.Fatalf("record reworded revision: %v", err)
+	}
+	revisions, err := readWorkerJobRevisions(context.Background(), s.db, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := revisions[len(revisions)-1].Binding
+	pin = issue1013Pin(t, s, id)
+	issue1013StartRepair(t, s, id, f.owner, pin.Version, latestStepStartEpoch(t, s, id, "repair")+1)
+	pin = issue1013Pin(t, s, id)
+	dispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":4", pin.Correction, f.owner, pin.Version, "escalated-window-4", &replacement)
+	completeAndAcceptAttempt(t, s, id, "attempt:"+id+":4", BuiltinLaneDefinitions()[0], acceptor)
+
+	// The regression: correction must stay open after the productive
+	// acceptance while the window is escalated, so a fresh supersession can
+	// follow the last dispatch and arm the next lane's convergence basis.
+	if err := runIssue933OperatorAction(t, s, id, "supersede_contract", successor(3, "stage admission after the accepted delivery"), f.owner, operatorVerdictActor(t, id)); err != nil {
+		t.Fatalf("supersede after a productive acceptance on the escalated window: %v", err)
 	}
 }

@@ -221,6 +221,31 @@ class PrimaryPromptCheckTests(unittest.TestCase):
                 phrase,
             )
 
+    def test_rte_coordination_and_planning_obligations_are_required(self) -> None:
+        for phrase in (
+            "On every activation, run a coordination pass across the assigned streams",
+            "Handling a notice does not finish the pass",
+            "Respect operator pauses",
+            "Before going idle, confirm all of the following",
+            "No incoming notice or permitted RTE-owned action remains",
+            "No eligible assignment for available capacity remains without an owner or a recorded reason it cannot proceed",
+            "Planning reflects the observed state",
+            "Every unfinished stream has an owner and next action",
+            "After acting, recheck only the affected streams",
+            "Do not repeatedly scan unchanged state or prompt workers already doing permitted work",
+            "Wait for worker notices, CI results, or operator input",
+            "Follow host instructions for session launch, reuse, and lifecycle",
+            "Reconcile assigned Linear issues during each pass",
+            "Keep status, execution owner, blockers, next actions, and evidence links current",
+            "An idle session, finished turn, or merged PR alone does not prove the item is Done",
+            "Use the host's Linear MCP skill for tool procedures",
+            "shared coordination instructions own worker and issue-state rules",
+            "Keep unmerged, merged, released, and installed states distinct",
+            "Do not keep a second planning backlog in a repository or host journal",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, check_primary_prompts.RTE_REQUIRED_PHRASES)
+
     def test_retired_coordinator_profile_reports(self) -> None:
         # Zero tolerance: a checkout that still ships a retired profile
         # fails the validator.

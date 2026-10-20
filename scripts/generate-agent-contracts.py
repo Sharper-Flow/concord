@@ -144,6 +144,21 @@ export function expandedPublishedRequestSchema(published: unknown): unknown {
   body.oneOf = branches;
   return body;
 }
+// actionFieldsBranches returns the expanded branch list of one action
+// variant's fields surface: every oneOf/anyOf branch when publication
+// factored the fields union, or the single flat object when the action
+// declares one closed shape. Structural inspection reads fields through this
+// helper so a branch-only field (the consequence_v1 decision_domains
+// admission) is checked where it lives, never through the factored parent
+// view that carries only the shared constraints. Inspection only: the
+// published compact document stays the admitted input.
+export function actionFieldsBranches(actionInput: unknown): any[] {
+  const fields = (actionInput as any)?.properties?.fields;
+  if (fields === null || typeof fields !== "object" || Array.isArray(fields)) return [];
+  if (Array.isArray((fields as any).oneOf)) return (fields as any).oneOf;
+  if (Array.isArray((fields as any).anyOf)) return (fields as any).anyOf;
+  return [fields];
+}
 '''
 
 
@@ -1310,6 +1325,7 @@ def closed_field_union(branches: list[dict], defs: dict, name: str) -> dict:
         and (not contains(member, other) or other_index < index)
         for other_index, other in enumerate(flattened)
     )]
+
     if len(members) == 1:
         return copy.deepcopy(members[0])
     disjoint = []
@@ -1609,6 +1625,17 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
             "verdict_kind": {"type": "string", "enum": ["ok", "outcome_mismatch", "insufficient_evidence"], "description": "Explicit verdict for this predicate. Missing verdict_kind refuses the whole action before any write; no verdict kind is inferred."},
             "evaluation_evidence": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}},
             "incomparable_with_approved": {"type": "boolean"},
+        },
+    }
+    # CD-0230 D4: a serious law change pins the exact text the operator
+    # approves. Each pin names one changed law and the sha256 content hash of
+    # its drafted after-state document; completion refuses other bytes.
+    defs["workflow_law_text_pin"] = {
+        "type": "object", "additionalProperties": False,
+        "required": ["law_id", "content_hash"],
+        "properties": {
+            "law_id": {"$ref": "#/$defs/law_id"},
+            "content_hash": {"type": "string", "minLength": 71, "maxLength": 71, "pattern": "^sha256:[0-9a-f]{64}$"},
         },
     }
     defs["workflow_forward_relation"] = {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {"kind": {"const": "forward_link"}, "class": {"type": "string", "enum": ["hard", "soft", "none"]}, "severity": {"type": "string", "enum": ["breaking", "non-breaking", "informational"]}}}
@@ -2350,23 +2377,34 @@ export function envelopeFailurePath(value: unknown): string | null {{
 // store's ValidateOperationPayload stays the closed admission boundary; this
 // checks only what the advertised surface teaches. The published request is
 // one compact branch per operation, with the workflow actions grouped under
-// their operation; the traversal expands the passed document's own local
-// references and factored unions, so every check below reads the
-// legacy-effective branch view of the actual published document.
+// their operation, and approve_contract's and supersede_contract's fields is
+// one closed union: the legacy shape and the consequence_v1 extension. The
+// traversal expands the passed document's own local references and factored
+// unions, so every check below reads the legacy-effective view of the actual
+// published document, and every fields check runs on each branch of the
+// fields union, so a branch-only drop cannot hide behind the factored parent.
 export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
   const gaps: string[] = [];
   const expanded: any = expandedPublishedRequestSchema(published);
   const requestBranches: any[] = Array.isArray(expanded?.oneOf) ? expanded.oneOf : [];
   // workflow_action publishes one closed branch per action variant; the
-  // teaching checks read whichever variant carries the taught field.
+  // teaching checks read each fields branch that carries the taught field.
   const actionInputs: any[] = requestBranches
     .filter((branch) => branch?.properties?.operation?.const === "workflow_action")
-    .map((branch) => branch?.properties?.input)
-    .filter((input) => input?.properties?.fields?.properties);
-  const items = actionInputs.map((input) => input.properties.fields.properties.outcome_predicates?.items).find((candidate) => candidate !== undefined);
+    .map((branch) => branch?.properties?.input);
+  const carriers: any[] = actionInputs.flatMap((input) =>
+    actionFieldsBranches(input)
+      .filter((fields) => fields?.properties?.outcome_predicates !== undefined)
+      .map((fields) => ({{ actionId: input?.properties?.action_id?.const, fields }})),
+  );
+  if (carriers.length === 0) {{
+    gaps.push("outcome_predicates items carry 0 per-kind branches, expected the 4 strict variants");
+  }}
+  for (const carrier of carriers) {{
   // The published item is closed per kind: outcome_kind consts to the branch
   // and outcome_payload carries that branch's payload, so a mismatched
   // outcome_kind/outcome_payload pair validates no branch.
+  const items: any = carrier.fields.properties.outcome_predicates?.items;
   const kindBranches: any[] = Array.isArray(items?.oneOf) ? items.oneOf : [];
   const firstBranch = kindBranches[0] ?? {{}};
   const required: string[] = Array.isArray(firstBranch.required) ? firstBranch.required : [];
@@ -2399,15 +2437,13 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
   if (typeof tokens !== "string" || !tokens.includes("workflow.research") || !tokens.includes("report_recorded") || !tokens.includes("no outcome tokens")) {{
     gaps.push("allowed description does not name the per-workflow pinned outcome tokens");
   }}
-  // More than one action variant can carry the taught field (approve_contract
-  // and supersede_contract share outcome_predicates): every carrier must
-  // teach the rule, or a drop from one variant hides behind its sibling.
-  const predicateCarriers = actionInputs.filter((input) => input.properties.fields.properties.outcome_predicates !== undefined);
-  for (const input of predicateCarriers) {{
-    const delivery: unknown = input.properties.fields.properties.outcome_predicates?.description;
-    if (delivery !== {json.dumps(DELIVERY_RULE_PREDICATE_DESCRIPTION)}) {{
-      gaps.push(`outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action ${{input?.properties?.action_id?.const}}`);
-    }}
+  // Every fields branch that carries outcome_predicates on every carrier
+  // action (approve_contract and supersede_contract) must teach the rule,
+  // or a drop from one branch hides behind its siblings.
+  const delivery: unknown = carrier.fields.properties.outcome_predicates?.description;
+  if (delivery !== {json.dumps(DELIVERY_RULE_PREDICATE_DESCRIPTION)}) {{
+    gaps.push(`outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action ${{carrier.actionId}}`);
+  }}
   }}
   // The CD-0184 wait-rule teaching retired with add_condition (CD-0218 D1):
   // no live action declares expected_within_seconds, so no wait carrier

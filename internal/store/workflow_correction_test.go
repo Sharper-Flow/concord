@@ -2055,7 +2055,7 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 	if activeCount != 2 {
 		t.Fatalf("duplicate fixture active contracts = %d, want 2", activeCount)
 	}
-	def := mustBuiltinDefinition(t, "workflow.break_fix").Definition
+	def := pinnedWorkflowDefinitionForTest(t, s, workID)
 	model := admissionModelState{step: "complete", debt: ReviewDebtNone, contracts: 2, verdict: "ok", artifact: true}
 	conformanceCheckpoint(t, s, workID, def, model, "duplicate at the complete step")
 	if issue1013HasIntent(issue1013Pin(t, s, workID), "supersede_contract") {

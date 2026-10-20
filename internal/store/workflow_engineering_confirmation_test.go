@@ -137,9 +137,25 @@ func runEngineeringConfirmation(t *testing.T, s *Store, definition WorkflowDefin
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
+	choice, digest, rest := confirmationEnvelope(fields)
 	return workflowConfirmPremiseEventsForDefinition(context.Background(), tx, definition, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", OperatorActor: operator, OperationID: "confirm-" + workID,
-	}, invokerRef, fields, "confirm-"+workID, version)
+		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", SelectedChoice: choice, DecisionContextDigest: digest, OperatorActor: operator, OperationID: "confirm-" + workID,
+	}, invokerRef, rest, "confirm-"+workID, version)
+}
+
+// confirmationEnvelope lifts the envelope-carried selections out of a
+// confirmation field map, as the tool boundary carries them outside the
+// action fields.
+func confirmationEnvelope(fields map[string]json.RawMessage) (choice, digest string, rest map[string]json.RawMessage) {
+	rest = map[string]json.RawMessage{}
+	for name, value := range fields {
+		rest[name] = value
+	}
+	choice = workflowFieldStringDefault(rest, "selected_choice", "")
+	digest = workflowFieldStringDefault(rest, "decision_context_digest", "")
+	delete(rest, "selected_choice")
+	delete(rest, "decision_context_digest")
+	return choice, digest, rest
 }
 
 func confirmationFields(choice bool, digest string) map[string]json.RawMessage {

@@ -321,6 +321,9 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
     route_conventions: [],
     spec_mandate: [],
     law_modifies: [],
+    // The consequence_v1 head requires the decision fact; none declares
+    // engineering work, which records without a consent question.
+    decision_domains: [],
     architecture_binding: {
       domain_registry_content_hash: registryHash,
       home_domain_id: `product-root:${PRODUCT_ID}`,

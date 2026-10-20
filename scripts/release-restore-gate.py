@@ -24,12 +24,13 @@ A passing case emits one writer-produced witness per source event row to
 recipe hash, and snapshot checksum that produced it. A row is emitted only
 after it survived both candidate restores, and the recipe is a closed list of
 domain commands, so no imported or synthesized row can become a witness.
-scripts/release-restore-inventory.go binds each one to its own release's
-registered shape. Exit status: 0 when every writer
+scripts/release-restore-inventory/ binds each one to its own release's
+registered shape or older accepted version. Exit status: 0 when every writer
 passes and shape coverage is closed, 3 when every writer passes but coverage is
 held, 1 otherwise. Coverage closes only when the committed shape census
-inventories every writer outside the approved exclusion and binds every shape
-it writes to a witness, so a gate run alone is never
+inventories every writer outside the approved exclusion, witnesses every shape
+and every older accepted version it writes, and binds every writer row, so a
+gate run alone is never
 acceptance.
 
 Writer processes get a constructed environment: synthetic HOME, XDG, TMPDIR,
@@ -61,6 +62,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from release_restore_confine import STOP, CaseFailure, Guard, STREAM_LIMIT, checkpoint, install_interrupt_handlers, run_bounded
+from release_restore_invoke import INVOKE_PLAN, InvokeError, run_invoke_phase
 from release_restore_population import (
     GateError, Writer, enumerate_writers, gh_release_page, gh_release_total, git_tags, list_releases, semver,
 )
@@ -139,7 +141,7 @@ def recipe_for(tag: str) -> list[tuple[str, dict]]:
 
 
 def recipe_sha256(steps: list[tuple[str, dict]]) -> str:
-    return hashlib.sha256(json.dumps([RECIPE_ID, steps], sort_keys=True).encode()).hexdigest()
+    return hashlib.sha256(json.dumps([RECIPE_ID, steps, list(INVOKE_PLAN)], sort_keys=True).encode()).hexdigest()
 
 
 def resolve(value, store: Path, case: Path, deadline: float):
@@ -390,6 +392,18 @@ def restore(candidate: Path, snapshot: Path, restored: Path, case: Path, deadlin
     return inventory | {"appended_events": len(restored_events) - len(source_events)}
 
 
+def invoke_runner(binary: Path, env: dict[str, str], streams: Path, deadline: float, guard):
+    """A `run(verb, request) -> (rc, out, err)` for the invoke phase, confined like every writer step."""
+    calls = iter(range(1 << 30))
+
+    def run(verb: str, request: dict) -> tuple[int, str, str]:
+        label = f"invoke-{next(calls)}-{verb}"
+        rc, out = run_bounded([str(binary), verb], env, json.dumps(request), deadline, streams, label, guard)
+        return rc, out, (streams / f"{label}.stderr").read_text(errors="replace")
+
+    return run
+
+
 def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path, streams: Path, case_seconds: int,
                     wall_deadline: float, scratch: Scratch, transfer: Transfer) -> dict:
     started = time.monotonic()
@@ -418,6 +432,12 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
             rc, _ = run_bounded([str(binary), verb], env, json.dumps(request), deadline, streams, f"step-{step}-{verb}", guard)
             if rc != 0:
                 raise CaseFailure("unknown", verb, f"writer refused recipe step {step} {verb} with exit {rc}")
+        try:
+            capture = run_invoke_phase(invoke_runner(binary, env, streams, deadline, guard), Path(__file__).resolve().parents[1],
+                                       writer.tag, case, store)
+            row["invoke"] = {"outcome": capture.get("outcome"), "plan": list(INVOKE_PLAN)}
+        except InvokeError as error:
+            raise CaseFailure("unknown", f"invoke-{error.stage}", error.detail) from None
         snapshot = case / "snapshot.db"
         manifest = snapshot_fixture(store, snapshot, writer.tag, room, guard, deadline)
         row["source"] = {key: manifest[key] for key in ("schema_version", "event_watermark", "db_checksum")}
@@ -453,17 +473,21 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
 
 
 def shape_coverage(census: Path, writers: list[Writer]) -> dict:
-    """Close coverage only when the committed census (scripts/release-restore-inventory.go)
-    inventories every writer outside the approved exclusion and witnesses every shape."""
+    """Close coverage only when the committed census (scripts/release-restore-inventory/)
+    inventories every writer outside the approved exclusion, witnesses every shape and older
+    accepted version, and binds every writer-produced row."""
     try:
         rows = {row["tag"]: row for row in json.loads((census / "writers.json").read_text(encoding="utf-8"))["rows"]}
-        shapes = json.loads((census / "coverage.json").read_text(encoding="utf-8"))["shapes"]
+        census_coverage = json.loads((census / "coverage.json").read_text(encoding="utf-8"))
+        shapes = census_coverage["shapes"]
         written = {tag for shape in shapes for tag in shape["writers"]}
         gaps = {
             "uninventoried writers": [w.tag for w in writers if w.tag not in rows],
             "refused writers": [tag for tag, row in rows.items() if row["status"] != "inventoried" and not row.get("excluded")],
             "inventoried writers without shapes": [tag for tag, row in rows.items() if row["status"] == "inventoried" and tag not in written],
             "unwitnessed shapes": [f"{shape['kind']} v{shape['payload_version']}" for shape in shapes if not shape["covered"]],
+            "unwitnessed older versions": [f"{older['kind']} v{older['payload_version']}" for older in census_coverage["older_versions"] if not older["covered"]],
+            "unbound writer witnesses": list(census_coverage["unbound_writer_witnesses"]),
         }
     except (OSError, ValueError, KeyError, TypeError) as error:
         return {"status": "held", "detail": f"the shape census at {census} is unreadable: {error}"}

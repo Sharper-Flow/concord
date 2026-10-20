@@ -147,12 +147,13 @@ func TestApproveContractResearchBindingTakesEffectBeforeItsGate(t *testing.T) {
 
 func applyInvestigationGateApproval(t *testing.T, s *Store, workID string, version int64, operationID string, actor WorkflowActor, payload json.RawMessage, bindings []ResearchBindingDeclaration) error {
 	t.Helper()
+	payload = testApprovalPayload(t, s, workID, "approve_contract", payload)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: testApprovalPayload("approve_contract", payload), Actor: actor,
+		WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:investigation-gate", IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
 		RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), ResearchBindings: bindings,

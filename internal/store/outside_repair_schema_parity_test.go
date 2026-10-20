@@ -368,6 +368,7 @@ func TestOutsideRepairOutcomeKindParity(t *testing.T) {
 			"contract_version": 2, "premise": "outside-repair successor premise", "outcome_predicates": items(kind),
 			"required_evidence": []any{}, "route_conventions": []any{}, "spec_mandate": []any{}, "law_modifies": []any{},
 			"rigor_class": "prototype_internal", "supersede_reason": "outside-repair supersede reason", "audit_evidence": []any{"evidence:outside-repair"},
+			"decision_domains": []any{},
 		}
 	}
 	// retainedPinFields builds the legacy outcome pair the engine recovery
@@ -378,6 +379,7 @@ func TestOutsideRepairOutcomeKindParity(t *testing.T) {
 		delete(fields, "outcome_predicates")
 		fields["outcome_kind"] = kind
 		fields["outcome_payload"] = checkPayload()
+		delete(fields, "decision_domains")
 		return fields
 	}
 	probes := []map[string]any{

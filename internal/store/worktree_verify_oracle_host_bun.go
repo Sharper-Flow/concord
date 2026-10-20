@@ -555,6 +555,9 @@ func materializeNativeBunTree(ctx context.Context, cacheDir, dest string, instal
 		return err
 	}
 	defer func() { _ = rooted.Close() }()
+	if err := rooted.MkdirAll("node_modules", 0755); err != nil {
+		return err
+	}
 	budget := &nativeBunBudget{}
 	for _, in := range installs {
 		if err := ctx.Err(); err != nil {

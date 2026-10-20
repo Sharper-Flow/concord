@@ -425,12 +425,18 @@ func TestWorkflowCorrectionAttributionFitsDerivedActionBudget(t *testing.T) {
 	if packet3Parts != packetParts {
 		t.Fatalf("the packet3 derivation = %d bytes, want the packet2 derivation %d", packet3Parts, packetParts)
 	}
+	packet4Opt := workerPacketCapacityOptions(defs, "worker_packet4", "worker_packet_checks_repair_job", packetOpt.FindingRefMax)
+	packet4Parts, err := schemawire.Max(defs["worker_packet4"], "worker_packet4", packet4Opt)
+	if err != nil {
+		t.Fatalf("the packet4 derivation hit an unbudgeted member: %v", err)
+	}
 	dispatchOpt := schemawire.Options{
 		Defs: defs,
 		RefBounds: map[string]int{
 			"worker_failure_observation": WorkerFailureAttributionMaxBlockBytes,
 			"worker_packet2":             packetParts + DispatchContextAggregateMaxBytes - 1,
 			"worker_packet3":             packet3Parts + DispatchContextAggregateMaxBytes - 1,
+			"worker_packet4":             packet4Parts + DispatchContextAggregateMaxBytes - 1,
 		},
 		FindingRefMax: 2 + len("finding:") + 19 + 1 + 2,
 	}

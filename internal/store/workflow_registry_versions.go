@@ -1383,6 +1383,29 @@ var (
 	openFindingsCorrection   = withAppendedPayloadField(workflowOpenFindingsCorrectionField)
 )
 
+// checksRepairAuthoringRevision restates record_worker_job with the checks
+// repair's authoring members (CD-0205 D4): the optional named revisions and
+// the bounded prose reason, supplied together. The core derives the recorded
+// metadata from the exact recorded events, so no derived member is authored.
+func checksRepairAuthoringRevision(action WorkflowActionDefinition) WorkflowActionDefinition {
+	action = withAppendedPayloadField(checksRepairRevisionsActionField)(action)
+	return withAppendedPayloadField(checksRepairReasonActionField)(action)
+}
+
+// checksRepairPacketSchema names the packet closure the repair-capable heads
+// dispatch through: the one named schema whose worker-job shape admits the
+// repair metadata. The frozen packet2/packet3 closures keep their released
+// bytes, and the generator's named additions never rewrite them.
+const checksRepairPacketSchema = "worker_packet4"
+
+func checksRepairRevisionsActionField() WorkflowPayloadField {
+	return WorkflowPayloadField{Name: "repair_revisions", ValueType: PayloadArray, Required: false, MinItems: workflowInt(1), MaxItems: workflowInt(64), ItemRef: "worker_job_repair_revision"}
+}
+
+func checksRepairReasonActionField() WorkflowPayloadField {
+	return actionStringField("repair_reason", false, 4096)
+}
+
 // Each builder below ships the acceptance-oracle declaration at its
 // family's next version. The definition content stays the predecessor's;
 // the only content change is record_worker_job's declared payload, so every

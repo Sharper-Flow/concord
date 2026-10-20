@@ -298,16 +298,6 @@ func workflowFailureOf(err error) *Failure {
 	return newFailure(KindUnavailable, "workflow_action", err.Error(), true, "retry once the projection is readable")
 }
 
-// loadWorkflowAdmissionStateTx folds one work item's admission state in the
-// caller's transaction. It takes a queryer rather than a *sql.Tx so a caller
-// holding the pooled connection's transaction passes the tx itself and never
-// a pool-backed store: a nested s.db call inside the transaction parks on the
-// single pooled connection forever. Ordered proof candidates are a separate
-// result for the guard's external tooling check, not part of the abstract state.
-func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (WorkflowAdmissionState, []workflowVerificationRun, []workflowVerificationRun, error) {
-	return loadWorkflowAdmissionStateTxForRegistry(ctx, q, workID, definition, currentStep, subject, nil)
-}
-
 // loadWorkflowAdmissionStateTxForRegistry folds the same admission state with
 // the caller's authoritative registry: the historical progress
 // qualification, the retry convergence, and the correction routes resolve

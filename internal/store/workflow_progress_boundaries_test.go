@@ -69,7 +69,7 @@ func progressBoundaryReadRetryBinding(t *testing.T, s *Store, workID, step strin
 		t.Fatal(err)
 	}
 	var binding *WorkflowRetryApprovalBinding
-	state, _, _, loadErr := loadWorkflowAdmissionStateTx(context.Background(), s.DatabaseForTesting(), workID, entry.Definition, step, "progress_boundaries")
+	state, _, _, loadErr := loadWorkflowAdmissionStateTxForRegistry(context.Background(), s.DatabaseForTesting(), workID, entry.Definition, step, "progress_boundaries", BuiltinWorkflowRegistry())
 	if loadErr != nil {
 		t.Fatalf("fold the admission state for the retry binding: %v", loadErr)
 	}
@@ -452,7 +452,7 @@ func TestArmedProgressWallWallsOnlyWorkerDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	var state WorkflowAdmissionState
-	state, _, _, loadErr := loadWorkflowAdmissionStateTx(context.Background(), s.DatabaseForTesting(), workID, entry.Definition, f.step, "progress_boundaries")
+	state, _, _, loadErr := loadWorkflowAdmissionStateTxForRegistry(context.Background(), s.DatabaseForTesting(), workID, entry.Definition, f.step, "progress_boundaries", BuiltinWorkflowRegistry())
 	if loadErr != nil {
 		t.Fatal(loadErr)
 	}

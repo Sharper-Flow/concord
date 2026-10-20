@@ -33,7 +33,7 @@ func progressHistory(t *testing.T, legacy bool) (*sql.DB, func(string, any) int6
 	appendEvent(WorkflowContractApproved, workflowContractApprovedPayload{ContractVersion: 1, RequiredEvidence: []string{"artifact"}, OutcomePredicates: []workflowContractPredicatePayload{{PredicateID: "predicate:one", OutcomeKind: "exists", OutcomePayload: mustJSONValue(map[string]any{"kind": "exists", "surface": "source.go", "subjects": []string{"owner"}})}}, DecisionDomains: []string{}})
 	read := func() *workflowCorrectionHistory {
 		t.Helper()
-		history, err := workflowCorrectionWalk(context.Background(), db, "work-history", 1<<62, "progress_test")
+		history, err := workflowCorrectionWalkForRegistry(context.Background(), db, "work-history", 1<<62, "progress_test", BuiltinWorkflowRegistry())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -666,7 +666,7 @@ func TestPredicateFamilySpendsAllAliasesOnFirstSatisfaction(t *testing.T) {
 
 func workflowCorrectionWalkT(t *testing.T, db *sql.DB) *workflowCorrectionHistory {
 	t.Helper()
-	history, err := workflowCorrectionWalk(context.Background(), db, "work-history", 1<<62, "progress_test")
+	history, err := workflowCorrectionWalkForRegistry(context.Background(), db, "work-history", 1<<62, "progress_test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -675,7 +675,7 @@ func workflowCorrectionWalkT(t *testing.T, db *sql.DB) *workflowCorrectionHistor
 
 func workflowCorrectionWalkPrefix(t *testing.T, db *sql.DB, prefix int64) *workflowCorrectionHistory {
 	t.Helper()
-	history, err := workflowCorrectionWalk(context.Background(), db, "work-history", prefix, "progress_test")
+	history, err := workflowCorrectionWalkForRegistry(context.Background(), db, "work-history", prefix, "progress_test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}

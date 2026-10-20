@@ -317,7 +317,7 @@ func seedResearchWalledCorrection(t *testing.T, workID string) crossAttemptFixtu
 	if _, err := f.invokeReject(t, readWorkVersion(t, f.s, workID), attemptR2, crossAttemptDispatchEpoch(t, f.s, workID, attemptR2), "r2", 33); err != nil {
 		t.Fatalf("reject the corrected research result: %v", err)
 	}
-	nonProgress, nonProgressErr := workflowNonProgressAttemptCount(context.Background(), f.s.DatabaseForTesting(), workID, "test")
+	nonProgress, nonProgressErr := workflowNonProgressAttemptCountForRegistry(context.Background(), f.s.DatabaseForTesting(), workID, "test", BuiltinWorkflowRegistry())
 	if nonProgressErr != nil || nonProgress != 4 {
 		t.Fatalf("non-progress attempts after two rejected cycles = %d, %v, want 4", nonProgress, nonProgressErr)
 	}
@@ -408,7 +408,7 @@ func walledResearchCapture(t *testing.T, f crossAttemptFixture, settled, authori
 		t.Fatal(err)
 	}
 	var nonProgressErr error
-	snapshot.nonProgress, nonProgressErr = workflowNonProgressAttemptCount(context.Background(), f.s.DatabaseForTesting(), f.workID, "test")
+	snapshot.nonProgress, nonProgressErr = workflowNonProgressAttemptCountForRegistry(context.Background(), f.s.DatabaseForTesting(), f.workID, "test", BuiltinWorkflowRegistry())
 	if nonProgressErr != nil {
 		t.Fatal(nonProgressErr)
 	}
@@ -529,7 +529,7 @@ func TestResearchWalledCorrectionRecovery(t *testing.T) {
 	if windowErr != nil || windowAttempts != 5 {
 		t.Fatalf("correction window attempts after the fresh authorization = %d, %v, want the four counted attempts plus the one authorized identity", windowAttempts, windowErr)
 	}
-	if got, nonProgressErr := workflowNonProgressAttemptCount(context.Background(), f.s.DatabaseForTesting(), workID, "test"); nonProgressErr != nil || got != 4 {
+	if got, nonProgressErr := workflowNonProgressAttemptCountForRegistry(context.Background(), f.s.DatabaseForTesting(), workID, "test", BuiltinWorkflowRegistry()); nonProgressErr != nil || got != 4 {
 		t.Fatalf("non-progress attempts after the fresh authorization = %d, %v, want 4 — the authorization renews no window", got, nonProgressErr)
 	}
 	if issue1013Pin(t, f.s, workID).Correction == nil {
@@ -631,7 +631,7 @@ func seedWalledEvaluationCheckpoint(t *testing.T, workID, reviewVerdict string) 
 	if anchor, err := workflowNonProgressWindowAnchor(ctx, f.s.DatabaseForTesting(), workID, "test", 0); err != nil || anchor != acceptSeq {
 		t.Fatalf("non-progress anchor after the acceptance = %d, %v, want the productive accept event seq %d", anchor, err, acceptSeq)
 	}
-	if nonProgress, err := workflowNonProgressAttemptCount(ctx, f.s.DatabaseForTesting(), workID, "test"); err != nil || nonProgress != 0 {
+	if nonProgress, err := workflowNonProgressAttemptCountForRegistry(ctx, f.s.DatabaseForTesting(), workID, "test", BuiltinWorkflowRegistry()); err != nil || nonProgress != 0 {
 		t.Fatalf("non-progress attempts after the acceptance = %d, %v, want 0", nonProgress, err)
 	}
 	walledResearchAssertSame(t, before, walledResearchCapture(t, f, settled, nil, rejected), false)
@@ -828,7 +828,7 @@ func TestResearchWalledRecoveryCheckpointEvaluation(t *testing.T) {
 		if anchor, err := workflowNonProgressWindowAnchor(context.Background(), f.s.DatabaseForTesting(), workID, "test", 0); err != nil || anchor != c.acceptSeq {
 			t.Fatalf("non-progress anchor after the request = %d, %v, want the producer accept %d", anchor, err, c.acceptSeq)
 		}
-		if nonProgress, err := workflowNonProgressAttemptCount(context.Background(), f.s.DatabaseForTesting(), workID, "test"); err != nil || nonProgress != 1 {
+		if nonProgress, err := workflowNonProgressAttemptCountForRegistry(context.Background(), f.s.DatabaseForTesting(), workID, "test", BuiltinWorkflowRegistry()); err != nil || nonProgress != 1 {
 			t.Fatalf("non-progress attempts after the request = %d, %v, want only the refusing review", nonProgress, err)
 		}
 		if attempts, dispatches := workerAttemptPopulation(t, f.s, workID); attempts != attemptsBefore || dispatches != dispatchesBefore {
@@ -864,7 +864,7 @@ func TestResearchWalledRecoveryCheckpointEvaluation(t *testing.T) {
 		// The old no_ship checkpoint review counts one, and the rejected R4 and
 		// its no_ship V4 review count two more: three non-progress attempts at
 		// the walled step.
-		if nonProgress, err := workflowNonProgressAttemptCount(context.Background(), f.s.DatabaseForTesting(), workID, "test"); err != nil || nonProgress != 3 {
+		if nonProgress, err := workflowNonProgressAttemptCountForRegistry(context.Background(), f.s.DatabaseForTesting(), workID, "test", BuiltinWorkflowRegistry()); err != nil || nonProgress != 3 {
 			t.Fatalf("non-progress attempts after the rejected cycle = %d, %v, want the checkpoint review, the rejected research, and the no_ship review", nonProgress, err)
 		}
 		if requests := walledCheckpointVerificationRequests(t, f); requests != requestsBefore+1 {
@@ -891,7 +891,7 @@ func TestResearchWalledRecoveryCheckpointEvaluation(t *testing.T) {
 		if after != expected {
 			t.Fatalf("the supersession changed durable effects beyond the one version: before %+v, after %+v", beforeSupersede, after)
 		}
-		if nonProgress, err := workflowNonProgressAttemptCount(context.Background(), f.s.DatabaseForTesting(), workID, "test"); err != nil || nonProgress != 3 {
+		if nonProgress, err := workflowNonProgressAttemptCountForRegistry(context.Background(), f.s.DatabaseForTesting(), workID, "test", BuiltinWorkflowRegistry()); err != nil || nonProgress != 3 {
 			t.Fatalf("non-progress attempts after the supersession = %d, %v, want the unchanged 3", nonProgress, err)
 		}
 		if requests := walledCheckpointVerificationRequests(t, f); requests != requestsBefore+1 {

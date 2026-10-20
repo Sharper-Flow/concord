@@ -259,7 +259,7 @@ func workSizeStopDecisions(t *testing.T, s *Store, workID string) (WorkflowAdmis
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, _, _, err := loadWorkflowAdmissionStateTx(context.Background(), tx, workID, definition.Definition, "proposal", "test")
+	state, _, _, err := loadWorkflowAdmissionStateTxForRegistry(context.Background(), tx, workID, definition.Definition, "proposal", "test", BuiltinWorkflowRegistry())
 	_ = tx.Rollback()
 	if err != nil {
 		t.Fatal(err)

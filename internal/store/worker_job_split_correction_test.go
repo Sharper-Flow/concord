@@ -19,19 +19,19 @@ func TestWorkerJobSplitReplacementCountsOnceAndRetainsDebt(t *testing.T) {
 			if err := recordWorkerJobActionForTest(t, a.s, a.workID, a.fixture.owner, replacementSplitFields(t, a, nil)); err != nil {
 				t.Fatal(err)
 			}
-			if count, err := workflowNonProgressAttemptCount(context.Background(), a.s.db, a.workID, "test"); err != nil || count != 1 {
+			if count, err := workflowNonProgressAttemptCountForRegistry(context.Background(), a.s.db, a.workID, "test", BuiltinWorkflowRegistry()); err != nil || count != 1 {
 				t.Fatalf("split-replaced nonprogress population=%d, error=%v; want exactly one", count, err)
 			}
 			var splitSeq int64
 			if err := a.s.db.QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=?`, a.workID, WorkerJobSplit).Scan(&splitSeq); err != nil {
 				t.Fatal(err)
 			}
-			history, err := workflowCorrectionWalk(context.Background(), a.s.db, a.workID, splitSeq, "test")
+			history, err := workflowCorrectionWalkForRegistry(context.Background(), a.s.db, a.workID, splitSeq, "test", BuiltinWorkflowRegistry())
 			if err != nil {
 				t.Fatal(err)
 			}
 			key := workerJobKey(a.job.JobID, a.job.Revision)
-			prior, err := workflowCorrectionWalk(context.Background(), a.s.db, a.workID, splitSeq-1, "test")
+			prior, err := workflowCorrectionWalkForRegistry(context.Background(), a.s.db, a.workID, splitSeq-1, "test", BuiltinWorkflowRegistry())
 			if err != nil || prior.unresolved[key] != noShip {
 				t.Fatalf("pre-split prefix debt=%v, error=%v; want no_ship debt only (%v)", prior, err, noShip)
 			}
@@ -49,7 +49,7 @@ func TestWorkerJobSplitReplacementCountsOnceAndRetainsDebt(t *testing.T) {
 			if err := RebuildFromLog(context.Background(), a.s); err != nil {
 				t.Fatal(err)
 			}
-			if count, err := workflowNonProgressAttemptCount(context.Background(), a.s.db, a.workID, "test"); err != nil || count != 1 {
+			if count, err := workflowNonProgressAttemptCountForRegistry(context.Background(), a.s.db, a.workID, "test", BuiltinWorkflowRegistry()); err != nil || count != 1 {
 				t.Fatalf("replayed nonprogress population=%d, error=%v; want exactly one", count, err)
 			}
 		})

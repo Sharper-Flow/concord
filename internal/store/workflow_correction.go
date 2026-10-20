@@ -498,13 +498,6 @@ func workflowCorrectionWindowBoundary(ctx context.Context, q queryer, workID str
 	return history.boundary, nil
 }
 
-// workflowCorrectionWalk folds one inclusive event-log prefix with the
-// coordinator progress qualification resolved through the builtin registry:
-// the convenience for surfaces that select no caller registry.
-func workflowCorrectionWalk(ctx context.Context, q queryer, workID string, prefix int64, subject string) (*workflowCorrectionHistory, error) {
-	return workflowCorrectionWalkCore(ctx, q, workID, prefix, subject, nil, true)
-}
-
 // workflowCorrectionWalkForRegistry folds the same prefix with the caller's
 // authoritative registry: every recorded definition selection verifies
 // through it, fail closed, with no builtin retry or silent legacy fallback.
@@ -955,15 +948,6 @@ func workerJobObligationKey(payload WorkerJobRecordedPayload) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// workflowNonProgressAttemptCount counts distinct failed, rejected, no_ship,
-// or split-replaced overrun attempts across the work item. Authorization and
-// dispatch evidence name the
-// same attempt, so they consume one slot. Only productive acceptance that
-// discharges the correction window renews the budget.
-func workflowNonProgressAttemptCount(ctx context.Context, q queryer, workID, subject string) (int64, error) {
-	return workflowNonProgressAttemptCountForRegistry(ctx, q, workID, subject, nil)
-}
-
 // workflowNonProgressAttemptCountForRegistry counts the same whole-work
 // nonprogress population with the qualification resolved through the
 // caller's authoritative registry: nil selects the builtin registry.
@@ -1366,18 +1350,6 @@ func workflowPostRejectionReviewMissing(ctx context.Context, q queryer, workID, 
 	return reviewed == 0, nil
 }
 
-// workflowDeliveryGateCorrectionContext is the correction context of a
-// workflow instance parked on a CD-0166 delivery gate whose refinement history
-// carries an outstanding review after rejection or an accepted no_ship report.
-// The context names the rejected result's predicates, or the active contract's
-// predicates, so the evidence-bearing return names what the fresh review must
-// cover. A gate without the outstanding review admits no
-// correction: record_delivery stays the only route off an ordinary parked
-// gate.
-func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (*WorkflowCorrectionContext, error) {
-	return workflowDeliveryGateCorrectionContextForRegistry(ctx, q, workID, definition, currentStep, subject, nil)
-}
-
 // workflowDeliveryGateCorrectionContextForRegistry resolves the same gate
 // context with the caller's authoritative registry folding the admission
 // state's historical progress. A nil registry selects the builtin registry.
@@ -1653,14 +1625,6 @@ func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q querye
 		return nil, workflowCorrectionMissingNone, nil
 	}
 	return nil, workflowCorrectionMissingVerdict, nil
-}
-
-// workflowCorrectionRequestAdmissionState reports the admission as the
-// boolean surfaces hold plus the missing-prerequisite class the refusal
-// constructor reads. excludeSeq names the fold's own in-flight completion so
-// the anchor judges settled entries only; read surfaces pass zero.
-func workflowCorrectionRequestAdmissionState(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64) (bool, string, error) {
-	return workflowCorrectionRequestAdmissionStateForRegistry(ctx, q, workID, definition, currentStep, subject, excludeSeq, nil)
 }
 
 // workflowCorrectionRequestAdmissionStateForRegistry resolves the same

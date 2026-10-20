@@ -130,6 +130,44 @@ that account. See the [transport contract](.concord/docs/agent-adapter-transport
 [core architecture](.concord/docs/core-architecture.md), and
 [managed development authority](.concord/docs/managed-development-authority.md).
 
+### Graph usage
+
+Concord uses several distinct graphs, not one universal directed acyclic graph
+(DAG). Each mechanism gives its edges a different meaning:
+
+- **Work relations describe coordination.** The typed
+  [relation vocabulary](contracts/relation-vocabulary.v1.json) defines stored
+  relations and inverse query labels, such as `blocks` and `blocked_by`.
+  For actionable work, `blocks` excludes the target from the
+  [ready queue](internal/store/query.go) while the source is `needed` or
+  `in_progress`; `depends_on` records a requirement whose transitive closure can
+  be read. Neither refuses a lifecycle start by itself. A resolved
+  [Domain overlap](internal/store/workflow_domain_overlap.go) can sequence
+  execution entry through either kind.
+- **Workflow edges govern execution.** A definition connects workflow steps,
+  with cycle checks that exclude declared retry and failure edges. Recovery is
+  explicit, not an assumption that execution only moves forward. Inspect the
+  [graph validator](internal/store/workflow_registry.go) and
+  [correction and premise-recovery routes](internal/store/workflow_recovery_routes.go).
+- **Worker-job prerequisites pin exact work.** Within a work item, prerequisites
+  name a job and revision, optionally an exact accepted result reference.
+  [Readiness checks](internal/store/worker_jobs.go) require those prerequisites
+  to be satisfied and check the candidate job's latest revision, active contract,
+  readiness evidence, and unresolved references. These are not work-to-work
+  `depends_on` edges.
+- **Law and Domain relations describe authority and architecture.** Law links
+  express refinement, subordination, supersession, or conflict; federated law
+  identities include their home Project so equal local IDs stay distinct.
+  Domain relations separately express dependency, shared contracts, or
+  replacement. Inspect the [knowledge model](internal/store/knowledge_manifest.go)
+  and [federated law validation](internal/store/product_knowledge_source.go).
+- **Evidence links record provenance, not acceptance.** An
+  [evidence binding](internal/store/workflow.go) records an immutable subject
+  separately from the producer, run, and watermark. That identifies what was
+  observed and who produced the evidence; it does not itself accept a worker
+  result or establish that an approved outcome was met. Verdicts and completion
+  have their own gates.
+
 ## Build and verify from source
 
 Source development uses the Go toolchain pinned in [`go.mod`](go.mod). Adapter
@@ -189,7 +227,8 @@ These are not shipped features or release-date commitments:
 Concord supports Linux amd64. Read the [full prerequisites](.concord/docs/installation.md#prerequisites)
 before you install. Run the installer with Python 3.
 
-Before an upgrade introduces the `Concord` and `Concord-RTE` profiles, complete
+Before an upgrade introduces the `Concord`, `Concord-RTE`, or optional
+`Concord-Planner` profiles, complete
 the [primary-agent authorization step](adapter/opencode/README.md#authorize-the-primary-agent-names-before-activation)
 for every affected trusted client. Installation does not grant agent scope;
 verify the exact names before activation or selecting the profiles.

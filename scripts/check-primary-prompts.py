@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validate the named primary profiles and the inert numbered examples.
 
-The generated named profiles `Concord-RTE` and `Concord` ship
+The generated named profiles `Concord-RTE`, `Concord`, and `Concord-Planner` ship
 as managed agents. scripts/generate-agent-lanes.py --check owns their byte
 equality with the profile contract; this check proves their portable role
 boundaries:
@@ -10,7 +10,13 @@ boundaries:
                      owning session, and human-only approval challenges
   Concord            needs no RTE, keeps the delegation anchor and cross-repository
                      boundary (CD-0178 D2)
-  both               no host-specific research tool names in frontmatter, no
+  Planner            edits only under .planning/, asks before unnamed shell
+                     commands, cannot commit, push, open or merge pull requests,
+                     or release, delegates only to the read-only utilities, and
+                     is denied the Concord tools that write work state; the
+                     probes are evaluated with OpenCode's last-match wildcard
+                     rules, not read as text
+  all                no host-specific research tool names in frontmatter, no
                      duplicated conduct obligation, and no routing by
                      generated agent id in the body
 
@@ -35,6 +41,7 @@ install them. This check proves the example contract in CD-0154:
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -43,7 +50,11 @@ PROFILE_DIR = Path(".opencode/agents")
 NAMED_PROFILE_FILES = (
     "Concord-RTE.md",
     "Concord.md",
+    "Concord-Planner.md",
 )
+# The profiles that leave every unnamed shell command to the host (CD-0154 D2).
+FULL_PROFILE_FILES = ("Concord-RTE.md", "Concord.md")
+PLANNER_PROFILE_FILE = "Concord-Planner.md"
 PRIMARY_BUILD_TOOLS = ("edit", "write", "patch")
 RTE_REQUIRED_PHRASES = (
     "decides inside another session's item only a choice that session brings to it",
@@ -80,6 +91,65 @@ CONCORD_REQUIRED_PHRASES = (
     "The user may choose to start an RTE session",
     "Notices report actual overlap, not the chance of it",
     "You own design, code, tests, review, law text, publication, CI follow-through, deployment, and planning for your work item",
+)
+PLANNER_REQUIRED_PHRASES = (
+    "The user may choose to start this optional session",
+    "It is never a gate on Concord's work",
+    "Surface where an executing agent would have to guess",
+    "Separate what you observed from what you recommend",
+    "Write only approved decisions into a ticket's description",
+    "Keep each unapproved assumption visibly marked as unapproved",
+    "Propose a consequential batch of record changes before you apply it",
+    "Shell rules match command text, not what a command writes",
+)
+PLANNER_WRITERS = (
+    "concord_work_compact",
+    "concord_work_define",
+    "concord_work_relate",
+    "concord_work_start",
+    "concord_work_transition",
+)
+# Probes evaluated against Planner's generated rules. Each names an input and
+# the action OpenCode must resolve for it.
+PLANNER_EDIT_PROBES = (
+    (".planning/notes.md", "allow"),
+    (".planning/prototype/main.go", "allow"),
+    ("internal/store/store.go", "deny"),
+    ("README.md", "deny"),
+    (".planning", "deny"),
+    ("../other-repo/file.go", "deny"),
+    ("docs/.planning/notes.md", "deny"),
+)
+PLANNER_BASH_PROBES = (
+    ("git status", "allow"),
+    ("git log --oneline -5", "allow"),
+    ("gh pr view 12", "allow"),
+    ("gh pr checks 12", "allow"),
+    ("git commit -m change", "deny"),
+    ("git push origin main", "deny"),
+    ("git merge feature", "deny"),
+    ("git rebase main", "deny"),
+    ("git tag v1.0.0", "deny"),
+    ("git stash", "deny"),
+    ("gh pr create --fill", "deny"),
+    ("gh pr merge 12 --auto --squash", "deny"),
+    ("gh release create v1.0.0", "deny"),
+    ("gh workflow run release.yml", "deny"),
+    ("sudo true", "deny"),
+    ("make deploy", "ask"),
+    ("python3 scripts/install.py", "ask"),
+    ("go test ./...", "ask"),
+    ("git grep -O'git push origin HEAD #' -e x", "ask"),
+    ("go list -export -toolexec=sh ./...", "ask"),
+)
+PLANNER_TASK_PROBES = (
+    ("concord-explore", "allow"),
+    ("concord-lookup", "allow"),
+    ("concord-advisor", "allow"),
+    ("concord-implement", "deny"),
+    ("concord-review", "deny"),
+    ("general", "deny"),
+    ("build", "deny"),
 )
 PROMPT_DIR = Path("examples/opencode/agents")
 PRIMARY_PROMPT_FILES = (
@@ -209,6 +279,115 @@ def flatten(text: str) -> str:
     return " ".join(text.split())
 
 
+def wildcard_match(value: str, pattern: str) -> bool:
+    """OpenCode's permission wildcard: `*` spans any text, `?` one character,
+    the whole value must match, and a trailing ` *` makes its arguments
+    optional."""
+    escaped = re.sub(r"[.+^${}()|\[\]\\]", lambda m: "\\" + m.group(0), pattern.replace("\\", "/"))
+    escaped = escaped.replace("*", ".*").replace("?", ".")
+    if escaped.endswith(" .*"):
+        escaped = escaped[:-3] + "( .*)?"
+    return re.fullmatch(escaped, value.replace("\\", "/"), re.DOTALL) is not None
+
+
+def permission_rules(frontmatter: str, key: str) -> list[tuple[str, str]]:
+    """The ordered pattern rules of one `permission.<key>` block."""
+    match = re.search(rf"\n  {re.escape(key)}:\n((?:    .*\n?)*)", "\n" + frontmatter + "\n")
+    if not match:
+        return []
+    rules = []
+    for line in match[1].splitlines():
+        rule = re.fullmatch(r'    ("(?:[^"\\]|\\.)*"): (allow|ask|deny)', line)
+        if rule is None:
+            raise ValueError(f"permission.{key} rule {line.strip()!r} is not a quoted pattern and action")
+        rules.append((json.loads(rule[1]), rule[2]))
+    return rules
+
+
+def evaluate(rules: list[tuple[str, str]], value: str) -> str:
+    """The last matching rule wins; with no match OpenCode asks."""
+    return next((action for pattern, action in reversed(rules) if wildcard_match(value, pattern)), "ask")
+
+
+def check_full_profile(name: str, frontmatter: str, flat_body: str) -> list[str]:
+    findings = [
+        f"{name} frontmatter lost the Build-level grant '{tool}: allow'"
+        for tool in PRIMARY_BUILD_TOOLS
+        if f"\n  {tool}: allow" not in "\n" + frontmatter
+    ]
+    if '\n  task:\n    "*": allow' not in "\n" + frontmatter:
+        findings.append(f"{name} frontmatter does not allow task by default")
+    bash = re.search(r'\n  bash:\n((?:    .*\n?)*)', "\n" + frontmatter)
+    if not bash or re.search(r'^    "\*":|: "?(?:allow|ask)"?\s*$', bash[1], re.MULTILINE):
+        findings.append(f"{name} bash rules must only deny named commands; the host governs other commands")
+    findings.extend(
+        f"{name} frontmatter denies Concord tool {tool}"
+        for tool in re.findall(r"^  (concord_\w+): deny$", frontmatter, re.MULTILINE)
+    )
+    required_phrases = RTE_REQUIRED_PHRASES if name == "Concord-RTE.md" else CONCORD_REQUIRED_PHRASES
+    findings.extend(
+        f"{name} lost the role rule {phrase!r}"
+        for phrase in required_phrases
+        if phrase not in flat_body
+    )
+    if name == "Concord.md":
+        findings.extend(
+            f"{name} lost the delegation anchor marker {marker!r}"
+            for marker in DELEGATION_ANCHOR_MARKERS
+            if marker not in flat_body
+        )
+        findings.extend(
+            f"{name} lost the cross-repository boundary phrase {phrase!r}"
+            for phrase in (
+                "Keep a work-item session in each repository",
+                "a second Project in another git repository",
+                "never claim or move across the boundary",
+                "this session stops driving the other repository",
+                "`concord_work_start` with `work_id` alone",
+                "`session_placement`",
+            )
+            if phrase not in flat_body
+        )
+    return findings
+
+
+def check_planner_profile(name: str, frontmatter: str, flat_body: str) -> list[str]:
+    findings = [
+        f"{name} frontmatter grants unscoped '{tool}: allow'; edits must stay path-scoped"
+        for tool in PRIMARY_BUILD_TOOLS
+        if re.search(rf"^  {tool}: (?:allow|ask)$", frontmatter, re.MULTILINE)
+    ]
+    try:
+        rules = {key: permission_rules(frontmatter, key) for key in ("edit", "bash", "task")}
+    except ValueError as error:
+        return [*findings, f"{name} {error}"]
+    for key, default in (("edit", "deny"), ("bash", "ask"), ("task", "deny")):
+        if not rules[key] or rules[key][0] != ("*", default):
+            findings.append(f'{name} permission.{key} must open with "*": {default}')
+    for key, probes in (("edit", PLANNER_EDIT_PROBES), ("bash", PLANNER_BASH_PROBES), ("task", PLANNER_TASK_PROBES)):
+        findings.extend(
+            f"{name} permission.{key} resolves {value!r} to {evaluate(rules[key], value)}, not {expected}"
+            for value, expected in probes
+            if evaluate(rules[key], value) != expected
+        )
+    findings.extend(
+        f"{name} permission.edit allows {pattern!r} outside .planning/"
+        for pattern, action in rules["edit"]
+        if action != "deny" and not pattern.startswith(".planning/")
+    )
+    findings.extend(
+        f"{name} frontmatter does not deny Concord tool {tool}"
+        for tool in PLANNER_WRITERS
+        if f"\n  {tool}: deny" not in "\n" + frontmatter
+    )
+    findings.extend(
+        f"{name} lost the role rule {phrase!r}"
+        for phrase in PLANNER_REQUIRED_PHRASES
+        if phrase not in flat_body
+    )
+    return findings
+
+
 def check_named_profiles(root: Path) -> list[str]:
     findings: list[str] = []
     for retired in ("concord-coordinator.md", "concord-operator.md"):
@@ -240,44 +419,10 @@ def check_named_profiles(root: Path) -> list[str]:
             for match in [GENERATED_AGENT_ID.search(flat_body)]
             if match is not None
         )
-        findings.extend(
-            f"{name} frontmatter lost the Build-level grant '{tool}: allow'"
-            for tool in PRIMARY_BUILD_TOOLS
-            if f"\n  {tool}: allow" not in "\n" + frontmatter
-        )
-        if '\n  task:\n    "*": allow' not in "\n" + frontmatter:
-            findings.append(f"{name} frontmatter does not allow task by default")
-        bash = re.search(r'\n  bash:\n((?:    .*\n?)*)', "\n" + frontmatter)
-        if not bash or re.search(r'^    "\*":|: "?(?:allow|ask)"?\s*$', bash[1], re.MULTILINE):
-            findings.append(f"{name} bash rules must only deny named commands; the host governs other commands")
-        findings.extend(
-            f"{name} frontmatter denies Concord tool {tool}"
-            for tool in re.findall(r"^  (concord_\w+): deny$", frontmatter, re.MULTILINE)
-        )
-        required_phrases = RTE_REQUIRED_PHRASES if name == "Concord-RTE.md" else CONCORD_REQUIRED_PHRASES
-        findings.extend(
-            f"{name} lost the role rule {phrase!r}"
-            for phrase in required_phrases
-            if phrase not in flat_body
-        )
-        if name == "Concord.md":
-            findings.extend(
-                f"{name} lost the delegation anchor marker {marker!r}"
-                for marker in DELEGATION_ANCHOR_MARKERS
-                if marker not in flat_body
-            )
-            findings.extend(
-                f"{name} lost the cross-repository boundary phrase {phrase!r}"
-                for phrase in (
-                    "Keep a work-item session in each repository",
-                    "a second Project in another git repository",
-                    "never claim or move across the boundary",
-                    "this session stops driving the other repository",
-                    "`concord_work_start` with `work_id` alone",
-                    "`session_placement`",
-                )
-                if phrase not in flat_body
-            )
+        if name == PLANNER_PROFILE_FILE:
+            findings.extend(check_planner_profile(name, frontmatter, flat_body))
+        else:
+            findings.extend(check_full_profile(name, frontmatter, flat_body))
     return findings
 
 

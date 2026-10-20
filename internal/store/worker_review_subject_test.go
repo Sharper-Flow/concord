@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -159,6 +160,14 @@ func reviewSubjectAccept(t *testing.T, s *Store, workID, attemptID string) {
 // accepted delivery's dispatch.
 func reviewSubjectSupersedeContract(t *testing.T, s *Store, workID string) {
 	t.Helper()
+	reviewSubjectSupersedeContractVersions(t, s, workID, 1, 2, "the pinned contract moved past the accepted delivery")
+}
+
+// reviewSubjectSupersedeContractVersions records one contract supersession
+// between the named versions with the fixture's successor shape; sequences
+// that force repeated basis supersessions supersede through it directly.
+func reviewSubjectSupersedeContractVersions(t *testing.T, s *Store, workID string, from, to int64, reason string) {
+	t.Helper()
 	version := readWorkVersion(t, s, workID)
 	ownerRef, err := WorkflowActorRef(WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent})
 	if err != nil {
@@ -166,11 +175,11 @@ func reviewSubjectSupersedeContract(t *testing.T, s *Store, workID string) {
 	}
 	payload := map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"previous_contract_version": 1, "new_contract_version": 2,
-		"supersede_reason": "the pinned contract moved past the accepted delivery",
+		"previous_contract_version": from, "new_contract_version": to,
+		"supersede_reason": reason,
 		"audit_evidence":   []string{"evidence:review-subject-supersede"},
 		"successor_contract": map[string]any{
-			"contract_version": 2, "premise": "deliver the checked change under the second contract", "outcome_kind": "check",
+			"contract_version": to, "premise": "deliver the checked change under a later contract", "outcome_kind": "check",
 			"outcome_predicates": []map[string]any{{"predicate_id": "predicate:review-subject", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:review-subject", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}}},
 			"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 			"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
@@ -180,11 +189,11 @@ func reviewSubjectSupersedeContract(t *testing.T, s *Store, workID string) {
 			},
 		},
 	}
-	event := workflowEventWithActor("review-supersede-1-"+workID, WorkflowContractSuperseded, workID, ownerRef, payload)
+	event := workflowEventWithActor(fmt.Sprintf("review-supersede-%d-%s", to, workID), WorkflowContractSuperseded, workID, ownerRef, payload)
 	event.PayloadVersion = 1
 	event = withPinnedDecisionFact(t, pinnedWorkflowDefinitionForTest(t, s, workID), event)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		t.Fatalf("supersede contract v1: %v", err)
+		t.Fatalf("supersede contract v%d: %v", from, err)
 	}
 }
 

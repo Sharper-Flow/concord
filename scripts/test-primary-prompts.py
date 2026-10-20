@@ -8,8 +8,10 @@ missing advisory handoff, duplicated conduct text, a diverged shared section,
 a lost intake boundary, a missing cross-repository boundary phrase, and a
 forbidden move-into-another-repository instruction. The named profiles prove
 their contract: the Concord-RTE and Concord profiles carry Build-level grants
-with no workflow denial and the required role sentences, and the retired
-concord-coordinator and concord-operator profiles are rejected on sight.
+with no workflow denial and the required role sentences, Concord-Planner keeps
+its path-scoped edits, ask-default shell, utility-only delegation, and
+work-state denials, and the retired concord-coordinator and concord-operator
+profiles are rejected on sight.
 """
 from __future__ import annotations
 
@@ -147,11 +149,57 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         self.assertTrue(any("Concord-RTE.md" in finding and "concord_work_start" in finding for finding in findings))
 
     def test_named_profiles_cannot_reallow_host_bash_denials(self) -> None:
-        for name in check_primary_prompts.NAMED_PROFILE_FILES:
+        for name in check_primary_prompts.FULL_PROFILE_FILES:
             for rule in ('    "git *": allow\n', '    "git *": "ask"\n'):
                 self.setUp()
                 self.rewrite(name, lambda text: text.replace('  bash:\n', '  bash:\n' + rule, 1))
                 self.assertTrue(any(name in finding and "bash rules must only deny named commands" in finding for finding in self.findings()), rule)
+
+    def assert_planner_finding(self, transform, fragment: str) -> None:
+        self.rewrite("Concord-Planner.md", transform)
+        findings = self.findings()
+        self.assertTrue(any("Concord-Planner.md" in finding and fragment in finding for finding in findings), findings)
+
+    def test_wildcard_follows_opencode_matching(self) -> None:
+        match = check_primary_prompts.wildcard_match
+        self.assertTrue(match("git status", "git status *"))
+        self.assertTrue(match("git status --short", "git status *"))
+        self.assertFalse(match("git statusx", "git status *"))
+        self.assertTrue(match(".planning/a/b.md", ".planning/*"))
+        self.assertFalse(match("xplanning/a.md", ".planning/*"))
+        self.assertTrue(match("ab", "a?"))
+        self.assertFalse(match("a(b)", "a.b."))
+        rules = [("*", "deny"), ("gh pr *", "deny"), ("gh pr view *", "allow")]
+        self.assertEqual(check_primary_prompts.evaluate(rules, "gh pr view 1"), "allow")
+        self.assertEqual(check_primary_prompts.evaluate(rules, "gh pr merge 1"), "deny")
+        self.assertEqual(check_primary_prompts.evaluate([], "anything"), "ask")
+
+    def test_planner_edit_outside_planning_reports(self) -> None:
+        self.assert_planner_finding(lambda text: text.replace('  edit:\n    "*": deny\n', '  edit:\n    "*": allow\n', 1), "permission.edit")
+
+    def test_planner_unscoped_editor_grant_reports(self) -> None:
+        self.assert_planner_finding(lambda text: text.replace("  webfetch: allow\n", "  webfetch: allow\n  write: allow\n", 1), "unscoped 'write: allow'")
+
+    def test_planner_reallowed_push_reports(self) -> None:
+        self.assert_planner_finding(lambda text: text.replace('    "git push *": deny\n', "", 1), "'git push origin main' to ask, not deny")
+        self.setUp()
+        self.assert_planner_finding(lambda text: text.replace('    "git stash *": deny\n', '    "gh pr merge *": allow\n    "git stash *": deny\n', 1), "'gh pr merge 12 --auto --squash' to allow, not deny")
+
+    def test_planner_allow_default_shell_reports(self) -> None:
+        self.assert_planner_finding(lambda text: text.replace('  bash:\n    "*": ask\n', '  bash:\n    "*": allow\n', 1), 'permission.bash must open with "*": ask')
+
+    def test_planner_lane_delegation_reports(self) -> None:
+        self.assert_planner_finding(lambda text: text.replace('  task:\n    "*": deny\n', '  task:\n    "*": allow\n', 1), "'concord-implement' to allow, not deny")
+
+    def test_planner_lost_work_state_denial_reports(self) -> None:
+        self.assert_planner_finding(lambda text: text.replace("  concord_work_transition: deny\n", "", 1), "does not deny Concord tool concord_work_transition")
+
+    def test_planner_lost_required_role_sentence_reports(self) -> None:
+        for phrase in check_primary_prompts.PLANNER_REQUIRED_PHRASES:
+            self.setUp()
+            words = phrase.split()
+            pattern = r"\s+".join(re.escape(word) for word in words)
+            self.assert_planner_finding(lambda text: re.sub(pattern, "removed", text, count=1), phrase)
 
     def test_resume_cannot_accept_a_project_selector(self) -> None:
         self.rewrite("Concord.md", lambda text: text.replace('with `work_id` alone', 'with `work_id` and `project_id`', 1))

@@ -327,7 +327,15 @@ func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID 
 	if correctionErr != nil {
 		return false, correctionErr
 	}
-	if correction != nil && correction.Disposition == "rejected" {
+	// An escalated correction window keeps the supersession escape open even
+	// after a productive acceptance. The normal post-accept closure assumes
+	// the acceptance discharged the window; on an escalated window whose
+	// supersession-forced re-recorded revision was accepted productively,
+	// the recorded debt survives by design (the reworded revision is a
+	// different obligation), so closing correction here leaves the next
+	// dispatch with no convergence basis — no supersession can follow the
+	// last dispatch, and the work item can never dispatch its next lane.
+	if correction != nil && (correction.Disposition == "rejected" || correction.Escalated) {
 		return true, nil
 	}
 	boundary, started, err := workflowStepPassBoundary(ctx, q, definition, workID, currentStep, subject)

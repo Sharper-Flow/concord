@@ -17,6 +17,13 @@ if spec is None or spec.loader is None:
     raise RuntimeError("unable to load lane generator")
 generator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(generator)
+prompt_spec = importlib.util.spec_from_file_location("primary_prompt_checker", ROOT / "scripts/check-primary-prompts.py")
+if prompt_spec is None or prompt_spec.loader is None:
+    raise RuntimeError("unable to load scripts/check-primary-prompts.py")
+prompt_checker = importlib.util.module_from_spec(prompt_spec)
+prompt_spec.loader.exec_module(prompt_checker)
+FULL_PROFILES = ("Concord-RTE", "Concord")
+PLANNER_WRITERS = ["concord_work_compact", "concord_work_define", "concord_work_relate", "concord_work_start", "concord_work_transition"]
 REPORT_SCHEMA = json.loads((ROOT / "contracts/agent-lane-report.schema.json").read_text(encoding="utf-8"))
 PACKET_SCHEMA = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").read_text(encoding="utf-8"))
 
@@ -1037,15 +1044,18 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
                 generator.load_primary_profiles(self.manifest, path)
         return str(caught.exception)
 
-    def test_registry_holds_exactly_the_rte_and_concord(self):
-        # The ids are exactly Concord-RTE and Concord so the host UI shows
-        # those names; the role sources stay lowercase.
-        self.assertEqual([profile["id"] for profile in self.profiles["profiles"]], ["Concord-RTE", "Concord"])
+    def test_registry_holds_exactly_the_rte_concord_and_planner(self):
+        # The ids are exactly Concord-RTE, Concord, and Concord-Planner so the
+        # host UI shows those names; the role sources stay lowercase.
+        self.assertEqual([profile["id"] for profile in self.profiles["profiles"]], ["Concord-RTE", "Concord", "Concord-Planner"])
         self.assertEqual(self.profile("Concord-RTE")["role_source"], ".concord/roles/rte.md")
         self.assertEqual(self.profile("Concord")["role_source"], ".concord/roles/concord.md")
+        self.assertEqual(self.profile("Concord-Planner")["role_source"], ".concord/roles/planner.md")
 
     def test_primary_bash_rules_cannot_reallow_host_denials(self):
         for profile in self.profiles["profiles"]:
+            if profile["id"] not in FULL_PROFILES:
+                continue
             with self.subTest(agent=profile["id"]):
                 self.assertTrue(all(rule["action"] == "deny" for rule in profile["bash"]))
                 bash = self.frontmatter(self.projection(profile["id"])).split("\n  bash:\n", 1)[1].split("\n  task:\n", 1)[0]
@@ -1082,13 +1092,13 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
         self.assertNotIn("`work_id` and the second `project_id`", text)
 
     def test_projection_is_a_selectable_primary_agent(self):
-        for agent_id in ("Concord-RTE", "Concord"):
+        for agent_id in ("Concord-RTE", "Concord", "Concord-Planner"):
             frontmatter = self.frontmatter(self.projection(agent_id))
             self.assertIn("\nmode: primary\n", "\n" + frontmatter + "\n")
             self.assertNotIn("hidden:", frontmatter)
 
     def test_projection_body_is_the_role_source_verbatim(self):
-        for agent_id in ("Concord-RTE", "Concord"):
+        for agent_id in ("Concord-RTE", "Concord", "Concord-Planner"):
             profile = self.profile(agent_id)
             source = (ROOT / profile["role_source"]).read_text(encoding="utf-8")
             self.assertTrue(self.projection(agent_id).endswith("\n---\n\n" + source))
@@ -1158,7 +1168,7 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
         self.assertEqual(task.splitlines(), ['    "*": allow'])
 
     def test_installed_definitions_equal_the_projections(self):
-        for agent_id in ("Concord-RTE", "Concord"):
+        for agent_id in ("Concord-RTE", "Concord", "Concord-Planner"):
             path = ROOT / ".opencode/agents" / f"{agent_id}.md"
             self.assertEqual(path.read_text(encoding="utf-8"), self.projection(agent_id))
 
@@ -1202,8 +1212,13 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
                 self.assertIn("no general Concord tool access" if kind == "lane" else "no Concord tool access", denied["boundary"])
 
     def test_ts_projection_keeps_the_profile_entries(self):
-        # Neither primary profile denies a tool, so each entry carries the
-        # empty denial list and no refusal boundary.
+        # Neither full primary profile denies a tool, so each entry carries
+        # the empty denial list and no refusal boundary. Planner's entry
+        # carries its work-state writers and a boundary sentence.
+        planner = self.ts_role_map()["Concord-Planner"]
+        self.assertEqual(planner["tools"], PLANNER_WRITERS)
+        self.assertEqual(planner["tools"], self.profile("Concord-Planner")["denied_concord_tools"])
+        self.assertIn("writes work state", planner["boundary"])
         rte = self.ts_role_map()["Concord-RTE"]
         self.assertEqual(rte["tools"], self.profile("Concord-RTE")["denied_concord_tools"])
         self.assertEqual(rte["tools"], [])
@@ -1224,6 +1239,83 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
             text = (ROOT / ".opencode/agents" / f"{agent}.md").read_text(encoding="utf-8")
             denied = sorted(tool for tool in catalog if f"\n  {tool}: false\n" in text)
             self.assertEqual(denied, sorted(ts_map[agent]["tools"]), f"{agent} frontmatter and role map disagree")
+
+    def planner_rules(self, key):
+        return prompt_checker.permission_rules(self.frontmatter(self.projection("Concord-Planner")), key)
+
+    def test_planner_edits_resolve_only_under_planning(self):
+        # Evaluated with OpenCode's last-match wildcard rules against the
+        # worktree-relative path the edit tools ask with.
+        rules = self.planner_rules("edit")
+        self.assertEqual(rules[0], ("*", "deny"))
+        for path, expected in (
+            (".planning/notes.md", "allow"),
+            (".planning/deep/prototype/main.go", "allow"),
+            ("internal/store/store.go", "deny"),
+            (".opencode/agents/Concord.md", "deny"),
+            ("../sibling/file.go", "deny"),
+            ("src/.planning/notes.md", "deny"),
+            (".planning-other/notes.md", "deny"),
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(prompt_checker.evaluate(rules, path), expected)
+
+    def test_planner_grants_no_unscoped_editor(self):
+        frontmatter = self.frontmatter(self.projection("Concord-Planner"))
+        for tool in ("edit", "write", "patch"):
+            self.assertNotRegex(frontmatter, rf"(?m)^  {tool}: (?:allow|ask)$")
+        self.assertIn("\n  edit:\n", "\n" + frontmatter)
+
+    def test_planner_shell_denies_publication_and_asks_for_unnamed_commands(self):
+        rules = self.planner_rules("bash")
+        self.assertEqual(rules[0], ("*", "ask"))
+        for command, expected in (
+            ("git status", "allow"),
+            ("git diff --stat", "allow"),
+            ("gh pr view 12 --json state", "allow"),
+            ("gh pr diff 12", "allow"),
+            ("git commit -m change", "deny"),
+            ("git push", "deny"),
+            ("git push origin HEAD", "deny"),
+            ("git merge --ff-only origin/main", "deny"),
+            ("git rebase main", "deny"),
+            ("git tag v1", "deny"),
+            ("git stash push", "deny"),
+            ("gh pr create --fill", "deny"),
+            ("gh pr merge 12 --auto --squash", "deny"),
+            ("gh pr edit 12 --title x", "deny"),
+            ("gh release create v1", "deny"),
+            ("gh workflow run release.yml", "deny"),
+            ("rm -rf / --no-preserve-root", "deny"),
+            ("make deploy", "ask"),
+            ("python3 scripts/install.py", "ask"),
+            ("git checkout -b topic", "ask"),
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(prompt_checker.evaluate(rules, command), expected)
+
+    def test_planner_delegates_only_to_the_read_only_utilities(self):
+        rules = self.planner_rules("task")
+        utilities = {f"concord-{utility['id']}" for utility in self.manifest["utilities"]}
+        self.assertEqual(utilities, {"concord-explore", "concord-lookup", "concord-advisor"})
+        for agent in sorted(utilities):
+            self.assertEqual(prompt_checker.evaluate(rules, agent), "allow", agent)
+        for agent in [f"concord-{lane['id']}" for lane in self.manifest["lanes"]] + ["general", "build", "Concord"]:
+            self.assertEqual(prompt_checker.evaluate(rules, agent), "deny", agent)
+
+    def test_planner_frontmatter_denials_equal_the_ts_role_map(self):
+        frontmatter = self.frontmatter(self.projection("Concord-Planner"))
+        denied = re.findall(r"(?m)^  (concord_\w+): deny$", frontmatter)
+        self.assertEqual(denied, PLANNER_WRITERS)
+        self.assertEqual(denied, self.ts_role_map()["Concord-Planner"]["tools"])
+
+    def test_path_scoped_edits_beside_an_editor_grant_refuse(self):
+        message = self.broken(lambda p: p["profiles"][2]["tools"].update({"write": "allow"}))
+        self.assertIn("scopes edits by path", message)
+
+    def test_planner_task_rule_reaching_a_lane_refuses(self):
+        message = self.broken(lambda p: p["profiles"][2]["task"].append({"pattern": "concord-implement", "action": "allow"}))
+        self.assertIn("concord-implement", message)
 
     def test_unknown_denied_concord_tool_refuses(self):
         message = self.broken(lambda p: p["profiles"][0]["denied_concord_tools"].append("concord_work_launch"))
@@ -1265,6 +1357,11 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
             source = (ROOT / profile["role_source"]).read_text(encoding="utf-8")
             for name in names:
                 self.assertNotIn(name, source, f"{profile['role_source']} names {name}")
+
+    def test_planner_role_source_states_its_optional_boundary(self):
+        source = " ".join((ROOT / ".concord/roles/planner.md").read_text(encoding="utf-8").split())
+        for phrase in prompt_checker.PLANNER_REQUIRED_PHRASES:
+            self.assertIn(phrase, source)
 
     def test_role_sources_state_the_optional_rte_rule(self):
         # Concord performs the whole item without an RTE session, and the

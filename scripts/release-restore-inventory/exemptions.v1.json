@@ -327,7 +327,7 @@
    "check": "analyzer-checked confinement; reviewed dispatcher calls Upcaster values only inside its loop and returns an upcast result only after refusing any version that is not registration.CurrentVersion; reviewed callers pass registeredEventKind(event.Kind), a forwarder passes its own registration parameter, and nothing runs between the lookup and the dispatch; a confined site never assigns Kind"
   },
   {
-   "id": "upcast:2ce9aa22493f-b",
+   "id": "upcast:2ce9aa22493f-b:adapt",
    "class": "upcast_confinement",
    "dispatcher": "github.com/sharper-flow/concord/internal/store.upcastEventWithRegistration",
    "dispatcher_digest": "sha256:2ce9aa22493fea284a8be2fdb18ac0419e89864908588a7b95de1827dc1f6a1d",
@@ -350,10 +350,52 @@
      "digest": "sha256:7617d93a56432c32fa942f4ba608da5b4e9c53a2a2d082b91ec99446410bda13"
     }
    ],
-   "check": "analyzer-checked confinement; reviewed dispatcher calls Upcaster values only inside its loop and returns an upcast result only after refusing any version that is not registration.CurrentVersion; reviewed callers pass registeredEventKind(event.Kind), a forwarder passes its own registration parameter, and only prepareRecordedEvent's recorded-schema adapt runs between the lookup and the dispatch; a confined site never assigns Kind"
+   "check": "analyzer-checked confinement; reviewed dispatcher calls Upcaster values only inside its loop and returns an upcast result only after refusing any version that is not registration.CurrentVersion; reviewed callers pass registeredEventKind(event.Kind), a forwarder passes its own registration parameter, and only prepareRecordedEvent's recorded-schema adapt runs between the lookup and the dispatch; a confined site never assigns Kind; the reviewed adapt caller passes each adapt result only through prepareEventWithRegistration to the dispatcher or returns an error; every adapt function the registry names, and every function an adapt delegates its event to, is pinned by digest and reviewed never to change the kind.",
+   "adapt_caller": "github.com/sharper-flow/concord/internal/store.prepareRecordedEvent",
+   "adapt_caller_digest": "sha256:8317d4fb62164de2185ba70536579c5f504124a61a6642d460248de13b386745",
+   "forwarders": [
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.prepareEventWithRegistration",
+     "digest": "sha256:d9db54c52c05166be6147d22cca7aad12df921931f80392b506123cfa22362fe"
+    }
+   ],
+   "adapt_values": [
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.adaptRecordedClaimLanding",
+     "digest": "sha256:01e650a5adbdf7efdf966e8d2e44f3a25c2ed6c60c6ef243dd4b908d4e54847f"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.adaptRecordedDispatch",
+     "digest": "sha256:70638eb3efe2753a6e0feeceba2cb1c200ca9d9afe4def02651d729171e7e4a7"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.adaptRecordedNativeRun",
+     "digest": "sha256:7f130ef6feb6e9f85b9c1e071a3e90518928a2152723dd608baf1cc80c69d837"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.adaptRecordedOccupancyRelease",
+     "digest": "sha256:8e1459da4b1d048faaa95ed35f2d9aba711f67fc8ba872aeb02d5fb1736d4c86"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.adaptRecordedReadbackDispatch",
+     "digest": "sha256:86f132bf693edd1a62edd330601db092a61033d4b612fac3fdc2a2e648d319b9"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.adaptRecordedWorkerFailure",
+     "digest": "sha256:2f61f413021633971abe8c8f13814c533501dd5734d07932939e14f303735119"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.recordedIdentity",
+     "digest": "sha256:8750ddf0df3233abb451d55dbce43b12310ce38cc30e1a69a72f92cfcbb20b7d"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.upcastWorkerDispatchedV2",
+     "digest": "sha256:405b532996b9dd955006719ecc838ddacdbe6fa77b834eef999a7479f7a65305"
+    }
+   ]
   },
   {
-   "id": "upcast:2ce9aa22493f-c",
+   "id": "upcast:2ce9aa22493f-c:adapt",
    "class": "upcast_confinement",
    "dispatcher": "github.com/sharper-flow/concord/internal/store.upcastEventWithRegistration",
    "dispatcher_digest": "sha256:2ce9aa22493fea284a8be2fdb18ac0419e89864908588a7b95de1827dc1f6a1d",
@@ -372,7 +414,49 @@
      "digest": "sha256:40bae4f9e02b42a2c0812941aa294012648ea00058807386f77413ba92602dae"
     }
    ],
-   "check": "analyzer-checked confinement; reviewed dispatcher calls Upcaster values only inside its loop and returns an upcast result only after refusing any version that is not registration.CurrentVersion; reviewed callers pass registeredEventKind(event.Kind), a forwarder passes its own registration parameter, and only prepareRecordedEvent's recorded-schema adapt runs between the lookup and the dispatch; a confined site never assigns Kind"
+   "check": "analyzer-checked confinement; reviewed dispatcher calls Upcaster values only inside its loop and returns an upcast result only after refusing any version that is not registration.CurrentVersion; reviewed callers pass registeredEventKind(event.Kind), a forwarder passes its own registration parameter, and only prepareRecordedEvent's recorded-schema adapt runs between the lookup and the dispatch; a confined site never assigns Kind; the reviewed adapt caller passes each adapt result only through prepareEventWithRegistration to the dispatcher or returns an error; every adapt function the registry names, and every function an adapt delegates its event to, is pinned by digest and reviewed never to change the kind.",
+   "adapt_caller": "github.com/sharper-flow/concord/internal/store.prepareRecordedEvent",
+   "adapt_caller_digest": "sha256:8317d4fb62164de2185ba70536579c5f504124a61a6642d460248de13b386745",
+   "forwarders": [
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.prepareEventWithRegistration",
+     "digest": "sha256:d9db54c52c05166be6147d22cca7aad12df921931f80392b506123cfa22362fe"
+    }
+   ],
+   "adapt_values": [
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.adaptRecordedClaimLanding",
+     "digest": "sha256:01e650a5adbdf7efdf966e8d2e44f3a25c2ed6c60c6ef243dd4b908d4e54847f"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.adaptRecordedDispatch",
+     "digest": "sha256:70638eb3efe2753a6e0feeceba2cb1c200ca9d9afe4def02651d729171e7e4a7"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.adaptRecordedNativeRun",
+     "digest": "sha256:7f130ef6feb6e9f85b9c1e071a3e90518928a2152723dd608baf1cc80c69d837"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.adaptRecordedOccupancyRelease",
+     "digest": "sha256:8e1459da4b1d048faaa95ed35f2d9aba711f67fc8ba872aeb02d5fb1736d4c86"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.adaptRecordedReadbackDispatch",
+     "digest": "sha256:86f132bf693edd1a62edd330601db092a61033d4b612fac3fdc2a2e648d319b9"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.adaptRecordedWorkerFailure",
+     "digest": "sha256:2f61f413021633971abe8c8f13814c533501dd5734d07932939e14f303735119"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.recordedIdentity",
+     "digest": "sha256:8750ddf0df3233abb451d55dbce43b12310ce38cc30e1a69a72f92cfcbb20b7d"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.upcastWorkerDispatchedV2",
+     "digest": "sha256:405b532996b9dd955006719ecc838ddacdbe6fa77b834eef999a7479f7a65305"
+    }
+   ]
   }
  ]
 }

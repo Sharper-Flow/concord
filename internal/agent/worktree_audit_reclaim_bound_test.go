@@ -38,6 +38,10 @@ func auditReclaimTerminalFixture(t *testing.T, count int, managed bool, title st
 		t.Fatal(err)
 	}
 	root := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
+	var definition store.WorkflowDefinition
+	if managed {
+		definition = store.BuiltinWorkflowDefinitions()[0]
+	}
 	for i := 1; i <= count; i++ {
 		workID := fmt.Sprintf("work-%02d", i)
 		if response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_claim", map[string]any{"host_pid": os.Getpid(),
@@ -48,7 +52,7 @@ func auditReclaimTerminalFixture(t *testing.T, count int, managed bool, title st
 		completeWork(t, s, workID)
 		vacateLinkedWorktree(t, s, service, grant, filepath.Join(root, workID), "audit-bound-vacate-"+workID)
 		if managed {
-			initializeMutationPinWorkflow(t, s, workID)
+			initializeMutationPinWorkflow(t, s, workID, definition)
 		}
 	}
 	return s, service, grant, root

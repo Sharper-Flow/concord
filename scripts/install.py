@@ -181,6 +181,7 @@ AGENT_FILES = (
     # Named primary profiles (CD-0154). Numbered host files stay unmanaged.
     "Concord-RTE.md",
     "Concord.md",
+    "Concord-Planner.md",
 )
 STABLE_ROOT_NAME = "current"
 AGENT_GLOB = "[Cc]oncord*.md"

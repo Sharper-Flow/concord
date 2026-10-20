@@ -15,9 +15,9 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func initializeMutationPinWorkflow(t *testing.T, s *store.Store, workID string) {
+func initializeMutationPinWorkflow(t *testing.T, s *store.Store, workID string, definition store.WorkflowDefinition) {
 	t.Helper()
-	registered, err := store.BuiltinWorkflowRegistry().Register(store.BuiltinWorkflowDefinitions()[0])
+	registered, err := store.BuiltinWorkflowRegistry().Register(definition)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func requireMutationPinVersion(t *testing.T, response Envelope, workID string, v
 
 func TestCompactionPublishPinUsesLinkTransaction(t *testing.T) {
 	s, service, grant, key, home := agentJobsCompactionFixture(t)
-	initializeMutationPinWorkflow(t, s, "work-cancelled")
+	initializeMutationPinWorkflow(t, s, "work-cancelled", store.BuiltinWorkflowDefinitions()[0])
 	_, before := readWorkFromStore(t, s, "work-cancelled")
 	observed := false
 	service.publicationObserver = func(phase string) error {
@@ -86,7 +86,7 @@ func TestCompactionPublishPinUsesLinkTransaction(t *testing.T) {
 
 func TestCompactionReconcilePinFailureRollsBackLink(t *testing.T) {
 	s, service, grant, key, home := agentJobsCompactionFixture(t)
-	initializeMutationPinWorkflow(t, s, "work-cancelled")
+	initializeMutationPinWorkflow(t, s, "work-cancelled", store.BuiltinWorkflowDefinitions()[0])
 	_, before := readWorkFromStore(t, s, "work-cancelled")
 	service.publicationObserver = func(phase string) error {
 		if phase == "verify_commit" {
@@ -124,7 +124,7 @@ func TestCompactionCompletedReplaysKeepTransactionPin(t *testing.T) {
 		t.Run(route, func(t *testing.T) {
 			ctx := context.Background()
 			s, service, grant, key, home := agentJobsCompactionFixture(t)
-			initializeMutationPinWorkflow(t, s, "work-cancelled")
+			initializeMutationPinWorkflow(t, s, "work-cancelled", store.BuiltinWorkflowDefinitions()[0])
 			_, before := readWorkFromStore(t, s, "work-cancelled")
 			first := publishCancelledNote(t, s, service, grant, key, home)
 			requireMutationPinVersion(t, first, "work-cancelled", before)
@@ -201,7 +201,7 @@ func TestWorktreeAuditReclaimReplayKeepsRowPin(t *testing.T) {
 	s, _, _, service, grant, _ := tiersFixture(t)
 	completeWork(t, s, "work-2")
 	vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2"), "replay-pin-vacate")
-	initializeMutationPinWorkflow(t, s, "work-2")
+	initializeMutationPinWorkflow(t, s, "work-2", store.BuiltinWorkflowDefinitions()[0])
 	input := map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "replay-pin-audit"}
 	first := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", input)
 	_, version := readWorkFromStore(t, s, "work-2")

@@ -87,7 +87,7 @@ func TestReadWorkerDiffMissingFirstHistoryRefusesRatherThanUsingLaterSubject(t *
 					t.Fatal(err)
 				}
 			}
-			base, err := firstWorkerEditingSubject(context.Background(), db, "work", "claim", 1, 4)
+			base, err := firstWorkerEditingSubject(context.Background(), db, "work", "claim", 4)
 			if !hasFailureKind(err, KindUnauthorizedDispatch) || base != "" {
 				t.Fatalf("missing first %s selected a later subject: %q %v", missing, base, err)
 			}
@@ -303,5 +303,27 @@ func TestReadWorkerDiffMissingActiveContractRefusesBeforeGitWithExactDiffRecover
 	var state string
 	if err := j.s.db.QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE work_id=? AND attempt_id=?`, original.WorkID, original.AttemptID).Scan(&state); err != nil || (state != "in_flight" && state != "dispatched") {
 		t.Fatalf("contract perturbation lost the recorded dispatch: state=%q err=%v", state, err)
+	}
+}
+
+// A correction supersession with no editing dispatch of its own falls back
+// to the predecessor boundary's editing history: the review still reads the
+// whole delivery the supersession chain produced, instead of losing its
+// committed diff to the bookkeeping supersessions the correction machinery
+// forces between an accepted implement delivery and its review.
+func TestReadWorkerDiffCorrectionSupersessionKeepsPredecessorBase(t *testing.T) {
+	j, base := descendantReviewFixture(t, "diff-correction-supersession")
+	first := workerDiffCommit(t, j, "first", "delivered change\n")
+	reviewSubjectImplementComplete(t, j.fixture, "correction-editor", "correction-completed", true)
+	reviewSubjectAccept(t, j.s, j.workID, "correction-editor")
+	head := workerDiffCommit(t, j, "second", "delivered change\nmore delivered change\n")
+	reviewSubjectSupersedeContract(t, j.s, j.workID)
+	req := workerDiffDispatch(t, j, "review-after-correction-supersede")
+	page, err := j.s.ReadWorkerDiff(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.BaseCommit != base || page.BaseCommit == first || page.SubjectCommit != head || !bytes.Contains(page.Data, []byte("+delivered change\n")) || !bytes.Contains(page.Data, []byte("+more delivered change\n")) {
+		t.Fatalf("correction supersession lost the predecessor editing base: %+v %s", page, page.Data)
 	}
 }

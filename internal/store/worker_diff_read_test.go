@@ -360,7 +360,6 @@ func TestReadWorkerDiffReviewRetryDoesNotResetEditingBase(t *testing.T) {
 	}
 }
 
-
 // workerDiffSecondSupersede records the fixture's second contract
 // supersession (v2 -> v3) with its own event identity, for sequences that
 // exercise the correction machinery's repeated basis supersessions.
@@ -374,8 +373,8 @@ func workerDiffSecondSupersede(t *testing.T, s *Store, workID string) {
 	payload := map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"previous_contract_version": 2, "new_contract_version": 3,
-		"supersede_reason":          "the correction window forces a fresh basis supersession before the review retry",
-		"audit_evidence":            []string{"evidence:review-subject-supersede-2"},
+		"supersede_reason": "the correction window forces a fresh basis supersession before the review retry",
+		"audit_evidence":   []string{"evidence:review-subject-supersede-2"},
 		"successor_contract": map[string]any{
 			"contract_version": 3, "premise": "deliver the checked change under the third contract", "outcome_kind": "check",
 			"outcome_predicates": []map[string]any{{"predicate_id": "predicate:review-subject", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:review-subject", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}}},

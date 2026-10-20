@@ -327,3 +327,35 @@ func TestReadWorkerDiffCorrectionSupersessionKeepsPredecessorBase(t *testing.T) 
 		t.Fatalf("correction supersession lost the predecessor editing base: %+v %s", page, page.Data)
 	}
 }
+
+// A failed review retry between two correction supersessions is not editing
+// history: the retry's own dispatch must not qualify the newer supersession
+// as a boundary with editing work under it, or the retry re-orphans the
+// window the boundary fallback just repaired — the exact sequence a review
+// escalation forces (supersede for the dispatch basis, review fails,
+// supersede again, review retries).
+func TestReadWorkerDiffReviewRetryDoesNotResetEditingBase(t *testing.T) {
+	j, base := descendantReviewFixture(t, "diff-review-retry-base")
+	workerDiffCommit(t, j, "first", "delivered change\n")
+	reviewSubjectImplementComplete(t, j.fixture, "correction-editor", "correction-completed", true)
+	reviewSubjectAccept(t, j.s, j.workID, "correction-editor")
+	head := workerDiffCommit(t, j, "second", "delivered change\nmore delivered change\n")
+	reviewSubjectSupersedeContract(t, j.s, j.workID)
+	first := workerDiffDispatch(t, j, "review-first")
+	if page, err := j.s.ReadWorkerDiff(context.Background(), first); err != nil || page.BaseCommit != base || page.SubjectCommit != head {
+		t.Fatalf("first review after the supersession lost its base: %+v %v", page, err)
+	}
+	// The first review attempt ends without new editing work; the
+	// correction machinery forces a second supersession before the retry
+	// dispatches. The retry's own dispatch must not qualify the newer
+	// supersession, and neither must the first review's.
+	reviewSubjectSupersedeContractVersions(t, j.s, j.workID, 2, 3, "the correction window forces a fresh basis supersession before the review retry")
+	retry := workerDiffDispatch(t, j, "review-retry")
+	page, err := j.s.ReadWorkerDiff(context.Background(), retry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.BaseCommit != base || page.SubjectCommit != head || !bytes.Contains(page.Data, []byte("+delivered change\n")) {
+		t.Fatalf("review retry re-orphaned the editing base: %+v %s", page, page.Data)
+	}
+}

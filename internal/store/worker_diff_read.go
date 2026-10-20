@@ -89,6 +89,7 @@ func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity 
 		id, digest    string
 		version       int64
 		subject, tree string
+		editing       bool
 	}
 	editors := make([]editingDispatch, 0, 8)
 	for rows.Next() {
@@ -96,19 +97,27 @@ func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity 
 		if err := rows.Scan(&d.seq, &d.id, &d.version, &d.digest, &d.subject, &d.tree); err != nil {
 			return "", err
 		}
+		lane, err := LookupLane(d.id, d.version, d.digest)
+		if err != nil {
+			return "", err
+		}
+		d.editing = slices.Contains(lane.Capabilities, "edit_scoped_files")
 		editors = append(editors, d)
 	}
 	if err := rows.Err(); err != nil {
 		return "", err
 	}
-	// boundaries descend; the first boundary with an editing dispatch after
+	// Boundaries descend; the first boundary with an EDITING dispatch after
 	// it is the window start. A boundary with no editing history of its own
-	// cannot reset the base.
+	// cannot reset the base, and non-editing dispatches — a failed review
+	// retry between two correction supersessions — never count as editing
+	// history, or the retry itself would re-orphan the window the fallback
+	// just repaired.
 	var start int64
 	for _, boundary := range boundaries {
 		hasEditor := false
 		for _, d := range editors {
-			if d.seq > boundary {
+			if d.editing && d.seq > boundary {
 				hasEditor = true
 				break
 			}
@@ -119,14 +128,7 @@ func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity 
 		}
 	}
 	for _, d := range editors {
-		if d.seq <= start {
-			continue
-		}
-		lane, err := LookupLane(d.id, d.version, d.digest)
-		if err != nil {
-			return "", err
-		}
-		if !slices.Contains(lane.Capabilities, "edit_scoped_files") {
+		if d.seq <= start || !d.editing {
 			continue
 		}
 		if d.tree == "" {

@@ -166,7 +166,6 @@ func nativeBunSplitSpec(spec string) (string, string, bool) {
 }
 
 var nativeBunLockTopKeys = []string{"lockfileVersion", "configVersion", "workspaces", "packages"}
-var nativeBunMetaKeys = []string{"dependencies", "optionalDependencies", "peerDependencies", "optionalPeers", "os", "cpu", "bin"}
 
 // parseNativeBunLock decodes the closed bun.lock grammar.
 func parseNativeBunLock(raw []byte) (nativeBunLock, error) {

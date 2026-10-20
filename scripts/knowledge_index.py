@@ -145,12 +145,6 @@ def _compose_manifest_from_ref_tree(root: Path, ref: str, knowledge_root: str, r
         return json.loads(compose_manifest_bytes(held, record_path_re))
 
 
-def _raw_manifest_from_ref_tree(root: Path, ref: str, knowledge_root: str) -> dict:
-    held, scratch = _extract_ref_knowledge_tree(root, ref, knowledge_root)
-    with scratch:
-        return raw_manifest(held)
-
-
 def manifest_paths_at(root: Path, ref: str) -> list[str]:
     """The committed paths that carry the manifest at a ref, for git queries
     that need a pathspec."""

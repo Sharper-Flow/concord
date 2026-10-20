@@ -482,7 +482,7 @@ func (a *analyzer) index(p *checkedPackage) {
 					a.adaptCalls[stack[1].(ast.Decl)] = p
 					a.callees[selector.Sel] = true
 				}
-				a.indexCall(p, v, a.enclosingFunc(p, stack))
+				a.indexCall(p, v, a.enclosingFunc(p, stack), a.enclosingDecl(p, stack))
 			case *ast.DeferStmt:
 				if fn := a.enclosingFunc(p, stack); fn != nil {
 					fn.deferred = true
@@ -582,7 +582,7 @@ func (a *analyzer) indexFunc(p *checkedPackage, decl *ast.FuncDecl) {
 
 // indexCall records a static call. A method expression call, whose arguments
 // start with the receiver, uses its function as a value.
-func (a *analyzer) indexCall(p *checkedPackage, call *ast.CallExpr, caller *function) {
+func (a *analyzer) indexCall(p *checkedPackage, call *ast.CallExpr, caller, encloser *function) {
 	id := calleeIdent(call.Fun)
 	f, ok := p.info.Uses[id].(*types.Func)
 	if !ok {
@@ -593,29 +593,21 @@ func (a *analyzer) indexCall(p *checkedPackage, call *ast.CallExpr, caller *func
 		a.function(f).value = true
 		return
 	}
-	a.function(f).calls = append(a.function(f).calls, callSite{call, p, caller, a.enclosingDecl(p, call)})
+	a.function(f).calls = append(a.function(f).calls, callSite{call, p, caller, encloser})
 }
 
-// enclosingDecl returns the declared function whose body encloses the call,
-// through closures, or nil outside any declaration.
-func (a *analyzer) enclosingDecl(p *checkedPackage, call *ast.CallExpr) *function {
-	var fn *function
-	for _, file := range p.files {
-		ast.Inspect(file, func(n ast.Node) bool {
-			if n == nil {
-				return true
+// enclosingDecl returns the declared function whose body encloses the
+// current node, through closures, or nil outside any declaration.
+func (a *analyzer) enclosingDecl(p *checkedPackage, stack []ast.Node) *function {
+	for i := len(stack) - 1; i >= 0; i-- {
+		if decl, ok := stack[i].(*ast.FuncDecl); ok {
+			if f, ok := p.info.Defs[decl.Name].(*types.Func); ok {
+				return a.function(f)
 			}
-			if n.Pos() <= call.Pos() && call.End() <= n.End() {
-				if decl, ok := n.(*ast.FuncDecl); ok {
-					if f, ok := p.info.Defs[decl.Name].(*types.Func); ok {
-						fn = a.function(f)
-					}
-				}
-			}
-			return true
-		})
+			return nil
+		}
 	}
-	return fn
+	return nil
 }
 
 func calleeIdent(fun ast.Expr) *ast.Ident {

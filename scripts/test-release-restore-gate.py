@@ -39,7 +39,21 @@ gate = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = gate
 SPEC.loader.exec_module(gate)
 
-from release_restore_invoke import INVOKE_PLAN
+from release_restore_invoke import invoke_plan, tag_facts
+
+REPO = Path(__file__).resolve().parents[1]
+# The writer-produced event kind per invoke plan verb: the fake released
+# binary emits one event per executed plan step, so witnesses assert the
+# truthful message history rather than a row count.
+PLAN_KINDS = {"invoke:concord_work_define.capture": "work.created",
+              "invoke:concord_work_relate.message_send": "work.message_sent",
+              "invoke:concord_work_relate.message_withdraw": "work.message_withdrawn"}
+
+
+def plan_for(tag: str) -> tuple[str, ...]:
+    """The invoke plan derived from this checkout's own tagged source, as the gate derives it."""
+    return invoke_plan(tag_facts(REPO, tag))
+
 
 TARGET = "a" * 40
 FILE_LIMIT = 64 << 20
@@ -80,8 +94,9 @@ db = sqlite3.connect(os.environ["CONCORD_DB_PATH"])
 db.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)")
 db.execute("INSERT OR IGNORE INTO schema_migrations VALUES (7)")
 db.execute("CREATE TABLE IF NOT EXISTS domain_events (seq INTEGER PRIMARY KEY, event_id TEXT, kind TEXT NOT NULL, payload_version INTEGER, payload TEXT NOT NULL)")
-db.execute("INSERT INTO domain_events (event_id, kind, payload_version, payload) VALUES (?, ?, 1, ?)",
-           (sys.argv[1] + "-" + str(db.execute("SELECT COUNT(*) FROM domain_events").fetchone()[0]), sys.argv[1], json.dumps(request, sort_keys=True)))
+if sys.argv[1] != "invoke":
+    db.execute("INSERT INTO domain_events (event_id, kind, payload_version, payload) VALUES (?, ?, 1, ?)",
+               (sys.argv[1] + "-" + str(db.execute("SELECT COUNT(*) FROM domain_events").fetchone()[0]), sys.argv[1], json.dumps(request, sort_keys=True)))
 for table, key, subject in (("products", "id", "gate-product"), ("projects", "id", "gate-project"), ("managed_resources", "resource_id", "gate-resource")):
     db.execute(f"CREATE TABLE IF NOT EXISTS {{table}} ({{key}} TEXT PRIMARY KEY, display_name TEXT, version INTEGER)")
     db.execute(f"INSERT INTO {{table}} ({{key}}, version) VALUES (?, 1) ON CONFLICT({{key}}) DO UPDATE SET version = version + 1", (subject,))
@@ -91,9 +106,47 @@ if sys.argv[1] == "grant":
                        "surface_version": "4.0.0", "envelope_version": "1.0"}}))
     sys.exit(0)
 if sys.argv[1] == "invoke":
-    db.execute("INSERT INTO domain_events (event_id, kind, payload_version, payload) VALUES ('writer-invoke', 'work.created', 2, 'invoke')")
+    operation = request["operation"]
+    db.execute("CREATE TABLE IF NOT EXISTS works (id TEXT PRIMARY KEY, version INTEGER)")
+    db.execute("CREATE TABLE IF NOT EXISTS work_messages (message_id TEXT PRIMARY KEY, sender_work_id TEXT, recipient_work_id TEXT, body TEXT, state TEXT)")
+    if operation == "capture":
+        n = db.execute("SELECT COUNT(*) FROM works").fetchone()[0] + 1
+        work_id = "gate-work-" + str(n)
+        db.execute("INSERT INTO works VALUES (?, 2)", (work_id,))
+        kind, payload_version = "work.created", 2
+        refs = [{{"entity_kind": "work_item", "id": work_id, "version": "2"}}]
+        payload = {{"operation": operation}} | refs[0]
+    elif operation == "message_send":
+        inp = request["input"]
+        sender = db.execute("SELECT version FROM works WHERE id=?", (inp["work_id"],)).fetchone()
+        assert sender and sender[0] == inp["expected_version"], "sender version must come from the capture's changed refs"
+        assert inp["recipient_work_id"] != inp["work_id"], "self-send refuses"
+        assert db.execute("SELECT 1 FROM works WHERE id=?", (inp["recipient_work_id"],)).fetchone(), "recipient must exist"
+        db.execute("UPDATE works SET version=? WHERE id=?", (inp["expected_version"] + 1, inp["work_id"]))
+        db.execute("INSERT INTO work_messages VALUES (?, ?, ?, ?, 'sent')",
+                   ("msg:" + format(inp["expected_version"], "032x"), inp["work_id"], inp["recipient_work_id"], inp["body"]))
+        kind, payload_version = "work.message_sent", 1
+        refs = [{{"entity_kind": "work_item", "id": inp["work_id"], "version": str(inp["expected_version"] + 1)}}]
+        payload = {{"operation": operation, "recipient_work_id": inp["recipient_work_id"], "body": inp["body"]}} | refs[0]
+    elif operation == "message_withdraw":
+        inp = request["input"]
+        state = db.execute("SELECT state FROM work_messages WHERE message_id=?", (inp["message_id"],)).fetchone()
+        assert state == ("sent",), "withdrawal needs the exact sent message"
+        sender = db.execute("SELECT version FROM works WHERE id=?", (inp["work_id"],)).fetchone()
+        assert sender and sender[0] == inp["expected_version"], "withdraw version must come from the send's changed refs"
+        db.execute("UPDATE works SET version=? WHERE id=?", (inp["expected_version"] + 1, inp["work_id"]))
+        db.execute("UPDATE work_messages SET state='withdrawn' WHERE message_id=?", (inp["message_id"],))
+        kind, payload_version = "work.message_withdrawn", 1
+        refs = [{{"entity_kind": "work_item", "id": inp["work_id"], "version": str(inp["expected_version"] + 1)}}]
+        payload = {{"operation": operation, "message_id": inp["message_id"]}} | refs[0]
+    else:
+        print(json.dumps({{"outcome": "error", "error": {{"message": "unknown operation " + operation}}}}))
+        sys.exit(1)
+    db.execute("INSERT INTO domain_events (event_id, kind, payload_version, payload) VALUES (?, ?, ?, ?)",
+               (operation + "-" + str(db.execute("SELECT COUNT(*) FROM domain_events").fetchone()[0]), kind, payload_version,
+                json.dumps(payload)))
     db.commit()
-    print(json.dumps({{"outcome": "ok"}}))
+    print(json.dumps({{"outcome": "ok", "changed_refs": refs}}))
     sys.exit(0)
 print(json.dumps({{"ok": True}}))
 """
@@ -217,21 +270,35 @@ class CaseTests(unittest.TestCase):
     def test_a_writer_restores_twice_and_its_case_is_removed(self) -> None:
         row = self.case(self.fixture.publish("v1.0.0"), self.fixture.candidate())
         self.assertCase(row, "pass", "complete")
-        steps = len(gate.recipe_for("v1.0.0")) + len(INVOKE_PLAN) + 1
+        steps = len(gate.recipe_for("v1.0.0")) + len(plan_for("v1.0.0"))
         self.assertEqual((row["source"]["event_watermark"], row["restored"]["appended_events"], row["rebuilt"]["appended_events"]), (steps, 1, 0))
+        self.assertEqual(row["invoke"]["plan"], list(plan_for("v1.0.0")))
         self.assertFalse((self.fixture.root / "work" / "v1.0.0").exists())
 
     def test_a_passing_case_witnesses_every_writer_row_with_its_provenance(self) -> None:
         writer = self.fixture.publish("v1.0.0")
         row = self.case(writer, self.fixture.candidate())
-        steps = gate.recipe_for("v1.0.0") + [(verb.split(":")[0], {}) for verb in INVOKE_PLAN] + [("work.created", {})]
-        self.assertEqual([(w["seq"], w["kind"]) for w in row["witnesses"]], [(seq, verb) for seq, (verb, _) in enumerate(steps, start=1)])
+        plan = plan_for("v1.0.0")
+        steps = ([(verb, {}) for verb, _ in gate.recipe_for("v1.0.0")]
+                 + [(verb, {}) for verb in plan if not verb.startswith("invoke:")]
+                 + [(PLAN_KINDS[verb], {}) for verb in plan if verb.startswith("invoke:")])
+        self.assertEqual([(w["seq"], w["kind"]) for w in row["witnesses"]], [(seq, kind) for seq, (kind, _) in enumerate(steps, start=1)])
         provenance = {"tag": "v1.0.0", "asset_digest": writer.asset_digest, "recipe": gate.RECIPE_ID,
-                      "recipe_sha256": gate.recipe_sha256(gate.recipe_for("v1.0.0")), "snapshot_sha256": row["source"]["db_checksum"]}
+                      "recipe_sha256": gate.recipe_sha256(gate.recipe_for("v1.0.0"), plan), "snapshot_sha256": row["source"]["db_checksum"]}
         self.assertEqual({json.dumps(w["writer"], sort_keys=True) for w in row["witnesses"]}, {json.dumps(provenance, sort_keys=True)})
         self.assertEqual(json.loads(row["witnesses"][0]["payload"]), gate.PRODUCT)
         # Versions come from the writer's own store, before each step.
         self.assertEqual(json.loads(row["witnesses"][2]["payload"])["expected_version"], 2)
+        # The emitted message history is the executed chain: two distinct captures,
+        # then the send and withdrawal bound to the sender's own changed-ref versions.
+        created = [json.loads(w["payload"]) for w in row["witnesses"] if w["kind"] == "work.created"]
+        self.assertEqual(len(created), 2)
+        self.assertNotEqual(created[0]["id"], created[1]["id"])
+        sent, withdrawn = [json.loads(w["payload"]) for w in row["witnesses"] if w["kind"].startswith("work.message_")]
+        self.assertEqual((sent["operation"], withdrawn["operation"]), ("message_send", "message_withdraw"))
+        self.assertEqual(sent["id"], created[0]["id"])
+        self.assertEqual(withdrawn["id"], created[0]["id"])
+        self.assertTrue(withdrawn["message_id"].startswith("msg:"))
 
     def test_only_passing_cases_emit_witnesses(self) -> None:
         real = gate.run_writer_case
@@ -244,7 +311,8 @@ class CaseTests(unittest.TestCase):
         with patch.object(gate, "run_writer_case", late_failure):
             report, _ = self.gate_run(self.fixture.candidate(), *writers)
         emitted = [json.loads(line) for line in (self.fixture.root / "out" / "witnesses.jsonl").read_text().splitlines()]
-        self.assertEqual(({w["writer"]["tag"] for w in emitted}, report["witnesses"]), ({"v1.0.0"}, len(gate.recipe_for("v1.0.0")) + len(INVOKE_PLAN) + 1))
+        self.assertEqual(({w["writer"]["tag"] for w in emitted}, report["witnesses"]),
+                         ({"v1.0.0"}, len(gate.recipe_for("v1.0.0")) + len(plan_for("v1.0.0"))))
 
     def test_recipe_steps_start_at_their_release(self) -> None:
         verbs = lambda tag: [verb for verb, _ in gate.recipe_for(tag)]
@@ -253,7 +321,28 @@ class CaseTests(unittest.TestCase):
         self.assertIn("product-knowledge-home-designate", verbs("v4.3.0"))
         self.assertNotIn("product-knowledge-source-register", verbs("v11.58.9"))
         self.assertEqual(len(verbs("v11.59.0")), len(gate.RECIPE))
-        self.assertNotEqual(gate.recipe_sha256(gate.recipe_for("v4.3.0")), gate.recipe_sha256(gate.recipe_for("v4.7.0")))
+        plan = plan_for("v4.5.0")
+        self.assertNotEqual(gate.recipe_sha256(gate.recipe_for("v4.3.0"), plan), gate.recipe_sha256(gate.recipe_for("v4.7.0"), plan))
+
+    def test_the_recipe_hash_binds_the_actual_phase_plan_variant(self) -> None:
+        steps = gate.recipe_for("v1.0.0")
+        message_plan = plan_for("v1.0.0")
+        capture_only = ("client-register", "grant", "invoke:concord_work_define.capture")
+        no_grant = message_plan[:1] + message_plan[2:]
+        self.assertNotEqual(gate.recipe_sha256(steps, capture_only), gate.recipe_sha256(steps, message_plan))
+        self.assertNotEqual(gate.recipe_sha256(steps, message_plan), gate.recipe_sha256(steps, no_grant))
+        self.assertEqual(gate.recipe_sha256(steps, message_plan), gate.recipe_sha256(steps, plan_for("v1.0.0")))
+
+    def test_a_capture_only_era_reports_only_its_executed_steps(self) -> None:
+        row = self.case(self.fixture.publish("v0.26.1"), self.fixture.candidate())
+        self.assertCase(row, "pass", "complete")
+        plan = plan_for("v0.26.1")
+        self.assertEqual(plan, ("client-register", "grant", "invoke:concord_work_define.capture"))
+        self.assertEqual(row["invoke"]["plan"], list(plan))
+        kinds = [w["kind"] for w in row["witnesses"]]
+        self.assertEqual(kinds[-1], "work.created")
+        self.assertNotIn("work.message_sent", kinds)
+        self.assertNotEqual(row["recipe_sha256"], gate.recipe_sha256(gate.recipe_for("v0.26.1"), plan_for("v1.0.0")))
 
     def test_a_missing_versioned_subject_is_a_named_recipe_failure(self) -> None:
         store = self.fixture.root / "empty.db"

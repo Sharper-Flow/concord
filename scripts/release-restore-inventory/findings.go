@@ -18,7 +18,7 @@ import (
 // site is held. Neither a reported write nor an exemption is a discharge: no
 // finding discharges a release's obligation for any (kind, version).
 //
-// Three exemption classes are admitted, each by a recorded ruling. The first
+// Four exemption classes are admitted, each by a recorded ruling. The first
 // two are keyed by function, exact expression, and function digest:
 //
 //   - read_back: a site that reads a stored row's kind and version back.
@@ -42,6 +42,11 @@ import (
 //     the current version of a kind with an older supported version or an
 //     upcaster, and of any kind at that version when the kind also has
 //     recorded schemas: the finding names those pairs as upcast_held_pairs.
+//
+//   - comparison_only: an assignment whose function's Event result reaches,
+//     through its one static caller, only a bool comparator, keyed by the
+//     function's name and digest and the caller's and comparator's digests;
+//     the site expression is free, as in the censused table.
 //
 // Any drift of a keyed digest or expression leaves the site held.
 
@@ -74,7 +79,13 @@ type exemption struct {
 	// CheckSubjectDigest is the reviewed checkSubject a replay_decoder's
 	// fold refusals rely on; no other class has one.
 	CheckSubjectDigest string `json:"check_subject_digest,omitempty"`
-	Check              string `json:"check"`
+	// Caller, CallerDigest, Comparator, and ComparatorDigest key a
+	// comparison_only entry; no other class has them.
+	Caller           string `json:"caller,omitempty"`
+	CallerDigest     string `json:"caller_digest,omitempty"`
+	Comparator       string `json:"comparator,omitempty"`
+	ComparatorDigest string `json:"comparator_digest,omitempty"`
+	Check            string `json:"check"`
 }
 
 type exemptionTable struct {
@@ -129,20 +140,23 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 			upcast = append(upcast, route)
 		}
 		check := []string{e.CheckSubjectDigest}
-		keys, absent := site, slices.Concat(upcast, check)
+		comparison := []string{e.Caller, e.CallerDigest, e.Comparator, e.ComparatorDigest}
+		keys, absent := site, slices.Concat(upcast, check, comparison)
 		switch e.Class {
 		case "read_back":
 		case "replay_decoder":
-			keys, absent = slices.Concat(site, check), upcast
+			keys, absent = slices.Concat(site, check), slices.Concat(upcast, comparison)
 		case "upcast_confinement":
-			keys, absent = upcast, slices.Concat(site, check)
+			keys, absent = upcast, slices.Concat(site, check, comparison)
+		case "comparison_only":
+			keys, absent = slices.Concat([]string{e.Function, e.FunctionDigest}, comparison), slices.Concat(upcast, check)
 		default:
 			return table, fmt.Errorf("exemption %q has unknown class %q", e.ID, e.Class)
 		}
 		if slices.Contains(append([]string{e.ID, e.Check}, keys...), "") || slices.ContainsFunc(absent, func(key string) bool { return key != "" }) {
 			return table, fmt.Errorf("exemption %q lacks a key of its class, its identity, or its check record, or has another class's key", e.ID)
 		}
-		key := strings.Join(slices.Concat(site, upcast), "\x00")
+		key := strings.Join(slices.Concat(site, upcast, []string{e.Caller, e.CallerDigest, e.Comparator, e.ComparatorDigest}), "\x00")
 		if seen[e.ID] || seen[key] {
 			return table, fmt.Errorf("exemption %q is repeated", e.ID)
 		}
@@ -161,6 +175,10 @@ func (e exemption) covers(site writerSite, analysis writerAnalysis) bool {
 			return common && route == nil
 		}
 		return common && route != nil && route.Function == e.AdaptCaller && route.FunctionDigest == e.AdaptCallerDigest && slices.Equal(route.Forwarders, e.Forwarders) && slices.Equal(route.Values, e.AdaptValues)
+	}
+	if e.Class == "comparison_only" {
+		c := site.Comparison
+		return c != nil && site.Function == e.Function && site.FunctionDigest == e.FunctionDigest && c.Caller == e.Caller && c.CallerDigest == e.CallerDigest && c.Comparator == e.Comparator && c.ComparatorDigest == e.ComparatorDigest
 	}
 	return site.Function == e.Function && site.Expression == e.Expression && site.FunctionDigest == e.FunctionDigest
 }

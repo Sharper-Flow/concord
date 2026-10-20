@@ -457,6 +457,50 @@
      "digest": "sha256:405b532996b9dd955006719ecc838ddacdbe6fa77b834eef999a7479f7a65305"
     }
    ]
+  },
+  {
+   "id": "compare:reconstructWorkerEvidenceAck:3715fb68cbd7:43a42660b504:528b54a6d541",
+   "class": "comparison_only",
+   "function": "github.com/sharper-flow/concord/cmd/concord.reconstructWorkerEvidenceAck",
+   "function_digest": "sha256:3715fb68cbd70ee3ddb0cefd4971df8e299c5e4277bca5add73a751725e13145",
+   "caller": "github.com/sharper-flow/concord/cmd/concord.applyWorkerEvidence",
+   "caller_digest": "sha256:43a42660b504eae09a9ad7874dcb41965e3e302ea3286665590e908173dc247f",
+   "comparator": "github.com/sharper-flow/concord/cmd/concord.sameWorkerEvidence",
+   "comparator_digest": "sha256:528b54a6d5413066de931865a08dab0049e27ffbba69ef1bb7f1ebd0bb317841",
+   "check": "analyzer-checked single static caller and bool comparator; reviewed comparator reads both events' fields and compares decoded payloads with reflect.DeepEqual"
+  },
+  {
+   "id": "compare:reconstructWorkerEvidenceAck:3715fb68cbd7:fcba255d17cd:528b54a6d541",
+   "class": "comparison_only",
+   "function": "github.com/sharper-flow/concord/cmd/concord.reconstructWorkerEvidenceAck",
+   "function_digest": "sha256:3715fb68cbd70ee3ddb0cefd4971df8e299c5e4277bca5add73a751725e13145",
+   "caller": "github.com/sharper-flow/concord/cmd/concord.applyWorkerEvidence",
+   "caller_digest": "sha256:fcba255d17cd313a8ecd15319c115a3ad691be630d0deebf9847da846a4dbc7e",
+   "comparator": "github.com/sharper-flow/concord/cmd/concord.sameWorkerEvidence",
+   "comparator_digest": "sha256:528b54a6d5413066de931865a08dab0049e27ffbba69ef1bb7f1ebd0bb317841",
+   "check": "analyzer-checked single static caller and bool comparator; reviewed comparator reads both events' fields and compares decoded payloads with reflect.DeepEqual"
+  },
+  {
+   "id": "compare:reconstructWorkerEvidenceAck:396a35a93e8c:6c79538af064:528b54a6d541",
+   "class": "comparison_only",
+   "function": "github.com/sharper-flow/concord/cmd/concord.reconstructWorkerEvidenceAck",
+   "function_digest": "sha256:396a35a93e8c2fc00a78a4bd7a9e49af8836a19562beb47fca874c7c78fe9d47",
+   "caller": "github.com/sharper-flow/concord/cmd/concord.applyWorkerEvidence",
+   "caller_digest": "sha256:6c79538af064adc8c28aecc9f73585c74be8eb04a412b54d3cc3b36b2a52bf8c",
+   "comparator": "github.com/sharper-flow/concord/cmd/concord.sameWorkerEvidence",
+   "comparator_digest": "sha256:528b54a6d5413066de931865a08dab0049e27ffbba69ef1bb7f1ebd0bb317841",
+   "check": "analyzer-checked single static caller and bool comparator; reviewed comparator reads both events' fields and compares decoded payloads with reflect.DeepEqual"
+  },
+  {
+   "id": "compare:reconstructWorkerEvidenceAck:396a35a93e8c:d87de5a394de:528b54a6d541",
+   "class": "comparison_only",
+   "function": "github.com/sharper-flow/concord/cmd/concord.reconstructWorkerEvidenceAck",
+   "function_digest": "sha256:396a35a93e8c2fc00a78a4bd7a9e49af8836a19562beb47fca874c7c78fe9d47",
+   "caller": "github.com/sharper-flow/concord/cmd/concord.applyWorkerEvidence",
+   "caller_digest": "sha256:d87de5a394dec22b5e8f8ac8cb7496996eeb84a0e30cd3fbe895b59ecc60f501",
+   "comparator": "github.com/sharper-flow/concord/cmd/concord.sameWorkerEvidence",
+   "comparator_digest": "sha256:528b54a6d5413066de931865a08dab0049e27ffbba69ef1bb7f1ebd0bb317841",
+   "check": "analyzer-checked single static caller and bool comparator; reviewed comparator reads both events' fields and compares decoded payloads with reflect.DeepEqual"
   }
  ]
 }

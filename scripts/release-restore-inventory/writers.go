@@ -74,6 +74,10 @@ type writerSite struct {
 	Expression     string   `json:"expression"`
 	FunctionDigest string   `json:"function_digest"`
 	Pairs          []string `json:"pairs"`
+	// Comparison is the proven route of an assignment whose function's
+	// Event result reaches, through its one static caller, only a bool
+	// comparator; nil otherwise.
+	Comparison *comparisonRoute `json:"comparison_only,omitempty"`
 	// Confinement is "upcaster" on an assignment, outside any loop or
 	// closure, of fields of the site function's own Event parameter, when
 	// the function is reachable only as an Upcaster value through the one
@@ -99,6 +103,19 @@ type namedHash struct {
 	Function string `json:"function"`
 	Digest   string `json:"digest"`
 }
+
+// comparisonRoute names the caller that binds a comparison-only function's
+// Event result and the one bool comparator it feeds, each by digest.
+type comparisonRoute struct {
+	Caller           string `json:"caller"`
+	CallerDigest     string `json:"caller_digest"`
+	Comparator       string `json:"comparator"`
+	ComparatorDigest string `json:"comparator_digest"`
+}
+
+// pureComparators are the calls a comparison-only comparator may hand its
+// event to.
+var pureComparators = map[string]bool{"bytes.Equal": true, "reflect.DeepEqual": true, "encoding/json.Marshal": true}
 
 // adaptRoute names the one function that calls the recorded-schema adapt
 // field, the forwarders its result passes through, and every function the
@@ -235,12 +252,15 @@ type returned struct {
 	at      assignment
 }
 
-// callSite is one static call, its package, and the declared function it
-// sits in directly, nil in a closure or outside any function.
+// callSite is one static call, its package, the declared function it sits
+// in directly (nil in a closure or outside any function), and the declared
+// function whose body encloses it even through closures, for proofs that
+// pin the enclosing declaration's digest.
 type callSite struct {
-	call   *ast.CallExpr
-	pkg    *checkedPackage
-	caller *function
+	call     *ast.CallExpr
+	pkg      *checkedPackage
+	caller   *function
+	encloser *function
 }
 
 // analyzer holds one binary's type-checked packages, the flow facts the
@@ -281,7 +301,7 @@ type analyzer struct {
 	// identifiers the schema literals name as adapt values.
 	adaptField   *types.Var
 	adaptCalls   map[ast.Decl]*checkedPackage
-	adaptValues  map[*ast.Ident]bool
+	adaptValues  map[*ast.Ident]*checkedPackage
 	adaptEscapes int
 }
 
@@ -390,7 +410,7 @@ func analyzeWritersIn(dir string) (writerAnalysis, error) {
 	a.captured, a.formals, a.funcs, a.callees, a.dynamic = map[types.Object]bool{}, map[types.Object]formal{}, map[string]*function{}, map[*ast.Ident]bool{}, map[string]bool{}
 	a.funcNames = map[*function]string{}
 	a.upcastValues, a.upcasterExprs, a.upcasterCalls = map[*ast.Ident]bool{}, map[ast.Decl]*checkedPackage{}, map[ast.Decl]*checkedPackage{}
-	a.adaptCalls, a.adaptValues = map[ast.Decl]*checkedPackage{}, map[*ast.Ident]bool{}
+	a.adaptCalls, a.adaptValues = map[ast.Decl]*checkedPackage{}, map[*ast.Ident]*checkedPackage{}
 	if schema, ok := store.types.Scope().Lookup("recordedPayloadSchema").(*types.TypeName); ok {
 		if fields, ok := schema.Type().Underlying().(*types.Struct); ok {
 			for i := range fields.NumFields() {
@@ -516,7 +536,7 @@ func (a *analyzer) index(p *checkedPackage) {
 							continue
 						}
 						if id, ok := ast.Unparen(element).(*ast.Ident); ok {
-							a.adaptValues[id] = true
+							a.adaptValues[id] = p
 						} else {
 							a.adaptEscapes++
 						}
@@ -573,7 +593,29 @@ func (a *analyzer) indexCall(p *checkedPackage, call *ast.CallExpr, caller *func
 		a.function(f).value = true
 		return
 	}
-	a.function(f).calls = append(a.function(f).calls, callSite{call, p, caller})
+	a.function(f).calls = append(a.function(f).calls, callSite{call, p, caller, a.enclosingDecl(p, call)})
+}
+
+// enclosingDecl returns the declared function whose body encloses the call,
+// through closures, or nil outside any declaration.
+func (a *analyzer) enclosingDecl(p *checkedPackage, call *ast.CallExpr) *function {
+	var fn *function
+	for _, file := range p.files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			if n == nil {
+				return true
+			}
+			if n.Pos() <= call.Pos() && call.End() <= n.End() {
+				if decl, ok := n.(*ast.FuncDecl); ok {
+					if f, ok := p.info.Defs[decl.Name].(*types.Func); ok {
+						fn = a.function(f)
+					}
+				}
+			}
+			return true
+		})
+	}
+	return fn
 }
 
 func calleeIdent(fun ast.Expr) *ast.Ident {
@@ -924,8 +966,12 @@ func (a *analyzer) collect(p *checkedPackage) {
 				}
 				if slices.ContainsFunc(pairs, func(pair string) bool { return strings.Contains(pair, "*") }) {
 					open := writerSite{Function: name, Expression: normalize(a.source(node)), FunctionDigest: body, Pairs: pairs}
-					if assign, ok := node.(*ast.AssignStmt); ok && a.confinedSite(p, d, assign) {
-						open.Confinement = "upcaster"
+					if assign, ok := node.(*ast.AssignStmt); ok {
+						if a.confinedSite(p, d, assign) {
+							open.Confinement = "upcaster"
+						} else {
+							open.Comparison = a.comparisonSite(p, d, assign)
+						}
 					}
 					a.sites = append(a.sites, open)
 					return
@@ -1339,8 +1385,8 @@ func (a *analyzer) adaptRoute() *adaptRoute {
 		}
 		return true
 	}
-	for id := range a.adaptValues {
-		f, ok := p.info.Uses[id].(*types.Func)
+	for id, pkg := range a.adaptValues {
+		f, ok := pkg.info.Uses[id].(*types.Func)
 		if !ok || !pin(f.Origin().FullName()) {
 			return nil
 		}
@@ -1471,6 +1517,196 @@ func inLoop(parents map[ast.Node]ast.Node, stmt ast.Stmt, fn *ast.FuncDecl) bool
 		}
 	}
 	return false
+}
+
+// fieldTarget is the single Event-typed local whose fields an assignment
+// sets, when every left side is a field selector on it and the operation is
+// a plain assignment.
+func (a *analyzer) fieldTarget(p *checkedPackage, assign *ast.AssignStmt) types.Object {
+	var target types.Object
+	for _, lhs := range assign.Lhs {
+		selector, ok := ast.Unparen(lhs).(*ast.SelectorExpr)
+		if !ok {
+			return nil
+		}
+		id, ok := ast.Unparen(selector.X).(*ast.Ident)
+		if !ok || p.info.Selections[selector] == nil || p.info.Selections[selector].Kind() != types.FieldVal || target != nil && p.info.Uses[id] != target {
+			return nil
+		}
+		target = p.info.Uses[id]
+	}
+	if target == nil || !a.isEvent(target.Type()) || assign.Tok != token.ASSIGN {
+		return nil
+	}
+	return target
+}
+
+// comparisonSite proves a comparison-only route for an assignment in the
+// declaration d: d is a plain function, never used as a value, an upcaster,
+// or an adapt value, with exactly one static caller; the assignment sets
+// fields of d's own Event local and, after it, the local leaves only through
+// d's first result; the one caller binds that result to an unaddressed local
+// whose every use is an argument of a single bool comparator. The censused
+// analyzer proves the same route; the pinned caller and comparator digests
+// carry what the proof does not.
+func (a *analyzer) comparisonSite(p *checkedPackage, d ast.Decl, assign *ast.AssignStmt) *comparisonRoute {
+	decl, ok := d.(*ast.FuncDecl)
+	if !ok || decl.Recv != nil {
+		return nil
+	}
+	name := a.siteFunction(p, d)
+	fn := a.funcs[name]
+	if fn == nil || fn.value || fn.upcaster || len(fn.calls) != 1 {
+		return nil
+	}
+	for id, pkg := range a.adaptValues {
+		if f, ok := pkg.info.Uses[id].(*types.Func); ok && f.Origin().FullName() == name {
+			return nil
+		}
+	}
+	target := a.fieldTarget(p, assign)
+	if target == nil || !a.eventReturnsOnly(p, decl, target, assign) {
+		return nil
+	}
+	results := p.info.Defs[decl.Name].(*types.Func).Signature().Results()
+	if results.Len() == 0 || !a.isEvent(results.At(0).Type()) {
+		return nil
+	}
+	site := fn.calls[0]
+	if site.caller == nil {
+		site.caller = site.encloser
+	}
+	if site.caller == nil || site.caller.decl == nil {
+		return nil
+	}
+	caller, callerPkg := site.caller.decl, site.caller.pkg
+	parents := parentsOf(caller)
+	bound, ok := parents[site.call].(*ast.AssignStmt)
+	if !ok || len(bound.Rhs) != 1 {
+		return nil
+	}
+	id, ok := bound.Lhs[0].(*ast.Ident)
+	result := callerPkg.info.ObjectOf(id)
+	if !ok || result == nil || a.unknown[result] || a.captured[result] {
+		return nil
+	}
+	comparator := ""
+	for _, use := range usesAfter(callerPkg, caller, result, caller.Body.Pos()) {
+		index, ok := argumentOf(parents, use)
+		callee := calleeName(callerPkg, callOf(parents, use))
+		if !ok || comparator != "" && callee != comparator || !a.compares(callee, index) {
+			return nil
+		}
+		comparator = callee
+	}
+	if comparator == "" {
+		return nil
+	}
+	callerName, callerDigest := a.declName(callerPkg, caller)
+	_, comparatorDigest := a.declName(a.funcs[comparator].pkg, a.funcs[comparator].decl)
+	return &comparisonRoute{Caller: callerName, CallerDigest: callerDigest, Comparator: comparator, ComparatorDigest: comparatorDigest}
+}
+
+// eventReturnsOnly reports whether, after stmt, obj leaves fn only as fn's
+// first result or the base of a field selector that holds no Event.
+func (a *analyzer) eventReturnsOnly(p *checkedPackage, fn *ast.FuncDecl, obj types.Object, stmt ast.Stmt) bool {
+	parents := parentsOf(fn)
+	if inLoop(parents, stmt, fn) || a.captured[obj] || a.unknown[obj] {
+		return false
+	}
+	for _, use := range usesAfter(p, fn, obj, stmt.End()) {
+		switch parent := parents[use].(type) {
+		case *ast.ReturnStmt:
+			if len(parent.Results) == 0 || parent.Results[0] != use {
+				return false
+			}
+		case *ast.SelectorExpr:
+			selection := p.info.Selections[parent]
+			if selection == nil || selection.Kind() != types.FieldVal || a.holdsEvent(selection.Type(), map[types.Type]bool{}) || a.containsEvent(selection.Type(), map[types.Type]bool{}) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// compares reports whether the function named callee is a bool comparator
+// for an Event at argument position index: a plain function returning one
+// bool, whose Event parameter is never assigned and whose every use reads a
+// field that holds no Event, a comparison operand, or an argument to a pure
+// comparator.
+func (a *analyzer) compares(callee string, index int) bool {
+	target := a.funcs[callee]
+	if target == nil || target.decl == nil || target.decl.Recv != nil || target.value {
+		return false
+	}
+	p := target.pkg
+	results := p.info.Defs[target.decl.Name].(*types.Func).Signature().Results()
+	if results.Len() != 1 || !types.Identical(results.At(0).Type(), types.Typ[types.Bool]) {
+		return false
+	}
+	param := paramAt(p, target.decl, index)
+	if param == nil || !a.isEvent(param.Type()) {
+		return false
+	}
+	parents := parentsOf(target.decl)
+	written := false
+	ast.Inspect(target.decl.Body, func(n ast.Node) bool {
+		if assign, ok := n.(*ast.AssignStmt); ok {
+			for _, lhs := range assign.Lhs {
+				written = written || a.mentions(p, lhs, param)
+			}
+		}
+		return !written
+	})
+	if written {
+		return false
+	}
+	for _, use := range usesAfter(p, target.decl, param, target.decl.Body.Pos()) {
+		switch parent := parents[use].(type) {
+		case *ast.SelectorExpr:
+			selection := p.info.Selections[parent]
+			_, addressed := parents[parent].(*ast.UnaryExpr)
+			if selection == nil || selection.Kind() != types.FieldVal || addressed || a.holdsEvent(selection.Type(), map[types.Type]bool{}) || a.containsEvent(selection.Type(), map[types.Type]bool{}) {
+				return false
+			}
+		case *ast.BinaryExpr:
+			if parent.Op != token.EQL && parent.Op != token.NEQ {
+				return false
+			}
+		case *ast.CallExpr:
+			f, ok := p.info.Uses[calleeIdent(parent.Fun)].(*types.Func)
+			if !ok || !pureComparators[f.FullName()] || parent.Fun == use {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// paramAt returns the parameter object at argument position index.
+func paramAt(p *checkedPackage, decl *ast.FuncDecl, index int) types.Object {
+	position := 0
+	for _, field := range decl.Type.Params.List {
+		names := field.Names
+		if len(names) == 0 {
+			names = []*ast.Ident{nil}
+		}
+		for _, name := range names {
+			if position == index {
+				if name == nil {
+					return nil
+				}
+				return p.info.ObjectOf(name)
+			}
+			position++
+		}
+	}
+	return nil
 }
 
 // confinedSite reports whether an assignment meets writerSite.Confinement.

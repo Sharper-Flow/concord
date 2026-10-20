@@ -457,6 +457,60 @@ func TestAdaptRoute(t *testing.T) {
 	}
 }
 
+// A comparison-only site's function returns an Event that its one caller
+// binds and feeds only to a bool comparator. Each escape leaves no route.
+func TestComparisonSite(t *testing.T) {
+	const main = "cmd/concord/main.go"
+	analysis := analyzeFixture(t)
+	var route *comparisonRoute
+	found := false
+	for _, s := range analysis.Open {
+		if s.Comparison != nil && strings.HasSuffix(s.Function, ".reconstruct") {
+			found = true
+			route = s.Comparison
+		}
+	}
+	if !found || route.Caller != mainPkg+".main" || route.Comparator != mainPkg+".same" || route.CallerDigest == "" || route.ComparatorDigest == "" {
+		t.Fatalf("comparison route %+v found=%v", route, found)
+	}
+	t.Run("call inside a closure pins the enclosing function", func(t *testing.T) {
+		analysis := analyzeFixture(t, mutation{main,
+			"acknowledgment, err := reconstruct(existing, store.Event{Kind: existing.Kind})\n\tif err != nil || !same(existing, acknowledgment) {\n\t\treturn\n\t}",
+			"func() {\n\t\tacknowledgment, err := reconstruct(existing, store.Event{Kind: existing.Kind})\n\t\tif err == nil {\n\t\t\tsame(existing, acknowledgment)\n\t\t}\n\t}()"})
+		closureFound := false
+		for _, s := range analysis.Open {
+			if s.Comparison != nil && strings.HasSuffix(s.Function, ".reconstruct") {
+				closureFound = true
+				if s.Comparison.Caller != mainPkg+".main" || s.Comparison.Comparator != mainPkg+".same" {
+					t.Fatalf("closure comparison route %+v", s.Comparison)
+				}
+			}
+		}
+		if !closureFound {
+			t.Fatal("comparison route lost when the call sits in a closure")
+		}
+	})
+	for name, mutations := range map[string][]mutation{
+		"result handed on":               {mutation{main, "acknowledgment, err := reconstruct(existing, store.Event{Kind: existing.Kind})", "acknowledgment, err := reconstruct(existing, store.Event{Kind: existing.Kind})\n\tkeep(acknowledgment)"}},
+		"second caller":                  {mutation{main, "func main() {", "func again(existing, requested store.Event) bool {\n\tack, err := reconstruct(existing, requested)\n\treturn err == nil && same(existing, ack)\n}\n\nfunc main() {"}},
+		"function value":                 {mutation{main, "func reconstruct(", "var _ = reconstruct\n\nfunc reconstruct("}},
+		"comparator writes its event":    {mutation{main, "func same(existing, requested store.Event) bool {", "func same(existing, requested store.Event) bool {\n\trequested.Kind = existing.Kind"}},
+		"comparator addresses its event": {mutation{main, "func same(existing, requested store.Event) bool {", "func same(existing, requested store.Event) bool {\n\talias := &requested\n\t_ = alias.Kind"}},
+		"comparator leaks its event":     {mutation{main, "return bytes.Equal(existing.Payload, requested.Payload) && reflect.DeepEqual(existing.SubjectType, requested.SubjectType)", "keep(requested)\n\treturn bytes.Equal(existing.Payload, requested.Payload) && reflect.DeepEqual(existing.SubjectType, requested.SubjectType)"}},
+		"target held by a pointer":       {mutation{main, "func reconstruct(existing, requested store.Event) (store.Event, error) {\n\trequested.PayloadVersion = existing.PayloadVersion\n\treturn requested, nil\n}", "func reconstruct(existing, requested store.Event) (store.Event, error) {\n\tpointer := &requested\n\tpointer.PayloadVersion = existing.PayloadVersion\n\treturn requested, nil\n}"}},
+		"target captured early":          {mutation{main, "func reconstruct(existing, requested store.Event) (store.Event, error) {", "func reconstruct(existing, requested store.Event) (store.Event, error) {\n\thold := func() { _ = requested.Kind }\n\t_ = hold"}},
+		"site inside a loop":             {mutation{main, "func reconstruct(existing, requested store.Event) (store.Event, error) {", "func reconstruct(existing, requested store.Event) (store.Event, error) {\n\tfor i := 0; i < 1; i++ {"}, mutation{main, "\trequested.PayloadVersion = existing.PayloadVersion\n\treturn requested, nil\n}", "\t\trequested.PayloadVersion = existing.PayloadVersion\n\t}\n\treturn requested, nil\n}"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, s := range analyzeFixture(t, mutations...).Open {
+				if s.Comparison != nil {
+					t.Fatalf("comparison route survived: %+v", s.Comparison)
+				}
+			}
+		})
+	}
+}
+
 // A function that calls the dispatcher once with a lookup and once with its
 // own registration parameter forwards it: its callers are dispatcher callers.
 func TestDispatcherCallersFollowEveryForwardingCall(t *testing.T) {

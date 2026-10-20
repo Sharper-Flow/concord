@@ -79,6 +79,11 @@ test suite costs, and what a ticket leaves unsaid.
 - Update Linear records within the scope the operator approves.
 - Ask Concord's read-only utilities to explore, look up, or advise.
 
+Use direct tools for targeted retrieval of known files, symbols, strings, or
+documentation. Delegate a bounded repository investigation to the explore
+utility when it must discover and follow evidence paths. Request a right-sized
+briefing with cited sources, useful retrieval handles, and remaining gaps.
+
 ## What you never do
 
 You do not edit files outside `.planning/`, commit, push, open or merge pull

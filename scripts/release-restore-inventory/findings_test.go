@@ -300,6 +300,61 @@ func TestRefusedOrMissingAnalysisIsRecorded(t *testing.T) {
 	if f := writerFindings(inv, findingTable(t)); f[0].Refused == "" || f[0].Held != nil || f[0].Exempted != nil {
 		t.Fatalf("missing analysis: %+v", f[0])
 	}
+	// A refusal fails closed through the discharge join: neither finding
+	// may discharge any pair of its release.
+	for name, f := range map[string]writerFinding{
+		"refused": finding(t, refused, findingTable(t)),
+		"missing": writerFindings(inv, findingTable(t))[0],
+	} {
+		if len(f.Discharged) != 0 {
+			t.Errorf("%s analysis discharged %v", name, f.Discharged)
+		}
+	}
+}
+
+// A held site that names no pairs cannot prove any pair unwritable, so it
+// must block every pair: a discharge must never rest on an open site whose
+// emissions are unknown.
+func TestEmptyHeldPairsFailClosed(t *testing.T) {
+	analysis := findingAnalysis()
+	analysis.Writes = nil
+	analysis.Open[1].Pairs = nil
+	f := finding(t, analysis, findingTable(t))
+	if len(f.Held) != 1 || len(f.Held[0].Pairs) != 0 || len(f.Discharged) != 0 {
+		t.Fatalf("held %+v discharged %+v", f.Held, f.Discharged)
+	}
+	if !reflect.DeepEqual(f.Undischarged, []string{"thing.a v1", "thing.a v2"}) {
+		t.Fatalf("undischarged %v", f.Undischarged)
+	}
+}
+
+// A pair form the matcher cannot resolve matches every version, so an
+// unknown kind, an unregistered cur: kind, and a non-numeric version all
+// stay blocked rather than discharge on a guess.
+func TestPairMatchesFailsClosedOnUnknownForms(t *testing.T) {
+	current := map[string]int{"thing": 2}
+	for name, tc := range map[string]struct {
+		pair    string
+		kind    string
+		version int
+		want    bool
+	}{
+		"exact match":                {"thing v2", "thing", 2, true},
+		"exact miss":                 {"thing v2", "thing", 1, false},
+		"other kind":                 {"thing v2", "other", 2, false},
+		"wildcard kind":              {"* v2", "thing", 2, true},
+		"wildcard kind version miss": {"* v2", "thing", 3, false},
+		"wildcard version":           {"thing v*", "thing", 1, true},
+		"no version":                 {"thing", "thing", 1, true},
+		"current match":              {"thing vcur:thing", "thing", 2, true},
+		"current miss":               {"thing vcur:thing", "thing", 1, false},
+		"unregistered cur kind":      {"thing vcur:other", "thing", 5, true},
+		"non-numeric version":        {"thing vtwo", "thing", 2, true},
+	} {
+		if got := pairMatches(tc.pair, tc.kind, tc.version, current); got != tc.want {
+			t.Errorf("%s: pairMatches(%q, %q, %d) = %v, want %v", name, tc.pair, tc.kind, tc.version, got, tc.want)
+		}
+	}
 }
 
 func TestExemptionTableRefusesMalformedEntries(t *testing.T) {

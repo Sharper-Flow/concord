@@ -15,8 +15,11 @@ import (
 // A writer finding records, for one release, the analyzer that ran, the pairs
 // its resolved sites write, and every open site of its analysis. An open site
 // that a reviewed exemption covers is reported as exempted; every other open
-// site is held. Neither a reported write nor an exemption is a discharge: no
-// finding discharges a release's obligation for any (kind, version).
+// site is held. A discharge is the finding's computed proof that one
+// registered (kind, version) has no writer at that release: no resolved
+// write, held site, replay-held kind, or upcast-held pair can emit it. A
+// refused or missing analysis, and a held site that names no pairs, discharge
+// nothing.
 //
 // Four exemption classes are admitted, each by a recorded ruling. The first
 // two are keyed by function, exact expression, and function digest:
@@ -294,7 +297,10 @@ func writerFindings(inv inventory, table exemptionTable) []writerFinding {
 			// (kind, version) has no writer at this release: every resolved
 			// write and held site must miss the pair, the replay decoder
 			// must not hold its kind, and no exempted upcaster can produce
-			// it — a pair an upcast_held entry names stays an obligation.
+			// it — a pair an upcast_held entry names stays an obligation. A
+			// held site that names no pairs misses nothing provably, so it
+			// blocks every pair; the live analyzer always names a wildcard
+			// pair, so only an analysis it did not produce can get here.
 			current := map[string]int{}
 			for _, r := range inv.Groups[result.Group] {
 				current[r.Kind] = r.CurrentVersion
@@ -303,9 +309,10 @@ func writerFindings(inv inventory, table exemptionTable) []writerFinding {
 			for _, kind := range finding.ReplayHeld {
 				replay[kind] = true
 			}
+			heldBlind := slices.ContainsFunc(finding.Held, func(site writerSite) bool { return len(site.Pairs) == 0 })
 			for _, r := range inv.Groups[result.Group] {
 				for version := r.MinSupported; version <= r.CurrentVersion; version++ {
-					blocked := finding.Refused != "" || replay[r.Kind] || replay["*"]
+					blocked := heldBlind || finding.Refused != "" || replay[r.Kind] || replay["*"]
 					for _, held := range finding.UpcastHeld {
 						blocked = blocked || pairMatches(held, r.Kind, version, current)
 					}

@@ -158,12 +158,11 @@ def served_input_correction(result):
     """The exact served triple production publishes for a pre-effect input
     refusal the caller can correct: invalid_input kind, effect_state none,
     recovery_action correct_request, retry_safe false. Executed provenance
-    (test_production_parity drives both boundaries): only the adapter's own
-    input boundary — concord_work_start's argument refusal — serves this
-    triple, with retry_safe derived from the recovery; the core's payload
-    boundary answers a malformed worktree_claim with the restart_query
-    recovery instead, which grants no correction authority. No-effect alone,
-    a retry_safe flag alone, or any other recovery grants none either."""
+    (test_production_parity drives both boundaries): the adapter's own input
+    boundary — concord_work_start's argument refusal — and the core's
+    pre-effect payload refusals both serve this triple, with retry_safe
+    derived from the recovery. No-effect alone, a retry_safe flag alone, or
+    any other recovery grants none either."""
     if not isinstance(result, dict) or result.get("outcome") != "error":
         return False
     error = result.get("error")
@@ -178,14 +177,13 @@ def served_input_correction(result):
 # The tools whose executed production input boundary serves the correction
 # triple. test_production_parity drives the real adapter and core boundaries:
 # concord_work_start's argument refusal (the adapter's own closed envelope)
-# carries invalid_input/none/correct_request with retry_safe false, while the
-# core's worktree_claim and continuity payload boundaries answer malformed
-# input with restart_query. A trace that records the correction triple on any
-# other tool — or on any other operation — is production-impossible, so it
-# earns no correction credit here. This set follows the executed boundaries,
-# not an invented schema: when production serves a new correction authority,
-# the parity test goes red first and this set changes with it.
-CORRECTION_AUTHORITY_TOOLS = frozenset({START})
+# and the core's pre-effect worktree_claim payload refusals both carry
+# invalid_input/none/correct_request with retry_safe false. A trace that
+# records the correction triple on any other tool — or on any other
+# operation — earns no correction credit here. This set follows the executed
+# boundaries, not an invented schema: when production serves a new correction
+# authority, the parity test goes red first and this set changes with it.
+CORRECTION_AUTHORITY_TOOLS = frozenset({START, TRANSITION})
 
 
 def mutation_in_scope(tool, args, case, required):

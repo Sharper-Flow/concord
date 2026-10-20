@@ -469,7 +469,7 @@ func authorWorkerJobRevisionTx(ctx context.Context, tx *sql.Tx, request Workflow
 	}
 	readinessEvidence := workflowFieldStrings(fields, "readiness_evidence")
 	if ready && len(readinessEvidence) == 0 {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job readiness requires evidence", false, "bind the evidence that makes the job ready in readiness_evidence")
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job fields.readiness_evidence requires at least one evidence reference when ready=true", false, "correct_request")
 	}
 	// The acceptance oracle is authored through the pinned
 	// definition's declared action member: an oracle-capable version

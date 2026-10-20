@@ -22,8 +22,8 @@ in this test run:
   and host control plane exactly like the owning adapter suite. The adapter
   owns this input boundary (validateWorkStartArgs, before any host write or
   core call).
-- the same real adapter module also serves the changed closed-table input
-  tuples (CON-913 rows 15/22/23): three shared host-argument refusals on
+- the same real adapter module also serves the closed table's input tuples
+  for three shared host-argument refusals on
   concord_work_transition.worker_reconcile and .worker_abandon, captured
   from the real work_transition tool before any core call. The production
   capture is the evidence here; the double corpus is unchanged.
@@ -70,7 +70,7 @@ PINNED_PLUGIN_VERSION = PINNED_PLUGIN["version"]
 PRODUCTION_CLAIM_INPUT_REFUSAL = {
     "kind": "invalid_input",
     "effect_state": "none",
-    "recovery_action": {"kind": "restart_query"},
+    "recovery_action": {"kind": "correct_request"},
     "retry_safe": False,
 }
 PRODUCTION_START_INPUT_REFUSAL = {
@@ -85,16 +85,15 @@ PRODUCTION_RESUME_REFUSAL = {
     "recovery_action": {"kind": "contact_operator"},
     "retry_safe": False,
 }
-# The changed adapter input rows (CON-913 rows 15/22/23): the closed table's
-# invalid_tool_input tuple the real adapter's work_transition tool now serves
-# for the shared host-argument refusals — restart_query recovery and the
-# factory-derived retry_safe false. Captured from the executed production
-# boundary below; it now matches the core's input refusal member for member,
-# which is the convergence the input coupling chose, not a shared constant.
+# The closed table's invalid_tool_input tuple the real adapter's
+# work_transition tool serves for the shared host-argument refusals: the
+# same pre-effect correction triple the core's payload refusals serve, with
+# adapter_reason separating the two boundaries. Captured from the executed
+# production boundary below.
 PRODUCTION_ADAPTER_TOOL_INPUT_REFUSAL = {
     "kind": "invalid_input",
     "effect_state": "none",
-    "recovery_action": {"kind": "restart_query"},
+    "recovery_action": {"kind": "correct_request"},
     "retry_safe": False,
 }
 MANIFEST_DIGEST = (REPO / "contracts" / "agent-tool-surface.digest").read_text().strip()
@@ -114,6 +113,10 @@ OVERSIZE_BASE_SHA = "a" * 65
 # The numeric constraint variant: expected_version passes the tool schema's
 # integer typing and reaches the core's payload numeric validation.
 ZERO_EXPECTED_VERSION = 0
+# The abandon detail is the one worker_abandon member whose only defect is
+# its own bound: every required member is present and valid, and the detail
+# carries one code point over the payload contract's 256 limit.
+OVERSIZE_ABANDON_DETAIL = "a" * 257
 
 
 def require(command, purpose):
@@ -323,15 +326,18 @@ def start_corpus_args():
 
 
 def transition_corpus_args():
-    """The changed adapter input rows (CON-913 rows 15/22/23) as driven
-    work_transition tool args, in execution order: each input fails the
-    generated payload contract or the lane registry, so the adapter serves
-    the table tuple before any core call. The first two miss required
-    members; the third passes the payload contract with a lane the adapter
-    does not recognize."""
+    """The shared host-argument refusals as driven work_transition tool
+    args, in execution order: each input fails the generated payload
+    contract or the lane registry, so the adapter serves the table tuple
+    before any core call. The first two miss required members; the oversize
+    detail misses none and fails only the detail bound; the last passes the
+    payload contract with a lane the adapter does not recognize."""
     return {
         "trans-reconcile-malformed": {"request": {"operation": "worker_reconcile", "input": {}}},
         "trans-abandon-malformed": {"request": {"operation": "worker_abandon", "input": {"work_id": WORK}}},
+        "trans-abandon-oversize-detail": {"request": {"operation": "worker_abandon", "input": {
+            "work_id": WORK, "attempt_id": "parity-attempt-1", "lane_id": "implement",
+            "detail": OVERSIZE_ABANDON_DETAIL, "idempotency_key": "parity-abandon-key"}}},
         "trans-abandon-unknown-lane": {"request": {"operation": "worker_abandon", "input": {
             "work_id": WORK, "attempt_id": "parity-attempt-1", "lane_id": "no-such-lane",
             "detail": "synthetic abandon detail", "idempotency_key": "parity-abandon-key"}}},
@@ -478,6 +484,7 @@ ADAPTER_DRIVER = """
 import { configureCoreBinary } from "{adapter}/dispatch.ts";
 import { hostControlPlane } from "{adapter}/move-session.ts";
 import { configureConcordAdapter, work_start, work_transition } from "{adapter}/concord.ts";
+import { payloadFailureMessage } from "{adapter}/generated-contract-tests.ts";
 configureCoreBinary("concord");
 hostControlPlane().bind({
   get: async () => ({ data: { id: "parity-session", directory: "/synthetic/repo", metadata: { "concord.task_scope": "managed" } }, response: new Response(null, { status: 200 }) }),
@@ -499,7 +506,15 @@ async function call(name, tool, args) {
   const result = await tool.execute(args, context);
   const output = typeof result === "string" ? result : result.output;
   const newline = output.indexOf("\\n");
-  console.log(JSON.stringify({ tool: name, envelope: JSON.parse(newline === -1 ? output : output.slice(0, newline)), children: calls.slice(before) }));
+  // The production formatter's own diagnostic for an abandon payload that
+  // fails the generated contract, recomputed beside the served call, so the
+  // parity check can pin the served message to production code exactly.
+  // The real tool receives the {request: {operation, input}} wrapper.
+  const abandonContract = args && args.request && args.request.operation === "worker_abandon"
+    ? payloadFailureMessage("work_transition_worker_abandon_input", args.request.input) : null;
+  console.log(JSON.stringify({ tool: name, envelope: JSON.parse(newline === -1 ? output : output.slice(0, newline)), children: calls.slice(before),
+    abandon_contract_message: abandonContract === null ? null
+      : "worker_abandon input failed the generated contract: " + abandonContract }));
 }
 {start_calls}
 {transition_calls}
@@ -566,14 +581,13 @@ class ProductionAdapterBoundaryTests(unittest.TestCase):
 
 
 class ProductionAdapterTransitionTupleTests(unittest.TestCase):
-    """The real adapter serves the changed closed-table input tuples (CON-913
-    rows 15/22/23) for the shared host-argument refusals, before any core
-    call."""
+    """The real adapter serves the closed table's invalid_tool_input tuple
+    for the shared host-argument refusals, before any core call."""
 
     def observed(self):
         return execute_adapter_corpus()
 
-    def test_host_argument_refusals_serve_the_changed_adapter_tool_input_tuple(self):
+    def test_host_argument_refusals_serve_the_adapter_tool_input_tuple(self):
         observation = self.observed()
         for label in transition_corpus_args():
             with self.subTest(corpus=label):
@@ -590,11 +604,22 @@ class ProductionAdapterTransitionTupleTests(unittest.TestCase):
     def test_captured_diagnostics_name_the_argument_defect(self):
         observation = self.observed()
         self.assertEqual(observation["trans-reconcile-malformed"]["envelope"]["error"]["message"],
-                         "worker_reconcile requires only the work, original attempt, retained Task part and idempotency key")
-        self.assertIn("failed the generated contract",
-                      observation["trans-abandon-malformed"]["envelope"]["error"]["message"])
-        self.assertIn("does not recognize lane",
-                      observation["trans-abandon-unknown-lane"]["envelope"]["error"]["message"])
+                         "worker_reconcile input failed the generated contract: task_part_id: required field is missing")
+        # The generated-contract diagnostics pin exactly to production code:
+        # the driver executes payloadFailureMessage from the production
+        # module beside the served call, so each served message must equal
+        # the prefix plus that formatter's output for the same input — never
+        # a weakened substring match.
+        for label in ("trans-abandon-malformed", "trans-abandon-oversize-detail"):
+            with self.subTest(corpus=label):
+                self.assertEqual(observation[label]["envelope"]["error"]["message"],
+                                 observation[label]["abandon_contract_message"])
+        self.assertEqual(
+            observation["trans-abandon-oversize-detail"]["abandon_contract_message"],
+            "worker_abandon input failed the generated contract: detail: "
+            f"maxLength bound 256 Unicode code points; received {len(OVERSIZE_ABANDON_DETAIL)}")
+        self.assertEqual(observation["trans-abandon-unknown-lane"]["envelope"]["error"]["message"],
+                         'worker_abandon does not recognize lane "no-such-lane"')
 
 
 class RecordingDoubleParityTests(unittest.TestCase):
@@ -988,7 +1013,7 @@ class PluginToolModuleResolverTests(unittest.TestCase):
 
 
 class PrerequisiteFailureTests(unittest.TestCase):
-    """Epoch9 P2: a missing prerequisite fails the run explicitly. A skip
+    """A missing prerequisite fails the run explicitly. A skip
     would report green without executing the boundary."""
 
     def test_missing_bun_fails_the_double_execution_explicitly(self):

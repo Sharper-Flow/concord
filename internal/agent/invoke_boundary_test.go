@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -32,6 +33,51 @@ func TestInvokeShapesUnsupportedOperationAsTypedEnvelope(t *testing.T) {
 	}
 	if response.RequestID != env.RequestID || response.Tool != request.Tool || response.Operation != request.Operation {
 		t.Fatalf("envelope is not addressed to the refused request: %+v", response)
+	}
+}
+
+func TestInvokePreEffectInputCorrection(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant := claimsFixture(t)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	input := map[string]any{"work_id": "work-holder", "statement": strings.Repeat("x", 832), "idempotency_key": "input-correction"}
+	invoke := func() Envelope {
+		t.Helper()
+		raw, _ := json.Marshal(input)
+		response, err := Invoke(ctx, s, service, mustMarshalInvoke(t, InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: raw}, env))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := json.Marshal(response); err != nil {
+			t.Fatalf("refusal must serialize: %v", err)
+		}
+		return response
+	}
+	refused := invoke()
+	if refused.Error == nil || refused.Error.Kind != "invalid_input" || refused.Error.EffectState != EffectNone || refused.Error.RetrySafe || refused.Error.RecoveryAction.Kind != "correct_request" {
+		t.Fatalf("pre-effect correction refusal=%+v", refused.Error)
+	}
+	for _, fragment := range []string{"maxLength", "$.statement", "832", "512"} {
+		if !strings.Contains(refused.Error.Message, fragment) {
+			t.Errorf("missing %q in %q", fragment, refused.Error.Message)
+		}
+	}
+	var count int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_observations WHERE work_id='work-holder'`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("refusal wrote observations: count=%d err=%v", count, err)
+	}
+	input["statement"] = "A corrected bounded observation."
+	corrected := invoke()
+	if corrected.Outcome != OutcomeOK || corrected.Replayed {
+		t.Fatalf("correcting only statement under unchanged authority failed: %+v", corrected)
+	}
+	if replay := invoke(); replay.Outcome != OutcomeOK || !replay.Replayed {
+		t.Fatalf("committed correction must keep idempotency: %+v", replay)
 	}
 }
 

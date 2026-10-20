@@ -340,14 +340,19 @@ a reason and a kind beyond the input and manifest rules named below.
 | `worker_abandon_receipt_failed` | Abandonment succeeded but its receipt failed. | `possible` | `reconcile_operation` |
 | `worker_reconcile_failed_recorded` | Retained-report recovery recorded the original attempt's terminal failure in this call; the attempt is failed and this route cannot recover it. | `possible` | `reconcile_operation` |
 | `lane_tool_refusal` | A managed lane called a tool outside its authority. | `none` | `contact_operator` |
-| `invalid_cli_input` | The CLI refused input before dispatch. | `none`, with `retry_safe=false` | `restart_query` |
-| `invalid_request_wrapper` | The host request wrapper is absent or malformed. | `none`, with `retry_safe=false` | `restart_query` |
-| `invalid_tool_input` | Host tool arguments failed validation before dispatch. | `none`, with `retry_safe=false` | `restart_query` |
+| `invalid_cli_input` | The CLI refused input before dispatch. | `none`, with `retry_safe=false` | `correct_request` |
+| `invalid_request_wrapper` | The host request wrapper is absent or malformed. | `none`, with `retry_safe=false` | `correct_request` |
+| `invalid_tool_input` | Host tool arguments failed validation before dispatch. | `none`, with `retry_safe=false` | `correct_request` |
 
 `manifest_mismatch` requires kind `transport_failure`, effect `none`, and recovery `contact_operator`.
-The three input reasons require kind `invalid_input`, effect `none`, recovery `restart_query`, and
+The three input reasons require kind `invalid_input`, effect `none`, recovery `correct_request`, and
 `retry_safe=false`. Unknown reasons fail validation. The adapter's own
 `adapter_contract_version` validates the bootstrap envelope before core invocation.
+
+`correct_request` admits correction of the named malformed input only, within
+unchanged authority and scope. It requires `invalid_input`, effect `none`, and
+`retry_safe=false`: unchanged replay is not a correction. It cannot replace an
+approval, operator denial, effect reconciliation, or committed mutation.
 
 `worker_reconcile_failed_recorded` reports only a failure whose write the core acknowledged in the same call. A refused or uncertain write keeps `unknown_effect`. Its recovery reconciles the original attempt's failed outcome through the current workflow. The recovery itself reopens no attempt, repeats no retained worker recovery, and starts no replacement worker; a later dispatch follows the current workflow's own admission. The envelope identifies the original work and attempt in `error.details`.
 

@@ -477,7 +477,7 @@ test("request-wrapped tools refuse a missing request wrapper before any host eff
     for (const args of [{ operation, input: {} }, { operation, request: null }, { operation, request: [] }, {}, { request: null }, { request: [] }, { request: "invalid" }, { operation: "unknown" }, { operation: "x".repeat(65536) }, { operation: 1 }]) {
       const result: any = await exportedTool.execute(args as any, contextFor())
       const envelope = JSON.parse(result.output)
-      expect(envelope.error).toMatchObject({ kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "restart_query" } })
+      expect(envelope.error).toMatchObject({ kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "correct_request" } })
       expect(envelope.error.message).toContain("request wrapper")
       expect(envelope.tool).toBe(toolName)
       expect(envelope.operation).toBe("operation" in args && args.operation === operation ? operation : "")
@@ -501,7 +501,7 @@ test("a missing wrapper refusal carries the stale-release notice without a host 
     adapter.configureConcordAdapter({ runner: { run: async () => { calls++; throw new Error("must not run") } } })
     const result: any = await adapter.work_browse.execute({ operation: "list", input: {} } as any, contextFor())
     const envelope = JSON.parse(result.output)
-    expect(envelope.error).toMatchObject({ kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "restart_query" } })
+    expect(envelope.error).toMatchObject({ kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "correct_request" } })
     expect(envelope.warnings).toHaveLength(1)
     expect(envelope.warnings[0]).toMatchObject({ kind: "release_stale", source_id: "adapter", details: { pinned_release: "v11.40.3", installed_release: "v11.40.6", remedy: "restart this session to load the installed release" } })
     expect(validateGeneratedEnvelope(envelope), result.output).toBe(true)
@@ -740,7 +740,7 @@ test("typed CLI input refusals report invalid_input and no effect", async () => 
     adapter.configureConcordAdapter({ runner: runnerWithContext({ exitCode: 64, stdout: "", stderr: "concord invoke: missing required field input" }) })
     const result: any = await rawHostResult(tool.execute(hostCall(operation, {}), contextFor()))
     assertAdapterEnvelope(result)
-    expect(result.error).toMatchObject({ kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "restart_query" } })
+    expect(result.error).toMatchObject({ kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "correct_request" } })
     expect(result.error.message).toContain("missing required field input")
   }
 })
@@ -4907,7 +4907,7 @@ const expectTuple = (envelope: any, tuple: { kind: string; reason: string; effec
 const M = { kind: "operation_conflict", reason: "unknown_effect", effect: "possible", recovery: "reconcile_operation", retrySafe: false }
 const V = { kind: "operation_conflict", reason: "unknown_effect", effect: "possible", recovery: "retry_same_request", retrySafe: false }
 const VO = { kind: "operation_conflict", reason: "unknown_effect", effect: "possible", recovery: "contact_operator", retrySafe: false }
-const I = { kind: "invalid_input", reason: "invalid_tool_input", effect: "none", recovery: "restart_query", retrySafe: false }
+const I = { kind: "invalid_input", reason: "invalid_tool_input", effect: "none", recovery: "correct_request", retrySafe: false }
 
 const runVacate = async (runner: any) => {
   adapter.configureConcordAdapter({ runner })
@@ -5214,7 +5214,36 @@ test("CON-913 row 21: a lease-less worker_abandon refuses transport and closes n
   }
 })
 
-test("CON-913 rows 22/23: worker_abandon input refusals derive restart-query invalid_input", async () => {
+test("pre-effect generated-input correction names worker_abandon detail and bound", async () => {
+  const input = { work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", detail: "x".repeat(257), idempotency_key: "abandon-input-correction" }
+  let calls = 0
+  adapter.configureConcordAdapter({ runner: { async run() { calls++; throw new Error("no effect before input correction") } } })
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), contextFor()))
+  expect(result.error).toMatchObject({ kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "correct_request" } })
+  expect(result.error.message).toContain("detail")
+  expect(result.error.message).toContain("256")
+  expect(result.error.message).toContain("maxLength")
+  expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
+  expect(calls).toBe(0)
+  for (const error of [{ effect_state: "possible" }, { effect_state: "partial" }, { kind: "approval_required" }, { kind: "unauthorized" }, { retry_safe: true }]) {
+    expect(validateGeneratedEnvelope({ ...result, error: { ...result.error, ...error } })).toBe(false)
+  }
+  adapter.configureConcordAdapter({
+    credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
+    runner: { async run(argv) {
+      calls++
+      if (argv[1] === "worker-abandon") return { exitCode: 0, stdout: "", stderr: "" }
+      if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (argv[1] === "invoke") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "worker_abandon", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })), stderr: "" }
+      throw new Error(`unexpected call ${argv}`)
+    } },
+  })
+  const corrected: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", { ...input, detail: "The worker session ended." }), contextFor()))
+  expect(corrected.outcome).toBe("ok")
+  expect(calls).toBeGreaterThan(0)
+})
+
+test("CON-913 rows 22/23: worker_abandon input refusals derive correct-request invalid_input", async () => {
   const cases: Array<[string, Record<string, unknown>]> = [
     ["row 22 invalid payload", { work_id: "work-1", lane_id: "implement", detail: "missing attempt identity" }],
     ["row 23 unknown lane", { work_id: "work-1", attempt_id: "attempt-1", lane_id: "no-such-lane-concord-913", detail: "the worker session ended", idempotency_key: "abandon-lane-913" }],
@@ -5249,7 +5278,7 @@ test("CON-913 row 24: an uncertain durable abandonment reconciles the original a
   expect(pending.error.message).toContain("durable_commit")
 })
 
-test("CON-913 row 15: worker_reconcile input refusals derive restart-query invalid_input", async () => {
+test("CON-913 row 15: worker_reconcile input refusals derive correct-request invalid_input", async () => {
   let calls = 0
   adapter.configureConcordAdapter({ runner: { async run() { calls++; throw new Error("no core call may run for a refused input") } } })
   const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_reconcile", {

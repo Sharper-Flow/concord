@@ -334,11 +334,13 @@ func validateCombinatorBranches(value any, keyword string, branches []any, root 
 				return branchFailures[live[0]]
 			}
 			messages := make([]error, 0, len(live))
+			labeled := labelBranchFailures(branches, branchFailures, root)
 			for _, index := range live {
-				messages = append(messages, branchFailures[index])
+				messages = append(messages, labeled[index])
 			}
 			return joinSchemaFailures(fmt.Sprintf("%s mismatch at %s: ", keyword, path), messages)
 		}
+		branchFailures = labelBranchFailures(branches, branchFailures, root)
 		if keyword == "oneOf" {
 			if matches == 0 && len(errorStrings(branchFailures)) > 0 {
 				return joinSchemaFailures(fmt.Sprintf("oneOf mismatch at %s: ", path), branchFailures, fmt.Sprintf("; expected exactly one accepted variant {%s}", strings.Join(schemaVariantDescriptions(branches, root), "; ")))
@@ -354,6 +356,24 @@ func validateCombinatorBranches(value any, keyword string, branches []any, root 
 		evaluated[key] = true
 	}
 	return nil
+}
+
+// Keep attribution attached to each guided failure, rather than only in a
+// trailing variant inventory that a bounded diagnostic may have to omit.
+func labelBranchFailures(branches []any, failures []error, root map[string]any) []error {
+	labeled := append([]error(nil), failures...)
+	for index, failure := range failures {
+		if !HasGuidance(failure) {
+			continue
+		}
+		branch, _ := branches[index].(map[string]any)
+		label := composedSchemaDiscriminator(composedSchemaFrames(resolveSchemaRef(branch, root), root, 0))
+		if label == "" {
+			label = "variant " + strconv.Itoa(index+1)
+		}
+		labeled[index] = fmt.Errorf("alternative %s: %w", label, failure)
+	}
+	return labeled
 }
 
 func firstBranchFailure(branchFailures []error) error {

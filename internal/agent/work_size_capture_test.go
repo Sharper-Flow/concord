@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/pm1fixture"
@@ -14,6 +15,44 @@ import (
 // and every refusal leaves no work item.
 
 const sizedCaptureInputs = `"size_inputs":{"paths":["README.md"],"security":false,"user_visible":false,"blast_radius":"package","estimated_production_lines":20}`
+
+func TestSourceFreeResearchOmitsSizingWithoutDefault(t *testing.T) {
+	t.Parallel()
+	s, service, grant, scopeVersion := captureTaskFixture(t)
+	response := dispatchCapture(t, s, service, grant, scopeVersion, "research-unsized", `{"title":"Research","value_statement":"Record findings without source changes","kind":"research","project_ids":["project-1"],"task":"Investigate only; do not edit production source","idempotency_key":"research-unsized"}`)
+	if response.Outcome != OutcomeOK {
+		t.Fatalf("capture=%+v", response.Error)
+	}
+	id := (*response.ChangedRefs)[0].ID
+	if n := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_size_assessments WHERE work_id='`+id+`'`); n != 0 {
+		t.Fatalf("sizing rows=%d", n)
+	}
+	var ref string
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, id).Scan(&ref); err != nil {
+		t.Fatal(err)
+	}
+	if ref != "workflow.research" {
+		t.Fatalf("workflow=%s", ref)
+	}
+}
+
+func TestSourceFreeResearchSuppliedSizingStillRefusesMalformedEstimates(t *testing.T) {
+	t.Parallel()
+	for _, estimate := range []string{"", `,"estimated_production_lines":0`, `,"estimated_production_lines":-1`, `,"estimated_production_lines":100001`} {
+		t.Run(estimate, func(t *testing.T) {
+			s, service, grant, scopeVersion := captureTaskFixture(t)
+			input := fmt.Sprintf(`{"title":"Research","value_statement":"No source changes","kind":"research","project_ids":["project-1"],"idempotency_key":"invalid-research-size","size_inputs":{"behavior":"investigate","security":false,"user_visible":false,"blast_radius":"contained"%s}}`, estimate)
+			response, err := dispatchDefectCapture(t, s, service, grant, scopeVersion, "invalid-research-size", input)
+			assertInputCorrection(t, response, err, "$.size_inputs.estimated_production_lines")
+			if n := workItemCount(t, s); n != 0 {
+				t.Fatalf("refusal left %d work items", n)
+			}
+			if n := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_size_assessments`); n != 0 {
+				t.Fatalf("refusal left %d size assessments", n)
+			}
+		})
+	}
+}
 
 func sizedCaptureInput(key, sizeInputs string) string {
 	return `{"title":"Sized","value_statement":"The model sizes captured work","kind":"task","project_ids":["project-1"],"idempotency_key":"` + key + `",` + sizeInputs + `}`

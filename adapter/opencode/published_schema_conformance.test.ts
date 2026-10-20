@@ -376,7 +376,10 @@ function expectStructureLossless(authored: any, actual: any, label: string, fiel
     }
     if (guided && keyword === "description" && !field && inlined.type === "object") {
       const original = description.slice(0, description.indexOf("Accepted shape:")).trimEnd()
-      expect(actual?.description, `${label} keeps its authored description`).toBe(original || undefined)
+      const bounds = description.indexOf("Bounds:")
+      const end = description.indexOf("; example:", bounds)
+      const teaching = bounds >= 0 ? description.slice(bounds, end >= 0 ? end : undefined) : ""
+      expect(actual?.description, `${label} keeps its authored description and own bounds`).toBe([original, teaching].filter(Boolean).join(" ") || undefined)
       continue
     }
     if (keyword === "properties") {

@@ -13,51 +13,238 @@
                 "additionalProperties": false,
                 "description": "Capture admission record for defects: required for kind bug, optional for kind research, refused for every other kind (the core enforces the kind rules and the admission decision). failure_shape is a canonical bounded slug identifier repeated on every capture of the defect class; reproduction and searched are bounded nonempty text; related_defect_ids declares distinct earlier work IDs of the same shape and may be empty; root_cause_work_id names the completed workflow.research cluster RCA a recurrent bug capture needs.",
                 "properties": {
-                  "failure_shape": {"maxLength": 64, "minLength": 1, "pattern": "^[a-z0-9][a-z0-9-]{0,63}$", "type": "string"},
-                  "related_defect_ids": {"items": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"}, "maxItems": 20, "type": "array", "uniqueItems": true},
-                  "reproduction": {"maxLength": 8192, "minLength": 1, "type": "string", "x-maxBytes": 8192},
-                  "root_cause_work_id": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"},
-                  "searched": {"maxLength": 8192, "minLength": 1, "type": "string", "x-maxBytes": 8192}
+                  "failure_shape": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+                    "type": "string",
+                    "description": "Bounds: 1..64 code points inclusive"
+                  },
+                  "related_defect_ids": {
+                    "items": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+                      "type": "string",
+                      "description": "Bounds: 1..128 code points inclusive"
+                    },
+                    "maxItems": 20,
+                    "type": "array",
+                    "uniqueItems": true,
+                    "description": "Bounds: <=20 items inclusive"
+                  },
+                  "reproduction": {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string",
+                    "x-maxBytes": 8192,
+                    "description": "Bounds: 1..8192 code points inclusive; <=8192 UTF-8 bytes inclusive"
+                  },
+                  "root_cause_work_id": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+                    "type": "string",
+                    "description": "Bounds: 1..128 code points inclusive"
+                  },
+                  "searched": {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string",
+                    "x-maxBytes": 8192,
+                    "description": "Bounds: 1..8192 code points inclusive; <=8192 UTF-8 bytes inclusive"
+                  }
                 },
-                "required": ["failure_shape", "reproduction", "searched", "related_defect_ids"],
+                "required": [
+                  "failure_shape",
+                  "reproduction",
+                  "searched",
+                  "related_defect_ids"
+                ],
                 "type": "object"
               },
-              "external_ref": {"maxLength": 256, "minLength": 1, "type": "string", "x-maxBytes": 256},
-              "governing_requirements": {"items": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"}, "maxItems": 32, "type": "array", "uniqueItems": true},
-              "idempotency_key": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"},
-              "kind": {"enum": ["task", "bug", "decision", "research", "other"], "type": "string"},
-              "priority": {"maximum": 100, "minimum": -100, "type": "integer"},
-              "raised_from_work_id": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"},
-              "ref": {"maxLength": 128, "minLength": 1, "type": "string"},
+              "external_ref": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string",
+                "x-maxBytes": 256,
+                "description": "Bounds: 1..256 code points inclusive; <=256 UTF-8 bytes inclusive"
+              },
+              "governing_requirements": {
+                "items": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+                  "type": "string",
+                  "description": "Bounds: 1..128 code points inclusive"
+                },
+                "maxItems": 32,
+                "type": "array",
+                "uniqueItems": true,
+                "description": "Bounds: <=32 items inclusive"
+              },
+              "idempotency_key": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+                "type": "string",
+                "description": "Bounds: 1..128 code points inclusive"
+              },
+              "kind": {
+                "enum": [
+                  "task",
+                  "bug",
+                  "decision",
+                  "research",
+                  "other"
+                ],
+                "type": "string"
+              },
+              "priority": {
+                "maximum": 100,
+                "minimum": -100,
+                "type": "integer",
+                "description": "Bounds: -100..100 value inclusive"
+              },
+              "raised_from_work_id": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+                "type": "string",
+                "description": "Bounds: 1..128 code points inclusive"
+              },
+              "ref": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string",
+                "description": "Bounds: 1..128 code points inclusive"
+              },
               "size_inputs": {
                 "additionalProperties": false,
                 "description": "What this change will touch, for the work-item size model (CD-0229 D4). Name the files, a behavior phrase, or both. The tool derives kind, stage, audience, Domains, packages, and repositories; the model decides the size. There is no size field: a proposed size is refused.",
                 "properties": {
-                  "behavior": {"description": "A phrase for the behavior the change will alter, when the files are not known yet.", "maxLength": 256, "minLength": 1, "type": "string"},
-                  "blast_radius": {"description": "The widest thing a defect could break: one function, one package, several packages, or a public surface (CLI, tool, schema, wire format).", "enum": ["contained", "package", "cross_package", "external"], "type": "string"},
-                  "estimated_production_lines": {"description": "Production lines you expect to add or change, tests excluded.", "maximum": 100000, "minimum": 1, "type": "integer"},
-                  "paths": {"description": "Repository-relative files or directories the change will edit.", "items": {"maxLength": 512, "minLength": 1, "type": "string"}, "maxItems": 64, "type": "array", "uniqueItems": true},
-                  "security": {"description": "True when the change touches authentication, authorization, secrets, or data safety.", "type": "boolean"},
-                  "user_visible": {"description": "True when the change removes or reverses behavior users see, or changes UI or UX.", "type": "boolean"}
+                  "behavior": {
+                    "description": "A phrase for the behavior the change will alter, when the files are not known yet. Bounds: 1..256 code points inclusive",
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "blast_radius": {
+                    "description": "The widest thing a defect could break: one function, one package, several packages, or a public surface (CLI, tool, schema, wire format).",
+                    "enum": [
+                      "contained",
+                      "package",
+                      "cross_package",
+                      "external"
+                    ],
+                    "type": "string"
+                  },
+                  "estimated_production_lines": {
+                    "description": "Production lines you expect to add or change, tests excluded. Bounds: 1..100000 value inclusive",
+                    "maximum": 100000,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "paths": {
+                    "description": "Repository-relative files or directories the change will edit. Bounds: <=64 items inclusive",
+                    "items": {
+                      "maxLength": 512,
+                      "minLength": 1,
+                      "type": "string",
+                      "description": "Bounds: 1..512 code points inclusive"
+                    },
+                    "maxItems": 64,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "security": {
+                    "description": "True when the change touches authentication, authorization, secrets, or data safety.",
+                    "type": "boolean"
+                  },
+                  "user_visible": {
+                    "description": "True when the change removes or reverses behavior users see, or changes UI or UX.",
+                    "type": "boolean"
+                  }
                 },
-                "required": ["security", "user_visible", "blast_radius", "estimated_production_lines"],
+                "required": [
+                  "security",
+                  "user_visible",
+                  "blast_radius",
+                  "estimated_production_lines"
+                ],
                 "type": "object"
               },
-              "tags": {"items": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"}, "maxItems": 32, "type": "array", "uniqueItems": true},
-              "task": {"maxLength": 8192, "minLength": 1, "type": "string", "x-maxBytes": 8192},
-              "title": {"maxLength": 256, "minLength": 1, "type": "string", "x-maxBytes": 256},
-              "urgency": {"enum": ["standard", "expedite"], "type": "string"},
-              "value_statement": {"maxLength": 256, "minLength": 1, "type": "string", "x-maxBytes": 256},
-              "workflow_type_ref": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"}
+              "tags": {
+                "items": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+                  "type": "string",
+                  "description": "Bounds: 1..128 code points inclusive"
+                },
+                "maxItems": 32,
+                "type": "array",
+                "uniqueItems": true,
+                "description": "Bounds: <=32 items inclusive"
+              },
+              "task": {
+                "maxLength": 8192,
+                "minLength": 1,
+                "type": "string",
+                "x-maxBytes": 8192,
+                "description": "Bounds: 1..8192 code points inclusive; <=8192 UTF-8 bytes inclusive"
+              },
+              "title": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string",
+                "x-maxBytes": 256,
+                "description": "Bounds: 1..256 code points inclusive; <=256 UTF-8 bytes inclusive"
+              },
+              "urgency": {
+                "enum": [
+                  "standard",
+                  "expedite"
+                ],
+                "type": "string"
+              },
+              "value_statement": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string",
+                "x-maxBytes": 256,
+                "description": "Bounds: 1..256 code points inclusive; <=256 UTF-8 bytes inclusive"
+              },
+              "workflow_type_ref": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+                "type": "string",
+                "description": "Bounds: 1..128 code points inclusive"
+              }
             },
-            "required": ["title", "value_statement", "kind", "task", "idempotency_key"]
+            "required": [
+              "title",
+              "value_statement",
+              "kind",
+              "task",
+              "idempotency_key"
+            ]
           },
           {
             "additionalProperties": false,
             "properties": {
-              "work_id": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"}
+              "work_id": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+                "type": "string",
+                "description": "Bounds: 1..128 code points inclusive"
+              }
             },
-            "required": ["work_id"]
+            "required": [
+              "work_id"
+            ]
           }
         ],
         "type": "object"
@@ -71,7 +258,7 @@
         "properties": {
           "repo": {
             "type": "string",
-            "description": "GitHub repository as owner/name.",
+            "description": "GitHub repository as owner/name. Bounds: 3..256 code points inclusive",
             "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9][A-Za-z0-9.-]*$",
             "minLength": 3,
             "maxLength": 256
@@ -80,10 +267,25 @@
             "type": "object",
             "description": "One CI selector: kind pr, sha, or run, with its value.",
             "additionalProperties": false,
-            "required": ["kind", "value"],
+            "required": [
+              "kind",
+              "value"
+            ],
             "properties": {
-              "kind": {"type": "string", "enum": ["pr", "sha", "run"]},
-              "value": {"type": "string", "minLength": 1, "maxLength": 64}
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "pr",
+                  "sha",
+                  "run"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "Bounds: 1..64 code points inclusive"
+              }
             }
           },
           "head_sha": {
@@ -91,15 +293,25 @@
             "description": "For a pr selector: the commit to judge, usually the one just pushed. The wait stays pending until the pull request head reaches it.",
             "pattern": "^[0-9a-f]{40}$"
           },
-          "mode": {"type": "string", "description": "Wait mode: checks (default) or merge.", "enum": ["checks", "merge"]},
+          "mode": {
+            "type": "string",
+            "description": "Wait mode: checks (default) or merge.",
+            "enum": [
+              "checks",
+              "merge"
+            ]
+          },
           "time_seconds_max": {
             "type": "integer",
-            "description": "Maximum wait budget in seconds; the default is 1800.",
+            "description": "Maximum wait budget in seconds; the default is 1800. Bounds: 0..1800 value inclusive",
             "minimum": 0,
             "maximum": 1800
           }
         },
-        "required": ["repo", "selector"],
+        "required": [
+          "repo",
+          "selector"
+        ],
         "additionalProperties": false
       }
     },
@@ -110,11 +322,30 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "ordinal": {"type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Zero-based index in the original packet's required_reading list."},
-          "offset": {"type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Nonnegative raw-byte offset."},
-          "length": {"type": "integer", "minimum": 1, "maximum": 4096, "description": "Page length in raw bytes, from 1 through 4096."}
+          "ordinal": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Zero-based index in the original packet's required_reading list. Bounds: 0..9007199254740991 value inclusive"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Nonnegative raw-byte offset. Bounds: 0..9007199254740991 value inclusive"
+          },
+          "length": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4096,
+            "description": "Page length in raw bytes, from 1 through 4096. Bounds: 1..4096 value inclusive"
+          }
         },
-        "required": ["ordinal", "offset", "length"]
+        "required": [
+          "ordinal",
+          "offset",
+          "length"
+        ]
       }
     },
     {
@@ -124,10 +355,23 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "offset": {"type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Nonnegative raw-byte offset."},
-          "length": {"type": "integer", "minimum": 1, "maximum": 4096, "description": "Page length in raw bytes, from 1 through 4096."}
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Nonnegative raw-byte offset. Bounds: 0..9007199254740991 value inclusive"
+          },
+          "length": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4096,
+            "description": "Page length in raw bytes, from 1 through 4096. Bounds: 1..4096 value inclusive"
+          }
         },
-        "required": ["offset", "length"]
+        "required": [
+          "offset",
+          "length"
+        ]
       }
     },
     {
@@ -143,11 +387,13 @@
             "maxLength": 128,
             "x-minBytes": 2,
             "x-maxBytes": 128,
-            "pattern": "^[^\\x09-\\x0d \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$",
-            "description": "The exact recorded control identifier, with no Unicode whitespace and 2-128 UTF-8 bytes."
+            "pattern": "^[^\\x09-\\x0d    -     　]+$",
+            "description": "The exact recorded control identifier, with no Unicode whitespace and 2-128 UTF-8 bytes. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
           }
         },
-        "required": ["control_id"]
+        "required": [
+          "control_id"
+        ]
       }
     }
   ]

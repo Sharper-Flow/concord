@@ -1522,8 +1522,10 @@ def remove_generated_guidance(node: object) -> None:
     """Rebuild teaching after constraints change, rather than retaining stale examples."""
     if isinstance(node, dict):
         description = node.get("description")
-        if isinstance(description, str) and "Accepted shape:" in description:
-            original = description.split("Accepted shape:", 1)[0].rstrip()
+        markers = [description.index(marker) for marker in ("Accepted shape:", "Bounds:")
+                   if isinstance(description, str) and marker in description]
+        if markers:
+            original = description[:min(markers)].rstrip()
             if original:
                 node["description"] = original
             else:
@@ -1537,10 +1539,10 @@ def remove_generated_guidance(node: object) -> None:
             remove_generated_guidance(child)
 
 
-def project_schema_guidance(document: dict, names: list[str]) -> dict:
+def project_schema_guidance(document: dict, names: list[str], *, bounds_only: bool = False) -> dict:
     """One Go owner generates and validates the teaching consumed by both clients."""
     result = subprocess.run(
-        ["go", "run", "./scripts/schema-guidance", *sorted(set(names))],
+        ["go", "run", "./scripts/schema-guidance", *(["--bounds-only"] if bounds_only else []), *sorted(set(names))],
         input=json.dumps(document), cwd=ROOT, text=True, capture_output=True, timeout=120,
     )
     if result.returncode:
@@ -1558,7 +1560,7 @@ def project_schema_guidance(document: dict, names: list[str]) -> dict:
     def prune_replaced_count_text(node: object) -> None:
         if isinstance(node, dict):
             description = node.get("description")
-            if isinstance(description, str) and description.startswith(BYTE_LIMIT_GUIDANCE + " Accepted shape:"):
+            if isinstance(description, str) and description.startswith(BYTE_LIMIT_GUIDANCE + " ") and ("Accepted shape:" in description or "Bounds:" in description):
                 node["description"] = description[len(BYTE_LIMIT_GUIDANCE) + 1:]
             for key, child in node.items():
                 if key != "examples":
@@ -2654,6 +2656,12 @@ def main() -> int:
         validate_historical_decoder(schema_refs, payload.get("$defs", {}))
         projected_payload, public_variants = project_workflow_action_schema(payload, actions, workflows, teaching)
         project_worker_packet_inputs(projected_payload, json.loads(LANE_PACKET.read_text()))
+        # The adapter publishes public action variants, never the core-owned
+        # dispatch packet in the internal workflow_action input union.
+        input_names = [operation["input_schema"].rsplit("/", 1)[-1] for operation in manifest["operations"]
+                       if operation["id"] != "concord_work_transition.workflow_action"]
+        input_names.extend(variant["schema"] for variant in public_variants)
+        projected_payload = project_schema_guidance(projected_payload, input_names, bounds_only=True)
         if payload != projected_payload:
             if check:
                 fail("generated payload contract drift (workflow action or worker packet projection): contracts/agent-tool-surface-payloads.schema.json")
@@ -2662,6 +2670,19 @@ def main() -> int:
         envelope = json.loads(ENVELOPE.read_text())
         host_manifest = json.loads(HOST_MANIFEST.read_text())
         host_schema = json.loads(HOST_SCHEMA.read_text())
+        host_projected = copy.deepcopy(host_manifest)
+        host_roots = {tool["name"]: tool["args"] for tool in host_projected["tools"]}
+        for schema in host_roots.values():
+            remove_generated_guidance(schema)
+        host_document = {"$defs": {**copy.deepcopy(payload["$defs"]), **host_roots}}
+        annotated_hosts = project_schema_guidance(host_document, list(host_roots), bounds_only=True)["$defs"]
+        for tool in host_projected["tools"]:
+            tool["args"] = annotated_hosts[tool["name"]]
+        if host_projected != host_manifest:
+            if check:
+                fail("generated host bound guidance drift: contracts/host-tool-surface.v1.json")
+            HOST_MANIFEST.write_text(json.dumps(host_projected, ensure_ascii=False, indent=2) + "\n")
+            host_manifest = host_projected
         check_schema_keywords(ir, "ir")
         check_schema_keywords(payload, "payload")
         check_schema_keywords(envelope, "envelope")

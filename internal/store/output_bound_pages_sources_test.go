@@ -1242,10 +1242,10 @@ func init() {
 
 	registerOutputBound("/$defs/work_observation_page/properties/observations/items/properties/observation_id/maxLength", goPatternBound("internal/store/work_observations.go", "observationIDPattern"))
 	registerOutputBound("/$defs/work_observation_page/properties/observations/items/properties/recorded_at/maxLength", pkTimeLayoutWidthBound("internal/store/work_observations.go", "foldWorkObservationRecorded", "time.RFC3339Nano"))
-	registerOutputBound("/$defs/work_observation_page/properties/observations/items/properties/refs/items/maxLength", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(ref)", boundBytes))
+	registerOutputBound("/$defs/work_observation_page/properties/observations/items/properties/refs/items/maxLength", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(ref)", boundCharacters))
 	registerOutputBound("/$defs/work_observation_page/properties/observations/items/properties/refs/maxItems", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(refs)", boundItems))
-	registerOutputBound("/$defs/work_observation_page/properties/observations/items/properties/statement/maxLength", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(statement)", boundBytes))
-	registerOutputBound("/$defs/work_observation_page/properties/observations/items/properties/tags/items/maxLength", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(tag)", boundBytes))
+	registerOutputBound("/$defs/work_observation_page/properties/observations/items/properties/statement/maxLength", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(statement)", boundCharacters))
+	registerOutputBound("/$defs/work_observation_page/properties/observations/items/properties/tags/items/maxLength", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(tag)", boundCharacters))
 	registerOutputBound("/$defs/work_observation_page/properties/observations/items/properties/tags/maxItems", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(tags)", boundItems))
 	registerOutputBound("/$defs/work_observation_page/properties/observations/maxItems", goInlineBound("internal/store/work_observations.go", "observationReadLimit", "limit", boundItems))
 

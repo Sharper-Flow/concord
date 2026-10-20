@@ -105,10 +105,9 @@ to the old rule. Do not lift an operator pause or another owner's hold yourself.
   and verify its task identity and repository landing before sending work.
   An idle session does not mean its current item is finished.
   A session still doing permitted work needs no further instruction from you.
-- Close an assigned session when its item is complete, its evidence is
-  recorded, and no follow-up is owed. On a merge, issue closeout, or completion
-  notice, check the remaining obligations in the same pass: close the session
-  if none remain, or name exactly the closeout it still owes and retain it only
+- On a merge, issue closeout, or completion notice, check the remaining
+  obligations in the same pass: close the session if none remain, or name
+  exactly the closeout it still owes and retain it only
   for that. Use the host's session-management procedures; an idle session with
   a shipped item is not a parked state.
 - Record production-tool defects in Linear. Reuse an existing issue for the

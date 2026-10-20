@@ -98,6 +98,55 @@ sys.exit(int(os.getenv("FAIL_GATE", "0")))
         self.assertEqual(self.git("rev-parse", "rapid/synthetic"), self.base)
         self.assertEqual(self.git("rev-parse", "change"), self.candidate)
 
+    def fixture_only_candidate(self, path):
+        previous = getattr(self, "fixture_path", None)
+        if previous:
+            (self.candidate_tree / previous).unlink()
+        (self.candidate_tree / "internal/example/example.go").write_text("package example\n\nfunc Value() int { return 1 }\n")
+        fixture = self.candidate_tree / path
+        fixture.parent.mkdir(parents=True, exist_ok=True)
+        fixture.write_text('package store\n\nimport "testing"\n\nfunc TestFixture(t *testing.T) {}\n')
+        self.fixture_path = path
+        self.git("-C", str(self.candidate_tree), "add", "-A")
+        self.git("-C", str(self.candidate_tree), "commit", "-m", "test: adjust synthetic fixture")
+        self.candidate = self.git("rev-parse", "change")
+        self.request.update(candidate=self.candidate, reviewed_commit=self.candidate, eligible_paths=[path])
+
+    def test_literal_store_fixture_is_eligible(self):
+        self.fixture_only_candidate("internal/store/worktree_verify_finalization_test.go")
+        result = self.run_route()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        receipt = json.loads(result.stdout)
+        self.assertEqual(receipt["candidate"], self.candidate)
+        self.assertEqual(receipt["tree"], self.git("rev-parse", self.candidate + "^{tree}"))
+        self.assertIn("./internal/store", receipt["gates"][-1]["argv"])
+        self.assertEqual(self.git("rev-parse", "main"), self.base)
+
+    def test_fixture_allowance_does_not_admit_other_denied_paths(self):
+        for path in (
+            "internal/store/other_test.go",
+            "internal/store/worktree_verify_finalization.go",
+            "internal/store/subdir/worktree_verify_finalization_test.go",
+            "internal/agent/worktree_verify_finalization_test.go",
+            "internal/receipt/worktree_verify_finalization_test.go",
+            "internal/hostlease/worktree_verify_finalization_test.go",
+            "internal/sessionboot/worktree_verify_finalization_test.go",
+            "internal/payloadschema/worktree_verify_finalization_test.go",
+        ):
+            with self.subTest(path=path):
+                self.fixture_only_candidate(path)
+                result = self.run_route()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("unsupported", result.stderr)
+                self.assert_unmoved()
+
+    def test_helper_amendment_cannot_admit_itself(self):
+        self.fixture_only_candidate("scripts/rapid-integration.py")
+        result = self.run_route()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("only explicitly eligible internal Go paths", result.stderr)
+        self.assert_unmoved()
+
     def test_integrates_exact_candidate_tree_and_retains_gate_digests(self):
         result = self.run_route()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

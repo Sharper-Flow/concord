@@ -12,6 +12,11 @@ original review artifact, without converting it to workflow evidence.
 
 Use an existing host-isolated, clean candidate worktree. Only classified Go
 paths in internal/ are supported; all other changes take the standard route.
+The literal store fixture file internal/store/worktree_verify_finalization_test.go
+is supported only for independently classified cancellation-fixture waiting or
+synchronization changes. Its source review must preserve the cancellation,
+nonzero-exit, output, cleanup-marker and dead-child assertions; this is not a
+general store-test allowance or permission to change production behavior.
 The target must be an ancestor of the candidate: the resulting merge tree is
 therefore exactly the reviewed and tested tree. Divergent integration requires
 new review and is not supported here. Neither worktree creation nor checkout is
@@ -111,7 +116,8 @@ def integrate(worktree, request, review, evidence):
         parts = PurePosixPath(path).parts
         if len(parts) < 3 or parts[0] != "internal" or ".." in parts or not path.endswith(".go"):
             raise Refused("only explicitly eligible internal Go paths are supported; use the standard route")
-        if parts[1] in {"store", "agent", "receipt", "hostlease", "sessionboot", "payloadschema"}:
+        if (parts[1] in {"store", "agent", "receipt", "hostlease", "sessionboot", "payloadschema"}
+                and path != "internal/store/worktree_verify_finalization_test.go"):
             raise Refused("safety and admission owners are unsupported by this bounded route")
         entry = git("ls-tree", candidate, "--", path)
         if not entry:

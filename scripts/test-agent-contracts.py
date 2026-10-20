@@ -17,6 +17,29 @@ packet_schema = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").re
 envelope_schema = json.loads((ROOT / "contracts/agent-tool-envelope.schema.json").read_text())
 payload_schema = json.loads((ROOT / "contracts/agent-tool-surface-payloads.schema.json").read_text())
 
+
+class ContractGuidanceProjectionTests(unittest.TestCase):
+    def test_guidance_keeps_schema_key_order(self):
+        document = {"title": "Example", "$defs": {"code": {"type": "string", "minLength": 2}}}
+        projected = generator.project_schema_guidance(document, ["code"])
+        self.assertEqual(list(projected), list(document))
+        self.assertEqual(list(projected["$defs"]["code"])[:2], ["type", "minLength"])
+
+    def test_examples_are_instances_not_subschemas(self):
+        generator.check_schema_keywords({"type": "object", "examples": [{"approval_ref": "sample"}]})
+        with self.assertRaisesRegex(ValueError, "unsupported JSON Schema keywords"):
+            generator.check_schema_keywords({"items": {"unknown_constraint": True}})
+
+    def test_contract_fields_publish_schema_derived_examples(self):
+        actions, workflows, teaching, _ = generator.load_workflow_action_contracts()
+        projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching)
+        for name in ("workflow_outcome_subject", "workflow_outcome_surface"):
+            with self.subTest(schema=name):
+                field = projected["$defs"][name]
+                self.assertIn("Accepted shape:", field.get("description", ""))
+                self.assertEqual(len(field.get("examples", [])), 1)
+                generator.schema_validate(field["examples"][0], field, projected)
+
 _SCRIPTS_DIR = str(ROOT / "scripts")
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
@@ -2837,7 +2860,13 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
         for condition in _condition_branches(self.defs["work_transition_action_variant_approve_contract"]):
             approve = _fields_object(condition)["properties"]
             if "required_evidence" in approve:
-                self.assertEqual(approve["required_evidence"].get("description"), self.teaching["obligation_membership_rule"])
+                field = approve["required_evidence"]
+                original, marker, guidance = field["description"].partition(" Accepted shape:")
+                self.assertEqual(original, self.teaching["obligation_membership_rule"])
+                self.assertEqual(marker, " Accepted shape:")
+                self.assertIn("example:", guidance)
+                self.assertEqual(len(field["examples"]), 1)
+                generator.schema_validate(field["examples"][0], field, {"$defs": self.defs})
 
     def test_every_registry_action_has_one_closed_variant(self):
         core_refs = [{"$ref": f"#/$defs/work_transition_action_variant_{action['id']}"} for action in self.actions]

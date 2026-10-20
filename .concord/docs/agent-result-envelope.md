@@ -200,6 +200,14 @@ carrying `accept_scope_cut` also carries the `approval_ref` that option resolves
 against: the choice is actionable, not advisory. See
 [CD-0035](./decisions/CD-0035-governing-requirements-at-capture.md).
 
+### 5.1 Contract-request validation guidance
+
+A pre-effect contract-request input refusal identifies the relevant failing field and constraint. Its message includes the accepted shape and a minimal illustrative example derived from that field's effective canonical schema. The diagnostic fits within the existing message and envelope bounds without cutting the field, constraint, shape, or example.
+
+Validation still evaluates every required schema branch. Diagnostic selection does not change which requests pass, including oneOf exclusivity. A branch contradicted by a supplied discriminator or closed fieldset does not contribute an unqualified field error when another branch accepts that discriminator or fieldset. When no single branch applies, the message labels the alternatives rather than treating one branch's local restriction as a rule for the whole request.
+
+The same schema owns authoring guidance and refusal guidance. An example establishes syntax only; it grants no authority, evidence, entity existence, or workflow admission. Error kind, retry safety, recovery action, effect state, approval requirements, and all existing bounds remain unchanged.
+
 ## 6. Authority, freshness, and omissions
 
 - `authoritative`: every required source watermark proves completeness/currentness.

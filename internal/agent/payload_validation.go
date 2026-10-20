@@ -26,6 +26,11 @@ func ValidateOperationPayload(tool, operation string, data []byte, result bool) 
 		return fmt.Errorf("operation payload schema is not generated for %s", contract.ID)
 	}
 	if err := ValidateGeneratedPayload(tool, contract.ID, name, data, result); err != nil {
+		if !result {
+			if detail := ValidatePayloadSchema(name, data); payloadschema.HasGuidance(detail) {
+				return detail
+			}
+		}
 		return err
 	}
 	if err := ValidatePayloadSchema(name, data); err != nil {

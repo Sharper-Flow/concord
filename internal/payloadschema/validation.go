@@ -148,9 +148,6 @@ func validateSchemaValueWithEvaluated(value any, schema map[string]any, root map
 	if err := validateValueKeywords(value, schema, path); err != nil {
 		return nil, err
 	}
-	if err := validateTypeKeywords(value, schema, root, path, evaluated); err != nil {
-		return nil, err
-	}
 	for _, keyword := range []string{"allOf", "anyOf", "oneOf"} {
 		branches, ok := schema[keyword].([]any)
 		if !ok {
@@ -160,13 +157,18 @@ func validateSchemaValueWithEvaluated(value any, schema map[string]any, root map
 			return nil, err
 		}
 	}
+	// Select the applicable composed explanation before the shared outer shape
+	// can hide its field teaching. Both sets of constraints still govern admission.
+	if err := validateTypeKeywords(value, schema, root, path, evaluated); err != nil {
+		return nil, err
+	}
 	if condition, ok := schema["if"].(map[string]any); ok {
 		if err := validateConditionalBranch(value, schema, condition, root, path, evaluated); err != nil {
 			return nil, err
 		}
 	}
 	if branch, ok := schema["not"].(map[string]any); ok && validateSchemaValue(value, branch, root, path) == nil {
-		return nil, fmt.Errorf("not mismatch at %s", path)
+		return nil, withGuidance(fmt.Errorf("not mismatch at %s", path), schema)
 	}
 	if err := validateUnevaluatedProperties(value, schema, root, path, evaluated); err != nil {
 		return nil, err
@@ -279,11 +281,19 @@ func validateConditionalBranch(value any, schema, condition map[string]any, root
 
 // validateCombinatorBranches enforces one allOf, anyOf, or oneOf keyword and
 // folds the properties its matching branches evaluated into the caller's set.
+// Admission reads only the match count; when the keyword is unsatisfied, the
+// explanation is selected: a branch the value's own discriminator or closed
+// fieldset rules out is local to that branch and does not contribute its
+// refusal as a rule about the whole request. Alternatives that genuinely
+// remain stay labeled together. Selection never compares message lengths.
 func validateCombinatorBranches(value any, keyword string, branches []any, root map[string]any, path string, evaluated map[string]bool) error {
 	matches := 0
-	branchFailures := make([]error, 0)
+	// branchFailures stays aligned with branches: a nil entry is a branch
+	// that matched (or was not a schema object), so selection can name the
+	// branch each failure belongs to.
+	branchFailures := make([]error, len(branches))
 	matchedEvaluated := map[string]bool{}
-	for _, raw := range branches {
+	for i, raw := range branches {
 		branch, ok := raw.(map[string]any)
 		if !ok {
 			continue
@@ -295,25 +305,48 @@ func validateCombinatorBranches(value any, keyword string, branches []any, root 
 				matchedEvaluated[key] = true
 			}
 		} else {
-			branchFailures = append(branchFailures, err)
+			branchFailures[i] = err
 		}
 	}
 	if !combinatorSatisfied(keyword, matches, branches) {
-		if keyword == "oneOf" {
-			if matches == 0 && len(branchFailures) > 0 {
-				return fmt.Errorf("oneOf mismatch at %s: %s; expected exactly one accepted variant {%s}", path, strings.Join(errorStrings(branchFailures), "; "), strings.Join(schemaVariantDescriptions(branches, root), "; "))
-			}
-			return fmt.Errorf("oneOf mismatch at %s: expected exactly one accepted variant {%s}", path, strings.Join(schemaVariantDescriptions(branches, root), "; "))
-		}
 		// allOf requires every branch, so the first branch failure is the
 		// whole reason. Returning it unwrapped keeps the offending field at
 		// the front of the message, where a schema factored through $defs
 		// would otherwise stack one identical frame per composition level.
-		if keyword == "allOf" && len(branchFailures) > 0 {
-			return branchFailures[0]
+		if keyword == "allOf" {
+			if failure := firstBranchFailure(branchFailures); failure != nil {
+				return failure
+			}
+			return fmt.Errorf("allOf mismatch at %s", path)
 		}
-		if len(branchFailures) > 0 {
-			return fmt.Errorf("%s mismatch at %s: %s", keyword, path, strings.Join(errorStrings(branchFailures), "; "))
+		// Several branches matched a oneOf: no branch failure exists, the
+		// alternatives genuinely remain, and the variant list labels them.
+		if keyword == "oneOf" && matches > 1 {
+			return fmt.Errorf("oneOf mismatch at %s: expected exactly one accepted variant {%s}", path, strings.Join(schemaVariantDescriptions(branches, root), "; "))
+		}
+		live, failures := applicableBranchFailures(value, branches, branchFailures, root)
+		if len(live) > 0 && len(live) < failures {
+			// The value's discriminator or fieldset ruled branches out, so
+			// the surviving failures are the applicable ones. One survivor
+			// is the whole reason and returns unwrapped; several survivors
+			// are alternatives that genuinely remain and stay labeled.
+			if len(live) == 1 {
+				return branchFailures[live[0]]
+			}
+			messages := make([]error, 0, len(live))
+			for _, index := range live {
+				messages = append(messages, branchFailures[index])
+			}
+			return joinSchemaFailures(fmt.Sprintf("%s mismatch at %s: ", keyword, path), messages)
+		}
+		if keyword == "oneOf" {
+			if matches == 0 && len(errorStrings(branchFailures)) > 0 {
+				return joinSchemaFailures(fmt.Sprintf("oneOf mismatch at %s: ", path), branchFailures, fmt.Sprintf("; expected exactly one accepted variant {%s}", strings.Join(schemaVariantDescriptions(branches, root), "; ")))
+			}
+			return fmt.Errorf("oneOf mismatch at %s: expected exactly one accepted variant {%s}", path, strings.Join(schemaVariantDescriptions(branches, root), "; "))
+		}
+		if len(errorStrings(branchFailures)) > 0 {
+			return joinSchemaFailures(fmt.Sprintf("%s mismatch at %s: ", keyword, path), branchFailures)
 		}
 		return fmt.Errorf("%s mismatch at %s", keyword, path)
 	}
@@ -321,6 +354,225 @@ func validateCombinatorBranches(value any, keyword string, branches []any, root 
 		evaluated[key] = true
 	}
 	return nil
+}
+
+func firstBranchFailure(branchFailures []error) error {
+	for _, failure := range branchFailures {
+		if failure != nil {
+			return failure
+		}
+	}
+	return nil
+}
+
+// applicableBranchFailures returns the indexes of branchFailures whose branch
+// the value does not rule out, with the number of branch failures there were.
+// A branch is ruled out when a supplied discriminator property it pins with
+// const or enum is accepted by another branch of the same keyword, or when its
+// closed shape refused properties that another not-yet-ruled-out branch
+// declares: the value's fieldset is the other branch's, so the
+// unknown-property refusal is local to the forbidding branch. A value with
+// nothing to select on keeps every branch failure.
+func applicableBranchFailures(value any, branches []any, branchFailures []error, root map[string]any) ([]int, int) {
+	failures := 0
+	for _, failure := range branchFailures {
+		if failure != nil {
+			failures++
+		}
+	}
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil, failures
+	}
+	resolved := make([]map[string]any, len(branches))
+	for i, raw := range branches {
+		branch, _ := raw.(map[string]any)
+		resolved[i] = resolveSchemaRef(branch, root)
+	}
+	ruledOut := make([]bool, len(branches))
+	for _, name := range sortedKeys(object) {
+		supplied := object[name]
+		pinning := []int{}
+		accepting := []int{}
+		for i, schema := range resolved {
+			property := schemaPropertyName(schema, name)
+			if property == nil || !propertyPinsValue(property, supplied) {
+				continue
+			}
+			pinning = append(pinning, i)
+			if propertyAcceptsValue(property, supplied) {
+				accepting = append(accepting, i)
+			}
+		}
+		if len(pinning) == 0 || len(accepting) == 0 {
+			continue
+		}
+		for _, i := range pinning {
+			if !propertyAcceptsValue(schemaPropertyName(resolved[i], name), supplied) {
+				ruledOut[i] = true
+			}
+		}
+	}
+	for i := range branches {
+		if ruledOut[i] || i >= len(branchFailures) || branchFailures[i] == nil {
+			continue
+		}
+		unknown := closedBranchUnknownKeys(object, resolved[i], root, 0)
+		if len(unknown) == 0 {
+			continue
+		}
+		for j := range branches {
+			if j == i || ruledOut[j] || branchPinsContradictedValue(object, resolved[j]) {
+				continue
+			}
+			if branchDeclaresAllKeys(resolved[j], unknown, root, 0) || unknownKeysStrictSubset(closedBranchUnknownKeys(object, resolved[j], root, 0), unknown) {
+				ruledOut[i] = true
+				break
+			}
+		}
+	}
+	live := make([]int, 0, failures)
+	for i, failure := range branchFailures {
+		if failure != nil && !ruledOut[i] {
+			live = append(live, i)
+		}
+	}
+	return live, failures
+}
+
+// A shared unknown member must not revive a branch that additionally rejects
+// the caller's legitimate fieldset. Compare sets, not error counts or lengths.
+func unknownKeysStrictSubset(candidate, present []string) bool {
+	if len(candidate) >= len(present) {
+		return false
+	}
+	keys := map[string]bool{}
+	for _, key := range present {
+		keys[key] = true
+	}
+	for _, key := range candidate {
+		if !keys[key] {
+			return false
+		}
+	}
+	return true
+}
+
+// branchPinsContradictedValue reports whether a branch pins a supplied
+// property with const or enum and refuses the supplied value. Such a branch
+// rejects the value itself, not merely a foreign fieldset, so it cannot own
+// the value's fieldset for selection purposes: when the discriminator the
+// caller supplied matches no branch, the alternatives genuinely remain.
+func branchPinsContradictedValue(object map[string]any, schema map[string]any) bool {
+	for _, name := range sortedKeys(object) {
+		property := schemaPropertyName(schema, name)
+		if property == nil {
+			continue
+		}
+		if propertyPinsValue(property, object[name]) && !propertyAcceptsValue(property, object[name]) {
+			return true
+		}
+	}
+	return false
+}
+
+// schemaPropertyName returns the property schema a branch declares for one
+// name, or nil when the branch does not declare it.
+func schemaPropertyName(schema map[string]any, name string) map[string]any {
+	properties, _ := schema["properties"].(map[string]any)
+	property, _ := properties[name].(map[string]any)
+	return property
+}
+
+// propertyPinsValue reports whether the property schema constrains the value
+// with const or enum, so a mismatch discriminates between variants.
+func propertyPinsValue(property map[string]any, supplied any) bool {
+	if _, ok := property["const"]; ok {
+		return true
+	}
+	_, ok := property["enum"].([]any)
+	return ok
+}
+
+// propertyAcceptsValue reports whether the property's const or enum admits
+// the supplied value. Types and bounds do not discriminate: a type mismatch
+// is an ordinary branch failure, not a rule about which variant the caller
+// aimed at.
+func propertyAcceptsValue(property map[string]any, supplied any) bool {
+	if constant, ok := property["const"]; ok {
+		return reflect.DeepEqual(supplied, constant)
+	}
+	values, ok := property["enum"].([]any)
+	if !ok {
+		return false
+	}
+	for _, candidate := range values {
+		if reflect.DeepEqual(supplied, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+// closedBranchUnknownKeys returns the keys a closed schema would refuse as
+// unknown at one object level, mirroring the structural scan the validator
+// applies: nothing a property, a pattern property, or an allOf frame declares
+// is unknown.
+func closedBranchUnknownKeys(object map[string]any, schema map[string]any, root map[string]any, depth int) []string {
+	if depth > 8 {
+		return nil
+	}
+	if additional, ok := schema["additionalProperties"].(bool); !ok || additional {
+		return nil
+	}
+	unknown := []string{}
+	for _, key := range sortedKeys(object) {
+		if branchNodeDeclaresKey(schema, key, root, depth) {
+			continue
+		}
+		unknown = append(unknown, key)
+	}
+	return unknown
+}
+
+func branchNodeDeclaresKey(schema map[string]any, key string, root map[string]any, depth int) bool {
+	if depth > 8 {
+		return false
+	}
+	schema = resolveSchemaRef(schema, root)
+	if properties, ok := schema["properties"].(map[string]any); ok {
+		if _, declared := properties[key]; declared {
+			return true
+		}
+	}
+	if patterns, ok := schema["patternProperties"].(map[string]any); ok && matchesPattern(patterns, key) {
+		return true
+	}
+	composed, ok := schema["allOf"].([]any)
+	if !ok {
+		return false
+	}
+	for _, raw := range composed {
+		frame, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if branchNodeDeclaresKey(frame, key, root, depth+1) {
+			return true
+		}
+	}
+	return false
+}
+
+// branchDeclaresAllKeys reports whether a branch declares every key, so a
+// closed sibling refusing those keys is contradicted by the value's fieldset.
+func branchDeclaresAllKeys(schema map[string]any, keys []string, root map[string]any, depth int) bool {
+	for _, key := range keys {
+		if !branchNodeDeclaresKey(schema, key, root, depth) {
+			return false
+		}
+	}
+	return true
 }
 
 func combinatorSatisfied(keyword string, matches int, branches []any) bool {
@@ -337,7 +589,7 @@ func combinatorSatisfied(keyword string, matches int, branches []any) bool {
 
 func validateValueKeywords(value any, schema map[string]any, path string) error {
 	if constant, ok := schema["const"]; ok && !reflect.DeepEqual(value, constant) {
-		return fmt.Errorf("const mismatch at %s", path)
+		return withGuidance(fmt.Errorf("const mismatch at %s", path), schema)
 	}
 	if values, ok := schema["enum"].([]any); ok {
 		found := false
@@ -349,13 +601,13 @@ func validateValueKeywords(value any, schema map[string]any, path string) error 
 		if !found {
 			accepted, err := json.Marshal(values)
 			if err != nil {
-				return fmt.Errorf("enum mismatch at %s", path)
+				return withGuidance(fmt.Errorf("enum mismatch at %s", path), schema)
 			}
-			return fmt.Errorf("enum mismatch at %s: accepted values are %s", path, accepted)
+			return withGuidance(fmt.Errorf("enum mismatch at %s: accepted values are %s", path, accepted), schema)
 		}
 	}
 	if types, ok := schema["type"]; ok && !matchesAnyType(value, types) {
-		return fmt.Errorf("type mismatch at %s", path)
+		return withGuidance(fmt.Errorf("type mismatch at %s", path), schema)
 	}
 	return nil
 }
@@ -371,12 +623,12 @@ func validateObjectKeywords(object map[string]any, schema map[string]any, root m
 	evaluated := map[string]bool{}
 	properties, _ := schema["properties"].(map[string]any)
 	patterns, _ := schema["patternProperties"].(map[string]any)
-	segments := make([]string, 0)
+	segments := make([]error, 0)
 	if required, ok := schema["required"].([]any); ok {
 		for _, raw := range required {
 			name, _ := raw.(string)
 			if _, exists := object[name]; !exists {
-				segments = append(segments, fmt.Sprintf("missing required %s.%s", path, name))
+				segments = append(segments, withGuidance(fmt.Errorf("missing required %s.%s", path, name), schemaPropertyName(schema, name)))
 			}
 		}
 	}
@@ -393,11 +645,11 @@ func validateObjectKeywords(object map[string]any, schema map[string]any, root m
 		}
 		sort.Strings(unknown)
 		for _, key := range unknown {
-			segments = append(segments, fmt.Sprintf("unknown property %s.%s", path, key))
+			segments = append(segments, unknownPropertyError(path, key, schema))
 		}
 	}
 	if len(segments) > 0 {
-		return nil, fmt.Errorf("%s", strings.Join(segments, "; "))
+		return nil, joinSchemaFailures("", segments)
 	}
 	if err := validateAdditionalProperties(object, schema, properties, patterns, root, path, evaluated); err != nil {
 		return nil, err
@@ -491,17 +743,17 @@ func sortedKeys(object map[string]any) []string {
 
 func validateArrayKeywords(array []any, schema map[string]any, root map[string]any, path string) error {
 	if n, ok := schema["minItems"].(json.Number); ok && len(array) < numberInt(n) {
-		return fmt.Errorf("minItems at %s: carries %d item(s) against a minimum of %d", path, len(array), numberInt(n))
+		return withGuidance(fmt.Errorf("minItems at %s: carries %d item(s) against a minimum of %d", path, len(array), numberInt(n)), schema)
 	}
 	if n, ok := schema["maxItems"].(json.Number); ok && len(array) > numberInt(n) {
-		return fmt.Errorf("maxItems at %s: carries %d item(s) against a limit of %d", path, len(array), numberInt(n))
+		return withGuidance(fmt.Errorf("maxItems at %s: carries %d item(s) against a limit of %d", path, len(array), numberInt(n)), schema)
 	}
 	if unique, ok := schema["uniqueItems"].(bool); ok && unique {
 		seen := map[string]bool{}
 		for _, entry := range array {
 			raw, _ := json.Marshal(entry)
 			if seen[string(raw)] {
-				return fmt.Errorf("uniqueItems at %s", path)
+				return withGuidance(fmt.Errorf("uniqueItems at %s", path), schema)
 			}
 			seen[string(raw)] = true
 		}
@@ -519,34 +771,34 @@ func validateArrayKeywords(array []any, schema map[string]any, root map[string]a
 func validateStringKeywords(text string, schema map[string]any, path string) error {
 	if schema["format"] == "date-time" {
 		if !dateTimePattern.MatchString(text) {
-			return fmt.Errorf("date-time at %s: expected RFC3339 timestamp", path)
+			return withGuidance(fmt.Errorf("date-time at %s: expected RFC3339 timestamp", path), schema)
 		}
 		if _, err := time.Parse(time.RFC3339Nano, text); err != nil {
-			return fmt.Errorf("date-time at %s: %w", path, err)
+			return withGuidance(fmt.Errorf("date-time at %s: %w", path, err), schema)
 		}
 	}
 	// JSON Schema string lengths count Unicode code points.
 	codePoints := utf8.RuneCountInString(text)
 	if n, ok := schema["minLength"].(json.Number); ok && codePoints < numberInt(n) {
-		return fmt.Errorf("minLength at %s: carries %d Unicode code points against a minimum of %d", path, codePoints, numberInt(n))
+		return withGuidance(fmt.Errorf("minLength at %s: carries %d Unicode code points against a minimum of %d", path, codePoints, numberInt(n)), schema)
 	}
 	if n, ok := schema["maxLength"].(json.Number); ok && codePoints > numberInt(n) {
-		return fmt.Errorf("maxLength at %s: carries %d Unicode code points against a limit of %d", path, codePoints, numberInt(n))
+		return withGuidance(fmt.Errorf("maxLength at %s: carries %d Unicode code points against a limit of %d", path, codePoints, numberInt(n)), schema)
 	}
 	// The store's enforcing string bounds count UTF-8 bytes; the generated
 	// x-maxBytes/x-minBytes keywords carry those byte bounds beside the
 	// derived code-point bounds, so this validator refuses a byte-overrun
 	// string the code-point maxLength alone would admit (CON-412).
 	if n, ok := schema["x-maxBytes"].(json.Number); ok && len(text) > numberInt(n) {
-		return fmt.Errorf("x-maxBytes at %s: carries %d UTF-8 bytes against a limit of %d", path, len(text), numberInt(n))
+		return withGuidance(fmt.Errorf("x-maxBytes at %s: carries %d UTF-8 bytes against a limit of %d", path, len(text), numberInt(n)), schema)
 	}
 	if n, ok := schema["x-minBytes"].(json.Number); ok && len(text) < numberInt(n) {
-		return fmt.Errorf("x-minBytes at %s: carries %d UTF-8 bytes against a minimum of %d", path, len(text), numberInt(n))
+		return withGuidance(fmt.Errorf("x-minBytes at %s: carries %d UTF-8 bytes against a minimum of %d", path, len(text), numberInt(n)), schema)
 	}
 	if pattern, ok := schema["pattern"].(string); ok {
 		matched, _ := regexp.MatchString(pattern, text)
 		if !matched {
-			return fmt.Errorf("pattern at %s", path)
+			return withGuidance(fmt.Errorf("pattern at %s", path), schema)
 		}
 	}
 	return nil
@@ -557,22 +809,24 @@ func validateNumberKeywords(number json.Number, schema map[string]any, path stri
 	if lower, ok := schema["minimum"].(json.Number); ok {
 		m, _ := strconv.ParseFloat(string(lower), 64)
 		if n < m {
-			return fmt.Errorf("minimum at %s", path)
+			return withGuidance(fmt.Errorf("minimum at %s", path), schema)
 		}
 	}
 	if upper, ok := schema["maximum"].(json.Number); ok {
 		m, _ := strconv.ParseFloat(string(upper), 64)
 		if n > m {
-			return fmt.Errorf("maximum at %s", path)
+			return withGuidance(fmt.Errorf("maximum at %s", path), schema)
 		}
 	}
 	return nil
 }
 
-func errorStrings(errs []error) []string {
-	messages := make([]string, 0, len(errs))
-	for _, err := range errs {
-		messages = append(messages, err.Error())
+func errorStrings(branchFailures []error) []string {
+	messages := make([]string, 0, len(branchFailures))
+	for _, err := range branchFailures {
+		if err != nil {
+			messages = append(messages, err.Error())
+		}
 	}
 	return messages
 }

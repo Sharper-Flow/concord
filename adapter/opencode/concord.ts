@@ -206,7 +206,7 @@ function publishClosedSchema(value: unknown, resolving = new Set<string>()): JSO
     // any: required sets union, properties overlay, annotations win. A
     // dropped structural sibling would silently loosen the published bound
     // (CON-412).
-    const siblings = Object.fromEntries(Object.entries(schema).filter(([key]) => key !== "$ref"))
+    const siblings = Object.fromEntries(Object.entries(schema).filter(([key]) => key !== "$ref" && !(key === "examples" && typeof schema.description === "string" && schema.description.includes("Accepted shape:"))))
     if (Object.keys(siblings).length === 0) return resolved
     const merged: Record<string, unknown> = { ...resolved }
     for (const [key, value] of Object.entries(siblings)) {
@@ -223,12 +223,15 @@ function publishClosedSchema(value: unknown, resolving = new Set<string>()): JSO
   const result: Record<string, unknown> = {}
   for (const [key, child] of Object.entries(schema)) {
     if (key === "$defs" || key === "definitions") continue
+    // The generated description already carries this complete illustrative value.
+    // Keep the canonical, validated examples annotation without publishing it twice.
+    if (key === "examples" && typeof schema.description === "string" && schema.description.includes("Accepted shape:")) continue
     if (key === "properties" && typeof child === "object" && child !== null && !Array.isArray(child)) {
       result[key] = Object.fromEntries(Object.entries(child as Record<string, unknown>).map(([name, property]) => [name, publishClosedSchema(property, resolving)]))
     } else if (key === "items") {
       result[key] = Array.isArray(child) ? child.map((item) => publishClosedSchema(item, resolving)) : publishClosedSchema(child, resolving)
     } else if (["allOf", "anyOf", "oneOf"].includes(key) && Array.isArray(child)) {
-      result[key] = child.map((member) => publishClosedSchema(member, resolving))
+      result[key] = child.map((member) => publishSchemaAlternative(member, resolving))
     } else if (["if", "then", "else", "not", "additionalProperties", "patternProperties", "propertyNames", "contains"].includes(key) && typeof child === "object" && child !== null) {
       result[key] = publishClosedSchema(child, resolving)
     } else {
@@ -236,6 +239,22 @@ function publishClosedSchema(value: unknown, resolving = new Set<string>()): JSO
     }
   }
   return result as JSONSchema
+}
+
+// An alternative container has no field of its own. Its property descriptions
+// already teach every authored member; repeating a full request example on each
+// container spends the provider's bounded input budget without adding a field.
+function publishSchemaAlternative(value: unknown, resolving = new Set<string>()): JSONSchema {
+  const schema = publishClosedSchema(value, resolving)
+  if (schema.type === "object" && typeof schema.description === "string") {
+    const marker = schema.description.indexOf("Accepted shape:")
+    if (marker >= 0) {
+      const original = schema.description.slice(0, marker).trimEnd()
+      if (original) schema.description = original
+      else delete schema.description
+    }
+  }
+  return schema
 }
 
 // Only schema-valued positions are traversed. Property maps and annotation
@@ -342,7 +361,7 @@ export function publishedRequestSchema(toolName: string): JSONSchema {
     const operationName = operation.id.slice(operation.id.indexOf(".") + 1)
     if (operation.id !== "concord_work_transition.workflow_action") return branchFor(operationName, publishClosedSchema((payloadSchemas as Record<string, unknown>)[schemaName(operation.input_schema)]))
     const variants = workflowActionPublicVariants.map((variant) => {
-      const input = publishClosedSchema((payloadSchemas as Record<string, unknown>)[variant.schema])
+      const input = publishSchemaAlternative((payloadSchemas as Record<string, unknown>)[variant.schema])
       return { ...input, description: [input.description, `workflow_action action ${variant.action_id}: closed action-discriminated variant`].filter(Boolean).join("\n") }
     })
     return branchFor(operationName, { type: "object", oneOf: variants })

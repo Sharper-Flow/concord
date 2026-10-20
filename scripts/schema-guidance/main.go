@@ -16,7 +16,14 @@ func main() {
 	if err := decoder.Decode(&document); err != nil {
 		fail(err)
 	}
-	if err := payloadschema.AnnotateGuidance(document, os.Args[1:]); err != nil {
+	names := os.Args[1:]
+	var err error
+	if len(names) > 0 && names[0] == "--bounds-only" {
+		err = payloadschema.AnnotateGuidance(document, nil, names[1:]...)
+	} else {
+		err = payloadschema.AnnotateGuidance(document, names)
+	}
+	if err != nil {
 		fail(err)
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(document); err != nil {

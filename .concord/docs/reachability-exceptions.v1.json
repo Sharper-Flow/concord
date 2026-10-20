@@ -71,6 +71,7 @@
         "internal/payloadschema.applyGuidance",
         "internal/payloadschema.boundNumber",
         "internal/payloadschema.classAdmits",
+        "internal/payloadschema.guidanceBoundsText",
         "internal/payloadschema.guidanceAllOfExample",
         "internal/payloadschema.guidanceArrayExample",
         "internal/payloadschema.guidanceClassRune",
@@ -82,7 +83,6 @@
         "internal/payloadschema.guidanceHasValueConstraints",
         "internal/payloadschema.guidanceNodeType",
         "internal/payloadschema.guidanceNumberExample",
-        "internal/payloadschema.guidanceNumberRangeText",
         "internal/payloadschema.guidanceObjectExample",
         "internal/payloadschema.guidancePatternCandidates",
         "internal/payloadschema.guidanceRangeText",
@@ -93,9 +93,10 @@
         "internal/payloadschema.guidanceTeaches",
         "internal/payloadschema.guidanceUnionStrings",
         "internal/payloadschema.joinRange",
+        "internal/payloadschema.planBoundsNode",
         "internal/payloadschema.planDefinition",
         "internal/payloadschema.planNode",
-        "internal/payloadschema.planSchemaTree",
+        "internal/payloadschema.planSchema",
         "internal/payloadschema.writePatternLiteral"
       ],
       "reason": "These pure generator functions derive and validate canonical contract-field shapes and illustrative examples for scripts/schema-guidance, called by scripts/generate-agent-contracts.py. They share the runtime schema validator rather than maintaining a second example validator. The analysis roots ./cmd/... only and cannot see these build-time edges. CI runs generate-agent-contracts.py --check and the annotation tests to prove the projection; runtime refusals consume the generated descriptions without generating examples. No new operator command is warranted."

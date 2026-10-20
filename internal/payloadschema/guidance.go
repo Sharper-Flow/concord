@@ -37,9 +37,9 @@ const (
 // pendingGuidance is one planned annotation. Planning produces every segment
 // before any write, so a generation failure leaves the document untouched.
 type pendingGuidance struct {
-	node    map[string]any
-	example any
-	segment string
+	node     map[string]any
+	examples []any
+	segment  string
 }
 
 // AnnotateGuidance mutates the named definitions in root, and every schema
@@ -57,21 +57,33 @@ type pendingGuidance struct {
 // and nodes that only name fields of an enclosing object — the shape of
 // oneOf branches and of forbidden (not) and conditional (if/then/else) frames
 // that declare no value constraints of their own.
-func AnnotateGuidance(root map[string]any, names []string) error {
+//
+// boundNames select additional inputs for bounds-only annotation through the
+// same walker, without an example obligation. Both selections share one atomic
+// plan and deduplicate overlapping nodes. Bounds traversal refuses excessive
+// depth or unresolved references instead of silently dropping their teaching.
+func AnnotateGuidance(root map[string]any, names []string, boundNames ...string) error {
 	if _, ok := root["$defs"].(map[string]any); !ok {
 		return fmt.Errorf("payload schema definitions missing")
 	}
 	defs, _ := root["$defs"].(map[string]any)
-	for _, name := range names {
+	for _, name := range append(append([]string{}, names...), boundNames...) {
 		if _, ok := defs[name].(map[string]any); !ok {
 			return fmt.Errorf("unknown payload schema %s", name)
 		}
 	}
+	// Track planned annotations as well as applied ones for overlapping inputs.
 	plan := []pendingGuidance{}
-	visited := map[string]bool{}
-	seen := map[uintptr]bool{}
+	plannedBounds := map[uintptr]bool{}
+	visited, seen := map[string]bool{}, map[uintptr]bool{}
 	for _, name := range names {
-		if err := planDefinition(root, name, visited, seen, 0, "$defs."+name, &plan); err != nil {
+		if err := planDefinition(root, name, visited, seen, 0, "$defs."+name, false, plannedBounds, &plan); err != nil {
+			return err
+		}
+	}
+	boundVisited, boundSeen := map[string]bool{}, map[uintptr]bool{}
+	for _, name := range boundNames {
+		if err := planDefinition(root, name, boundVisited, boundSeen, 0, "$defs."+name, true, plannedBounds, &plan); err != nil {
 			return err
 		}
 	}
@@ -88,29 +100,40 @@ func applyGuidance(pending pendingGuidance) {
 	} else {
 		node["description"] = pending.segment
 	}
-	if _, ok := node["examples"]; !ok {
-		node["examples"] = []any{pending.example}
+	if _, ok := node["examples"]; !ok && pending.examples != nil {
+		node["examples"] = pending.examples
 	}
 }
 
-func planDefinition(root map[string]any, name string, visited map[string]bool, seen map[uintptr]bool, depth int, path string, plan *[]pendingGuidance) error {
-	if visited[name] || depth > guidanceDepthMax {
+// The two selections walk independently and share their annotation plan.
+func planDefinition(root map[string]any, name string, visited map[string]bool, seen map[uintptr]bool, depth int, path string, bounds bool, plannedBounds map[uintptr]bool, plan *[]pendingGuidance) error {
+	if visited[name] {
+		return nil
+	}
+	if depth > guidanceDepthMax {
+		if bounds {
+			return fmt.Errorf("%s: bound guidance exceeds schema depth", path)
+		}
 		return nil
 	}
 	visited[name] = true
 	defs, _ := root["$defs"].(map[string]any)
 	target, ok := defs[name].(map[string]any)
 	if !ok {
+		if bounds {
+			return fmt.Errorf("%s: unknown bound reference #/$defs/%s", path, name)
+		}
 		return nil
 	}
-	return planSchemaTree(target, root, visited, seen, depth+1, path, false, plan)
+	return planSchema(target, root, visited, seen, depth+1, path, false, bounds, plannedBounds, plan)
 }
 
-// planSchemaTree plans one schema node and walks every sub-schema the
-// validator itself visits, forbidden and conditional branches included: a
-// constrained field inside them is still an authored field.
-func planSchemaTree(schema map[string]any, root map[string]any, visited map[string]bool, seen map[uintptr]bool, depth int, path string, field bool, plan *[]pendingGuidance) error {
+// Visit schema-valued positions only, not objects inside annotations/examples.
+func planSchema(schema map[string]any, root map[string]any, visited map[string]bool, seen map[uintptr]bool, depth int, path string, field bool, bounds bool, plannedBounds map[uintptr]bool, plan *[]pendingGuidance) error {
 	if depth > guidanceDepthMax {
+		if bounds {
+			return fmt.Errorf("%s: bound guidance exceeds schema depth", path)
+		}
 		return nil
 	}
 	pointer := reflect.ValueOf(schema).Pointer()
@@ -118,50 +141,45 @@ func planSchemaTree(schema map[string]any, root map[string]any, visited map[stri
 		return nil
 	}
 	seen[pointer] = true
-	if err := planNode(schema, root, depth, path, field, plan); err != nil {
+	if bounds {
+		planBoundsNode(schema, root, pointer, plannedBounds, plan)
+	} else if err := planNode(schema, root, depth, path, field, pointer, plannedBounds, plan); err != nil {
 		return err
 	}
-	if ref, ok := schema["$ref"].(string); ok && strings.HasPrefix(ref, "#/$defs/") {
-		if err := planDefinition(root, strings.TrimPrefix(ref, "#/$defs/"), visited, seen, depth, path+"->"+ref, plan); err != nil {
+	if ref, ok := schema["$ref"].(string); ok {
+		if !strings.HasPrefix(ref, "#/$defs/") {
+			if bounds {
+				return fmt.Errorf("%s: unsupported bound reference %s", path, ref)
+			}
+		} else if err := planDefinition(root, strings.TrimPrefix(ref, "#/$defs/"), visited, seen, depth, path+"->"+ref, bounds, plannedBounds, plan); err != nil {
 			return err
 		}
 	}
-	properties, _ := schema["properties"].(map[string]any)
-	for _, name := range sortedKeys(properties) {
-		if child, ok := properties[name].(map[string]any); ok {
-			if err := planSchemaTree(child, root, visited, seen, depth+1, path+"."+name, true, plan); err != nil {
+	for _, key := range []string{"properties", "patternProperties", "$defs"} {
+		children, _ := schema[key].(map[string]any)
+		for _, name := range sortedKeys(children) {
+			child, ok := children[name].(map[string]any)
+			if !ok {
+				continue
+			}
+			if err := planSchema(child, root, visited, seen, depth+1, path+"."+key+"."+name, key != "$defs", bounds, plannedBounds, plan); err != nil {
 				return err
 			}
 		}
 	}
-	patterns, _ := schema["patternProperties"].(map[string]any)
-	for _, pattern := range sortedKeys(patterns) {
-		if child, ok := patterns[pattern].(map[string]any); ok {
-			if err := planSchemaTree(child, root, visited, seen, depth+1, path+"."+pattern, true, plan); err != nil {
-				return err
-			}
-		}
-	}
-	if child, ok := schema["additionalProperties"].(map[string]any); ok {
-		if err := planSchemaTree(child, root, visited, seen, depth+1, path+"[]", true, plan); err != nil {
-			return err
-		}
-	}
-	if child, ok := schema["items"].(map[string]any); ok {
-		if err := planSchemaTree(child, root, visited, seen, depth+1, path+"[i]", true, plan); err != nil {
-			return err
-		}
-	}
-	for _, keyword := range []string{"allOf", "anyOf", "oneOf", "if", "then", "else", "not"} {
-		switch target := schema[keyword].(type) {
+	for _, key := range []string{"items", "additionalProperties", "propertyNames", "contains", "if", "then", "else", "not", "allOf", "anyOf", "oneOf", "prefixItems"} {
+		// items, additional properties, and positional entries are value
+		// positions like named fields; the frame keywords are not.
+		fieldChild := key == "items" || key == "additionalProperties" || key == "prefixItems"
+		switch child := schema[key].(type) {
 		case map[string]any:
-			if err := planSchemaTree(target, root, visited, seen, depth+1, path+"."+keyword, false, plan); err != nil {
+			if err := planSchema(child, root, visited, seen, depth+1, path+"."+key, fieldChild, bounds, plannedBounds, plan); err != nil {
 				return err
 			}
 		case []any:
-			for index, raw := range target {
+			for index, raw := range child {
 				if branch, ok := raw.(map[string]any); ok {
-					if err := planSchemaTree(branch, root, visited, seen, depth+1, path+"."+keyword+"["+strconv.Itoa(index)+"]", false, plan); err != nil {
+					if err := planSchema(branch, root, visited, seen, depth+1, fmt.Sprintf("%s.%s[%d]", path, key, index), fieldChild, bounds, plannedBounds, plan); err != nil {
 						return err
 					}
 				}
@@ -171,8 +189,25 @@ func planSchemaTree(schema map[string]any, root map[string]any, visited map[stri
 	return nil
 }
 
+// A shared full/example plan may already carry these same bound clauses.
+func planBoundsNode(schema map[string]any, root map[string]any, pointer uintptr, plannedBounds map[uintptr]bool, plan *[]pendingGuidance) {
+	if plannedBounds[pointer] {
+		return
+	}
+	if description, _ := schema["description"].(string); strings.Contains(description, "Bounds:") {
+		plannedBounds[pointer] = true
+		return
+	}
+	text := guidanceBoundsText(guidanceSource(schema, root))
+	if text == "" {
+		return
+	}
+	*plan = append(*plan, pendingGuidance{node: schema, segment: text})
+	plannedBounds[pointer] = true
+}
+
 // planNode plans one node's teaching segment or refuses with the reason.
-func planNode(schema map[string]any, root map[string]any, depth int, path string, field bool, plan *[]pendingGuidance) error {
+func planNode(schema map[string]any, root map[string]any, depth int, path string, field bool, pointer uintptr, plannedBounds map[uintptr]bool, plan *[]pendingGuidance) error {
 	if description, _ := schema["description"].(string); strings.Contains(description, guidanceMarker) {
 		return nil
 	}
@@ -200,11 +235,17 @@ func planNode(schema map[string]any, root map[string]any, depth int, path string
 	if shape == "" {
 		return fmt.Errorf("%s: schema constraints render no accepted shape", path)
 	}
+	// The rendered shape carries the node's own Bounds clauses whenever it
+	// declares countable bounds, so a bounds pass over the same call must
+	// not stack a second copy of them beside this segment.
+	if strings.Contains(shape, "Bounds:") {
+		plannedBounds[pointer] = true
+	}
 	segment := guidanceMarker + " " + shape + "; example: " + string(encoded)
 	if len(segment) > guidanceSegmentMaxBytes {
 		return fmt.Errorf("%s: guidance segment is %d bytes against the %d-byte budget", path, len(segment), guidanceSegmentMaxBytes)
 	}
-	*plan = append(*plan, pendingGuidance{node: schema, example: example, segment: segment})
+	*plan = append(*plan, pendingGuidance{node: schema, examples: []any{example}, segment: segment})
 	return nil
 }
 
@@ -851,6 +892,17 @@ func guidanceShape(schema map[string]any, root map[string]any, depth int) string
 	default:
 		head = "value"
 	}
+	if depth > 0 {
+		return head
+	}
+	bounds := guidanceBoundsText(source)
+	if bounds == "" {
+		return head
+	}
+	return head + "; " + bounds
+}
+
+func guidanceBoundsText(source map[string]any) string {
 	bounds := guidanceRangeText(source, "minLength", "maxLength", "code points")
 	if text := guidanceRangeText(source, "x-minBytes", "x-maxBytes", "UTF-8 bytes"); text != "" {
 		bounds = joinRange(bounds, text)
@@ -858,48 +910,36 @@ func guidanceShape(schema map[string]any, root map[string]any, depth int) string
 	if text := guidanceRangeText(source, "minItems", "maxItems", "items"); text != "" {
 		bounds = joinRange(bounds, text)
 	}
-	if text := guidanceNumberRangeText(source); text != "" {
+	if text := guidanceRangeText(source, "minProperties", "maxProperties", "properties"); text != "" {
+		bounds = joinRange(bounds, text)
+	}
+	if text := guidanceRangeText(source, "minimum", "maximum", "value"); text != "" {
 		bounds = joinRange(bounds, text)
 	}
 	if bounds == "" {
-		return head
+		return ""
 	}
-	return head + " " + bounds
+	return "Bounds: " + bounds
 }
 
 func joinRange(present, addition string) string {
 	if present == "" {
 		return addition
 	}
-	return present + ", " + addition
+	return present + "; " + addition
 }
 
-// guidanceRangeText renders one bound pair as "lo..hi unit" when either bound
-// is declared. A zero floor is omitted: "at least 0" teaches nothing.
+// Every declared endpoint is inclusive, including a zero or negative floor.
 func guidanceRangeText(source map[string]any, minimumKey string, maximumKey string, unit string) string {
-	minimum, hasMinimum := boundNumber(source[minimumKey])
-	maximum, hasMaximum := boundNumber(source[maximumKey])
-	switch {
-	case hasMinimum && minimum > 0 && hasMaximum:
-		return fmt.Sprintf("(%d..%d %s)", int(minimum), int(maximum), unit)
-	case hasMinimum && minimum > 0:
-		return fmt.Sprintf("(at least %d %s)", int(minimum), unit)
-	case hasMaximum:
-		return fmt.Sprintf("(at most %d %s)", int(maximum), unit)
-	}
-	return ""
-}
-
-func guidanceNumberRangeText(source map[string]any) string {
-	minimum, hasMinimum := source["minimum"].(json.Number)
-	maximum, hasMaximum := source["maximum"].(json.Number)
+	minimum, hasMinimum := source[minimumKey]
+	maximum, hasMaximum := source[maximumKey]
 	switch {
 	case hasMinimum && hasMaximum:
-		return fmt.Sprintf("(%s..%s)", string(minimum), string(maximum))
+		return fmt.Sprintf("%v..%v %s inclusive", minimum, maximum, unit)
 	case hasMinimum:
-		return fmt.Sprintf("(at least %s)", string(minimum))
+		return fmt.Sprintf(">=%v %s inclusive", minimum, unit)
 	case hasMaximum:
-		return fmt.Sprintf("(at most %s)", string(maximum))
+		return fmt.Sprintf("<=%v %s inclusive", maximum, unit)
 	}
 	return ""
 }

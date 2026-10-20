@@ -68,7 +68,7 @@ registeredBytes.set("concord_worker_check", Buffer.byteLength(JSON.stringify(che
 const diffOutput = { description: "", parameters: {}, jsonSchema: undefined as unknown }
 await publishWorkerDiffDefinition({ toolID: "concord_worker_diff" }, diffOutput)
 expect(diffOutput.jsonSchema).toEqual(hostToolSchemas.concord_worker_diff)
-const diffBytes = 322
+const diffBytes = 398
 registeredBytes.set("concord_worker_diff", Buffer.byteLength(JSON.stringify(diffOutput.jsonSchema), "utf8"))
 
 function projectedBytes(role: string): { allowed: string[]; bytes: number } {
@@ -133,10 +133,10 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   for (const [tool, size] of registeredBytes) {
     expect(Number.isFinite(size) && size > 0, `${tool} must carry a finite positive root size`).toBe(true)
   }
-  const READER_BUDGET = { allowed: ["concord_worker_read"], bytes: 481 }
-  const CHECKER_BUDGET = { allowed: ["concord_worker_check", "concord_worker_read"], bytes: 826 }
+  const READER_BUDGET = { allowed: ["concord_worker_read"], bytes: 601 }
+  const CHECKER_BUDGET = { allowed: ["concord_worker_check", "concord_worker_read"], bytes: 1013 }
   const EMPTY_BUDGET = { allowed: [] as string[], bytes: 0 }
-  const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 150_970 + 826 + diffBytes }
+  const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 161_443 }
   // Neither full primary profile denies a tool, so each no-overlay budget
   // is the whole registered catalog at the full published total. Planner
   // loses exactly the work-state writers' roots.
@@ -155,7 +155,7 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
     expect(projectedBytes(role), role).toEqual(EMPTY_BUDGET)
   }
   const registeredTotal = [...registeredBytes.values()].reduce((sum, size) => sum + size, 0)
-  expect(registeredTotal).toBe(150_970 + 826 + diffBytes)
+  expect(registeredTotal).toBe(161_443)
 })
 
 test("grants select whole tools and never trim a published schema", async () => {
@@ -170,7 +170,7 @@ test("grants select whole tools and never trim a published schema", async () => 
     const operations = contractOperations.filter((operation: any) => operation.tool === tool)
     expect(expanded.oneOf, tool).toHaveLength(operations.length)
   }
-  expect(registeredBytes.get("concord_work_transition")).toBe(97_803)
+  expect(registeredBytes.get("concord_work_transition")).toBe(104_573)
   expect(workflowActionPublicVariants.length).toBe(31)
 })
 

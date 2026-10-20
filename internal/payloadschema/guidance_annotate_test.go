@@ -392,7 +392,7 @@ func TestAnnotateGuidanceExpandsFullDigestRepeat(t *testing.T) {
 	if err := ValidateValue(examples[0], hash, root, "$"); err != nil {
 		t.Fatalf("digest example does not satisfy its own schema: %v", err)
 	}
-	if description, _ := hash["description"].(string); !strings.Contains(description, "matching ^sha256:[0-9a-f]{64}$ (71..71 code points)") {
+	if description, _ := hash["description"].(string); !strings.Contains(description, "matching ^sha256:[0-9a-f]{64}$; Bounds: 71..71 code points inclusive") {
 		t.Fatalf("content_hash description does not teach the full pattern: %q", description)
 	}
 }

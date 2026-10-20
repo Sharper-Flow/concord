@@ -250,7 +250,12 @@ function publishSchemaAlternative(value: unknown, resolving = new Set<string>())
     const marker = schema.description.indexOf("Accepted shape:")
     if (marker >= 0) {
       const original = schema.description.slice(0, marker).trimEnd()
-      if (original) schema.description = original
+      // The container's example duplicates its properties, but its own
+      // cardinality or numeric constraints still need first-call teaching.
+      const bounds = schema.description.indexOf("Bounds:", marker)
+      const end = schema.description.indexOf("; example:", bounds)
+      const teaching = bounds >= 0 ? schema.description.slice(bounds, end >= 0 ? end : undefined) : ""
+      if (original || teaching) schema.description = [original, teaching].filter(Boolean).join(" ")
       else delete schema.description
     }
   }

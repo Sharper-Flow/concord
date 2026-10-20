@@ -301,7 +301,7 @@ type analyzer struct {
 	// identifiers the schema literals name as adapt values.
 	adaptField   *types.Var
 	adaptCalls   map[ast.Decl]*checkedPackage
-	adaptValues  map[*ast.Ident]bool
+	adaptValues  map[*ast.Ident]*checkedPackage
 	adaptEscapes int
 }
 
@@ -410,7 +410,7 @@ func analyzeWritersIn(dir string) (writerAnalysis, error) {
 	a.captured, a.formals, a.funcs, a.callees, a.dynamic = map[types.Object]bool{}, map[types.Object]formal{}, map[string]*function{}, map[*ast.Ident]bool{}, map[string]bool{}
 	a.funcNames = map[*function]string{}
 	a.upcastValues, a.upcasterExprs, a.upcasterCalls = map[*ast.Ident]bool{}, map[ast.Decl]*checkedPackage{}, map[ast.Decl]*checkedPackage{}
-	a.adaptCalls, a.adaptValues = map[ast.Decl]*checkedPackage{}, map[*ast.Ident]bool{}
+	a.adaptCalls, a.adaptValues = map[ast.Decl]*checkedPackage{}, map[*ast.Ident]*checkedPackage{}
 	if schema, ok := store.types.Scope().Lookup("recordedPayloadSchema").(*types.TypeName); ok {
 		if fields, ok := schema.Type().Underlying().(*types.Struct); ok {
 			for i := range fields.NumFields() {
@@ -536,7 +536,7 @@ func (a *analyzer) index(p *checkedPackage) {
 							continue
 						}
 						if id, ok := ast.Unparen(element).(*ast.Ident); ok {
-							a.adaptValues[id] = true
+							a.adaptValues[id] = p
 						} else {
 							a.adaptEscapes++
 						}
@@ -1385,8 +1385,8 @@ func (a *analyzer) adaptRoute() *adaptRoute {
 		}
 		return true
 	}
-	for id := range a.adaptValues {
-		f, ok := p.info.Uses[id].(*types.Func)
+	for id, pkg := range a.adaptValues {
+		f, ok := pkg.info.Uses[id].(*types.Func)
 		if !ok || !pin(f.Origin().FullName()) {
 			return nil
 		}
@@ -1559,8 +1559,8 @@ func (a *analyzer) comparisonSite(p *checkedPackage, d ast.Decl, assign *ast.Ass
 	if fn == nil || fn.value || fn.upcaster || len(fn.calls) != 1 {
 		return nil
 	}
-	for id := range a.adaptValues {
-		if f, ok := p.info.Uses[id].(*types.Func); ok && f.Origin().FullName() == name {
+	for id, pkg := range a.adaptValues {
+		if f, ok := pkg.info.Uses[id].(*types.Func); ok && f.Origin().FullName() == name {
 			return nil
 		}
 	}

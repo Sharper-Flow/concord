@@ -462,7 +462,7 @@ func TestAdaptRoute(t *testing.T) {
 func TestComparisonSite(t *testing.T) {
 	const main = "cmd/concord/main.go"
 	analysis := analyzeFixture(t)
-	route := analysis.Open[0].Comparison
+	var route *comparisonRoute
 	found := false
 	for _, s := range analysis.Open {
 		if s.Comparison != nil && strings.HasSuffix(s.Function, ".reconstruct") {
@@ -473,6 +473,23 @@ func TestComparisonSite(t *testing.T) {
 	if !found || route.Caller != mainPkg+".main" || route.Comparator != mainPkg+".same" || route.CallerDigest == "" || route.ComparatorDigest == "" {
 		t.Fatalf("comparison route %+v found=%v", route, found)
 	}
+	t.Run("call inside a closure pins the enclosing function", func(t *testing.T) {
+		analysis := analyzeFixture(t, mutation{main,
+			"acknowledgment, err := reconstruct(existing, store.Event{Kind: existing.Kind})\n\tif err != nil || !same(existing, acknowledgment) {\n\t\treturn\n\t}",
+			"func() {\n\t\tacknowledgment, err := reconstruct(existing, store.Event{Kind: existing.Kind})\n\t\tif err == nil {\n\t\t\tsame(existing, acknowledgment)\n\t\t}\n\t}()"})
+		closureFound := false
+		for _, s := range analysis.Open {
+			if s.Comparison != nil && strings.HasSuffix(s.Function, ".reconstruct") {
+				closureFound = true
+				if s.Comparison.Caller != mainPkg+".main" || s.Comparison.Comparator != mainPkg+".same" {
+					t.Fatalf("closure comparison route %+v", s.Comparison)
+				}
+			}
+		}
+		if !closureFound {
+			t.Fatal("comparison route lost when the call sits in a closure")
+		}
+	})
 	for name, mutations := range map[string][]mutation{
 		"result handed on":               {mutation{main, "acknowledgment, err := reconstruct(existing, store.Event{Kind: existing.Kind})", "acknowledgment, err := reconstruct(existing, store.Event{Kind: existing.Kind})\n\tkeep(acknowledgment)"}},
 		"second caller":                  {mutation{main, "func main() {", "func again(existing, requested store.Event) bool {\n\tack, err := reconstruct(existing, requested)\n\treturn err == nil && same(existing, ack)\n}\n\nfunc main() {"}},

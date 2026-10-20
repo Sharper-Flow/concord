@@ -18,7 +18,7 @@ import (
 // site is held. Neither a reported write nor an exemption is a discharge: no
 // finding discharges a release's obligation for any (kind, version).
 //
-// Three exemption classes are admitted, each by a recorded ruling. The first
+// Four exemption classes are admitted, each by a recorded ruling. The first
 // two are keyed by function, exact expression, and function digest:
 //
 //   - read_back: a site that reads a stored row's kind and version back.
@@ -140,15 +140,16 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 			upcast = append(upcast, route)
 		}
 		check := []string{e.CheckSubjectDigest}
-		keys, absent := site, slices.Concat(upcast, check)
+		comparison := []string{e.Caller, e.CallerDigest, e.Comparator, e.ComparatorDigest}
+		keys, absent := site, slices.Concat(upcast, check, comparison)
 		switch e.Class {
 		case "read_back":
 		case "replay_decoder":
-			keys, absent = slices.Concat(site, check), upcast
+			keys, absent = slices.Concat(site, check), slices.Concat(upcast, comparison)
 		case "upcast_confinement":
-			keys, absent = upcast, slices.Concat(site, check)
+			keys, absent = upcast, slices.Concat(site, check, comparison)
 		case "comparison_only":
-			keys, absent = []string{e.Function, e.FunctionDigest, e.Caller, e.CallerDigest, e.Comparator, e.ComparatorDigest}, slices.Concat(upcast, check)
+			keys, absent = slices.Concat([]string{e.Function, e.FunctionDigest}, comparison), slices.Concat(upcast, check)
 		default:
 			return table, fmt.Errorf("exemption %q has unknown class %q", e.ID, e.Class)
 		}

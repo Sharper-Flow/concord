@@ -85,7 +85,7 @@ func TestValidateWorkerJobPacketExclusionsBounds(t *testing.T) {
 // callerExclusionCharacterFixture records one correction job whose sealed
 // observation carries the given measured path and one plain ready job whose
 // dispatch would carry the correction's exclusions.
-func callerExclusionCharacterFixture(t *testing.T, workID, observedPath string) (*Store, workflowReturnRouteFixture) {
+func callerExclusionCharacterFixture(t *testing.T, workID, observedPath string) *Store {
 	t.Helper()
 	fixture := sizeDispatchFixture(t, workID)
 	t.Cleanup(func() { fixture.store.Close() })
@@ -111,7 +111,7 @@ func callerExclusionCharacterFixture(t *testing.T, workID, observedPath string) 
 	otherFields["path_scope"] = []string{"adapter/opencode"}
 	otherFields["measurement_basis"].(map[string]any)["paths"] = []map[string]any{{"path": "adapter/opencode/packet.ts", "class": "production"}}
 	recordEditingJobForTest(t, route, workID, otherFields, other)
-	return s, route
+	return s
 }
 
 // The exclusions computation owner refuses a set carrying a path above the
@@ -123,7 +123,7 @@ func TestWorkerJobCallerExclusionsRefuseAboveTheCharacterBound(t *testing.T) {
 	if utf8.RuneCountInString(over) != 513 || len(over) <= 513 {
 		t.Fatalf("fixture must be a multi-byte path above the character bound")
 	}
-	s, _ := callerExclusionCharacterFixture(t, workID, over)
+	s := callerExclusionCharacterFixture(t, workID, over)
 	_, err := workerJobCallerExclusionsTx(context.Background(), s.db, workID, "job:plain-ready")
 	var failure *Failure
 	if !errors.As(err, &failure) || !strings.Contains(failure.Detail, "carry a path above the packet's 512-character bound") || !strings.Contains(failure.RecoveryAction, "accept or split an open correction job through accept_worker_result or record_worker_job, then dispatch again") {
@@ -137,7 +137,7 @@ func TestWorkerJobCallerExclusionsRefuseAboveTheCharacterBound(t *testing.T) {
 func TestWorkerJobContinuityOmitsExclusionsAboveTheCharacterBound(t *testing.T) {
 	const workID = "worker-job-size-exclusion-character-continuity"
 	over := strings.Repeat("é", 513)
-	s, _ := callerExclusionCharacterFixture(t, workID, over)
+	s := callerExclusionCharacterFixture(t, workID, over)
 	if got := continuityReadyJobForTest(t, s, workID, "job:plain-ready").CallerExclusions; got != nil {
 		t.Fatalf("continuity published caller_exclusions %q whose set leaves the packet bound, want none", got)
 	}

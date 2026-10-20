@@ -4,9 +4,7 @@
   "test_files": [
     "cmd/concord/bootstrap_remedy_acceptance_test.go"
   ],
-  "fixture_files": [
-    "internal/store/knowledge_authority_defaults.v1.json"
-  ],
+  "fixture_files": [],
   "cases": {
     "case:capture-checkout-remedy": ["TestBootstrapRemedyNamesCaptureCheckout"],
     "case:active-resume-remedy": ["TestBootstrapRemedyNamesActiveResumePath"]

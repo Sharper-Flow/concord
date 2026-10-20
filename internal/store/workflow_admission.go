@@ -44,14 +44,12 @@ type WorkflowAdmissionState struct {
 	// pre-proof attempts' rejection and failure routes stay admitted, and
 	// only a newer size record releases it.
 	SizeRerunRequired bool
-	// RefinementWorkflow reports whether the pinned definition declares the
-	// refinement review shape: a step that declares checkpoint_refine. The
-	// post-rejection review debt and its settling review belong to that
-	// shape (CD-0197), not to a work kind.
+	// RefinementWorkflow reports a pinned proof-review owner: the released
+	// checkpoint_refine shape or a composition's declared producer/review
+	// roles. Review debt belongs to those roles, not to a work kind.
 	RefinementWorkflow bool
 	// ReviewStep reports whether the current step's advance carries an
-	// unreviewed repaired result toward delivery: the refinement step that
-	// enters the delivery gate, and the gate itself.
+	// unreviewed repaired result toward delivery (workflowPostRejectionReviewStep).
 	ReviewStep bool
 	// ActiveContracts is the count of active workflow contracts.
 	ActiveContracts int64
@@ -307,7 +305,7 @@ func workflowFailureOf(err error) *Failure {
 func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (WorkflowAdmissionState, []workflowVerificationRun, []workflowVerificationRun, error) {
 	state := WorkflowAdmissionState{
 		Step:               currentStep,
-		RefinementWorkflow: workflowRefinementStepID(definition) != "",
+		RefinementWorkflow: workflowReviewProofRoles(definition).review != "",
 		ReviewStep:         workflowPostRejectionReviewStep(definition, currentStep),
 		ReviewDebt:         ReviewDebtNone,
 	}
@@ -448,7 +446,7 @@ func (l workflowAdmissionLoad) attemptAndReview(state *WorkflowAdmissionState) e
 				return readyErr
 			}
 			state.ReadyReviewAttemptID, state.ReadyReviewVerdict = readyAttemptID, readyVerdict
-			state.ReadyReviewSettles = workflowReviewSettlesDebt(readyVerdict)
+			state.ReadyReviewSettles = workflowReviewSettlesDebt(workflowReviewProofRoles(l.definition), readyVerdict)
 		}
 	}
 	return nil
@@ -888,6 +886,11 @@ func workflowAdmitDeliveryRefused(definition WorkflowDefinition, state WorkflowA
 	if state.RefinementWorkflow && state.ReviewDebt == ReviewDebtOutstanding {
 		refineStep := stepDeclaresAction(definition, state.Step, "checkpoint_refine")
 		switch actionID {
+		case "confirm_premise", "complete":
+			if state.ReviewStep && workflowCapabilities(definition).has(WorkflowCapabilitySmallProof) {
+				*decision = workflowAdmitFreshReviewRefusal(*decision)
+				return true
+			}
 		case "record_delivery":
 			if state.ReviewStep {
 				*decision = workflowAdmitFreshReviewRefusal(*decision)

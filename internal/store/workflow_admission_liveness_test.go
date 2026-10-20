@@ -311,7 +311,7 @@ func admissionLateVerdictRoute(definition WorkflowDefinition, state admissionMod
 // WorkflowAdmissionState workflowAdmit decides over, applying the loader's
 // rules to the model's dimensions.
 func admissionWorkflowState(definition WorkflowDefinition, state admissionModelState) WorkflowAdmissionState {
-	refinement := workflowRefinementStepID(definition) != ""
+	refinement := workflowReviewProofRoles(definition).review != ""
 	reviewStep := workflowPostRejectionReviewStep(definition, state.step)
 	instance, lifecycle := "running", "in_progress"
 	if state.done {
@@ -428,7 +428,7 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		if state.debt == ReviewDebtOutstanding {
 			folded.ReadyReviewAttemptID = admissionReadyAttemptID(state)
 			folded.ReadyReviewVerdict = admissionReadyVerdict(state)
-			folded.ReadyReviewSettles = state.ready != "" && workflowReviewSettlesDebt(folded.ReadyReviewVerdict)
+			folded.ReadyReviewSettles = state.ready != "" && workflowReviewSettlesDebt(workflowReviewProofRoles(definition), folded.ReadyReviewVerdict)
 		}
 	}
 	gate := workflowStepIsDeliveryGate(workflowStep(definition, state.step))
@@ -1139,10 +1139,9 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 	}
 	design := admissionDeclaresAction(definition, "record_design")
 	// CD-0209 D3 replaces the family whitelist with the typed route table:
-	// every family's refinement step (the step declaring start_refine) is the
-	// source that decides whether post-rejection review debt can exist. The
-	// correction family filter (workflowCorrectionWorkflow) is gone.
-	refinement := workflowRefinementStepID(definition) != ""
+	// The declared proof-review owner decides whether post-rejection debt
+	// can exist; the work kind does not.
+	refinement := workflowReviewProofRoles(definition).review != ""
 	// The worker-job facet exists only where a revision can be recorded
 	// (CD-0205 D2), so the well-formed enumeration carries it exactly there:
 	// no recorded revision, an unsatisfied required revision, and the fully

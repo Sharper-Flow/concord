@@ -144,7 +144,7 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 	// The verdict rule owner stays load-bearing: only ship, or the absent
 	// verdict of the pre-CD-0197 reports, settles.
 	for verdict, want := range map[string]bool{"": true, "ship": true, "no_ship": false, "nonsense": false} {
-		if workflowReviewSettlesDebt(verdict) != want {
+		if workflowReviewSettlesDebt(workflowReviewProofRoles(definition), verdict) != want {
 			t.Fatalf("workflowReviewSettlesDebt(%q) = %v, want %v", verdict, !want, want)
 		}
 	}

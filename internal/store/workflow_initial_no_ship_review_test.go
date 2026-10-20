@@ -300,7 +300,7 @@ func TestAcceptedNonReviewReportDoesNotOpenReviewObligation(t *testing.T) {
 	attemptID := "attempt:" + workID + ":implement"
 	noShipEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, reviewGateLane(t, "implementation"), ownerRef, "no_ship", 100)
 	initialReviewHistoricalAccept(t, f, workID, attemptID, noShipEpoch)
-	seq, raw, err := workflowRefinementReviewFailure(context.Background(), s.db, workID, mustDefinitionForPin(t, "workflow.implementation", 19), "initial_review_test")
+	seq, raw, err := workflowReviewProofFailure(context.Background(), s.db, workID, mustDefinitionForPin(t, "workflow.implementation", 19), "initial_review_test")
 	if err != nil || seq != 0 || raw != nil {
 		t.Fatalf("non-review capability gained review authority: seq=%d, err=%v", seq, err)
 	}

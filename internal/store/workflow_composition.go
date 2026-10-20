@@ -27,6 +27,15 @@ type WorkflowComposition struct {
 	ApprovalPolicy        string
 	ActionCatalogVersion  int
 	Parts                 []WorkflowPartUse
+	proofSteps            workflowProofStepRoles
+}
+
+// workflowProofStepRoles belongs to the versioned composition, like its capabilities.
+// Empty roles retain the released checkpoint_refine owner.
+type workflowProofStepRoles struct {
+	producer     string
+	review       string
+	explicitShip bool
 }
 
 // CompileWorkflowComposition compiles a composition against the built-in
@@ -310,6 +319,7 @@ func implementationConsequenceV34() WorkflowComposition {
 func implementationSmallV36() WorkflowComposition {
 	composition := implementationCompositionV35()
 	composition.Version, composition.Size = 36, WorkSizeSmall
+	composition.proofSteps = workflowProofStepRoles{producer: "execution", review: "acceptance", explicitShip: true}
 	composition.Parts = []WorkflowPartUse{
 		{Ref: "part.alignment", Version: 1},
 		{Ref: "part.planning", Version: 1, StepID: "planning"},

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 )
 
+type operationalRebuildSnapshotContextKey struct{}
+
 // Rebuild snapshot authority for direct-table state the event log never
 // restores. bootstrap_operations and worktree_verify_leases record live
 // operations; domains and domain_registries are Git-derived knowledge

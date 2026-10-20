@@ -3843,6 +3843,9 @@ func foldWorkflowPremiseConfirmed(ctx context.Context, tx *sql.Tx, event Event, 
 // active contract's stored fact, binds the confirming actor, and records the
 // confirmation row.
 func workflowPremiseConfirmedWriteTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, event Event, p workflowPremiseConfirmedPayload) error {
+	if err := requireWorkflowSmallProofBefore(ctx, tx, event.SubjectID, definition, event.Seq); err != nil {
+		return err
+	}
 	if err := workflowPremiseConfirmedAuthorityTx(ctx, tx, definition, event.SubjectID, p.ContractVersion, p.ConfirmingActorRef, p.ConfirmationAuthority); err != nil {
 		return err
 	}
@@ -4490,6 +4493,9 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 	}
 	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
 	if err != nil {
+		return err
+	}
+	if err := requireWorkflowSmallProofBefore(ctx, tx, event.SubjectID, entry.Definition, event.Seq); err != nil {
 		return err
 	}
 	if err := requireActor(ctx, tx, event.Actor); err != nil {

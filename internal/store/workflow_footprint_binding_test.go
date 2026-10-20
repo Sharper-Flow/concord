@@ -23,11 +23,19 @@ func footprintBindingActorRef(t *testing.T, workID string) string {
 // that size selects.
 func footprintBindingItem(t *testing.T, workID string, small bool) (*Store, WorkflowDefinition) {
 	t.Helper()
+	return footprintBindingItemWithChecks(t, workID, small, nil)
+}
+
+func footprintBindingItemWithChecks(t *testing.T, workID string, small bool, checks []FootprintPackageCheck) (*Store, WorkflowDefinition) {
+	t.Helper()
 	s := seedLawChangeFixture(t, workID)
 	lawChangeFold(t, s, `INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_at,complete) VALUES('project','workflow-law-locator','HEAD',?,'2026-10-19T00:00:00Z',1)`, workSizeFootprintFixture().KnowledgeCommit)
 	if small {
 		recordWorkSizeFootprintForTest(t, s, workID, 20, func(footprint *WorkSizeFootprint) {
 			footprint.ChecksComplete, footprint.ShardsRead = true, true
+			if checks != nil {
+				footprint.PackageChecks = checks
+			}
 			bindingFixtureRegistry(t, s, footprint)
 		})
 	}

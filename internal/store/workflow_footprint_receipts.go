@@ -38,9 +38,11 @@ type workflowFootprintProof struct {
 // exact command on one Project and commit, started at or after the frontier.
 // A lease predating the watermark column carries NULL, which compares to no
 // frontier and never qualifies.
-const workflowFootprintReceiptSQL = `SELECT l.result_json, l.principal_ref` + oracleVerifyReceiptJoinSQL + `
+const workflowFootprintRunSQL = `SELECT l.result_json, l.principal_ref` + oracleVerifyReceiptJoinSQL + `
 	AND l.project_id=? AND l.command_json=? AND json_extract(l.result_json,'$.subject_ref')=?
-	AND l.event_watermark>=?
+	AND l.event_watermark>=? AND (?=0 OR l.event_watermark<?)`
+
+const workflowFootprintReceiptSQL = workflowFootprintRunSQL + `
 	AND EXISTS (SELECT 1 FROM domain_events bound
 		WHERE bound.subject_type='work_item' AND bound.subject_id=l.work_id AND bound.kind=?
 		AND json_extract(bound.payload,'$.evidence_kind')='verification'
@@ -75,12 +77,22 @@ func readWorkflowFootprintProofs(ctx context.Context, q queryer, basis workflowF
 }
 
 func readWorkflowFootprintReceipt(ctx context.Context, q queryer, basis workflowFootprintProofBasis, check FootprintCheck, command []string) (string, string, error) {
+	return readWorkflowFootprintRun(ctx, q, basis, check, command, true)
+}
+
+func readWorkflowFootprintRun(ctx context.Context, q queryer, basis workflowFootprintProofBasis, check FootprintCheck, command []string, bound bool) (string, string, error) {
 	// The lease stores json.Marshal of its argv; the same encoding matches it byte for byte.
 	commandJSON, err := json.Marshal(command)
 	if err != nil {
 		return "", "", wrapFailure(KindInvariantViolation, "footprint_receipt_read", "cannot encode the derived check command", false, "repair the footprint check", err)
 	}
-	rows, err := q.QueryContext(ctx, workflowFootprintReceiptSQL, basis.WorkID, basis.ProjectID, string(commandJSON), "commit:"+basis.Commit, basis.Frontier, WorkflowEvidenceBound, basis.Frontier, basis.BeforeSeq, basis.BeforeSeq)
+	query := workflowFootprintRunSQL + ` ORDER BY d.rowid DESC`
+	args := []any{basis.WorkID, basis.ProjectID, string(commandJSON), "commit:" + basis.Commit, basis.Frontier, basis.BeforeSeq, basis.BeforeSeq}
+	if bound {
+		query = workflowFootprintReceiptSQL
+		args = append(args, WorkflowEvidenceBound, basis.Frontier, basis.BeforeSeq, basis.BeforeSeq)
+	}
+	rows, err := q.QueryContext(ctx, oracleVerifyReceiptSource(ctx, query), args...)
 	if err != nil {
 		return "", "", wrapFailure(KindUnavailable, "footprint_receipt_read", "cannot read the footprint verify receipts", true, "retry once the database is readable", err)
 	}

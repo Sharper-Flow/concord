@@ -84,13 +84,17 @@ func (a *reviewDeliveryAnchor) cleanCommit() (string, error) {
 // No lifecycle filter: an authorization spends editing authority even when no
 // native worker starts, or the worker fails, is rejected, or is abandoned.
 func newerEditingDispatch(ctx context.Context, q queryer, workID string, afterSeq int64) (bool, error) {
+	return newerEditingDispatchBefore(ctx, q, workID, afterSeq, 0)
+}
+
+func newerEditingDispatchBefore(ctx context.Context, q queryer, workID string, afterSeq, beforeSeq int64) (bool, error) {
 	rows, err := q.QueryContext(ctx, `SELECT COALESCE(json_extract(e.payload,'$.worker_lane_id'),a.lane_id),
  COALESCE(json_extract(e.payload,'$.worker_lane_version'),a.lane_version),
  COALESCE(json_extract(e.payload,'$.worker_lane_digest'),a.lane_digest)
  FROM domain_events e LEFT JOIN worker_attempts a ON a.work_id=e.subject_id
  AND a.attempt_id=json_extract(e.payload,'$.worker_attempt_id')
  WHERE e.subject_type='work_item' AND e.subject_id=? AND e.kind=? AND e.seq>?
- AND json_extract(e.payload,'$.action_id')='dispatch_worker' ORDER BY e.seq`, workID, WorkflowActionCompleted, afterSeq)
+ AND json_extract(e.payload,'$.action_id')='dispatch_worker' AND (?=0 OR e.seq<?) ORDER BY e.seq`, workID, WorkflowActionCompleted, afterSeq, beforeSeq, beforeSeq)
 	if err != nil {
 		return false, wrapFailure(KindUnavailable, workerDispatchFreshnessOp, "cannot read newer dispatch authorities", true, "retry once the event log is readable", err)
 	}

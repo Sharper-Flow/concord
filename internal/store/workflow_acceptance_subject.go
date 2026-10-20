@@ -116,41 +116,18 @@ func workflowAcceptedSubjectCurrent(ctx context.Context, q queryer, workID strin
 	if isWorkflowReplay(ctx) {
 		return nil
 	}
-	rows, err := q.QueryContext(ctx, `SELECT DISTINCT a.attempt_id
- FROM domain_events acc JOIN worker_attempts a ON a.work_id=acc.subject_id
- AND a.attempt_id=json_extract(acc.payload,'$.worker_attempt_id') AND a.capability_class='review'
- JOIN domain_events auth ON auth.subject_type=acc.subject_type AND auth.subject_id=acc.subject_id
- AND auth.kind=? AND json_extract(auth.payload,'$.action_id')='dispatch_worker'
- AND json_extract(auth.payload,'$.worker_attempt_id')=a.attempt_id AND auth.seq<acc.seq
- WHERE acc.subject_type='work_item' AND acc.subject_id=? AND acc.kind=?
- AND json_extract(acc.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence')`, WorkflowActionCompleted, workID, WorkflowActionCompleted)
+	candidates, err := readAcceptedWorkflowReviewsBefore(ctx, q, workID, 0)
 	if err != nil {
-		return wrapFailure(KindUnavailable, "workflow_action", "cannot read accepted review subjects", true, "retry once the database is readable", err)
-	}
-	var candidates []string
-	for rows.Next() {
-		var attempt string
-		if err := rows.Scan(&attempt); err != nil {
-			rows.Close()
-			return wrapFailure(KindUnavailable, "workflow_action", "cannot scan accepted reviews", true, "retry once the database is readable", err)
-		}
-		candidates = append(candidates, attempt)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return wrapFailure(KindUnavailable, "workflow_action", "cannot enumerate accepted reviews", true, "retry once the database is readable", err)
-	}
-	if err := rows.Close(); err != nil {
-		return wrapFailure(KindUnavailable, "workflow_action", "cannot close accepted reviews", true, "retry once the database is readable", err)
+		return err
 	}
 	var attempts []string
-	for _, attempt := range candidates {
-		stale, err := workflowStaleReviewAcceptBeforeTx(ctx, q, workID, attempt, "workflow_action", 0)
+	for _, candidate := range candidates {
+		stale, err := workflowStaleReviewAcceptBeforeTx(ctx, q, workID, candidate.attemptID, "workflow_action", 0)
 		if err != nil {
 			return err
 		}
 		if !stale {
-			attempts = append(attempts, attempt)
+			attempts = append(attempts, candidate.attemptID)
 		}
 	}
 	version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
@@ -166,4 +143,41 @@ func workflowAcceptedSubjectCurrent(ctx context.Context, q queryer, workID strin
 		refs = append(refs, verdict.EvaluationEvidence...)
 	}
 	return workflowAcceptanceSubjectCurrent(ctx, q, workID, attempts, refs)
+}
+
+type workflowAcceptedReview struct {
+	attemptID string
+	acceptSeq int64
+}
+
+func readAcceptedWorkflowReviewsBefore(ctx context.Context, q queryer, workID string, beforeSeq int64) ([]workflowAcceptedReview, error) {
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT a.attempt_id,acc.seq
+ FROM domain_events acc JOIN worker_attempts a ON a.work_id=acc.subject_id
+ AND a.attempt_id=json_extract(acc.payload,'$.worker_attempt_id') AND a.capability_class='review'
+ JOIN domain_events auth ON auth.subject_type=acc.subject_type AND auth.subject_id=acc.subject_id
+ AND auth.kind=? AND json_extract(auth.payload,'$.action_id')='dispatch_worker'
+ AND json_extract(auth.payload,'$.worker_attempt_id')=a.attempt_id AND auth.seq<acc.seq
+ WHERE acc.subject_type='work_item' AND acc.subject_id=? AND acc.kind=?
+ AND json_extract(acc.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence')
+ AND (?=0 OR (auth.seq<? AND acc.seq<?)) ORDER BY acc.seq DESC`, WorkflowActionCompleted, workID, WorkflowActionCompleted, beforeSeq, beforeSeq, beforeSeq)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read accepted review subjects", true, "retry once the database is readable", err)
+	}
+	var candidates []workflowAcceptedReview
+	for rows.Next() {
+		var candidate workflowAcceptedReview
+		if err := rows.Scan(&candidate.attemptID, &candidate.acceptSeq); err != nil {
+			rows.Close()
+			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot scan accepted reviews", true, "retry once the database is readable", err)
+		}
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot enumerate accepted reviews", true, "retry once the database is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot close accepted reviews", true, "retry once the database is readable", err)
+	}
+	return candidates, nil
 }

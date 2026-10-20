@@ -592,7 +592,15 @@ func readWorkerOracleFindingLineageTx(ctx context.Context, q queryer, workID str
 // own mints, continuations, and closures are the claims under validation,
 // not the state they are validated against.
 func readWorkerOracleFindingLineageExcludingTx(ctx context.Context, q queryer, workID string, excludeSeq int64) (*workerOracleFindingLineage, error) {
-	oracles, err := readWorkerJobOraclesTx(ctx, q, workID)
+	return readWorkerOracleFindingLineageBeforeTx(ctx, q, workID, excludeSeq, 0)
+}
+
+// readWorkerOracleFindingLineageBeforeTx is the walk bounded to the log
+// prefix before beforeSeq (exclusive; 0 reads the live log), with excludeSeq
+// retained: the bounded job-oracle read and the walked events judge the same
+// prefix, so a historical fold derives the lineage its prefix held.
+func readWorkerOracleFindingLineageBeforeTx(ctx context.Context, q queryer, workID string, excludeSeq, beforeSeq int64) (*workerOracleFindingLineage, error) {
+	oracles, err := readWorkerJobOraclesBeforeTx(ctx, q, workID, beforeSeq)
 	if err != nil {
 		return nil, err
 	}
@@ -601,8 +609,8 @@ func readWorkerOracleFindingLineageExcludingTx(ctx context.Context, q queryer, w
 		oracles:  oracles,
 	}
 	actors := map[string]string{}
-	query := `SELECT seq,event_id,kind,COALESCE(json_extract(payload,'$.worker_job.job_id'),''),COALESCE(json_extract(payload,'$.worker_job.revision'),0),COALESCE(json_extract(payload,'$.worker_job.digest'),''),payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind IN (?,?,?)`
-	args := []any{string(SubjectWorkItem), workID, WorkerCompleted, WorkerDispatched, WorkflowContractSuperseded}
+	query := `SELECT seq,event_id,kind,COALESCE(json_extract(payload,'$.worker_job.job_id'),''),COALESCE(json_extract(payload,'$.worker_job.revision'),0),COALESCE(json_extract(payload,'$.worker_job.digest'),''),payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind IN (?,?,?) AND (?=0 OR seq<?)`
+	args := []any{string(SubjectWorkItem), workID, WorkerCompleted, WorkerDispatched, WorkflowContractSuperseded, beforeSeq, beforeSeq}
 	if excludeSeq > 0 {
 		query += ` AND seq<>?`
 		args = append(args, excludeSeq)

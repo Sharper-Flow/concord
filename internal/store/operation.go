@@ -858,7 +858,7 @@ func rebuildFromLogTx(ctx context.Context, tx *sql.Tx) error {
 	// Version-window and chain failures are rejected before the first
 	// projection DELETE. Fold/decode failures remain transactionally atomic, and
 	// are attributed by the shared fold path below.
-	replayCtx := workflowReplayContext(ctx)
+	replayCtx := workflowReplayContext(context.WithValue(ctx, operationalRebuildSnapshotContextKey{}, true))
 	occupancyBefore, err := readOccupancyRebuildEvidence(ctx, tx)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_from_log", "cannot read occupancy comparison evidence", true, "retry once occupancy is readable", err)

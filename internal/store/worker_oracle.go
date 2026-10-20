@@ -764,7 +764,14 @@ func validateOracleDomainTx(ctx context.Context, tx *sql.Tx, workID string, cont
 // through the pool inside a transaction — and issues no nested query while
 // rows are open.
 func readWorkerJobOraclesTx(ctx context.Context, q queryer, workID string) (map[WorkerJobBinding]*AcceptanceOracle, error) {
-	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.job_id'), json_extract(payload,'$.revision'), json_extract(payload,'$.digest'), json_extract(payload,'$.acceptance_oracle') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=?`, string(SubjectWorkItem), workID, WorkerJobRecorded)
+	return readWorkerJobOraclesBeforeTx(ctx, q, workID, 0)
+}
+
+// readWorkerJobOraclesBeforeTx is the same reader bounded to the log prefix
+// before beforeSeq (exclusive; 0 reads the live log), so a historical fold
+// sees only the job recordings its prefix holds.
+func readWorkerJobOraclesBeforeTx(ctx context.Context, q queryer, workID string, beforeSeq int64) (map[WorkerJobBinding]*AcceptanceOracle, error) {
+	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.job_id'), json_extract(payload,'$.revision'), json_extract(payload,'$.digest'), json_extract(payload,'$.acceptance_oracle') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND (?=0 OR seq<?)`, string(SubjectWorkItem), workID, WorkerJobRecorded, beforeSeq, beforeSeq)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot read recorded acceptance oracles", true, "retry once the event log is readable", err)
 	}

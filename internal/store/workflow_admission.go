@@ -206,6 +206,9 @@ type WorkflowAdmissionState struct {
 	// preflight and the work pin answer what the confirmation enforces. At the
 	// complete step it also carries the shared acceptance-subject refusal.
 	AcceptanceDeliverablesMissing error
+	// SmallProofMissing is the shared small-composition proof refusal. It
+	// blocks only confirmation/completion, never evidence or repair routes.
+	SmallProofMissing error
 	// CompleteStepCorrection reports the shared complete-step correction
 	// admission passes at the pinned complete step.
 	CompleteStepCorrection bool
@@ -368,6 +371,9 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		return WorkflowAdmissionState{}, nil, nil, mandateErr
 	}
 	state.Mandate = mandate
+	if workflowPostRejectionReviewStep(definition, currentStep) {
+		state.SmallProofMissing = requireWorkflowSmallProofBefore(ctx, q, workID, definition, 0)
+	}
 	return state, proofRuns, integrationRuns, nil
 }
 
@@ -915,6 +921,10 @@ func workflowAdmitDeliveryRefused(definition WorkflowDefinition, state WorkflowA
 // workflowAdmitConfirmationRefused answers premise confirmation, completion
 // facts, and the correction request route.
 func workflowAdmitConfirmationRefused(state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
+	if (actionID == "confirm_premise" || actionID == "complete") && state.SmallProofMissing != nil {
+		decision.Failure = workflowFailureOf(state.SmallProofMissing)
+		return true
+	}
 	// The artifact-staleness answer is the admission's (CD-0201 D5): while
 	// the artifact the step evaluates is stale, the premise confirmation
 	// cannot step past the verdict. The declared unhealthy_verdict route —

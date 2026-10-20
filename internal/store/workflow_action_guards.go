@@ -470,6 +470,11 @@ func workflowEvidenceBindingRecoveryEligibility(ctx context.Context, q queryer, 
 			requirements = append(requirements, workflowEvidenceRequirement{Kind: string(EvidenceVerification), Reference: approved.ImmutableSubjectRef})
 		}
 	}
+	footprintRequirements, err := workflowSmallFootprintRequirements(ctx, q, workID, definition, contractVersion, beforeSeq)
+	if err != nil {
+		return state, err
+	}
+	requirements = append(requirements, footprintRequirements...)
 	state.Requirements, err = unboundWorkflowEvidenceRequirements(ctx, q, workID, requirements, cutoff, beforeSeq)
 	return state, err
 }

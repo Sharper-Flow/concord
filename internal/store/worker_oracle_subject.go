@@ -44,6 +44,16 @@ func oracleVerifySubject(before, after oracleGitSubjectSnapshot, changed bool) s
 // subject. Both existing records must retain the same bounded native result.
 const oracleVerifyReceiptSQL = `SELECT l.result_json` + oracleVerifyReceiptJoinSQL
 
+// Rebuild stages the same operational authority outside the cleared FK
+// projections. Qualification must read those retained bytes while they are
+// staged, with the identical producer join and no filesystem observation.
+func oracleVerifyReceiptSource(ctx context.Context, query string) string {
+	if ctx.Value(operationalRebuildSnapshotContextKey{}) == true {
+		return strings.ReplaceAll(query, "FROM worktree_verify_leases l", "FROM temp.rebuild_operational_worktree_verify_leases l")
+	}
+	return query
+}
+
 const oracleVerifyReceiptJoinSQL = ` FROM worktree_verify_leases l
 	JOIN durable_operations d ON d.work_id=l.work_id AND d.op_id=(
 		CASE WHEN instr(l.lease_id,':worktree-verify:')>0
@@ -81,7 +91,7 @@ func decodeOracleVerifyReceipt(raw, workID string) (*WorktreeVerifyResult, error
 // The caller's queryer may be its transaction: this function performs SQL only.
 func readOracleVerifySubjectReceipt(ctx context.Context, q queryer, workID, runRef string) (*WorktreeVerifyResult, error) {
 	var raw string
-	err := q.QueryRowContext(ctx, oracleVerifyReceiptSQL+` AND d.op_id=? LIMIT 1`, workID, runRef).Scan(&raw)
+	err := q.QueryRowContext(ctx, oracleVerifyReceiptSource(ctx, oracleVerifyReceiptSQL)+` AND d.op_id=? LIMIT 1`, workID, runRef).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -115,7 +125,7 @@ func readCurrentOracleSubject(ctx context.Context, q queryer, workID string) (st
 
 func readCurrentOracleSubjectReceipt(ctx context.Context, q queryer, workID string) (*WorktreeVerifyResult, error) {
 	var raw string
-	err := q.QueryRowContext(ctx, oracleCurrentVerifyReceiptSQL, workID, WorktreeSetID(workID)).Scan(&raw)
+	err := q.QueryRowContext(ctx, oracleVerifyReceiptSource(ctx, oracleCurrentVerifyReceiptSQL), workID, WorktreeSetID(workID)).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

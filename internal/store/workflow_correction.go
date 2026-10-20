@@ -1177,6 +1177,12 @@ func workflowPostRejectionRepairFrontierBefore(ctx context.Context, q queryer, w
 // not permission to ship; it carries the same review obligation as a rejected
 // result without changing the recorded worker disposition.
 func workflowReviewProofFailure(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, subject string) (int64, []byte, error) {
+	return workflowReviewProofFailureBefore(ctx, q, workID, definition, subject, 0)
+}
+
+// workflowReviewProofFailureBefore is the same read bounded to the log prefix
+// before beforeSeq (exclusive; 0 reads the live log).
+func workflowReviewProofFailureBefore(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, subject string, beforeSeq int64) (int64, []byte, error) {
 	reviewStep := workflowReviewProofRoles(definition).review
 	if reviewStep == "" {
 		return 0, nil, nil
@@ -1184,7 +1190,7 @@ func workflowReviewProofFailure(ctx context.Context, q queryer, workID string, d
 	var seq int64
 	var raw []byte
 	if err := q.QueryRowContext(ctx, `SELECT acc.seq,acc.payload FROM domain_events acc
-		WHERE acc.subject_type=? AND acc.subject_id=? AND acc.kind=? AND json_extract(acc.payload,'$.step_id')=?
+		WHERE acc.subject_type=? AND acc.subject_id=? AND acc.kind=? AND json_extract(acc.payload,'$.step_id')=? AND (?=0 OR acc.seq<?)
 		AND (json_extract(acc.payload,'$.action_id')='reject_worker_result'
 		OR (json_extract(acc.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence') AND EXISTS(
 			SELECT 1 FROM domain_events wd JOIN domain_events wc
@@ -1193,8 +1199,8 @@ func workflowReviewProofFailure(ctx context.Context, q queryer, workID string, d
 			AND wc.seq>wd.seq AND wc.seq<acc.seq AND json_extract(wc.payload,'$.review.verdict')='no_ship'
 			WHERE wd.subject_type=acc.subject_type AND wd.subject_id=acc.subject_id AND wd.kind=?
 			AND json_extract(wd.payload,'$.attempt_id')=json_extract(acc.payload,'$.worker_attempt_id')
-			AND json_extract(wd.payload,'$.capability_class')='review')))
-		ORDER BY acc.seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, reviewStep, WorkerCompleted, WorkerDispatched).Scan(&seq, &raw); err != nil {
+			AND json_extract(wd.payload,'$.capability_class')='review' AND (?=0 OR wd.seq<?) AND (?=0 OR wc.seq<?))))
+		ORDER BY acc.seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, reviewStep, beforeSeq, beforeSeq, WorkerCompleted, WorkerDispatched, beforeSeq, beforeSeq, beforeSeq, beforeSeq).Scan(&seq, &raw); err != nil {
 		if err == sql.ErrNoRows {
 			return 0, nil, nil
 		}
@@ -1220,12 +1226,13 @@ func workflowStaleReviewAcceptBeforeTx(ctx context.Context, q queryer, workID, a
 			AND json_extract(wd.payload,'$.attempt_id')=json_extract(wc.payload,'$.attempt_id')
 			AND json_extract(wd.payload,'$.capability_class')='review'
 		WHERE wc.subject_type=? AND wc.subject_id=? AND wc.kind=? AND json_extract(wc.payload,'$.attempt_id')=?
+		AND (?=0 OR (wd.seq<? AND wc.seq<?))
 		AND EXISTS(SELECT 1 FROM domain_events wc2
 			JOIN domain_events wd2 ON wd2.subject_type=wc2.subject_type AND wd2.subject_id=wc2.subject_id AND wd2.kind=?
 				AND json_extract(wd2.payload,'$.attempt_id')=json_extract(wc2.payload,'$.attempt_id')
 				AND json_extract(wd2.payload,'$.capability_class')='review'
-			WHERE wc2.subject_type=wc.subject_type AND wc2.subject_id=wc.subject_id AND wc2.kind=? AND wc2.seq>wc.seq AND (?=0 OR wc2.seq<?)))`,
-		WorkerDispatched, string(SubjectWorkItem), workID, WorkerCompleted, attemptID, WorkerDispatched, WorkerCompleted, beforeSeq, beforeSeq).Scan(&stale)
+			WHERE wc2.subject_type=wc.subject_type AND wc2.subject_id=wc.subject_id AND wc2.kind=? AND wc2.seq>wc.seq AND (?=0 OR (wd2.seq<? AND wc2.seq<?))))`,
+		WorkerDispatched, string(SubjectWorkItem), workID, WorkerCompleted, attemptID, beforeSeq, beforeSeq, beforeSeq, WorkerDispatched, WorkerCompleted, beforeSeq, beforeSeq, beforeSeq).Scan(&stale)
 	if err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot read the completed review history", true, "retry once the workflow projection is readable", err)
 	}
@@ -1239,11 +1246,19 @@ func workflowStaleReviewAcceptBeforeTx(ctx context.Context, q queryer, workID, a
 // rejection does not cover it, so the repaired result reaches delivery
 // unreviewed.
 func workflowPostRejectionReviewOutstanding(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, subject string) (bool, error) {
-	rejectSeq, _, err := workflowReviewProofFailure(ctx, q, workID, definition, subject)
+	return workflowPostRejectionReviewOutstandingBefore(ctx, q, workID, definition, subject, 0)
+}
+
+// workflowPostRejectionReviewOutstandingBefore is the same read bounded to
+// the log prefix before beforeSeq (exclusive; 0 reads the live log): the
+// debt-opening disposition and the settling review are both judged at that
+// prefix, so a later settlement cannot retire an earlier fold's debt.
+func workflowPostRejectionReviewOutstandingBefore(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, subject string, beforeSeq int64) (bool, error) {
+	rejectSeq, _, err := workflowReviewProofFailureBefore(ctx, q, workID, definition, subject, beforeSeq)
 	if err != nil || rejectSeq == 0 {
 		return false, err
 	}
-	return workflowPostRejectionReviewMissing(ctx, q, workID, workflowReviewProofRoles(definition), rejectSeq, subject)
+	return workflowPostRejectionReviewMissingBefore(ctx, q, workID, workflowReviewProofRoles(definition), rejectSeq, subject, beforeSeq)
 }
 
 // workflowPostRejectionReviewMissing reports whether no accepted review
@@ -1255,7 +1270,15 @@ func workflowPostRejectionReviewOutstanding(ctx context.Context, q queryer, work
 // ship (or absent on released full pins) settles. A no_ship review leaves
 // the debt outstanding.
 func workflowPostRejectionReviewMissing(ctx context.Context, q queryer, workID string, roles workflowProofStepRoles, rejectSeq int64, subject string) (bool, error) {
-	frontier, err := workflowPostRejectionRepairFrontier(ctx, q, workID, roles.producer, rejectSeq, subject)
+	return workflowPostRejectionReviewMissingBefore(ctx, q, workID, roles, rejectSeq, subject, 0)
+}
+
+// workflowPostRejectionReviewMissingBefore is the same read bounded to the
+// log prefix before beforeSeq (exclusive; 0 reads the live log): the repair
+// frontier and every joined accept, dispatch, and completion alias are
+// judged at that prefix.
+func workflowPostRejectionReviewMissingBefore(ctx context.Context, q queryer, workID string, roles workflowProofStepRoles, rejectSeq int64, subject string, beforeSeq int64) (bool, error) {
+	frontier, err := workflowPostRejectionRepairFrontierBefore(ctx, q, workID, roles.producer, rejectSeq, subject, beforeSeq)
 	if err != nil {
 		return false, err
 	}
@@ -1268,9 +1291,9 @@ func workflowPostRejectionReviewMissing(ctx context.Context, q queryer, workID s
 	}
 	var reviewed int
 	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events acc
-		JOIN domain_events disp ON disp.subject_type=acc.subject_type AND disp.subject_id=acc.subject_id AND disp.kind=? AND json_extract(disp.payload,'$.attempt_id')=json_extract(acc.payload,'$.worker_attempt_id') AND json_extract(disp.payload,'$.capability_class')=? AND disp.seq>?
-		JOIN domain_events wc ON wc.subject_type=acc.subject_type AND wc.subject_id=acc.subject_id AND wc.kind=? AND json_extract(wc.payload,'$.attempt_id')=json_extract(acc.payload,'$.worker_attempt_id')
-		WHERE acc.subject_type=? AND acc.subject_id=? AND acc.kind=? AND json_extract(acc.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence') AND json_extract(acc.payload,'$.step_id')=? AND acc.seq>? AND `+settles+`)`, WorkerDispatched, "review", frontier, WorkerCompleted, string(SubjectWorkItem), workID, WorkflowActionCompleted, roles.review, rejectSeq).Scan(&reviewed); err != nil {
+		JOIN domain_events disp ON disp.subject_type=acc.subject_type AND disp.subject_id=acc.subject_id AND disp.kind=? AND json_extract(disp.payload,'$.attempt_id')=json_extract(acc.payload,'$.worker_attempt_id') AND json_extract(disp.payload,'$.capability_class')=? AND disp.seq>? AND (?=0 OR disp.seq<?)
+		JOIN domain_events wc ON wc.subject_type=acc.subject_type AND wc.subject_id=acc.subject_id AND wc.kind=? AND json_extract(wc.payload,'$.attempt_id')=json_extract(acc.payload,'$.worker_attempt_id') AND (?=0 OR wc.seq<?)
+		WHERE acc.subject_type=? AND acc.subject_id=? AND acc.kind=? AND json_extract(acc.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence') AND json_extract(acc.payload,'$.step_id')=? AND acc.seq>? AND (?=0 OR acc.seq<?) AND `+settles+`)`, WorkerDispatched, "review", frontier, beforeSeq, beforeSeq, WorkerCompleted, beforeSeq, beforeSeq, string(SubjectWorkItem), workID, WorkflowActionCompleted, roles.review, rejectSeq, beforeSeq, beforeSeq).Scan(&reviewed); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot read the post-rejection review history", true, "retry once the worker delivery projection is readable", err)
 	}
 	return reviewed == 0, nil

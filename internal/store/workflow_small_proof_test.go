@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // These are query-level tests over the existing history fixture, not native
@@ -244,7 +245,12 @@ func smallReviewDispositionJourney(t *testing.T, workID string) *candidateJourne
 
 func smallReviewDispositionJourneyAtRoot(t *testing.T, workID, root string) *candidateJourney {
 	t.Helper()
-	s, definition := footprintBindingItem(t, workID, true)
+	return smallReviewDispositionJourneyWithChecks(t, workID, root, nil)
+}
+
+func smallReviewDispositionJourneyWithChecks(t *testing.T, workID, root string, checks []FootprintPackageCheck) *candidateJourney {
+	t.Helper()
+	s, definition := footprintBindingItemWithChecks(t, workID, true, checks)
 	owner := WorkflowActor{PrincipalRef: "principal/agent", ClientRef: "client/concord", AgentRef: "agent/size", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	events, err := footprintBindingApproval(t, s, definition, workID)
 	if err != nil {
@@ -271,6 +277,14 @@ func smallReviewDispositionJourneyAtRoot(t *testing.T, workID, root string) *can
 	}
 	if err := os.WriteFile(filepath.Join(dir, "internal/store/value.txt"), []byte("bounded candidate\n"), 0o600); err != nil {
 		t.Fatal(err)
+	}
+	if checks != nil {
+		if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "scripts/check-small.py"), []byte("raise SystemExit(0)\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	j.commit(t, "worker@example.invalid", "deliver the bounded candidate")
 	j.completeLane(t, "small-implementation", "implementation", &job, nil)
@@ -371,4 +385,196 @@ func TestSmallReviewDispositionTracksTheCurrentNativeAttempt(t *testing.T) {
 		t.Fatalf("rebuild the accepted native review sequence: %v", err)
 	}
 	reviewGateRequireStep(t, j.s, j.workID, "acceptance")
+}
+
+func TestSmallProofConfirmationCannotSkipNativeProof(t *testing.T) {
+	for _, accepted := range []bool{false, true} {
+		name := "without-accepted-review"
+		if accepted {
+			name = "without-outcome-verdict"
+		}
+		t.Run(name, func(t *testing.T) {
+			j := smallReviewDispositionJourney(t, "small-proof-"+name)
+			if accepted {
+				if err := j.acceptEvidence(t, "small-review"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			version := readWorkVersion(t, j.s, j.workID)
+			actor := footprintBindingActorRef(t, j.workID)
+			event := workflowEventWithActor("small-proof-raw-confirm", WorkflowPremiseConfirmed, j.workID, actor, map[string]any{
+				"work_id": j.workID, "expected_version": version, "resulting_version": version + 1,
+				"contract_version": 1, "confirming_actor_ref": actor, "confirmation_authority": "coordinator",
+			})
+			event.PayloadVersion = eventKindRegistry[WorkflowPremiseConfirmed].CurrentVersion
+			if err := appendFootprintBindingEvents(j.s, j.workID, version, []Event{event}); err == nil {
+				t.Error("raw confirmation bypassed mandatory small proof")
+			}
+			if got := readWorkVersion(t, j.s, j.workID); got != version {
+				t.Errorf("refused confirmation changed version %d to %d", version, got)
+			}
+		})
+	}
+}
+
+func smallProofRecordVerdict(t *testing.T, j *candidateJourney) {
+	t.Helper()
+	evaluator := WorkflowActor{PrincipalRef: "principal/agent", ClientRef: "client/concord", AgentRef: "agent/small-evaluator", SessionRef: "session/small-evaluator", ActorClass: ActorAgent, Model: "model/small-evaluator"}
+	runRef := worktreeVerifyOperationRef(j.request("small-integration", nil).LeaseID)
+	if err := j.action(t, "record_verdict", map[string]any{
+		"contract_version": 1, "verdicts": []map[string]any{{"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{runRef}}},
+	}, evaluator); err != nil {
+		t.Fatalf("record independent outcome verdict: %v", err)
+	}
+}
+
+func TestSmallProofNativeReviewAndCurrentOutcomesPermitConfirmation(t *testing.T) {
+	j := smallReviewDispositionJourney(t, "small-proof-current")
+	if err := j.acceptEvidence(t, "small-review"); err != nil {
+		t.Fatal(err)
+	}
+	smallProofRecordVerdict(t, j)
+	ctx := context.Background()
+	if err := ApplyOperation(ctx, j.s, Operation{Events: []Event{{
+		EventID: "small-proof-investigation", Kind: WorkObservationRecorded, SubjectType: SubjectWorkItem, SubjectID: j.workID,
+		Actor: "actor:test", OccurredAt: time.Unix(8, 0).UTC(), PayloadVersion: 1,
+		Payload: mustJSONValue(map[string]any{"observation_id": "obs:" + strings.Repeat("a", 16), "statement": "technical investigation", "refs": []string{"root"}, "tags": []string{}}),
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	small, err := builtinWorkflowDefinitionForSize("workflow.implementation", WorkSizeSmall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := requireWorkflowSmallProofBefore(ctx, j.s.db, j.workID, small.Definition, 0); err != nil {
+		t.Fatalf("native proof derivation: %v", err)
+	}
+	pin, err := ReadWorkPin(ctx, j.s, j.workID)
+	if err != nil || !workPinContainsAction(pin.NextValidIntents, "confirm_premise") {
+		t.Fatalf("complete small proof did not open confirmation: %+v, %v", pin.NextValidIntents, err)
+	}
+	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx = WithWorkerDispatchPreparation(ctx, prepared)
+	version := readWorkVersion(t, j.s, j.workID)
+	if err := j.s.Transact(ctx, func(transaction *Transaction) error {
+		_, err := ApplyWorkflowActionTx(ctx, transaction, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+			WorkID: j.workID, ExpectedVersion: version, ActionID: "confirm_premise", SelectedChoice: "confirm", Actor: j.fixture.owner,
+			AcceptedInputsDigest: nativeDigest([]byte("small-confirm")), IdempotencyIdentity: "small-confirm", OperationID: "small-confirm",
+			PrincipalRef: j.fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "small-confirm", RequestID: "request:small-confirm", ContractDigest: testManifestDigest, Now: time.Now().UTC(),
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("confirm complete native small proof: %v", err)
+	}
+	reviewGateRequireStep(t, j.s, j.workID, "release")
+	if err := RebuildFromLog(ctx, j.s); err != nil {
+		t.Fatalf("rebuild native small proof: %v", err)
+	}
+	reviewGateRequireStep(t, j.s, j.workID, "release")
+}
+
+func TestSmallProofExactFootprintReceiptAndPrefix(t *testing.T) {
+	j := smallReviewDispositionJourneyWithChecks(t, "small-proof-check", t.TempDir(), []FootprintPackageCheck{{Package: workSizeFootprintFixture().Paths[0].Package, Kind: "validator", Value: "scripts/check-small.py"}})
+	if err := j.acceptEvidence(t, "small-review"); err != nil {
+		t.Fatal(err)
+	}
+	smallProofRecordVerdict(t, j)
+	small, err := builtinWorkflowDefinitionForSize("workflow.implementation", WorkSizeSmall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	assertProof := func(before int64, want bool) {
+		t.Helper()
+		err := requireWorkflowSmallProofBefore(ctx, j.s.db, j.workID, small.Definition, before)
+		if (err == nil) != want {
+			t.Fatalf("proof before %d = %v, want qualified=%v", before, err, want)
+		}
+	}
+	bind := func(request WorktreeVerifyRequest, run WorktreeVerifyResult) error {
+		t.Helper()
+		return j.action(t, "bind_evidence", map[string]string{
+			"evidence_kind": "verification", "evidence_ref": run.OperationRef, "immutable_subject_ref": run.OperationRef,
+			"producer_id": request.PrincipalRef, "producer_run_ref": run.OperationRef, "producer_watermark": request.RequestID,
+		}, j.fixture.owner)
+	}
+	run := func(id string, argv []string) (WorktreeVerifyRequest, WorktreeVerifyResult) {
+		t.Helper()
+		request := j.request(id, nil)
+		request.Command = argv
+		result, err := j.s.VerifyWorktree(ctx, request)
+		if err != nil || result.ExitCode != 0 {
+			t.Fatalf("native check: %+v, %v", result, err)
+		}
+		return request, result
+	}
+	assertProof(0, false)
+	version := readWorkVersion(t, j.s, j.workID)
+	if err := WorkflowActionPreflightWithRegistry(ctx, j.s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
+		WorkID: j.workID, ExpectedVersion: version, ActionID: "confirm_premise", Actor: j.fixture.owner, SelectedChoice: "confirm",
+	}); err == nil || !strings.Contains(err.Error(), "exact bound receipt") {
+		t.Fatalf("preflight did not consume the missing footprint proof: %v", err)
+	}
+	if err := j.action(t, "confirm_premise", map[string]any{}, j.fixture.owner); err == nil || !strings.Contains(err.Error(), "exact bound receipt") {
+		t.Fatalf("direct action did not consume the missing footprint proof: %v", err)
+	}
+	evaluatorRef, err := WorkflowActorRef(WorkflowActor{PrincipalRef: "principal/agent", ClientRef: "client/concord", AgentRef: "agent/small-evaluator", SessionRef: "session/small-evaluator", ActorClass: ActorAgent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completion := workflowEventWithActor("small-proof-raw-completion", WorkflowCompleted, j.workID, footprintBindingActorRef(t, j.workID), map[string]any{
+		"work_id": j.workID, "expected_version": version, "resulting_version": version + 1,
+		"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": evaluatorRef,
+		"evidence_count": 0, "changed_refs_digest": nativeDigest([]byte("candidate")), "impact_verdict": "non-breaking", "warnings": []string{},
+	})
+	if err := j.s.Transact(ctx, func(transaction *Transaction) error {
+		return foldWorkflowCompleted(ctx, transaction.tx, completion, nil)
+	}); err == nil || !strings.Contains(err.Error(), "exact bound receipt") {
+		t.Fatalf("raw completion did not consume the missing footprint proof: %v", err)
+	}
+	if got := readWorkVersion(t, j.s, j.workID); got != version {
+		t.Fatalf("proof refusals changed version %d to %d", version, got)
+	}
+	wrongRequest, wrong := run("wrong-check", []string{"python3", "scripts/check-small.py", "--unrelated"})
+	if err := bind(wrongRequest, wrong); err == nil {
+		t.Fatal("unrelated green acquired a footprint binding recovery route")
+	}
+	assertProof(0, false)
+	request, exact := run("exact-check", []string{"python3", "scripts/check-small.py"})
+	assertProof(0, false)
+	if err := bind(request, exact); err != nil {
+		t.Fatal(err)
+	}
+	var bindingSeq int64
+	if err := j.s.db.QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.producer_run_ref')=?`, j.workID, WorkflowEvidenceBound, exact.OperationRef).Scan(&bindingSeq); err != nil {
+		t.Fatal(err)
+	}
+	assertProof(bindingSeq, false)
+	assertProof(bindingSeq+1, true)
+	assertProof(0, true)
+	recovery, err := workflowEvidenceBindingRecoveryEligibility(ctx, j.s.db, small.Definition, j.workID, "acceptance", bindingSeq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovery.Requirements) != 1 || recovery.Requirements[0].Reference != exact.OperationRef {
+		t.Fatalf("binding prefix lost its exact recovery requirement: %+v", recovery)
+	}
+
+	// A completed but undispositioned newer review retires the old report,
+	// but cannot leak backward through the historical proof boundary.
+	j.dispatchReview(t, "small-review-newer")
+	j.completeLane(t, "small-review-newer", "review", nil, nil)
+	assertProof(0, false)
+	assertProof(bindingSeq+1, true)
+	if err := j.acceptEvidence(t, "small-review-newer"); err != nil {
+		t.Fatal(err)
+	}
+	assertProof(0, true)
+	if err := RebuildFromLog(ctx, j.s); err != nil {
+		t.Fatalf("rebuild exact native footprint proof: %v", err)
+	}
+	assertProof(0, true)
 }

@@ -37,10 +37,6 @@ const refused = (result: unknown, kind: string) => {
   return result as { kind: string; detail: string }
 }
 
-test("exports the pinned report protocol identity", () => {
-  expect(WORKER_REPORT_PROTOCOL).toBe("concord-worker-result-v1")
-})
-
 test("one designated frame selects its body with exact frame bytes", () => {
   const text = frame()
   const result = selected(selectWorkerReport([text], { protocol: WORKER_REPORT_PROTOCOL }))

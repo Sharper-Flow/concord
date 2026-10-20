@@ -41,6 +41,12 @@ SPEC.loader.exec_module(gate)
 
 from release_restore_invoke import invoke_plan, tag_facts
 
+LEGACY_SPEC = importlib.util.spec_from_file_location("release_restore_legacy", Path(__file__).with_name("release_restore_legacy.py"))
+assert LEGACY_SPEC and LEGACY_SPEC.loader
+legacy = importlib.util.module_from_spec(LEGACY_SPEC)
+sys.modules[LEGACY_SPEC.name] = legacy
+LEGACY_SPEC.loader.exec_module(legacy)
+
 REPO = Path(__file__).resolve().parents[1]
 # The writer-produced event kind per invoke plan verb: the fake released
 # binary emits one event per executed plan step, so witnesses assert the
@@ -241,7 +247,9 @@ class Fixture:
         digest = hashlib.sha256(binary.read_bytes()).hexdigest()
         checksum = self.assets / str(self.next_id + 1)
         checksum.write_text(f"{'0' * 64 if corrupt else digest}  concord-{tag}\n", encoding="utf-8")
-        return gate.Writer(tag, 1, "1" * 40, "2" * 40, self.next_id, binary.stat().st_size + size_delta, f"sha256:{digest}",
+        commit = subprocess.run(["git", "-C", str(REPO), "rev-parse", f"{tag}^{{commit}}"],
+                                capture_output=True, text=True, check=True).stdout.strip()
+        return gate.Writer(tag, 1, "1" * 40, commit, self.next_id, binary.stat().st_size + size_delta, f"sha256:{digest}",
                            self.next_id + 1, checksum.stat().st_size)
 
     def candidate(self, mode: str = "ok", version: str = "v9.0.0") -> Path:
@@ -262,7 +270,7 @@ class CaseTests(unittest.TestCase):
         self.tempdir.cleanup()
 
     def case(self, writer: gate.Writer, candidate: Path, case_seconds: int = 60, scratch: gate.Scratch | None = None,
-             transfer: int = 1 << 30) -> dict:
+              transfer: int = 1 << 30) -> dict:
         work = self.fixture.root / "work"
         return gate.run_writer_case("owner/repo", writer, candidate, work, work / "streams" / writer.tag, case_seconds,
                                     time.monotonic() + 600, scratch or gate.Scratch(1 << 30, 1), gate.Transfer(transfer))
@@ -356,12 +364,83 @@ class CaseTests(unittest.TestCase):
         resolved = gate.resolve({"value": gate.repository("home")}, store, self.fixture.root, time.monotonic() + 10)
         self.assertTrue(Path(resolved["value"]).is_dir())
 
-    def test_a_capture_output_failure_keeps_the_legacy_writer_held(self) -> None:
-        row = self.case(self.fixture.publish("v0.1.0", mode="capture-marshal-error"), self.fixture.candidate())
+    def test_a_capture_output_failure_keeps_a_capture_plan_writer_held(self) -> None:
+        # The fake represents a capture-plan writer (v0.26.1 selects capture with
+        # grant) whose capture output cannot marshal: the writer stays held, the
+        # refusal is named, and nothing is salvaged into a success or a skip.
+        row = self.case(self.fixture.publish("v0.26.1", mode="capture-marshal-error"), self.fixture.candidate())
         self.assertCase(row, "unknown", "invoke-invoke")
         self.assertIn("capture exited 1: json: error calling MarshalJSON for type agent.Envelope: invalid result payload: type mismatch at $.changed_refs[0].version", row["detail"])
         self.assertEqual(row["witnesses"], [])
         self.assertNotIn("invoke", row)
+
+    def test_gate_run_binds_the_legacy_remote_commit_for_its_cases(self) -> None:
+        # The gate derives each case's remote commit from the enumerated tag map,
+        # as a live run does, so the selection inside run_writer_case binds it.
+        commit = subprocess.run(["git", "-C", str(REPO), "rev-parse", "v0.1.0^{commit}"],
+                                capture_output=True, text=True, check=True).stdout.strip()
+        writer = self.fixture.publish("v0.1.0")
+        releases = [release_of(writer, 1)]
+        report, _ = gate.run_gate(self.args(self.fixture.candidate()), releases, {"v0.1.0": ("0" * 40, commit)})
+        row = report["rows"][0]
+        self.assertEqual((row["status"], row["tag"]), ("pass", "v0.1.0"))
+        self.assertNotIn("invoke", row)
+        self.assertEqual(row["source_proof"]["variant"], "legacy-bootstrap")
+        self.assertEqual(row["source_proof"]["commit"], commit)
+
+    def test_a_proven_legacy_writer_runs_the_bootstrap_pair_only(self) -> None:
+        # The fake emulates the v0.1.0 writer's operator surface: the product-create
+        # and project-locator-add pair writes only operator fixture rows and no
+        # client/grant/invoke verb is ever sent to it.
+        commit = subprocess.run(["git", "-C", str(REPO), "rev-parse", "v0.1.0^{commit}"],
+                                capture_output=True, text=True, check=True).stdout.strip()
+        row = self.case(self.fixture.publish("v0.1.0"), self.fixture.candidate())
+        self.assertCase(row, "pass", "complete")
+        self.assertNotIn("invoke", row)
+        proof = row["source_proof"]
+        self.assertEqual(proof["variant"], "legacy-bootstrap")
+        self.assertEqual(proof["commit"], commit)
+        self.assertEqual(row["commit"], proof["commit"])
+        expected = {path: hashlib.sha256(subprocess.run(["git", "-C", str(REPO), "show", f"v0.1.0:{path}"],
+                                                        capture_output=True, check=True).stdout).hexdigest()
+                    for path in legacy.LEGACY_OWNERS}
+        self.assertEqual(proof["owners"], expected)
+        self.assertEqual(proof["fingerprint"], legacy.fingerprint_of(proof["owners"]))
+        self.assertEqual([(w["kind"], json.loads(w["payload"]).get("display_name", "missing")) for w in row["witnesses"]],
+                         [("product-create", "Gate Product"), ("project-locator-add", "missing")])
+        steps = gate.recipe_for("v0.1.0")
+        self.assertEqual(row["recipe_sha256"], gate.recipe_sha256(steps, ()))
+        self.assertNotEqual(row["recipe_sha256"], gate.recipe_sha256(steps, ("client-register", "grant", "invoke:concord_work_define.capture")))
+        provenance = row["witnesses"][0]["writer"]
+        self.assertEqual((provenance["tag"], provenance["recipe_sha256"]), ("v0.1.0", row["recipe_sha256"]))
+
+    def test_an_unbound_remote_commit_holds_a_legacy_writer(self) -> None:
+        # A v0.1.0 release whose remote commit does not bind the pinned source
+        # commit must never run bootstrap-only or capture: the writer stays unevaluated.
+        writer = dataclasses.replace(self.fixture.publish("v0.1.0"), commit="1" * 40)
+        row = self.case(writer, self.fixture.candidate())
+        self.assertCase(row, "unknown", "invoke-legacy-proof")
+        self.assertIn("does not bind the pinned source commit", row["detail"])
+        self.assertEqual(row["witnesses"], [])
+        self.assertNotIn("invoke", row)
+        self.assertNotIn("source_proof", row)
+
+    def test_the_writer_identity_cannot_be_replaced_by_a_separate_commit(self) -> None:
+        writer = dataclasses.replace(self.fixture.publish("v0.1.0"), commit="1" * 40)
+        row = self.case(writer, self.fixture.candidate())
+        self.assertCase(row, "unknown", "invoke-legacy-proof")
+        self.assertEqual(row["witnesses"], [])
+        self.assertNotIn("source_proof", row)
+
+    def test_the_empty_legacy_plan_hashes_distinctly(self) -> None:
+        steps = gate.recipe_for("v0.1.0")
+        legacy_hash = gate.recipe_sha256(steps, ())
+        capture_only = gate.recipe_sha256(steps, ("client-register", "grant", "invoke:concord_work_define.capture"))
+        messages = gate.recipe_sha256(steps, ("client-register", "grant", "invoke:concord_work_define.capture",
+                                              "invoke:concord_work_define.capture", "invoke:concord_work_relate.message_send",
+                                              "invoke:concord_work_relate.message_withdraw"))
+        no_grant = gate.recipe_sha256(steps, ("client-register", "invoke:concord_work_define.capture"))
+        self.assertEqual(len({legacy_hash, capture_only, messages, no_grant}), 4)
 
     def test_writer_environment_is_constructed(self) -> None:
         self.case(self.fixture.publish("v1.0.0", mode="refuse"), self.fixture.candidate())

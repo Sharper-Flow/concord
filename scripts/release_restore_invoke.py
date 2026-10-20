@@ -32,6 +32,15 @@ capture-only before `concord_work_relate.message_send` and
 captures then send and withdraw once they are. The gate hashes the actual
 plan. Only successful execution reports that plan as completed; no failed
 capture becomes a bootstrap-only success without a separate source/behavior proof.
+
+The one exception is a source-proven legacy bootstrap candidate
+(scripts/release_restore_legacy.py): the eight v0.1.0-v0.7.1 writers whose
+complete whole-file source fingerprints match the pinned tuples run the
+operator product-create/project-locator-add pair only. Their invoke plan is
+the empty tuple, which hashes distinctly from every capture/message/grant
+variant, and run_invoke_phase returns without registering, granting, or
+invoking anything. The selection happens before any execution and never
+after a failed capture; a drifted or unbound legacy source holds by name.
 """
 
 from __future__ import annotations
@@ -216,7 +225,14 @@ def message_support(contracts: str, tag: str) -> bool:
 
 
 def invoke_plan(facts: dict) -> tuple[str, ...]:
-    """The per-tag plan: only the steps this source can actually run, grant included only when it runs."""
+    """The per-tag plan: only the steps this source can actually run, grant included only when it runs.
+
+    A source-proven legacy bootstrap candidate plans no invoke step at all:
+    the empty plan hashes distinctly from every capture/message/grant variant
+    and run_invoke_phase runs nothing for it.
+    """
+    if facts.get("bootstrap_only"):
+        return ()
     plan = ["client-register"]
     if facts["has_grant"]:
         plan.append("grant")
@@ -367,6 +383,11 @@ def run_invoke_phase(run, repo: Path, tag: str, case: Path, store: Path, facts: 
     """
     facts = facts if facts is not None else tag_facts(repo, tag)
     plan = invoke_plan(facts)
+    if not plan:
+        # A source-proven legacy bootstrap writer runs no registration, grant,
+        # or invoke. The record reports the skipped phase truthfully - it is
+        # never an invocation success - and the gate omits it from the row.
+        return {"outcome": "bootstrap-only", "plan": []}
     worktree = synthetic_repository(case)
     key, public = keypair(case)
     steps, grant_request = invoke_steps(facts, case, key, public, worktree)

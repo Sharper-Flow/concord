@@ -13,6 +13,7 @@ store is reachable.
 from __future__ import annotations
 
 import base64
+import hashlib
 import importlib.util
 import json
 import os
@@ -23,12 +24,21 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location("release_restore_invoke", Path(__file__).with_name("release_restore_invoke.py"))
 assert SPEC and SPEC.loader
 invoke = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = invoke
 SPEC.loader.exec_module(invoke)
+
+LEGACY_SPEC = importlib.util.spec_from_file_location("release_restore_legacy", Path(__file__).with_name("release_restore_legacy.py"))
+assert LEGACY_SPEC and LEGACY_SPEC.loader
+legacy = importlib.util.module_from_spec(LEGACY_SPEC)
+sys.modules[LEGACY_SPEC.name] = legacy
+LEGACY_SPEC.loader.exec_module(legacy)
+
+REPO = Path(__file__).resolve().parents[1]
 
 FORM_A_AUTHORITY = '''func CanonicalAssertion(a SignedAssertion) []byte {
 	names := []string{"client_ref", "client_version", "session_ref", "agent_ref", "directory", "worktree", "requested_product_id", "requested_project_ids", "requested_capabilities", "issued_at", "nonce", "surface_range", "envelope_versions", "manifest_digest"}
@@ -607,6 +617,306 @@ class MessageRefusalTest(unittest.TestCase):
         idempotency = [call["input"]["idempotency_key"] for call in stub.invocations]
         self.assertEqual(len(set(request_ids)), 4)
         self.assertEqual(len(set(idempotency)), 4)
+
+
+# Synthetic sources shaped like the v0.1.0-era writers the legacy proof reasons
+# about: direct-marshaling mutationPayload, string ChangedRef.Version, the
+# capture->mutation_result schema binding, the integer version definition, the
+# operator bypass, and the bootstrap store writers. The corrected variant
+# mirrors v0.8.0: only mutations.go changes to integer result refs.
+LEGACY_SOURCES = {
+    "cmd/concord/main.go": (
+        "package main\n"
+        "\n"
+        "func runJSONCommand(command string, raw []byte, s *store.Store, service *agent.Service, out io.Writer) int {\n"
+        "\tswitch command {\n"
+        "\tcase \"invoke\":\n"
+        "\t\treturn runInvoke(raw, s, service, out)\n"
+        "\tcase \"grant\":\n"
+        "\t\treturn runGrant(raw, service, out)\n"
+        "\tdefault:\n"
+        "\t\treturn runInternal(command, raw, service, s, out)\n"
+        "\t}\n"
+        "}\n"
+        "\n"
+        "func writeOperatorResult(command string, s *store.Store, refs []operatorRef, out io.Writer) int {\n"
+        "\t// operatorResponse versions come from strconv.FormatInt, never agent.Envelope.\n"
+        "\tresponse := operatorResponse{OK: true, ChangedRefs: changed}\n"
+        "\treturn writeJSON(out, response)\n"
+        "}\n"
+    ),
+    "internal/agent/envelope.go": (
+        "package agent\n"
+        "\n"
+        "type ChangedRef struct {\n"
+        "\tEntityKind string `json:\"entity_kind\"`\n"
+        "\tID         string `json:\"id\"`\n"
+        "\tVersion    string `json:\"version\"`\n"
+        "}\n"
+        "\n"
+        "func (e Envelope) MarshalJSON() ([]byte, error) {\n"
+        "\tif err := e.Validate(); err != nil {\n"
+        "\t\treturn nil, err\n"
+        "\t}\n"
+        "\tb, err := json.Marshal(wire(e))\n"
+        "\treturn b, err\n"
+        "}\n"
+    ),
+    "internal/agent/mutations.go": (
+        "package agent\n"
+        "\n"
+        "func (r runtime) captureEffect(workID string) mutationEffect {\n"
+        "\treturn func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {\n"
+        "\t\tresult, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{Kind: \"work.created\", PayloadVersion: 2}}})\n"
+        "\t\tif err != nil {\n"
+        "\t\t\treturn nil, nil, nil, err\n"
+        "\t\t}\n"
+        "\t\treturn mutationPayload([]ChangedRef{{EntityKind: \"work_item\", ID: workID, Version: \"2\"}}, intents), result.EventIDs, []ChangedRef{{EntityKind: \"work_item\", ID: workID, Version: \"2\"}}, nil\n"
+        "\t}\n"
+        "}\n"
+        "\n"
+        "func mutationPayload(changed []ChangedRef, intents []NextIntent) json.RawMessage {\n"
+        "\tb, _ := json.Marshal(map[string]any{\"changed_refs\": changed, \"next_valid_intents\": intents})\n"
+        "\treturn b\n"
+        "}\n"
+    ),
+    "internal/agent/payload_validation.go": (
+        "package agent\n"
+        "\n"
+        "var operationPayloadSchemas = map[string]string{\"concord_work_define.capture\": \"mutation_result\"}\n"
+        "\n"
+        "func ValidateOperationPayload(tool, operation string, data []byte, result bool) error {\n"
+        "\tname := operationPayloadSchemas[tool+\".\"+operation]\n"
+        "\tif err := ValidateGeneratedPayload(name, data); err != nil {\n"
+        "\t\treturn err\n"
+        "\t}\n"
+        "\treturn ValidatePayloadSchema(name, data)\n"
+        "}\n"
+        "\n"
+        "func validateSchemaValue(value any, schema map[string]any, root map[string]any, path string) error {\n"
+        "\tif types, ok := schema[\"type\"]; ok && !matchesAnyType(value, types) {\n"
+        "\t\treturn fmt.Errorf(\"type mismatch at %s\", path)\n"
+        "\t}\n"
+        "\treturn nil\n"
+        "}\n"
+    ),
+    "internal/agent/generated_payload_schemas.go": (
+        "package agent\n"
+        "\n"
+        "const GeneratedPayloadSchemaDocument = `{\"$defs\":{\"mutation_result\":{\"properties\":{\"changed_refs\":{\"items\":"
+        "{\"properties\":{\"version\":{\"$ref\":\"#/$defs/version\"}}}}}},\"version\":{\"minimum\":1,\"type\":\"integer\"}}}`\n"
+    ),
+    "internal/agent/generated_contracts.go": (
+        "package agent\n"
+        "\n"
+        "var GeneratedPayloadRules = map[string]PayloadRule{\"mutation_result\": {Required: []string{\"changed_refs\", \"next_valid_intents\"}}}\n"
+        "\n"
+        "func ValidateGeneratedPayload(schemaName string, data []byte) error {\n"
+        "\trule, ok := GeneratedPayloadRules[schemaName]\n"
+        "\tif !ok {\n"
+        "\t\treturn fmt.Errorf(\"unknown payload schema %s\", schemaName)\n"
+        "\t}\n"
+        "\tvar object map[string]json.RawMessage\n"
+        "\tif err := json.Unmarshal(data, &object); err != nil {\n"
+        "\t\treturn err\n"
+        "\t}\n"
+        "\tfor _, name := range rule.Required {\n"
+        "\t\tif _, ok := object[name]; !ok {\n"
+        "\t\t\treturn fmt.Errorf(\"missing payload field %s\", name)\n"
+        "\t\t}\n"
+        "\t}\n"
+        "\treturn nil\n"
+        "}\n"
+    ),
+    "internal/store/operator.go": (
+        "package store\n"
+        "\n"
+        "func (s *Store) CreateProductWithProject(ctx context.Context, request ProductCreation) (ApplyOperationResult, error) {\n"
+        "\treturn ApplyOperationWithResult(ctx, s, Operation{Events: []Event{\n"
+        "\t\t{Kind: \"product.created\", PayloadVersion: 1}, {Kind: \"project.created\", PayloadVersion: 1}, {Kind: \"product_project.added\", PayloadVersion: 1},\n"
+        "\t}})\n"
+        "}\n"
+    ),
+    "internal/store/project_locator.go": (
+        "package store\n"
+        "\n"
+        "func (s *Store) AddProjectLocator(ctx context.Context, projectID string, locator ProjectLocator, expectedVersion int64) error {\n"
+        "\treturn s.applyLocatorEvent(ctx, projectID, \"project.locator_added\", locator, expectedVersion)\n"
+        "}\n"
+    ),
+}
+CORRECTED_MUTATIONS = LEGACY_SOURCES["internal/agent/mutations.go"].replace(
+    "mutationPayload([]ChangedRef{{EntityKind: \"work_item\", ID: workID, Version: \"2\"}}, intents)",
+    "mutationPayload([]ResultRef{{EntityKind: \"work_item\", ID: workID, Version: 2}}, intents)",
+).replace(
+    "func mutationPayload(changed []ChangedRef, intents []NextIntent) json.RawMessage {",
+    "// v0.8.0 correction: integer result refs converted from the stored string version.\nfunc mutationPayload(changed []ResultRef, intents []NextIntent) json.RawMessage {",
+)
+
+
+def git_bytes(repo: Path, *argv: str) -> bytes:
+    proc = subprocess.run(["git", "-C", str(repo), *argv], capture_output=True, timeout=120)
+    if proc.returncode != 0:
+        raise AssertionError(f"git {' '.join(argv)} exited {proc.returncode}: {proc.stderr.decode()[-200:]}")
+    return proc.stdout
+
+
+def blob_sha256(repo: Path, rev: str, path: str) -> str:
+    return hashlib.sha256(git_bytes(repo, "show", f"{rev}:{path}")).hexdigest()
+
+
+class LegacyProofTest(unittest.TestCase):
+    """The whole-file source proof that alone admits the bootstrap-only variant.
+
+    Fixture tables are built from real `git show` blob hashes of the fixture's
+    own objects, never invented; the committed table is verified against this
+    checkout's actual v0.1.0-v0.8.0 tags with the same independent hashing.
+    """
+
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.repo = self.tempdir.name and Path(self.tempdir.name) / "repo"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(self.repo)], check=True, capture_output=True)
+        self.commits = {}
+        self.commits["legacy-a"] = self.commit_tagged(LEGACY_SOURCES, "legacy-a")
+        sources = dict(LEGACY_SOURCES)
+        sources["internal/agent/mutations.go"] = CORRECTED_MUTATIONS
+        self.commits["fixed-a"] = self.commit_tagged(sources, "fixed-a")
+        self.rows = (
+            {"tag": "legacy-a", "commit": self.commits["legacy-a"], "variant": legacy.LEGACY_VARIANT,
+             "owners": {path: blob_sha256(self.repo, self.commits["legacy-a"], path) for path in legacy.LEGACY_OWNERS}},
+            {"tag": "fixed-a", "commit": self.commits["fixed-a"], "variant": legacy.CORRECTED_VARIANT,
+             "owners": {path: blob_sha256(self.repo, self.commits["fixed-a"], path) for path in legacy.LEGACY_OWNERS}},
+        )
+        self.addCleanup(self.tempdir.cleanup)
+
+    def pinned(self, rows: tuple | None = None):
+        """Serve a fixture pin table to the module for the duration of one test."""
+        return patch.object(legacy, "LEGACY_SOURCE_PINS", rows or self.rows)
+
+    def commit_tagged(self, paths: dict[str, str], tag: str) -> str:
+        for name, content in paths.items():
+            (self.repo / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / name).write_text(content, encoding="utf-8")
+        env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1"}
+        subprocess.run(["git", "-C", str(self.repo), "add", "-A"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                        "commit", "--allow-empty", "-qm", tag], check=True, capture_output=True, env=env)
+        subprocess.run(["git", "-C", str(self.repo), "tag", tag], check=True, capture_output=True)
+        return git_bytes(self.repo, "rev-parse", f"{tag}^{{commit}}").decode().strip()
+
+    def select(self, tag: str, remote: str | None):
+        return legacy.select_variant(self.repo, tag, remote)
+
+    def shadow_blob(self, rev: str, path: str, content: bytes) -> None:
+        """Shadow one owner's blob in the local object store: the commit binding stays, the bytes drift."""
+        old = git_bytes(self.repo, "rev-parse", f"{rev}:{path}").decode().strip()
+        new = subprocess.run(["git", "-C", str(self.repo), "hash-object", "-w", "--stdin"], input=content,
+                             capture_output=True, check=True).stdout.decode().strip()
+        subprocess.run(["git", "-C", str(self.repo), "replace", old, new], check=True, capture_output=True)
+
+    def test_a_matching_source_selects_its_variant(self) -> None:
+        with self.pinned():
+            variant, proof = self.select("legacy-a", self.commits["legacy-a"])
+            self.assertEqual(variant, "legacy-bootstrap")
+            self.assertEqual(proof["commit"], self.commits["legacy-a"])
+            self.assertEqual(proof["owners"], self.rows[0]["owners"])
+            self.assertEqual(proof["fingerprint"], legacy.fingerprint_of(proof["owners"]))
+            variant, proof = self.select("fixed-a", self.commits["fixed-a"])
+            self.assertEqual(variant, "corrected")
+            self.assertNotEqual(proof["fingerprint"], legacy.fingerprint_of(self.rows[0]["owners"]))
+
+    def test_each_drifted_or_disconnected_owner_holds_by_name(self) -> None:
+        cases = [("byte drift appends one byte", "internal/agent/mutations.go", LEGACY_SOURCES["internal/agent/mutations.go"] + "\n"),
+                 ("raw CRLF drift", "internal/agent/envelope.go", LEGACY_SOURCES["internal/agent/envelope.go"].replace("\n", "\r\n")),
+                 ("disconnected validator helper", "internal/agent/generated_contracts.go",
+                  LEGACY_SOURCES["internal/agent/generated_contracts.go"].replace("func ValidateGeneratedPayload", "func movedValidator")),
+                 ("disconnected schema binding", "internal/agent/generated_payload_schemas.go",
+                  LEGACY_SOURCES["internal/agent/generated_payload_schemas.go"].replace('#/$defs/version', '#/$defs/version_v2'))]
+        for path in legacy.LEGACY_OWNERS:
+            if path not in {case[1] for case in cases}:
+                cases.append(("owner byte drift", path, LEGACY_SOURCES[path] + "\n"))
+        for name, path, content in cases:
+            with self.subTest(owner=path, case=name), tempfile.TemporaryDirectory() as name2:
+                self.assertNotEqual(content, LEGACY_SOURCES[path], "a drift control must actually change owner bytes")
+                repo = Path(name2) / "repo"
+                subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, capture_output=True)
+                saved_repo = self.repo
+                self.repo = repo
+                try:
+                    commit = self.commit_tagged(LEGACY_SOURCES, "legacy-a")
+                    rows = ({"tag": "legacy-a", "commit": commit, "variant": legacy.LEGACY_VARIANT,
+                             "owners": {p: blob_sha256(repo, commit, p) for p in legacy.LEGACY_OWNERS}},)
+                    with self.pinned(rows), self.assertRaises(legacy.LegacyProofError) as raised:
+                        self.shadow_blob(commit, path, content.encode())
+                        legacy.select_variant(repo, "legacy-a", commit)
+                    self.assertIn(path, raised.exception.detail)
+                finally:
+                    self.repo = saved_repo
+
+    def test_a_missing_owner_holds(self) -> None:
+        empty = subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                                "commit-tree", "4b825dc642cb6eb9a060e54bf8d69288fbee4904", "-m", "empty"],
+                               capture_output=True, check=True, env={**os.environ, "GIT_CONFIG_NOSYSTEM": "1"}).stdout.decode().strip()
+        with self.assertRaises(legacy.LegacyProofError) as raised:
+            legacy.source_fingerprint(self.repo, empty)
+        self.assertIn("internal/agent/mutations.go", raised.exception.detail)
+
+    def test_a_local_or_remote_commit_mismatch_holds(self) -> None:
+        with self.pinned():
+            with self.assertRaises(legacy.LegacyProofError) as raised:
+                self.select("legacy-a", "0" * 40)
+            self.assertIn("release commit", raised.exception.detail)
+            subprocess.run(["git", "-C", str(self.repo), "tag", "-f", "legacy-a", self.commits["fixed-a"]],
+                           check=True, capture_output=True)
+            with self.assertRaises(legacy.LegacyProofError) as raised:
+                self.select("legacy-a", self.commits["legacy-a"])
+            self.assertIn("checkout commit", raised.exception.detail)
+
+    def test_an_unlisted_tag_selects_the_existing_machinery(self) -> None:
+        with self.pinned():
+            self.assertIsNone(self.select("unlisted", "0" * 40))
+
+    def test_the_committed_legacy_pins_bind_this_checkout(self) -> None:
+        self.assertEqual(len(legacy.LEGACY_SOURCE_PINS), 9)
+        groups: dict[str, list[str]] = {}
+        for row in legacy.LEGACY_SOURCE_PINS:
+            commit = git_bytes(REPO, "rev-parse", f"{row['tag']}^{{commit}}").decode().strip()
+            self.assertEqual(commit, row["commit"], row["tag"])
+            for path in legacy.LEGACY_OWNERS:
+                self.assertEqual(blob_sha256(REPO, row["tag"], path), row["owners"][path], f"{row['tag']}:{path}")
+            groups.setdefault(json.dumps(row["owners"], sort_keys=True), []).append(row["tag"])
+        self.assertEqual(sorted(sorted(group) for group in groups.values()),
+                         [["v0.1.0", "v0.2.0"], ["v0.3.0", "v0.4.0", "v0.5.0"], ["v0.6.0", "v0.7.0", "v0.7.1"], ["v0.8.0"]])
+        corrected = next(row for row in legacy.LEGACY_SOURCE_PINS if row["variant"] == legacy.CORRECTED_VARIANT)
+        self.assertEqual(corrected["tag"], "v0.8.0")
+        predecessor = next(row for row in legacy.LEGACY_SOURCE_PINS if row["tag"] == "v0.7.1")
+        drifted = [path for path in legacy.LEGACY_OWNERS if corrected["owners"][path] != predecessor["owners"][path]]
+        self.assertEqual(drifted, ["internal/agent/mutations.go"])
+
+    def test_the_real_capture_and_message_controls_keep_their_plans(self) -> None:
+        self.assertIsNone(legacy.select_variant(REPO, "v0.26.1", git_bytes(REPO, "rev-parse", "v0.26.1^{commit}").decode().strip()))
+        self.assertEqual(invoke.invoke_plan(invoke.tag_facts(REPO, "v0.26.1")),
+                         ("client-register", "grant", "invoke:concord_work_define.capture"))
+        self.assertEqual(invoke.invoke_plan(invoke.tag_facts(REPO, "v0.27.0")),
+                         ("client-register", "grant", "invoke:concord_work_define.capture", "invoke:concord_work_define.capture",
+                          "invoke:concord_work_relate.message_send", "invoke:concord_work_relate.message_withdraw"))
+
+    def test_a_bootstrap_plan_is_empty_and_runs_nothing(self) -> None:
+        facts = {"has_grant": True, "has_messages": True, "bootstrap_only": True}
+        self.assertEqual(invoke.invoke_plan(facts), ())
+        self.assertNotEqual(invoke.invoke_plan(facts), invoke.invoke_plan({"has_grant": True, "has_messages": False}))
+
+        class Forbidden:
+            def run(self, verb: str, request: dict) -> tuple[int, str, str]:
+                raise AssertionError(f"bootstrap-only must not call {verb}")
+
+        with tempfile.TemporaryDirectory() as name:
+            repo = fixture_repository(Path(name))
+            case = Path(name) / "case"
+            case.mkdir()
+            record = invoke.run_invoke_phase(Forbidden().run, repo, "v0.37.2", case, Path(name) / "store.db", facts=dict(facts))
+        self.assertEqual(record, {"outcome": "bootstrap-only", "plan": []})
 
 
 if __name__ == "__main__":

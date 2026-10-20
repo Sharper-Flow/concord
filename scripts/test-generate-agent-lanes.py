@@ -50,8 +50,8 @@ class InvestigationGuidanceTests(unittest.TestCase):
         self.assertIn("adaptive external investigation", lookup["purpose"])
         normalized = " ".join(generator.utility_projection(lookup).split())
         for fragment in (
-            "Use direct tools for targeted retrieval",
-            "discover and follow evidence paths",
+            "use direct tools for targeted retrieval",
+            "discovering and following evidence paths",
             "known URL",
             "API detail",
         ):
@@ -79,15 +79,17 @@ class InvestigationGuidanceTests(unittest.TestCase):
             if lane["id"] != "research":
                 self.assertNotIn("## Investigation method", projection)
                 continue
-            normalized = " ".join(projection.split())
+            normalized = " ".join(generator.research_method_instructions(lane).split())
+            self.assertNotIn("`summary`", normalized)
             for fragment in (
                 "## Investigation method",
                 "packet-bound source access",
-                "Lead with the answer in `summary`",
+                "Lead with the answer in the first `evidence` entry's `detail`",
                 "retrieval handles",
                 "existing `evidence` entries",
                 "packet's `assigned_result`",
-                "Do not claim other obligations",
+                "Keep the required",
+                "not completion of other results",
                 "source_citations",
                 "bounded_findings",
                 "uncertainties",

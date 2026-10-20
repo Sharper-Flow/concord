@@ -992,10 +992,11 @@ Prefer primary sources; distinguish source observations from your inferences.
 Check versions and dates before comparing claims. One decisive source can be
 enough; do not add searches or citations merely to fill a quota.
 
-Lead with the answer in `summary`. Put the supporting findings and retrieval
-handles in existing `evidence` entries for the packet's `assigned_result`.
-Keep source citations, bounded findings, and uncertainties within that assigned
-result. Do not claim other obligations. Give the source URL or
+Lead with the answer in the first `evidence` entry's `detail`, not a new
+report field. Put supporting findings and retrieval handles in existing
+`evidence` entries. Keep the required `source_citations`, `bounded_findings`,
+and `uncertainties` obligations; they support the packet's `assigned_result`,
+not completion of other results. Give the source URL or
 repository path and line range, the relevant section, symbol, or search term,
 and version or date when available. Explain relevant relationships and source
 disagreements. Name gaps and unavailable sources instead of guessing.
@@ -1212,10 +1213,6 @@ GitHub, or start another agent.
 The parent gives you one bounded external question and may give you source URLs.
 If it gives you no question, report that the request is refused. Do not guess a
 question from the working directory or from prior context.
-
-Use direct tools for targeted retrieval of a known URL or API detail. Delegate
-here when the external question needs an adaptive investigation to discover and
-follow evidence paths, compare sources, or resolve conflicting claims.
 
 ## Method
 

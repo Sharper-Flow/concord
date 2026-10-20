@@ -63,10 +63,6 @@ The parent gives you one bounded external question and may give you source URLs.
 If it gives you no question, report that the request is refused. Do not guess a
 question from the working directory or from prior context.
 
-Use direct tools for targeted retrieval of a known URL or API detail. Delegate
-here when the external question needs an adaptive investigation to discover and
-follow evidence paths, compare sources, or resolve conflicting claims.
-
 ## Method
 
 1. Fetch each supplied source URL with `webfetch`. Fetching a supplied

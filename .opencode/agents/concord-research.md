@@ -187,10 +187,11 @@ Prefer primary sources; distinguish source observations from your inferences.
 Check versions and dates before comparing claims. One decisive source can be
 enough; do not add searches or citations merely to fill a quota.
 
-Lead with the answer in `summary`. Put the supporting findings and retrieval
-handles in existing `evidence` entries for the packet's `assigned_result`.
-Keep source citations, bounded findings, and uncertainties within that assigned
-result. Do not claim other obligations. Give the source URL or
+Lead with the answer in the first `evidence` entry's `detail`, not a new
+report field. Put supporting findings and retrieval handles in existing
+`evidence` entries. Keep the required `source_citations`, `bounded_findings`,
+and `uncertainties` obligations; they support the packet's `assigned_result`,
+not completion of other results. Give the source URL or
 repository path and line range, the relevant section, symbol, or search term,
 and version or date when available. Explain relevant relationships and source
 disagreements. Name gaps and unavailable sources instead of guessing.

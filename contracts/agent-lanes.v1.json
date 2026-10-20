@@ -207,7 +207,7 @@
     {
       "id": "lookup",
       "version": 1,
-      "purpose": "Research bounded external questions and return source-backed findings. Use when a claim about a library, platform, or current public information needs a reachable source; never for repository-internal questions.",
+      "purpose": "Conduct a bounded adaptive external investigation and return source-backed findings. Use when answering requires discovering and following evidence paths or comparing sources; use direct tools for targeted retrieval of a known URL or API detail. Never for repository-internal questions.",
       "allowed_tools": [
         "webfetch",
         "execute"

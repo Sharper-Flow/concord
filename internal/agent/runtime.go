@@ -859,6 +859,18 @@ func failureEnvelope(base Envelope, err error) Envelope {
 			message += ": " + sf.Err.Error()
 		}
 		out := coreErrorAction(base, kind, message, RecoveryAction{Kind: recovery, RequiredRefs: refs}, sf.RetrySafe, nonNilStrings(sf.CandidateIDs))
+		// The store authors free remedy prose in RecoveryAction — the exact
+		// command a caller must run. publicRecovery projects that field onto
+		// the closed action vocabulary, and the projection alone drops the
+		// prose; a coupled kind keeps its coupled action (the coupling is not
+		// weakened), so the authored text rides the bounded, schema-valid
+		// details surface unchanged beside it.
+		if prose := sf.RecoveryAction; prose != "" && !publicRecoveryActions[prose] {
+			if out.Error.Details == nil {
+				out.Error.Details = map[string]any{}
+			}
+			out.Error.Details["recovery_detail"] = boundedErrorMessage(prose)
+		}
 		// Carry typed current-version carriers into the agent envelope so
 		// callers can recover the live projection version structurally without
 		// having to parse the human detail string. Mirrors the same path for
@@ -1106,6 +1118,12 @@ func mapFailureKind(kind store.FailureKind) string {
 	return "internal_error"
 }
 
+// publicRecoveryActions is the closed recovery-action vocabulary the envelope
+// contract admits. publicRecovery projects a store-proposed value onto it,
+// and failureEnvelope treats any other authored RecoveryAction text as remedy
+// prose rather than an action name.
+var publicRecoveryActions = map[string]bool{"none": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_declared_route": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
+
 func publicRecovery(kind, proposed string) string {
 	// A coupled kind admits exactly one recovery action, and validateError
 	// refuses every other pairing. The coupling therefore decides before the
@@ -1117,8 +1135,7 @@ func publicRecovery(kind, proposed string) string {
 	if coupled, ok := enforcedRecoveryCouplings[kind]; ok {
 		return coupled
 	}
-	allowed := map[string]bool{"none": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_declared_route": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
-	if allowed[proposed] {
+	if publicRecoveryActions[proposed] {
 		return proposed
 	}
 	switch kind {

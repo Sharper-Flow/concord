@@ -120,7 +120,7 @@ func TestUpcastConfinementHoldsCurrentVersions(t *testing.T) {
 	inv := findingInventory(analysis())
 	inv.Groups["g"] = append(inv.Groups["g"], registration{Kind: "thing.b", CurrentVersion: 1, MinSupported: 1, Type: "t"}, registration{Kind: "thing.c", CurrentVersion: 3, MinSupported: 3, Upcasters: []int{2}, RecordedSchemas: []int{3}, Type: "t"})
 	f := writerFindings(inv, table)[0]
-	if !reflect.DeepEqual(f.Exempted, []exemptedSite{{inv.Analyses["g"].Open[1], "upcast", "upcast_confinement"}}) || !reflect.DeepEqual(f.UpcastHeld, []string{"thing.a v2", "thing.c v3"}) {
+	if !reflect.DeepEqual(f.Exempted, []exemptedSite{{inv.Analyses["g"].Open[1], "upcast", "upcast_confinement"}}) || !reflect.DeepEqual(f.UpcastHeld, []string{"* v3", "thing.a v2", "thing.c v3"}) {
 		t.Fatalf("exempted %+v upcast held %v", f.Exempted, f.UpcastHeld)
 	}
 	for name, drift := range map[string]func(*writerAnalysis){
@@ -238,6 +238,8 @@ func TestExemptionTableRefusesMalformedEntries(t *testing.T) {
 		"data after":                   `{"schema":"concord.release-writer-exemptions.v1","entries":[]} {}`,
 		"closing after":                `{"schema":"concord.release-writer-exemptions.v1","entries":[]}}`,
 		"repeated key":                 `{"schema":"concord.release-writer-exemptions.v1","entries":[` + entry + `,` + strings.Replace(entry, `"x"`, `"y"`, 1) + `]}`,
+		"adapt caller without digest":  `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","adapt_caller":"c","check":"c"}]}`,
+		"forwarders without a caller":  `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","forwarders":[{"function":"c","digest":"h"}],"check":"c"}]}`,
 		"upcast without guard":         `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","check":"c"}]}`,
 		"upcast with a site key":       `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","callers":[{"function":"c","digest":"h"}],"function":"f","check":"c"}]}`,
 		"read-back with a dispatcher":  `{"schema":"concord.release-writer-exemptions.v1","entries":[` + strings.Replace(entry, `"check":"c"`, `"dispatcher":"d","check":"c"`, 1) + `]}`,

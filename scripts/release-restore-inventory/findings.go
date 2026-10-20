@@ -37,10 +37,11 @@ import (
 //     an adapt-keyed entry matches only the exact route. The reviewed
 //     dispatcher refuses any result whose version is not the current version
 //     of the registration it is passed, the reviewed callers pass the
-//     registry registration of the event's kind, and the reviewed adapt
-//     caller's adapt never changes the kind, so a covered site can still
-//     produce the current version of a kind with an older supported version
-//     or an upcaster: the finding names those pairs as upcast_held_pairs.
+//     registry registration of the event's kind, and a recorded-schema adapt
+//     between them may change the kind, so a covered site can still produce
+//     the current version of a kind with an older supported version or an
+//     upcaster, and of any kind at that version when the kind also has
+//     recorded schemas: the finding names those pairs as upcast_held_pairs.
 //
 // Any drift of a keyed digest or expression leaves the site held.
 
@@ -107,8 +108,8 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 			callers = string(data)
 		}
 		route := ""
-		if (e.AdaptCaller == "") != (e.AdaptCallerDigest == "") {
-			return table, fmt.Errorf("exemption %q names an adapt caller without its digest, or the reverse", e.ID)
+		if (e.AdaptCaller == "") != (e.AdaptCallerDigest == "") || (e.AdaptCaller == "") != (len(e.Forwarders) == 0) {
+			return table, fmt.Errorf("exemption %q names only part of an adapt route", e.ID)
 		}
 		if e.AdaptCaller != "" {
 			data, err := json.Marshal(e.Forwarders)
@@ -148,12 +149,12 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 // covers reports whether an entry covers one open site of an analysis.
 func (e exemption) covers(site writerSite, analysis writerAnalysis) bool {
 	if e.Class == "upcast_confinement" {
-		d := analysis.Dispatcher
-		route := analysis.Adapt
+		d, route := analysis.Dispatcher, analysis.Adapt
+		common := site.Confinement == "upcaster" && d != nil && d.Function == e.Dispatcher && d.FunctionDigest == e.DispatcherDigest && slices.Contains(d.Guards, e.Guard) && slices.Equal(d.Callers, e.Callers)
 		if e.AdaptCaller == "" {
-			return site.Confinement == "upcaster" && route == nil && d != nil && d.Function == e.Dispatcher && d.FunctionDigest == e.DispatcherDigest && slices.Contains(d.Guards, e.Guard) && slices.Equal(d.Callers, e.Callers)
+			return common && route == nil
 		}
-		return site.Confinement == "upcaster" && route != nil && d != nil && d.Function == e.Dispatcher && d.FunctionDigest == e.DispatcherDigest && slices.Contains(d.Guards, e.Guard) && slices.Equal(d.Callers, e.Callers) && route.Function == e.AdaptCaller && route.FunctionDigest == e.AdaptCallerDigest && slices.Equal(route.Forwarders, e.Forwarders)
+		return common && route != nil && route.Function == e.AdaptCaller && route.FunctionDigest == e.AdaptCallerDigest && slices.Equal(route.Forwarders, e.Forwarders)
 	}
 	return site.Function == e.Function && site.Expression == e.Expression && site.FunctionDigest == e.FunctionDigest
 }
@@ -228,6 +229,9 @@ func writerFindings(inv inventory, table exemptionTable) []writerFinding {
 					for _, r := range inv.Groups[result.Group] {
 						if r.MinSupported < r.CurrentVersion || len(r.Upcasters) > 0 {
 							finding.UpcastHeld = append(finding.UpcastHeld, r.Kind+" v"+strconv.Itoa(r.CurrentVersion))
+							if len(r.RecordedSchemas) > 0 {
+								finding.UpcastHeld = append(finding.UpcastHeld, "* v"+strconv.Itoa(r.CurrentVersion))
+							}
 						}
 					}
 					finding.UpcastHeld = slices.Compact(slices.Sorted(slices.Values(finding.UpcastHeld)))

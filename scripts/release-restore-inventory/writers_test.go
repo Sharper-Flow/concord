@@ -426,6 +426,8 @@ func TestAdaptRoute(t *testing.T) {
 		"adapt result compared":  {compared},
 		"forwarder leaks result": {mutation{store, "return upcastEventWithRegistration(event, registration)\n}", "sink(event)\n\treturn upcastEventWithRegistration(event, registration)\n}"}, mutation{store, "func ReadEvent(", "func sink(Event) {}\n\nfunc ReadEvent("}},
 		"second adapt caller":    {mutation{store, "func ReadEvent(", "func secondAdaptCaller(schemas []recordedPayloadSchema, event Event) (Event, error) { return schemas[0].adapt(event) }\n\nfunc ReadEvent("}},
+		"adapt result in a loop": {mutation{store, "\tif schemas := registration.RecordedSchemas[event.PayloadVersion]; len(schemas) != 0 {", "\tif schemas := registration.RecordedSchemas[event.PayloadVersion]; len(schemas) != 0 {\n\tfor i := 0; i < 1; i++ {"}, mutation{store, "\t\t}\n\t}\n\treturn prepareEventWithRegistration(event, registration)\n}", "\t\t}\n\t\t}\n\t}\n\treturn prepareEventWithRegistration(event, registration)\n}"}},
+		"adapt target captured":  {mutation{store, "\t\tevent, err = schemas[selected].adapt(event)", "\t\tcapture = func() { _ = event }\n\t\tevent, err = schemas[selected].adapt(event)"}, mutation{store, "func ReadEvent(", "var capture func()\n\nfunc ReadEvent("}},
 		"adapt field handed on":  {mutation{store, "func ReadEvent(", "func handAdapt(adapt func(Event) (Event, error), event Event) (Event, error) { return adapt(event) }\n\nfunc ReadEvent("}, handAdapt},
 	} {
 		t.Run(name, func(t *testing.T) {

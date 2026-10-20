@@ -1187,8 +1187,11 @@ func (a *analyzer) isAdaptField(p *checkedPackage, selector *ast.SelectorExpr) b
 // that call (a nil comparison excepted), each adapt result is assigned to an
 // uncaptured Event local outside any loop, and every later use of that local
 // is an argument of the upcast dispatcher itself or of a forwarder whose own
-// matching parameter is only ever passed to the dispatcher. Any other shape
-// leaves the route nil, and a release whose route is nil cannot match an
+// matching parameter is only ever passed to the dispatcher. A label that a
+// goto could replay, a package-level target, and a named result the caller
+// returns without naming are excluded only by the pinned caller digest, not
+// by this proof, exactly as in the censused analyzer. Any other shape leaves
+// the route nil, and a release whose route is nil cannot match an
 // adapt-keyed exemption entry.
 func (a *analyzer) adaptRoute() *adaptRoute {
 	if a.dispatcher == nil || a.adaptField == nil || a.adaptEscapes != 0 || len(a.adaptCalls) != 1 {
@@ -1202,19 +1205,7 @@ func (a *analyzer) adaptRoute() *adaptRoute {
 	if !ok || fn.Body == nil {
 		return nil
 	}
-	parents := map[ast.Node]ast.Node{}
-	var stack []ast.Node
-	ast.Inspect(fn, func(n ast.Node) bool {
-		if n == nil {
-			stack = stack[:len(stack)-1]
-			return true
-		}
-		if len(stack) > 0 {
-			parents[n] = stack[len(stack)-1]
-		}
-		stack = append(stack, n)
-		return true
-	})
+	parents := parentsOf(fn)
 	forwarders := map[string]namedHash{}
 	held := false
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
@@ -1294,9 +1285,24 @@ func (a *analyzer) forwardsToDispatcher(callee string, index int) bool {
 	if param == nil || !a.isEvent(param.Type()) || a.captured[param] || a.unknown[param] {
 		return false
 	}
+	if target.decl.Body == nil {
+		return false
+	}
+	parents := parentsOf(target.decl)
+	for _, use := range usesAfter(target.pkg, target.decl, param, target.decl.Body.Pos()) {
+		_, ok := argumentOf(parents, use)
+		if !ok || calleeName(target.pkg, callOf(parents, use)) != a.dispatcher.Function {
+			return false
+		}
+	}
+	return true
+}
+
+// parentsOf maps every node under root to its parent.
+func parentsOf(root ast.Node) map[ast.Node]ast.Node {
 	parents := map[ast.Node]ast.Node{}
 	var stack []ast.Node
-	ast.Inspect(target.decl, func(n ast.Node) bool {
+	ast.Inspect(root, func(n ast.Node) bool {
 		if n == nil {
 			stack = stack[:len(stack)-1]
 			return true
@@ -1307,13 +1313,7 @@ func (a *analyzer) forwardsToDispatcher(callee string, index int) bool {
 		stack = append(stack, n)
 		return true
 	})
-	for _, use := range usesAfter(target.pkg, target.decl, param, target.decl.Body.Pos()) {
-		_, ok := argumentOf(parents, use)
-		if !ok || calleeName(target.pkg, callOf(parents, use)) != a.dispatcher.Function {
-			return false
-		}
-	}
-	return true
+	return parents
 }
 
 // usesAfter lists the identifiers that read obj after position end in fn.

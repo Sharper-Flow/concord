@@ -216,8 +216,8 @@ func TestHostChangedConvergenceAdmitsOneDispatchFromARestartedHost(t *testing.T)
 			t.Fatalf("rebuild changed the recorded basis: %+v -> %+v", basis, again)
 		}
 
-		// One host_changed dispatch per nonprogress window: the fifth
-		// dispatch faces the wall again with the host inputs still valid.
+		// One host_changed dispatch per worker-satisfaction window: the
+		// fifth dispatch faces the wall again with the host inputs still valid.
 		pin = issue1013Pin(t, s, workID)
 		if err := hostConvergenceDispatch(t, s, workID, "attempt:"+workID+":5", owner, pin, ctx, "host-convergence-admit-5"); !hasFailureKind(err, KindMissingEvidence) {
 			t.Fatalf("second host_changed dispatch in the same window = %v, want missing_evidence", err)
@@ -370,8 +370,8 @@ func TestHostChangedConvergenceNeedsARestartAfterEachFailure(t *testing.T) {
 		}
 
 		// A second restart after the new failure is still one host_changed
-		// dispatch per nonprogress window short: the window only a
-		// productive acceptance closes is spent.
+		// dispatch per worker-satisfaction window short: the window only
+		// a satisfying worker acceptance closes is spent.
 		hostConvergencePinWallStart(t, secondFailure.Add(time.Minute+time.Second))
 		pin = issue1013Pin(t, s, workID)
 		if err := hostConvergenceDispatch(t, s, workID, "attempt:"+workID+":5", owner, pin, ctx, "host-convergence-second-5-restart"); !hasFailureKind(err, KindMissingEvidence) {

@@ -112,7 +112,7 @@ const (
 var workflowRecoveryCanonicalHeads = map[string]int64{
 	"workflow.implementation": 36,
 	"workflow.break_fix":      33,
-	"workflow.research":       21,
+	"workflow.research":       22,
 }
 
 // workflowRecoveryArchivedFamilies names the families whose live authoring
@@ -819,12 +819,53 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			WorkflowID:       "research-v19-complete",
 		},
-		// The size-capable heads: the same six live journeys run at the
-		// v36/v33/v21 pins, whose compiled route tables equal their
-		// predecessors' tables; the implementation and break-fix heads
-		// inherit the consequence_v1 policy beside the checks-repair
-		// action catalog, and record_worker_job's declared payload gains
-		// only the optional size members.
+		// The current heads: the same six live journeys run at the
+		// v37/v34/v22 pins, whose compiled route tables equal their
+		// predecessors' tables; the obligation-satisfaction heads inherit
+		// the consequence_v1 policy beside the size-capable surface —
+		// the v3 checks-repair catalog with record_worker_job's optional
+		// size members — and declare the progress policy and its closed
+		// satisfaction taxonomy.
+		{
+			Ref: "workflow.implementation", Version: 37,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v37-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 37,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v37-release",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 34,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v34-verify",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 34,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v34-complete",
+		},
+		// The size-capable heads: the same six live journeys ran at the
+		// v36/v33 pins, whose compiled route tables equal their
+		// predecessors' tables; they stay covered as recorded history next
+		// to the current heads.
 		{
 			Ref: "workflow.implementation", Version: 36,
 			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
@@ -862,6 +903,25 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			WorkflowID:       "break_fix-v33-complete",
 		},
 		{
+			Ref: "workflow.research", Version: 22,
+			Step: "conclude", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "conclude", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v22-conclude",
+		},
+		{
+			Ref: "workflow.research", Version: 22,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "complete", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v22-complete",
+		},
+		// The obligation predecessor: the same journeys ran at the v21
+		// pin, whose compiled route table equals its predecessors' tables;
+		// it stays covered as recorded history next to the current head.
+		{
 			Ref: "workflow.research", Version: 21,
 			Step: "conclude", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
 			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
@@ -877,10 +937,10 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			WorkflowID:       "research-v21-complete",
 		},
-		// The checks-repair heads: the same journeys ran at the v35/v32
-		// pins, whose compiled route tables equal their predecessors'
-		// tables; they stay covered as recorded history next to the
-		// size-capable heads.
+		// The checks-repair heads: the same six journeys ran at the
+		// v35/v32 pins, whose compiled route tables equal their
+		// predecessors' tables; they stay covered as recorded history next
+		// to the size-capable heads.
 		{
 			Ref: "workflow.implementation", Version: 35,
 			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
@@ -1081,8 +1141,8 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 // (ref, version) fails the test before the journey runs.
 func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 	tuples := workflowRecoveryRouteTuples()
-	if len(tuples) != 104 {
-		t.Fatalf("recovery-route journey table carries %d tuples, want 104 (32 archived-refusal rows + 66 recorded-history rows at the retained pins through v35/v32/v34/v31/v33/v30/v20 + six live rows at the v36/v33/v21 size-capable heads)", len(tuples))
+	if len(tuples) != 110 {
+		t.Fatalf("recovery-route journey table carries %d tuples, want 110 (32 archived-refusal rows + 72 recorded-history rows at the retained pins through v36/v33/v21/v35/v32/v34/v31/v33/v30/v20 + six live rows at the v37/v34/v22 obligation-satisfaction heads)", len(tuples))
 	}
 	seen := map[string]bool{}
 	live, history, refusals := 0, 0, 0
@@ -1170,12 +1230,13 @@ func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 		}
 	}
 	// The disposition split is the CD-0218 battery shape: the six live
-	// canonical journeys run at the current heads (v36/v33/v21), the
+	// canonical journeys run at the current heads (v37/v34/v22), the
 	// retained-family released pins plus every retained predecessor-head row
-	// (v35/v32, v34/v31, v33/v30/v20 now among them) as recorded history,
-	// and the 32 retired-family rows as archived-refusal coverage.
-	if live != 6 || history != 66 || refusals != 32 {
-		t.Fatalf("journey table dispositions: live=%d history=%d refusals=%d, want 6/66/32", live, history, refusals)
+	// (v36/v33/v21, v35/v32, v34/v31, v33/v30/v20 now among them) as
+	// recorded history, and the 32 retired-family rows as archived-refusal
+	// coverage.
+	if live != 6 || history != 72 || refusals != 32 {
+		t.Fatalf("journey table dispositions: live=%d history=%d refusals=%d, want 6/72/32", live, history, refusals)
 	}
 	for _, tuple := range workflowRecoveryRouteSupersedeTuples() {
 		key := tuple.Ref + "|v" + strconv.FormatInt(tuple.Version, 10) + "|" + tuple.Step + "|" + string(store.WorkflowRecoveryTriggerDisprovedPremiseAtComplete)
@@ -2203,9 +2264,26 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			RecordWorkerJob: true,
 			WorkflowID:      "break_fix-v29-complete-supersede",
 		},
+		// The current heads republish the same complete-step supersede
+		// routes beside the checks-repair action catalog, the inherited
+		// consequence_v1 policy, and the obligation-satisfaction progress
+		// policy.
+		{
+			Ref: "workflow.implementation", Version: 37,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v37-release-supersede",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 34,
+			Step: "complete", Target: "repair",
+			RecordWorkerJob: true,
+			WorkflowID:      "break_fix-v34-complete-supersede",
+		},
 		// The size-capable heads republish the same complete-step
 		// supersede routes beside the checks-repair action catalog and
-		// the inherited consequence_v1 policy.
+		// the inherited consequence_v1 policy; they stay covered as
+		// recorded history next to the current heads.
 		{
 			Ref: "workflow.implementation", Version: 36,
 			Step: "release", Target: "execution",
@@ -2218,8 +2296,8 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			RecordWorkerJob: true,
 			WorkflowID:      "break_fix-v33-complete-supersede",
 		},
-		// The checks-repair heads' supersede routes stay covered as
-		// recorded history next to the size-capable heads.
+		// The checks-repair heads' supersede routes stay covered as recorded
+		// history next to the current heads.
 		{
 			Ref: "workflow.implementation", Version: 35,
 			Step: "release", Target: "execution",

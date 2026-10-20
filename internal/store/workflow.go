@@ -2505,7 +2505,7 @@ func workflowCorrectionSchemaValuesFaultWithReference(predicateIDs, correctionRe
 
 // admitWorkflowActionOffStep decides whether an action the pinned step does
 // not declare may still fold under an engine-owned recovery route.
-func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, entry RegisteredDefinition, currentStep string) error {
+func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, entry RegisteredDefinition, currentStep string, registry DefinitionRegistry) error {
 	if p.ActionID == "accept_worker_evidence" {
 		return validateRefineReviewEvidenceAttempt(ctx, tx, event.SubjectID, entry.Definition, currentStep, p.WorkerAttemptID, p.AttemptEpoch, "fold_event", event.Seq)
 	}
@@ -2544,7 +2544,7 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		}
 		var recoveryErr error
 		var missing string
-		correctionRecovery, missing, recoveryErr = workflowCorrectionRequestAdmissionState(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq)
+		correctionRecovery, missing, recoveryErr = workflowCorrectionRequestAdmissionStateForRegistry(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq, registry)
 		if recoveryErr != nil {
 			return recoveryErr
 		}
@@ -2712,7 +2712,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
 	}
 	if !definitionStepAllows(entry.Definition, currentStep, p.ActionID) {
-		if err := admitWorkflowActionOffStep(ctx, tx, event, p, entry, currentStep); err != nil {
+		if err := admitWorkflowActionOffStep(ctx, tx, event, p, entry, currentStep, scopeDefinitionRegistry(scope)); err != nil {
 			return err
 		}
 	}
@@ -2779,7 +2779,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 			// correction request once — excludeSeq keeps its own in-flight
 			// completion out of the anchor's settled-entry judgment — and
 			// the payload check binds against that derivation.
-			context, missing, contextErr := workflowCorrectionRequestAdmission(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq)
+			context, missing, contextErr := workflowCorrectionRequestAdmissionForRegistry(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq, scopeDefinitionRegistry(scope))
 			if contextErr != nil {
 				return contextErr
 			}

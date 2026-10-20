@@ -272,7 +272,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 		t.Fatalf("the correction window at the funded review = (%#v, %v), want the escalated wall", wall, wallErr)
 	}
 	reject1Seq, reject2Seq := checksRepairCorrectionRecordSeq(t, s, workID, attempt1), checksRepairCorrectionRecordSeq(t, s, workID, attempt2)
-	basis, basisErr := workflowRetryConvergence(ctx, s.DatabaseForTesting(), workID, "repair")
+	basis, basisErr := workflowRetryConvergenceForRegistry(ctx, s.DatabaseForTesting(), workID, "repair", BuiltinWorkflowRegistry())
 	if basisErr != nil {
 		t.Fatal(basisErr)
 	}
@@ -302,7 +302,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	if review1Marker.RecordedBasis != "" {
 		t.Fatalf("the funded confirming review also recorded ordinary convergence authority %q", review1Marker.RecordedBasis)
 	}
-	if after, err := workflowRetryConvergence(ctx, s.DatabaseForTesting(), workID, "repair"); err != nil || after.valid() {
+	if after, err := workflowRetryConvergenceForRegistry(ctx, s.DatabaseForTesting(), workID, "repair", BuiltinWorkflowRegistry()); err != nil || after.valid() {
 		t.Fatalf("convergence after the funded dispatch = (%+v, %v), want fresh convergence required", after, err)
 	}
 	// The voiding report continues three standing blockers and closes the

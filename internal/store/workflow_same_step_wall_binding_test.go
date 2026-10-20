@@ -116,7 +116,7 @@ func TestSameStepWallHasNoApprovalBindingAfterACompletedAttempt(t *testing.T) {
 	if !errors.As(retryErr, &refusal) || refusal.Kind != KindMissingEvidence {
 		t.Fatalf("dispatch after the completed attempt failure=%v, want missing_evidence", retryErr)
 	}
-	if !strings.Contains(refusal.Detail, "3 non-progress attempts since the last accepted productive result") {
+	if !strings.Contains(refusal.Detail, "3 non-progress attempts since the applicable nonprogress anchor") {
 		t.Fatalf("refusal does not name the counted population: %q", refusal.Detail)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {

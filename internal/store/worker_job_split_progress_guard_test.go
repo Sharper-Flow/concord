@@ -47,7 +47,7 @@ func TestWorkerJobSplitProgressDispatchGuard(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer tx.Rollback()
-			guardErr := admitWorkerJobSplitProgressDispatchTx(context.Background(), tx, workID, tc.convergence, tc.target)
+			guardErr := admitWorkerJobSplitProgressDispatchTx(context.Background(), tx, workID, tc.convergence, tc.target, BuiltinWorkflowRegistry())
 			if tc.wantKind == "" {
 				if guardErr != nil {
 					t.Fatalf("funded sibling dispatch = %v, want admission", guardErr)

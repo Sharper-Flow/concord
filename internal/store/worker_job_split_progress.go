@@ -30,8 +30,8 @@ type workerSplitLeafProgressFunding struct {
 
 // workflowSplitLeafProgressConvergenceTx derives the split_leaf_progress
 // basis when the recorded acceptance still funds a first sibling dispatch.
-func workflowSplitLeafProgressConvergenceTx(ctx context.Context, q queryer, workID string, lastDispatch int64) (WorkflowRetryConvergence, error) {
-	funding, err := workerSplitLeafProgressFundingTx(ctx, q, workID, lastDispatch, 0)
+func workflowSplitLeafProgressConvergenceTx(ctx context.Context, q queryer, workID string, lastDispatch int64, registry DefinitionRegistry) (WorkflowRetryConvergence, error) {
+	funding, err := workerSplitLeafProgressFundingTx(ctx, q, workID, lastDispatch, 0, registry)
 	if err != nil || funding == nil {
 		return WorkflowRetryConvergence{}, err
 	}
@@ -41,7 +41,7 @@ func workflowSplitLeafProgressConvergenceTx(ctx context.Context, q queryer, work
 // workerSplitLeafProgressGateTx reports whether the work's pinned definition
 // declares the production-size members: the split-progress behavior exists
 // only where the split itself does (CD-0225 D3).
-func workerSplitLeafProgressGateTx(ctx context.Context, q queryer, workID string) (bool, error) {
+func workerSplitLeafProgressGateTx(ctx context.Context, q queryer, workID string, registry DefinitionRegistry) (bool, error) {
 	var pin WorkflowDefinitionPin
 	switch err := q.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Version, &pin.Digest); {
 	case err == sql.ErrNoRows:
@@ -49,7 +49,10 @@ func workerSplitLeafProgressGateTx(ctx context.Context, q queryer, workID string
 	case err != nil:
 		return false, wrapFailure(KindUnavailable, workerJobSplitProgressSubject, "cannot read the workflow definition pin for convergence", true, "retry once the workflow projection is readable", err)
 	}
-	registered, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), pin)
+	if registry == nil {
+		registry = BuiltinWorkflowRegistry()
+	}
+	registered, err := VerifyWorkflowDefinitionPin(registry, pin)
 	if err != nil {
 		return false, err
 	}
@@ -61,8 +64,8 @@ func workerSplitLeafProgressGateTx(ctx context.Context, q queryer, workID string
 // acceptance for the dispatch guard; zero reads the latest result
 // acceptance. The count is the completion's core-recorded production size,
 // never a second observation.
-func workerSplitLeafProgressFundingTx(ctx context.Context, q queryer, workID string, lastDispatch, atSeq int64) (*workerSplitLeafProgressFunding, error) {
-	active, err := workerSplitLeafProgressGateTx(ctx, q, workID)
+func workerSplitLeafProgressFundingTx(ctx context.Context, q queryer, workID string, lastDispatch, atSeq int64, registry DefinitionRegistry) (*workerSplitLeafProgressFunding, error) {
+	active, err := workerSplitLeafProgressGateTx(ctx, q, workID, registry)
 	if err != nil || !active {
 		return nil, err
 	}
@@ -218,7 +221,7 @@ func workerSplitProgressJobDispatchedTx(ctx context.Context, q queryer, workID, 
 // never-dispatched required sibling of the exact acceptance the basis names,
 // and that funding must still stand at assembly. Any other basis returns nil;
 // the existing retry approval and fencing rules own those dispatches.
-func admitWorkerJobSplitProgressDispatchTx(ctx context.Context, tx *sql.Tx, workID string, convergence WorkflowRetryConvergence, target *WorkerJobBinding) error {
+func admitWorkerJobSplitProgressDispatchTx(ctx context.Context, tx *sql.Tx, workID string, convergence WorkflowRetryConvergence, target *WorkerJobBinding, registry DefinitionRegistry) error {
 	if convergence.Basis != workflowSplitLeafProgressBasis || !convergence.valid() {
 		return nil
 	}
@@ -226,7 +229,7 @@ func admitWorkerJobSplitProgressDispatchTx(ctx context.Context, tx *sql.Tx, work
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker'`, string(SubjectWorkItem), workID, WorkflowActionCompleted).Scan(&lastDispatch); err != nil {
 		return workflowProjectionError(err, "cannot read the latest dispatch for the split-progress guard")
 	}
-	funding, err := workerSplitLeafProgressFundingTx(ctx, tx, workID, lastDispatch, convergence.LatestRecordSeq)
+	funding, err := workerSplitLeafProgressFundingTx(ctx, tx, workID, lastDispatch, convergence.LatestRecordSeq, registry)
 	if err != nil {
 		return err
 	}

@@ -27,7 +27,7 @@ func ValidateOperationPayload(tool, operation string, data []byte, result bool) 
 	}
 	if err := ValidateGeneratedPayload(tool, contract.ID, name, data, result); err != nil {
 		if !result {
-			if detail := ValidatePayloadSchema(name, data); payloadschema.HasGuidance(detail) {
+			if detail := ValidatePayloadSchema(name, data); payloadschema.HasSelectedGuidance(detail) {
 				return detail
 			}
 		}

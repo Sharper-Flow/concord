@@ -926,12 +926,15 @@ func withGuidance(err error, schema map[string]any) error {
 		return nil
 	}
 	if note := guidanceNote(schema); note != "" {
-		return &guidedDiagnostic{message: err.Error() + "; " + note}
+		return &guidedDiagnostic{message: err.Error() + "; " + note, selected: true}
 	}
 	return err
 }
 
-type guidedDiagnostic struct{ message string }
+type guidedDiagnostic struct {
+	message  string
+	selected bool
+}
 
 func (d *guidedDiagnostic) Error() string { return d.message }
 
@@ -940,6 +943,13 @@ func (d *guidedDiagnostic) Error() string { return d.message }
 func HasGuidance(err error) bool {
 	var diagnostic *guidedDiagnostic
 	return errors.As(err, &diagnostic)
+}
+
+// HasSelectedGuidance excludes genuinely unresolved alternatives. A coarse
+// operation-level failure must not be replaced by an arbitrary variant's hint.
+func HasSelectedGuidance(err error) bool {
+	var diagnostic *guidedDiagnostic
+	return errors.As(err, &diagnostic) && diagnostic.selected
 }
 
 func unknownPropertyError(path, key string, schema map[string]any) error {
@@ -973,5 +983,5 @@ func joinSchemaFailures(prefix string, failures []error, suffix ...string) error
 			}
 		}
 	}
-	return &guidedDiagnostic{message: message}
+	return &guidedDiagnostic{message: message, selected: prefix == ""}
 }

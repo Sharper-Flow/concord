@@ -187,6 +187,14 @@ func (e exemption) covers(site writerSite, analysis writerAnalysis) bool {
 // table it used, its refusal, the pairs it writes, the sites left held, the
 // exempted sites, the kinds an exempted replay decoder holds, and the pairs
 // an exempted upcaster can still produce.
+// discharge is one obligation a finding's exemptions proved unwritable at
+// that release, with the exemption entries the proof relied on.
+type discharge struct {
+	Kind           string   `json:"kind"`
+	PayloadVersion int      `json:"payload_version"`
+	Exemptions     []string `json:"exemptions"`
+}
+
 type writerFinding struct {
 	Tag           string         `json:"tag"`
 	Analyzer      string         `json:"analyzer"`
@@ -197,7 +205,31 @@ type writerFinding struct {
 	Exempted      []exemptedSite `json:"exempted_sites,omitempty"`
 	ReplayHeld    []string       `json:"replay_held_kinds,omitempty"`
 	UpcastHeld    []string       `json:"upcast_held_pairs,omitempty"`
+	Discharged    []discharge    `json:"discharged"`
+	Undischarged  []string       `json:"undischarged"`
 	FindingSource string         `json:"finding_source"`
+}
+
+// pairMatches reports whether a site pair can produce (kind, version) at a
+// release whose registered current versions are current. A version form the
+// matcher does not know matches every version.
+func pairMatches(pair, kind string, version int, current map[string]int) bool {
+	k, v, ok := strings.Cut(pair, " v")
+	if !ok {
+		return true
+	}
+	if k != "*" && k != kind {
+		return false
+	}
+	if v == "*" {
+		return true
+	}
+	if other, isCurrent := strings.CutPrefix(v, "cur:"); isCurrent {
+		cur, registered := current[other]
+		return !registered || cur == version
+	}
+	n, err := strconv.Atoi(v)
+	return err != nil || n == version
 }
 
 // exemptedSite is an open site and the exemption that covers it.
@@ -225,7 +257,7 @@ func writerFindings(inv inventory, table exemptionTable) []writerFinding {
 			continue
 		}
 		analysis, analyzed := inv.Analyses[result.Group]
-		finding := writerFinding{Tag: result.Tag, Analyzer: analysis.Analyzer, Exemptions: table.digest, FindingSource: findingSource}
+		finding := writerFinding{Tag: result.Tag, Analyzer: analysis.Analyzer, Exemptions: table.digest, Discharged: []discharge{}, Undischarged: []string{}, FindingSource: findingSource}
 		switch {
 		case !analyzed:
 			finding.Refused = "no analysis for the release's group"
@@ -256,6 +288,50 @@ func writerFindings(inv inventory, table exemptionTable) []writerFinding {
 						}
 					}
 					finding.UpcastHeld = slices.Compact(slices.Sorted(slices.Values(finding.UpcastHeld)))
+				}
+			}
+			// A discharge is the exemption table's proof that a registered
+			// (kind, version) has no writer at this release: every resolved
+			// write and held site must miss the pair, the replay decoder
+			// must not hold its kind, and no exempted upcaster can produce
+			// it — a pair an upcast_held entry names stays an obligation.
+			current := map[string]int{}
+			for _, r := range inv.Groups[result.Group] {
+				current[r.Kind] = r.CurrentVersion
+			}
+			replay := map[string]bool{}
+			for _, kind := range finding.ReplayHeld {
+				replay[kind] = true
+			}
+			for _, r := range inv.Groups[result.Group] {
+				for version := r.MinSupported; version <= r.CurrentVersion; version++ {
+					blocked := finding.Refused != "" || replay[r.Kind] || replay["*"]
+					for _, held := range finding.UpcastHeld {
+						blocked = blocked || pairMatches(held, r.Kind, version, current)
+					}
+					for _, write := range analysis.Writes {
+						blocked = blocked || pairMatches(write, r.Kind, version, current)
+					}
+					for _, site := range finding.Held {
+						for _, pair := range site.Pairs {
+							blocked = blocked || pairMatches(pair, r.Kind, version, current)
+						}
+					}
+					pair := r.Kind + " v" + strconv.Itoa(version)
+					if blocked {
+						finding.Undischarged = append(finding.Undischarged, pair)
+						continue
+					}
+					relied := []string{}
+					for _, covered := range finding.Exempted {
+						for _, pair := range covered.Pairs {
+							if pairMatches(pair, r.Kind, version, current) && !slices.Contains(relied, covered.Exemption) {
+								relied = append(relied, covered.Exemption)
+							}
+						}
+					}
+					slices.Sort(relied)
+					finding.Discharged = append(finding.Discharged, discharge{r.Kind, version, relied})
 				}
 			}
 		}

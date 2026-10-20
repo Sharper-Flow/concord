@@ -203,6 +203,76 @@ func TestAdaptKeyedUpcastEntryMatchesOnlyTheProvenRoute(t *testing.T) {
 	}
 }
 
+// A discharge is the exemption table's proof that a registered pair has no
+// writer at a release: exempted sites discharge the pairs they cover, a held
+// site or an upcast_held entry blocks its pairs, and a kind no site or write
+// names at all discharges on no evidence.
+func TestDischargeProvesUnwritablePairs(t *testing.T) {
+	analysis := findingAnalysis()
+	f := finding(t, analysis, findingTable(t))
+	if !reflect.DeepEqual(f.Discharged, []discharge{{Kind: "thing.a", PayloadVersion: 1, Exemptions: []string{"read"}}}) {
+		t.Fatalf("discharged %+v", f.Discharged)
+	}
+	if !reflect.DeepEqual(f.Undischarged, []string{"thing.a v2"}) {
+		t.Fatalf("undischarged %v", f.Undischarged)
+	}
+	// The held upcast site, once exempted, discharges nothing its own
+	// confinement holds: the current version stays an obligation and the
+	// older one discharges on the read exemption alone, because the
+	// confined site's own pairs name only the current version.
+	data, err := json.Marshal(exemptionTable{Schema: exemptionsSchema, Entries: []exemption{
+		{ID: "read", Class: "read_back", Function: "store.readEvents", Expression: "&event.Kind", FunctionDigest: readDigest, Check: "test"},
+		{ID: "upcast", Class: "upcast_confinement", Dispatcher: "store.dispatch", DispatcherDigest: "sha256:2222", Guard: "event.PayloadVersion != registration.CurrentVersion", Callers: []namedHash{{"store.prepare", "sha256:3333"}}, Check: "test"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	table, err := parseExemptions(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upcast := findingAnalysis()
+	upcast.Open[1].Confinement = "upcaster"
+	upcast.Dispatcher = &upcastDispatcher{Function: "store.dispatch", FunctionDigest: "sha256:2222", Guards: []string{"event.PayloadVersion != registration.CurrentVersion"}, Callers: []namedHash{{"store.prepare", "sha256:3333"}}}
+	f = finding(t, upcast, table)
+	if !reflect.DeepEqual(f.Discharged, []discharge{{Kind: "thing.a", PayloadVersion: 1, Exemptions: []string{"read"}}}) {
+		t.Fatalf("discharged %+v", f.Discharged)
+	}
+	if !reflect.DeepEqual(f.Undischarged, []string{"thing.a v2"}) {
+		t.Fatalf("undischarged %v", f.Undischarged)
+	}
+	// A kind no write or held site names discharges through the pairs its
+	// exemptions cover, and cover counts it covered exactly when every
+	// registering writer discharged.
+	inv := findingInventory(analysis)
+	inv.Groups["g"] = append(inv.Groups["g"], registration{Kind: "thing.b", CurrentVersion: 1, MinSupported: 1, Type: "t"})
+	findings := writerFindings(inv, findingTable(t))
+	if b := findings[0]; !slices.ContainsFunc(b.Discharged, func(d discharge) bool {
+		return d.Kind == "thing.b" && d.PayloadVersion == 1 && len(d.Exemptions) == 1 && d.Exemptions[0] == "read"
+	}) {
+		t.Fatalf("thing.b not discharged on no evidence: %+v", b.Discharged)
+	}
+	report, err := cover(inv, nil, findingTable(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bShape, aShape *shapeCoverage
+	for i := range report.Shapes {
+		switch report.Shapes[i].Kind {
+		case "thing.b":
+			bShape = &report.Shapes[i]
+		case "thing.a":
+			aShape = &report.Shapes[i]
+		}
+	}
+	if bShape == nil || !bShape.Covered || !reflect.DeepEqual(bShape.Discharged, []string{"v1.0.0"}) {
+		t.Fatalf("thing.b shape %+v", bShape)
+	}
+	if aShape == nil || aShape.Covered {
+		t.Fatalf("thing.a shape must stay uncovered while v2 is undischarged: %+v", aShape)
+	}
+}
+
 func TestDriftLeavesTheSiteHeld(t *testing.T) {
 	for name, edit := range map[string]func(*writerSite){
 		"function digest changed": func(s *writerSite) { s.FunctionDigest = "sha256:9999" },

@@ -359,7 +359,7 @@ func workerJobOracleItems(oracle *AcceptanceOracle) []workerJobOracleItem {
 	if oracle == nil {
 		return nil
 	}
-	items := make([]workerJobOracleItem, 0, len(oracle.Owners)+len(oracle.Cases)+len(oracle.Controls))
+	items := make([]workerJobOracleItem, 0)
 	add := func(id string, value any) {
 		raw, _ := json.Marshal(value)
 		items = append(items, workerJobOracleItem{id: id, content: string(raw)})

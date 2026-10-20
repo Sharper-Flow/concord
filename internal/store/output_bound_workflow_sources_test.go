@@ -113,8 +113,8 @@ func init() {
 	// refusal form (expression > N beside a lower guard the helper never
 	// selects).
 	continuityPageLimit := goInlineBound("internal/store/workflow_continuity.go", "readWorkflowContinuityForRegistry", "req.Limit", boundItems)
-	observationRefBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(ref)", boundBytes)
-	observationTagBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(tag)", boundBytes)
+	observationRefBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(ref)", boundCharacters)
+	observationTagBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(tag)", boundCharacters)
 	productIdentityBound := goInlineBound("internal/store/workflow_continuity.go", "readWorkflowContinuityForRegistry", "len(out.ProductIdentity)", boundItems)
 	stepActionCount := goInlineBound("internal/store/workflow_registry.go", "validateWorkflowDefinitionWithReference", "len(step.Actions)", boundItems)
 	commitOIDBound := goInlineBound("internal/store/work_context.go", "workContextCommitOID", "len(oid)", boundBytes)
@@ -146,7 +146,7 @@ func init() {
 	checkpointPendingQuestions := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowList", "p.PendingQuestions", 1, boundItems)
 	checkpointPendingDecisions := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowList", "p.PendingDecisions", 1, boundItems)
 	boundarySummary := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextBoundaryCrossed", "workflowString", "p.Summary", 1, boundBytes)
-	observationStatementGuard := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(statement)", boundBytes)
+	observationStatementGuard := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(statement)", boundCharacters)
 	observationRefsCount := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(refs)", boundItems)
 	observationTagsCount := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(tags)", boundItems)
 	designApproachGuard := goInlineBound("internal/store/workflow_design.go", "validateWorkflowDesignContentWithReference", "len(p.Approach)", boundBytes)

@@ -54,6 +54,40 @@ func TestObservationBoundsAgreeWithSchemaCodePoints(t *testing.T) {
 	}
 }
 
+func TestObservationCollectionBoundsAgreeWithSchema(t *testing.T) {
+	for _, field := range []struct {
+		name string
+		max  int
+	}{{"refs", 16}, {"tags", 8}} {
+		for _, count := range []int{0, field.max, field.max + 1} {
+			t.Run(fmt.Sprintf("%s/%d", field.name, count), func(t *testing.T) {
+				values := make([]string, count)
+				for i := range values {
+					values[i] = fmt.Sprintf("é😀%d", i)
+				}
+				input := map[string]any{"work_id": "work-unicode", "idempotency_key": "unicode", "statement": "noticed", field.name: values}
+				raw, err := json.Marshal(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantOK := count <= field.max
+				if err := payloadschema.Validate("work_define_observation_record_input", raw); (err == nil) != wantOK {
+					t.Fatalf("schema: %v; want accepted=%v", err, wantOK)
+				}
+				var refs, tags []string
+				if field.name == "refs" {
+					refs = values
+				} else {
+					tags = values
+				}
+				if err := validateObservationBounds("noticed", refs, tags); (err == nil) != wantOK {
+					t.Fatalf("store: %v; want accepted=%v", err, wantOK)
+				}
+			})
+		}
+	}
+}
+
 func TestObservationUnicodeAnchorsPersistAndRefuseWithoutEffects(t *testing.T) {
 	for _, anchor := range []string{"work", "domain"} {
 		t.Run(anchor, func(t *testing.T) {
@@ -66,7 +100,7 @@ func TestObservationUnicodeAnchorsPersistAndRefuseWithoutEffects(t *testing.T) {
 			ctx := context.Background()
 			statement := strings.Repeat("😀", 512)
 			refs, tags := []string{strings.Repeat("é", 256)}, []string{strings.Repeat("😀", 32)}
-			for i, field := range []string{"valid", "statement", "refs", "tags"} {
+			for i, field := range []string{"valid", "statement", "refs", "tags", "refs_count", "tags_count"} {
 				payload := map[string]any{"observation_id": fmt.Sprintf("obs:%016x", i), "statement": statement, "refs": refs, "tags": tags}
 				event := Event{EventID: fmt.Sprintf("unicode-%d", i), Kind: WorkObservationRecorded, SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "agent", OccurredAt: time.Unix(int64(i+10), 0).UTC(), PayloadVersion: 1}
 				if anchor == "domain" {
@@ -80,6 +114,16 @@ func TestObservationUnicodeAnchorsPersistAndRefuseWithoutEffects(t *testing.T) {
 					payload[field] = []string{refs[0] + "😀"}
 				case "tags":
 					payload[field] = []string{tags[0] + "é"}
+				case "refs_count", "tags_count":
+					name, count := "refs", 17
+					if field == "tags_count" {
+						name, count = "tags", 9
+					}
+					values := make([]string, count)
+					for j := range values {
+						values[j] = fmt.Sprintf("é😀%d", j)
+					}
+					payload[name] = values
 				}
 				var err error
 				event.Payload, err = json.Marshal(payload)

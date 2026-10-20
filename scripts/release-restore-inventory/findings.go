@@ -43,6 +43,11 @@ import (
 //     upcaster, and of any kind at that version when the kind also has
 //     recorded schemas: the finding names those pairs as upcast_held_pairs.
 //
+//   - comparison_only: an assignment whose function's Event result reaches,
+//     through its one static caller, only a bool comparator, keyed by the
+//     function's name and digest and the caller's and comparator's digests;
+//     the site expression is free, as in the censused table.
+//
 // Any drift of a keyed digest or expression leaves the site held.
 
 //go:embed exemptions.v1.json
@@ -74,7 +79,13 @@ type exemption struct {
 	// CheckSubjectDigest is the reviewed checkSubject a replay_decoder's
 	// fold refusals rely on; no other class has one.
 	CheckSubjectDigest string `json:"check_subject_digest,omitempty"`
-	Check              string `json:"check"`
+	// Caller, CallerDigest, Comparator, and ComparatorDigest key a
+	// comparison_only entry; no other class has them.
+	Caller           string `json:"caller,omitempty"`
+	CallerDigest     string `json:"caller_digest,omitempty"`
+	Comparator       string `json:"comparator,omitempty"`
+	ComparatorDigest string `json:"comparator_digest,omitempty"`
+	Check            string `json:"check"`
 }
 
 type exemptionTable struct {
@@ -136,13 +147,15 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 			keys, absent = slices.Concat(site, check), upcast
 		case "upcast_confinement":
 			keys, absent = upcast, slices.Concat(site, check)
+		case "comparison_only":
+			keys, absent = []string{e.Function, e.FunctionDigest, e.Caller, e.CallerDigest, e.Comparator, e.ComparatorDigest}, slices.Concat(upcast, check)
 		default:
 			return table, fmt.Errorf("exemption %q has unknown class %q", e.ID, e.Class)
 		}
 		if slices.Contains(append([]string{e.ID, e.Check}, keys...), "") || slices.ContainsFunc(absent, func(key string) bool { return key != "" }) {
 			return table, fmt.Errorf("exemption %q lacks a key of its class, its identity, or its check record, or has another class's key", e.ID)
 		}
-		key := strings.Join(slices.Concat(site, upcast), "\x00")
+		key := strings.Join(slices.Concat(site, upcast, []string{e.Caller, e.CallerDigest, e.Comparator, e.ComparatorDigest}), "\x00")
 		if seen[e.ID] || seen[key] {
 			return table, fmt.Errorf("exemption %q is repeated", e.ID)
 		}
@@ -161,6 +174,10 @@ func (e exemption) covers(site writerSite, analysis writerAnalysis) bool {
 			return common && route == nil
 		}
 		return common && route != nil && route.Function == e.AdaptCaller && route.FunctionDigest == e.AdaptCallerDigest && slices.Equal(route.Forwarders, e.Forwarders) && slices.Equal(route.Values, e.AdaptValues)
+	}
+	if e.Class == "comparison_only" {
+		c := site.Comparison
+		return c != nil && site.Function == e.Function && site.FunctionDigest == e.FunctionDigest && c.Caller == e.Caller && c.CallerDigest == e.CallerDigest && c.Comparator == e.Comparator && c.ComparatorDigest == e.ComparatorDigest
 	}
 	return site.Function == e.Function && site.Expression == e.Expression && site.FunctionDigest == e.FunctionDigest
 }

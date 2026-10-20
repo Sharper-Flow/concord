@@ -112,7 +112,7 @@ func cloneWorkflowAction(action WorkflowActionDefinition) WorkflowActionDefiniti
 
 // builtinWorkflowActionCatalogs lists every released action catalog version.
 func builtinWorkflowActionCatalogs() []workflowActionCatalog {
-	return []workflowActionCatalog{workflowActionCatalogV1(), workflowActionCatalogV2(), workflowActionCatalogV3()}
+	return []workflowActionCatalog{workflowActionCatalogV1(), workflowActionCatalogV2(), workflowActionCatalogV3(), workflowActionCatalogV4()}
 }
 
 func builtinWorkflowActionCatalog(version int) (workflowActionCatalog, bool) {
@@ -180,8 +180,15 @@ func workflowActionCatalogV2() workflowActionCatalog {
 }
 
 func workflowActionCatalogV3() workflowActionCatalog {
-	catalog := workflowActionCatalogV2()
-	catalog.Version = 3
+	return withCompletionSubmission(workflowActionCatalogV2(), 3)
+}
+
+func workflowActionCatalogV4() workflowActionCatalog {
+	return withCompletionSubmission(workflowActionCatalogV1(), 4)
+}
+
+func withCompletionSubmission(catalog workflowActionCatalog, version int) workflowActionCatalog {
+	catalog.Version = version
 	catalog.revisions["complete"] = []workflowActionRevision{func(action WorkflowActionDefinition) WorkflowActionDefinition {
 		action.Payload.Fields = append(slices.Clone(action.Payload.Fields), actionRefField("delivery_artifact", false), actionEnumField("delivery_state", false, "asserted"))
 		return action

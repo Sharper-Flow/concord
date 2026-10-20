@@ -272,7 +272,7 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.break_fix", "32"}:          "sha256:84e2bb3699bf0d91e44dede7b3711b643048f9e4e4269176069372b6dac31301",
 	{"workflow.break_fix", "33"}:          "sha256:f88fbf9649ed7acc5844cb6e01f0a9cab8d1f3219e7cbcf27c20a2574777a670",
 	{"workflow.research", "21"}:           "sha256:a8c1173342a5b706c15511824470e60ebd7cdfb2ff49217e3a20c8e2c06b8ca0",
-	{"workflow.research", "22"}:           "sha256:0fbb32699f9e0156e5b1530c8c02f8cbb5e3751649e36709b40d2184084a47ee",
+	{"workflow.research", "22"}:           "sha256:10719f986227a1b6da1e883434f166323b5a3c27d2842c5b04d22a522310877e",
 	{"workflow.architecture_spike", "17"}: "sha256:3e9d434cba63d47aadea18399c3f950b89e93a5cc69317b8685fbbee2d245e55",
 	{"workflow.ops_runbook", "18"}:        "sha256:354390116b3faf7a73524ca4bfbbfe962650f8ed8eaf73a68845d812daade63a",
 	{"workflow.static_analysis", "15"}:    "sha256:5a561e9d53d26fc0ddec0f84aa72ca5cd2a0018e92dfa5dd0732efd0a8b32ade",

@@ -148,7 +148,12 @@ func builtinWorkflowCompositions() []WorkflowComposition {
 }
 
 func withSizedTiming(composition WorkflowComposition, version int64) WorkflowComposition {
-	composition.Version, composition.ActionCatalogVersion = version, 3
+	composition.Version = version
+	if composition.ActionCatalogVersion == 1 {
+		composition.ActionCatalogVersion = 4
+	} else {
+		composition.ActionCatalogVersion = 3
+	}
 	for index := range composition.Parts {
 		if composition.Parts[index].Ref == "part.close" {
 			composition.Parts[index].Version = 2

@@ -665,3 +665,23 @@ func TestWorkflowTimingLegacyUpcastDoesNotInventMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkflowTimingKeepsBaselineActionContracts(t *testing.T) {
+	for _, pair := range [][2]WorkflowComposition{
+		{implementationSmallV36(), implementationTimedSmallV38()},
+		{implementationCompositionV37(), implementationTimedV39()},
+		{breakFixCompositionV32(), breakFixTimedV33()},
+		{researchConsequenceV21(), researchTimedV22()},
+	} {
+		before, after := mustCompileWorkflowComposition(pair[0]), mustCompileWorkflowComposition(pair[1])
+		for _, action := range before.ActionDefinitions {
+			if action.ID == "complete" {
+				continue
+			}
+			index := slices.IndexFunc(after.ActionDefinitions, func(candidate WorkflowActionDefinition) bool { return candidate.ID == action.ID })
+			if index < 0 || !reflect.DeepEqual(action, after.ActionDefinitions[index]) {
+				t.Errorf("timed %s changes baseline action %s", before.Ref, action.ID)
+			}
+		}
+	}
+}

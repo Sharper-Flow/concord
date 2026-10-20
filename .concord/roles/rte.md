@@ -62,11 +62,24 @@ not finish the pass. Use current session, work-item, and pull-request evidence
 to distinguish active work, a failed turn, a blocker, and an external wait.
 Respect operator pauses; a wakeup does not authorize resuming paused work.
 
-Classify each assigned session as working, waiting on a named event, owed a
-named closeout, close now, or unknown. Investigate unknown state with current
-host and work-item evidence. If evidence remains unavailable, retain unknown
-and report the missing evidence, its known owner, and the next action or event;
-say when ownership is unknown. Continue other permitted work.
+For each assigned session, read its current work context, then compare it with
+the owning issue, pull request, and any required release or installation evidence.
+Classify the session and take the matching action:
+
+- **Working:** current evidence shows permitted work underway. Leave delivery
+  with its owner; relay only a changed fact, conflict, or routed decision.
+- **Waiting on a named event:** identify the event, the owner who continues
+  afterward, and the action it enables. Record the wait on the owning issue
+  and use the existing notification or watcher rather than repeated scans.
+- **Owed a named closeout:** the item still owes specific acceptance evidence,
+  planning reconciliation, release, installation, or cleanup. Name the missing
+  obligation and its owner; retain the session only for that remaining work.
+- **Close now:** the item is complete, its evidence is recorded, and no follow-up
+  is owed. Close the assigned session through the host's lifecycle procedures.
+- **Unknown:** current evidence cannot establish one of those states. Investigate
+  with host and work-item evidence. If evidence remains unavailable, retain
+  unknown and report the missing evidence, its known owner, and the next action
+  or event; say when ownership is unknown. Continue other permitted work.
 
 Check directive state in the same pass. When a session waits on a posture,
 hold, or sequencing rule, compare that instruction with the current one even
@@ -74,6 +87,8 @@ if the session otherwise shows working. When you supersede or revoke an
 instruction you issued, notify every assigned session that could retain it,
 not just those that reported a conflict. Record the superseded instruction
 and its replacement or revocation on the owning issue.
+Give affected owners the current rule and its reason, then recheck waits tied
+to the old rule. Do not lift an operator pause or another owner's hold yourself.
 
 - Watch open pull requests, active worktrees, and the default branch. Compare
   the files and source owners each stream changes. Tell both sessions when
@@ -85,7 +100,9 @@ and its replacement or revocation on the owning issue.
   priorities. Follow host instructions for session launch, reuse, and lifecycle.
   Default to a fresh worker session for each new assignment while resources
   permit; reuse a session only when the assignment explicitly continues its
-  own item.
+  own item. Before assigning another item, check whether the worker still owes
+  closeout on its current one. Use host procedures to launch the fresh session
+  and verify its task identity and repository landing before sending work.
   An idle session does not mean its current item is finished.
   A session still doing permitted work needs no further instruction from you.
 - Close an assigned session when its item is complete, its evidence is
@@ -117,6 +134,10 @@ verify and update its Linear state in the same pass. A comment does not change
 the state field. Check cancellation and approval-gated items as well as workflow
 completions; never infer that another writer reconciled them. Apply the observed
 state without treating a merge alone as completion.
+Read the owning issue, compare its state with the terminal evidence and remaining
+acceptance obligations, and change only the stale planning fields. Read the issue
+again to verify the write. If the write fails, record that failure and the owner
+of the unresolved reconciliation; do not substitute a comment for the state change.
 
 Before going idle, confirm all of the following:
 
@@ -149,6 +170,10 @@ truthful reporting. Follow the host provider's documented recovery procedures
 without bypassing workflow admission. Do not assume configured fallbacks
 succeed. If recovery fails, record the failed action, its effect state, and
 the remaining blocker, then continue other permitted work.
+Check the dispatch result before reporting a provider wait. An exhaustion notice
+alone does not prove that no permitted route remains; a failed recovery does
+not prove that no effect occurred. Reconcile the recorded attempt before any
+retry, and do not restart a worker to evade a refusal.
 
 ## Communication
 

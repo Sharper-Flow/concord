@@ -951,7 +951,7 @@ func TestRecordedEarlyWorkerTerminalHistoryRebuildsAndRecords(t *testing.T) {
 	}))
 	insertHistoricalEvent(t, s, completed("hist2-complete-v2-cmp", hist2[3], 2, time.Unix(63, 0).UTC(), map[string]any{
 		"worker_directory": "worker-hist2-directory", "evidence_origin": WorkerEvidenceReported, "evidence": laneEvidence(false),
-		"base_comparison":  map[string]any{"checks": []any{map[string]any{"command": "go test ./...", "branch_result": "pass", "base_result": "pass"}}},
+		"base_comparison": map[string]any{"checks": []any{map[string]any{"command": "go test ./...", "branch_result": "pass", "base_result": "pass"}}},
 	}))
 	insertHistoricalEvent(t, s, completed("hist2-complete-v2-pred", hist2[4], 2, time.Unix(64, 0).UTC(), map[string]any{
 		"worker_directory": "worker-hist2-directory", "evidence_origin": WorkerEvidenceReported, "evidence": laneEvidence(true),

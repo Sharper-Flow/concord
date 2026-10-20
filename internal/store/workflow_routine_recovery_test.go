@@ -546,8 +546,13 @@ func TestRoutineRecovery(t *testing.T) {
 	t.Run("correction and supersession payload registrations keep their semantics", func(t *testing.T) {
 		t.Parallel()
 		superseded, ok := registeredEventKind(WorkflowContractSuperseded)
-		if !ok || superseded.CurrentVersion != 4 || superseded.Upcasters[1] == nil || superseded.Upcasters[2] == nil || superseded.Upcasters[3] == nil {
-			t.Fatalf("contract_superseded registration = %#v, want v4 with upcasters 1-3", superseded)
+		if !ok || superseded.CurrentVersion != workflowContractSupersededLawChangePayloadVersion {
+			t.Fatalf("contract_superseded registration = %#v, want v%d", superseded, workflowContractSupersededLawChangePayloadVersion)
+		}
+		for version := 1; version < superseded.CurrentVersion; version++ {
+			if superseded.Upcasters[version] == nil {
+				t.Fatalf("contract_superseded registration = %#v, want an upcaster from v%d", superseded, version)
+			}
 		}
 		// A correction request records no dedicated event kind: it is a
 		// workflow.action_completed whose action_id is request_correction.
@@ -585,8 +590,9 @@ func TestRoutineRecovery(t *testing.T) {
 			t.Fatal("correction upcast did not stamp the explicit legacy attribution marker")
 		}
 		// The supersession registration keeps the same guarantee for its
-		// approval binding bytes: a recorded v1 supersession upcasts to v4
-		// with its attribution preserved and its replay provenance intact.
+		// approval binding bytes: a recorded v1 supersession upcasts to the
+		// current version with its attribution preserved and its replay
+		// provenance intact.
 		binding := map[string]any{
 			"work_id": "routine-upcast-work", "expected_version": 2, "resulting_version": 3,
 			"previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "legacy replacement", "audit_evidence": []string{"evidence:legacy"},
@@ -601,8 +607,8 @@ func TestRoutineRecovery(t *testing.T) {
 		if err != nil {
 			t.Fatalf("recorded v1 supersession did not upcast: %v", err)
 		}
-		if supersededUpcast.PayloadVersion != 4 || supersededUpcast.replaySourcePayloadVersion != 1 {
-			t.Fatalf("upcast payload version = %d source = %d, want 4 with source 1", supersededUpcast.PayloadVersion, supersededUpcast.replaySourcePayloadVersion)
+		if supersededUpcast.PayloadVersion != workflowContractSupersededLawChangePayloadVersion || supersededUpcast.replaySourcePayloadVersion != 1 {
+			t.Fatalf("upcast payload version = %d source = %d, want %d with source 1", supersededUpcast.PayloadVersion, supersededUpcast.replaySourcePayloadVersion, workflowContractSupersededLawChangePayloadVersion)
 		}
 		var supersessionPayload workflowContractSupersededPayload
 		if err := json.Unmarshal(supersededUpcast.Payload, &supersessionPayload); err != nil {

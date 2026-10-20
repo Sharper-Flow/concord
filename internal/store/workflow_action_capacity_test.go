@@ -90,6 +90,30 @@ func TestCapacityWalkerWireTruth(t *testing.T) {
 	}
 }
 
+// workerPacketCapacityOptions is the shared writer-bound inventory every
+// packet version's capacity derivation applies: the acceptance oracle and
+// the checks-repair metadata are writer-bounded members the generated schema
+// leaves unstated, the writer-stamped date-times carry the core writer's
+// RFC3339Nano UTC serialization, and the three context members ride the
+// context aggregate exactly once.
+func workerPacketCapacityOptions(defs map[string]any, packet, jobShape string, findingRefMax int) schemawire.Options {
+	return schemawire.Options{
+		Defs: defs,
+		PathBounds: map[string]int{
+			packet + "/inputs/worker_job/" + jobShape + "/acceptance_oracle":        OracleCombinedMaxBytes,
+			packet + "/inputs/worker_job/" + jobShape + "/checks_repair":            WorkerJobChecksRepairMaxBytes,
+			packet + "/inputs/design_record/workflow_design_record/recorded_at":     32,
+			packet + "/inputs/proposal_record/workflow_proposal_record/recorded_at": 32,
+		},
+		Excludes: map[string]bool{
+			packet + "/inputs/work_context": true,
+			packet + "/inputs/checkpoint":   true,
+			packet + "/inputs/correction":   true,
+		},
+		FindingRefMax: findingRefMax,
+	}
+}
+
 // TestWorkflowActionPayloadBudgetDerivesFromDeclaredMaxima composes the
 // declared maxima of the worker packet identities and proves each shape
 // stays inside the whole-action decode budget. The three context members
@@ -117,24 +141,7 @@ func TestWorkflowActionPayloadBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	}
 	// Quotes count: the reference serializes inside quotation marks.
 	findingRefMax := 2 + len("finding:") + 19 + 1 + 2
-	opt := schemawire.Options{
-		Defs: defs,
-		PathBounds: map[string]int{
-			// The serialized acceptance oracle is bounded by its writer,
-			// not by the generated schema.
-			"worker_packet2/inputs/worker_job/worker_packet_worker_job/acceptance_oracle": OracleCombinedMaxBytes,
-			// The writer-stamped date-times carry the core writer's
-			// RFC3339Nano UTC serialization.
-			"worker_packet2/inputs/design_record/workflow_design_record/recorded_at":     32,
-			"worker_packet2/inputs/proposal_record/workflow_proposal_record/recorded_at": 32,
-		},
-		Excludes: map[string]bool{
-			"worker_packet2/inputs/work_context": true,
-			"worker_packet2/inputs/checkpoint":   true,
-			"worker_packet2/inputs/correction":   true,
-		},
-		FindingRefMax: findingRefMax,
-	}
+	opt := workerPacketCapacityOptions(defs, "worker_packet2", "worker_packet_worker_job", findingRefMax)
 	packetParts, err := schemawire.Max(defs["worker_packet2"], "worker_packet2", opt)
 	if err != nil {
 		t.Fatalf("the packet derivation hit an unbudgeted member: %v", err)
@@ -155,22 +162,9 @@ func TestWorkflowActionPayloadBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	// composition: its work-context closure — the research entries and the
 	// widened group namespace — sits inside the excluded work_context member,
 	// so the packet3 derivation must match the packet2 derivation byte for
-	// byte under the shared ceiling guard.
-	packet3Opt := schemawire.Options{
-		Defs: defs,
-		PathBounds: map[string]int{
-			"worker_packet3/inputs/worker_job/worker_packet_worker_job/acceptance_oracle": OracleCombinedMaxBytes,
-			"worker_packet3/inputs/design_record/workflow_design_record/recorded_at":      32,
-			"worker_packet3/inputs/proposal_record/workflow_proposal_record/recorded_at":  32,
-		},
-		Excludes: map[string]bool{
-			"worker_packet3/inputs/work_context": true,
-			"worker_packet3/inputs/checkpoint":   true,
-			"worker_packet3/inputs/correction":   true,
-		},
-		FindingRefMax: findingRefMax,
-	}
-	packet3Parts, err := schemawire.Max(defs["worker_packet3"], "worker_packet3", packet3Opt)
+	// byte under the shared ceiling guard — no second budget and no limit
+	// growth.
+	packet3Parts, err := schemawire.Max(defs["worker_packet3"], "worker_packet3", workerPacketCapacityOptions(defs, "worker_packet3", "worker_packet_worker_job", findingRefMax))
 	if err != nil {
 		t.Fatalf("the packet3 derivation hit an unbudgeted member: %v", err)
 	}
@@ -181,32 +175,34 @@ func TestWorkflowActionPayloadBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	if packet3Composed != composed {
 		t.Fatalf("the packet3 composition = %d bytes, want the packet2 composition %d", packet3Composed, composed)
 	}
-	// The size-capable packet4 identity rides the same composition: its
-	// worker_job closure adds the recorded size members and the caller
-	// exclusions inside the worker_job member, under the same ceiling guard.
-	packet4Opt := schemawire.Options{
-		Defs: defs,
-		PathBounds: map[string]int{
-			"worker_packet4/inputs/worker_job/worker_packet4_worker_job/acceptance_oracle":                                                                                                                                                 OracleCombinedMaxBytes,
-			"worker_packet4/inputs/worker_job/worker_packet4_worker_job/measurement_basis/worker_job_measurement_basis/base_commit":                                                                                                        71,
-			"worker_packet4/inputs/worker_job/worker_packet4_worker_job/direct_caller_allowance/worker_job_direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash": 71,
-			"worker_packet4/inputs/design_record/workflow_design_record/recorded_at":                                                                                                                                                       32,
-			"worker_packet4/inputs/proposal_record/workflow_proposal_record/recorded_at":                                                                                                                                                   32,
-		},
-		Excludes: map[string]bool{
-			"worker_packet4/inputs/work_context": true,
-			"worker_packet4/inputs/checkpoint":   true,
-			"worker_packet4/inputs/correction":   true,
-		},
-		FindingRefMax: findingRefMax,
-	}
+	// The checks-repair packet4 identity carries one writer-bounded member
+	// beside the shared job content: the core-recorded checks repair
+	// metadata, bounded by WorkerJobChecksRepairMaxBytes exactly as the
+	// acceptance oracle is.
+	packet4Opt := workerPacketCapacityOptions(defs, "worker_packet4", "worker_packet_checks_repair_job", findingRefMax)
 	packet4Parts, err := schemawire.Max(defs["worker_packet4"], "worker_packet4", packet4Opt)
 	if err != nil {
 		t.Fatalf("the packet4 derivation hit an unbudgeted member: %v", err)
 	}
 	packet4Composed := packet4Parts + DispatchContextAggregateMaxBytes - 1 + wrapper
 	if packet4Composed > maxWorkflowActionPayloadBytes {
-		t.Fatalf("the packet4 composition needs %d bytes, above the %d-byte whole-action budget; derive the budget again", packet4Composed, maxWorkflowActionPayloadBytes)
+		t.Fatalf("the packet4 composed declared maxima need %d bytes, above the %d-byte whole-action budget: the checks repair writer bound does not fit; derive the budget again or shrink the bound before changing any policy", packet4Composed, maxWorkflowActionPayloadBytes)
+	}
+	// The size-capable packet5 identity mirrors the checks-repair packet4
+	// shape beside the recorded production-size members: the measurement
+	// basis's base commit and the direct-caller allowance's knowledge
+	// content hash are anchored scalars the walker bounds at their exact
+	// quoted serializations, under the same ceiling guard.
+	packet5Opt := workerPacketCapacityOptions(defs, "worker_packet5", "worker_packet5_worker_job", findingRefMax)
+	packet5Opt.PathBounds["worker_packet5/inputs/worker_job/worker_packet5_worker_job/measurement_basis/worker_job_measurement_basis/base_commit"] = 71
+	packet5Opt.PathBounds["worker_packet5/inputs/worker_job/worker_packet5_worker_job/direct_caller_allowance/worker_job_direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash"] = 71
+	packet5Parts, err := schemawire.Max(defs["worker_packet5"], "worker_packet5", packet5Opt)
+	if err != nil {
+		t.Fatalf("the packet5 derivation hit an unbudgeted member: %v", err)
+	}
+	packet5Composed := packet5Parts + DispatchContextAggregateMaxBytes - 1 + wrapper
+	if packet5Composed > maxWorkflowActionPayloadBytes {
+		t.Fatalf("the packet5 composed declared maxima need %d bytes, above the %d-byte whole-action budget: the recorded size members do not fit; derive the budget again or shrink the bounds before changing any policy", packet5Composed, maxWorkflowActionPayloadBytes)
 	}
 	if maxWorkflowPredicateBytes != 64*1024 {
 		t.Fatalf("predicate bound = %d, want the unchanged 65536", maxWorkflowPredicateBytes)

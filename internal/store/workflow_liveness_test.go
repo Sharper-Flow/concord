@@ -44,14 +44,16 @@ func (m livenessMove) String() string {
 // on the join and read as a stranding that no agent would meet.
 var livenessDigest = "sha256:" + strings.Repeat("d", 64)
 
-// livenessActionDefinition resolves the registered payload contract for an
-// action, including the two recovery actions the registry holds outside the
-// pinned root list.
+// livenessActionDefinition resolves the payload contract the engine validates
+// an action against: the pinned declaration with a consequence_v1 pin's
+// selected decision fact, including the recovery actions the registry holds
+// outside the pinned root list.
 func livenessActionDefinition(definition WorkflowDefinition, actionID string) (WorkflowActionDefinition, bool) {
-	for _, action := range definition.ActionDefinitions {
-		if action.ID == actionID {
-			return action, true
-		}
+	if action, err := workflowDeclaredActionDefinition(definition, actionID); err == nil {
+		return action, true
+	}
+	if actionID == "supersede_contract" {
+		return workflowDecisionFactRecoveryActionDefinition(definition), true
 	}
 	return workflowRecoveryActionDefinition(actionID)
 }
@@ -412,6 +414,11 @@ func livenessListItem(field, itemRef string, index int64) string {
 func livenessPayload(definition WorkflowDefinition, action WorkflowActionDefinition, variant map[string]string) (json.RawMessage, error) {
 	fields := map[string]any{}
 	for _, field := range action.Payload.Fields {
+		// These journeys change no law. Law-change declarations are valid
+		// only when the contract actually changes law.
+		if slices.ContainsFunc(workflowLawChangeFields(), func(lawField WorkflowPayloadField) bool { return lawField.Name == field.Name }) {
+			continue
+		}
 		if action.ID == "supersede_contract" && (field.Name == "outcome_kind" || field.Name == "outcome_payload") {
 			continue
 		}
@@ -429,10 +436,12 @@ func livenessPayload(definition WorkflowDefinition, action WorkflowActionDefinit
 				continue
 			}
 			actor := livenessActionActor(action.ID)
-			if action.ID == "record_verdict" {
-				// The signed operator identity becomes the recorded verdict actor.
-				// The invoking evaluator remains the authenticated actor for the
-				// independent-evaluation guard.
+			if action.ID == "record_verdict" && !workflowApprovalPolicyRequiresDecisionFact(definition) {
+				// Legacy: the signed operator identity becomes the recorded
+				// verdict actor while the invoking evaluator remains the
+				// authenticated actor for the independent-evaluation guard.
+				// consequence_v1 takes no operator substitution, so the
+				// evaluator records under its own identity.
 				actor = livenessOperator()
 			}
 			fields[field.Name] = DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef)
@@ -440,6 +449,12 @@ func livenessPayload(definition WorkflowDefinition, action WorkflowActionDefinit
 		}
 		if field.Name == "asserted_at" {
 			// asserted_at is optional; omission is a valid payload.
+			continue
+		}
+		// An explored contract is engineering work: the empty decision-domain
+		// fact admits it without an operator consent challenge.
+		if field.Name == "decision_domains" && variant[field.Name] == "" {
+			fields[field.Name] = []string{}
 			continue
 		}
 		if field.Name == "incomparable_with_approved" {
@@ -624,11 +639,30 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 	var operator *WorkflowActor
 	selectedChoice := ""
 	decisionDigest := ""
-	if workflowActionAllowsOperatorIdentity(move.action) {
+	actor := livenessActionActor(move.action)
+	entry, entryErr := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID)
+	if entryErr != nil {
+		return entryErr
+	}
+	// consequence_v1 takes no operator substitution: an engineering contract
+	// is approved, evaluated, confirmed, and completed under the agents' own
+	// identities, and the coordinator confirms the premise with no human
+	// question open.
+	routine := workflowApprovalPolicyRequiresDecisionFact(entry.Definition)
+	if workflowActionAllowsOperatorIdentity(move.action) && !routine {
 		operatorActor := livenessOperator()
 		operator = &operatorActor
 	}
-	if move.action == "confirm_premise" {
+	if move.action == "confirm_premise" && routine {
+		question, questionErr := readOperatorQuestionFromWorkPinForTest(ctx, s, workID)
+		if questionErr != nil {
+			return questionErr
+		}
+		if question != nil {
+			return fmt.Errorf("engineering premise opened operator question %s", question.ActionID)
+		}
+		selectedChoice = "confirm"
+	} else if move.action == "confirm_premise" {
 		question, questionErr := readOperatorQuestionFromWorkPinForTest(ctx, s, workID)
 		if questionErr != nil {
 			return questionErr
@@ -642,10 +676,20 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 		// another label. The engine refuses a relabel of the caller, which is
 		// the control this explorer must not defeat.
 	}
-	actor := livenessActionActor(move.action)
 	payload, bindErr := livenessBindRecordedState(ctx, s, workID, move.action, move.payload)
 	if bindErr != nil {
 		return bindErr
+	}
+	if move.action == "confirm_premise" && routine {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(payload, &fields); err != nil {
+			return err
+		}
+		delete(fields, "decision_context_digest")
+		fields["selected_choice"], _ = json.Marshal(selectedChoice)
+		if payload, bindErr = json.Marshal(fields); bindErr != nil {
+			return bindErr
+		}
 	}
 	// CD-0198 D4: the combined accept carries its delivery fields only at the
 	// delivery-admitting refinement step, and its admission reads a green
@@ -657,10 +701,6 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 	// have and the combined accept stays the step's explored exit.
 	seedGreenRun := false
 	if move.action == "accept_worker_result" {
-		entry, entryErr := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID)
-		if entryErr != nil {
-			return entryErr
-		}
 		stepID, stepErr := livenessStep(ctx, s, workID)
 		if stepErr != nil {
 			return stepErr

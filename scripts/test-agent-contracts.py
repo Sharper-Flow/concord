@@ -42,6 +42,32 @@ relation_vocabulary_generator = _load_cli_module("cli_safety_relation_vocabulary
 durable_tier_budget_generator = _load_cli_module("cli_safety_durable_tier_budget", "generate-durable-tier-budget.py")
 branch_freshness_generator = _load_cli_module("cli_safety_branch_freshness", "generate-branch-freshness.py")
 lane_step_dispatch_generator = _load_cli_module("cli_safety_lane_step_dispatch", "generate-lane-step-dispatch.py")
+adapter_oracle_generator = _load_cli_module("adapter_oracle_generator", "generate-adapter-oracle.py")
+
+
+class AdapterOracleGenerationTests(unittest.TestCase):
+    def test_committed_outputs_match_sources(self):
+        for path, expected in adapter_oracle_generator.render().items():
+            with self.subTest(path=path):
+                self.assertEqual(path.read_text(), expected)
+
+    def test_checks_and_helpers_are_pinned_existing_files(self):
+        recipe = json.loads(adapter_oracle_generator.render()[adapter_oracle_generator.OUTPUT])
+        harness = recipe["harness_files"]
+        self.assertLessEqual(len(harness), 16)
+        for name in harness:
+            self.assertTrue((ROOT / name).is_file(), name)
+        for check in recipe["checks"]:
+            for name in check["argv"][1:]:
+                self.assertIn(f"adapter/opencode/{name}", harness)
+
+    def test_a_dependency_change_cannot_regenerate_an_empty_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / "package.json"
+            package.write_text(json.dumps({"name": "adapter", "private": True, "dependencies": {"unexpected": "1.0.0"}}))
+            with unittest.mock.patch.object(adapter_oracle_generator, "PACKAGE", package):
+                with self.assertRaisesRegex(SystemExit, "must remain dependency-free"):
+                    adapter_oracle_generator.render()
 
 class LaneSelectabilityTests(unittest.TestCase):
     def check_definition(self, mode, hidden=True):
@@ -1205,18 +1231,24 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
 
     def test_the_public_dispatch_override_remains_correct(self):
         # Versioned packet schemas do not expose packet authoring publicly.
-        # The size-capable heads anchor dispatch at the worker_packet4
-        # closure and the other heads at the research-context worker_packet3
-        # closure, so dispatch projects one variant per closure and every
-        # variant's public override stays the lane identity alone.
+        # The size-capable heads anchor dispatch at the size-bearing
+        # worker_packet5 closure and research at worker_packet3. The
+        # historical repair-capable packet4 stays frozen but is not a
+        # current authoring variant, so the current families'
+        # identical public halves project one variant per closure whose
+        # public override stays the lane identity alone.
         action = self.action("dispatch_worker")
         self.assertEqual(len(action["variants"]), 2)
-        packet_refs = set()
         for variant in action["variants"]:
             self.assertNotEqual(variant["payload"], variant["public_payload"])
             self.assertEqual([field["name"] for field in variant["public_payload"]["fields"]], ["lane_id"])
-            packet_refs |= {field["schema_ref"] for field in variant["payload"]["fields"] if field["name"] == "worker_packet"}
-        self.assertEqual(packet_refs, {"worker_packet3", "worker_packet4"})
+        packet_refs = {
+            field["schema_ref"]
+            for variant in action["variants"]
+            for field in variant["payload"]["fields"]
+            if field["name"] == "worker_packet"
+        }
+        self.assertEqual(packet_refs, {"worker_packet3", "worker_packet5"})
         internal = payload_schema["$defs"]["work_transition_action_variant_dispatch_worker"]["properties"]["fields"]
         branches = internal.get("anyOf", internal.get("oneOf", [internal]))
         self.assertEqual(len(branches), 2)
@@ -1274,6 +1306,15 @@ class LiveAuthoringClosureTests(unittest.TestCase):
         for token in retired_tokens:
             self.assertNotIn(f'"{token}"', text, f"retired outcome token {token} is still authorable")
         self.assertNotIn("decision_record", text)
+        # The work pin replays stored predicates unchanged, so it keeps the
+        # retained vocabulary and decision record that authoring narrows away.
+        retained = defs["workflow_retained_outcome"]["properties"]
+        self.assertEqual(retained["allowed"]["maxItems"], 8)
+        self.assertTrue(retired_tokens <= set(retained["allowed"]["items"]["enum"]))
+        self.assertIn("decision_record", retained)
+        criterion = json.dumps(defs["work_pin_verified_criterion"], sort_keys=True)
+        self.assertIn('"#/$defs/workflow_retained_outcome"', criterion)
+        self.assertNotIn('"#/$defs/workflow_outcome_outcome"', criterion)
 
     def test_the_frozen_decoder_keeps_the_retired_vocabulary(self):
         frozen = json.loads(generator.HISTORICAL_DECODER.read_text())["$defs"]
@@ -1414,8 +1455,9 @@ class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
             self.assertNotIn(f"work_transition_action_public_variant_{action_id}", defs, action_id)
         consts = set()
         for name, schema in defs.items():
-            # closed_field_union hoists an overlapping fields member under
-            # the variant's name; that member is not an action variant.
+            # A multi-branch action's field union publishes helper member
+            # defs beside the action's own variant defs; only the variant
+            # defs carry the action_id const the retirement check scans.
             if name.startswith("work_transition_action_variant_") and "_fields_member_" not in name:
                 consts.add(schema["properties"]["action_id"]["const"])
         self.assertEqual(consts, live_ids)
@@ -1937,8 +1979,18 @@ class CIContractRoutingTests(unittest.TestCase):
     def test_verify_adapter_runs_the_adapter_suite_directly(self):
         # The adapter_test evidence anchors resolve only against a direct
         # workflow invocation, so deleting the direct step would strand them.
-        direct = [step for step in workflow_job_steps("verify-adapter") if "bun test adapter/opencode" in step["run"]]
-        self.assertTrue(direct, "verify-adapter must run the adapter suite directly")
+        direct = [step for step in workflow_job_steps("verify-adapter-rest") if "bun test adapter/opencode" in step["run"]]
+        self.assertTrue(direct, "verify-adapter-rest must run the adapter suite directly")
+        aggregate = workflow_job_block("verify-adapter")
+        self.assertEqual(job_needs(aggregate), ["verify-adapter-rest", "verify-adapter-dispatch"])
+        self.assertRegex(aggregate, r"(?m)^ {4}if: always\(\)$")
+        gate = workflow_job_steps("verify-adapter")
+        self.assertEqual(len(gate), 1)
+        self.assertEqual(gate[0]["env"], {
+            "REST_RESULT": "${{ needs.verify-adapter-rest.result }}",
+            "DISPATCH_RESULT": "${{ needs.verify-adapter-dispatch.result }}",
+        })
+        self.assertEqual(gate[0]["run"].strip().splitlines(), ['test "$REST_RESULT" = success', 'test "$DISPATCH_RESULT" = success'])
 
     def test_verify_tooling_runs_the_contract_selftest_directly(self):
         direct = [step for step in workflow_job_steps("verify-tooling") if "scripts/test-agent-contracts.py" in step["run"]]
@@ -2635,13 +2687,16 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
             fields_schema = variant["properties"]["fields"]
             if len(combinations) + len(alternatives) == 1 and not kind_matches:
                 group = (combinations + alternatives)[0]
-                flat = fields_schema
-                self.assertNotIn("oneOf", flat, f"{action['id']} publishes a union for a single rule group")
-                self.assertIs(flat.get("additionalProperties"), False)
-                for name in group["fields"]:
-                    self.assertIn(name, flat.get("required", []), f"{action['id']} single rule group {group['fields']} loses its required field")
-                for name in group.get("forbids", []):
-                    self.assertNotIn(name, flat.get("properties", {}), f"{action['id']} single rule group publishes forbidden {name}")
+                # Different workflow fieldsets can still form an outer union;
+                # the single rule group must collapse within each fieldset.
+                for condition in _condition_branches(variant):
+                    flat = _fields_object(condition)
+                    self.assertNotIn("oneOf", flat, f"{action['id']} publishes a nested union for a single rule group")
+                    self.assertIs(flat.get("additionalProperties"), False)
+                    for name in group["fields"]:
+                        self.assertIn(name, flat.get("required", []), f"{action['id']} single rule group {group['fields']} loses its required field")
+                    for name in group.get("forbids", []):
+                        self.assertNotIn(name, flat.get("properties", {}), f"{action['id']} single rule group publishes forbidden {name}")
                 continue
             self.assertIn("oneOf", fields_schema, f"{action['id']} declares cross-field rules but its variant publishes none")
 
@@ -2770,7 +2825,8 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
                 fields = envelope["properties"].get("fields")
                 if fields is None:
                     continue
-                for branch in fields.get("anyOf", [fields]):
+                for condition in _condition_branches(envelope):
+                    branch = _fields_object(condition)
                     value = self._sample(envelope)
                     value["fields"] = self._sample(branch)
                     for name in names:
@@ -2789,9 +2845,10 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
             self.assertEqual(branch["properties"]["ordinal"]["description"], self.teaching["predicate_ordinal_rule"])
             self.assertEqual(branch["properties"]["outcome_kind"]["description"], self.teaching["outcome_kind_equality_rule"])
             self.assertEqual(branch["properties"]["outcome_kind"]["const"], branch["properties"]["outcome_payload"]["properties"]["kind"]["const"])
-        approve = self.defs["work_transition_action_variant_approve_contract"]["properties"]["fields"]["properties"]
-        if "required_evidence" in approve:
-            self.assertEqual(approve["required_evidence"].get("description"), self.teaching["obligation_membership_rule"])
+        for condition in _condition_branches(self.defs["work_transition_action_variant_approve_contract"]):
+            approve = _fields_object(condition)["properties"]
+            if "required_evidence" in approve:
+                self.assertEqual(approve["required_evidence"].get("description"), self.teaching["obligation_membership_rule"])
 
     def test_every_registry_action_has_one_closed_variant(self):
         core_refs = [{"$ref": f"#/$defs/work_transition_action_variant_{action['id']}"} for action in self.actions]
@@ -2898,10 +2955,21 @@ class ResearchContextProjectionTests(unittest.TestCase):
                              ("lane_work_context_research_finding_view", "work_context_research_finding_view")):
             self.assertEqual(self.projected["$defs"][shared], self._remapped_def(lane))
         # The current public view carries the same projected member the
-        # canonical view declares, under the shared def names.
+        # canonical view declares, under the shared def names. Its retained
+        # twin replays stored selections, so its items name the retained twin.
         lane_member = packet_schema["$defs"]["lane_work_context_view"]["properties"]["research_findings"]
         self.assertEqual(self.projected["$defs"]["work_context_view"]["properties"]["research_findings"],
                          self._remap(lane_member))
+        retained = self._remap(lane_member)
+        retained["items"]["$ref"] = "#/$defs/" + generator.retained_twin_name("work_context_research_finding_view")
+        twin = self.projected["$defs"][generator.retained_twin_name("work_context_view")]
+        self.assertEqual(twin["properties"]["research_findings"], retained)
+        # Packet dispatch keeps the lane's bounded scope id; only the retained
+        # read twin carries the store's wider knowledge ids.
+        retained_scopes = self.projected["$defs"][generator.retained_twin_name("research_scopes")]
+        for kind in ("product_ids", "project_ids", "domain_ids", "tag_ids"):
+            self.assertEqual(self.projected["$defs"]["research_scopes"]["properties"][kind]["items"], {"$ref": "#/$defs/id"})
+            self.assertEqual(retained_scopes["properties"][kind]["items"], {"$ref": "#/$defs/knowledge_id"})
 
     def _project_with_lane_packet(self, lane_document):
         """Project against a temporary canonical lane packet on disk: the
@@ -2983,12 +3051,13 @@ class RetryResponsePacketUnionTests(unittest.TestCase):
     the pinned dispatch already admitted.
 
     mutation_result.retry_worker_packet is a closed anyOf over the unchanged
-    worker_packet2, worker_packet3, and worker_packet4 closures. They overlap
-    — a plain packet validates under several — so oneOf would refuse exactly the ordinary
-    packets the union must keep admitting. The response member carries no
-    schema_version gate of its own: the pinned dispatch admission selects the
-    generation the work's pinned definition declares, and the response
-    returns exactly those admitted bytes.
+    worker_packet2, worker_packet3, worker_packet4, and worker_packet5
+    closures. They overlap — a plain packet validates under several — so
+    oneOf would refuse exactly the ordinary packets the union must keep
+    admitting. The response member carries no schema_version gate of its
+    own: the pinned dispatch admission selects the generation the work's
+    pinned definition declares, and the response returns exactly those
+    admitted bytes.
     """
 
     def member(self):
@@ -3020,21 +3089,24 @@ class RetryResponsePacketUnionTests(unittest.TestCase):
                                   "finding_ids": ["research:9:0"]}]
         return packet
 
-    def test_the_retry_response_is_the_closed_two_generation_anyof(self):
+    def test_the_retry_response_is_the_closed_four_generation_anyof(self):
         member = self.member()
         self.assertEqual([branch["$ref"] for branch in member["anyOf"]],
-                         ["#/$defs/worker_packet2", "#/$defs/worker_packet3", "#/$defs/worker_packet4"])
+                         ["#/$defs/worker_packet2", "#/$defs/worker_packet3", "#/$defs/worker_packet4",
+                          "#/$defs/worker_packet5"])
         self.assertNotIn("oneOf", member)
         self.assertNotIn("$ref", member)
         self.assertNotIn("always the versioned packet2 identity", member["description"],
                          "the response description must not pin one packet generation")
 
     def test_overlapping_plain_packets_admit_under_the_union(self):
-        # A plain packet validates under both closures, so a oneOf here would
+        # A plain packet validates under each closure, so a oneOf here would
         # refuse exactly the ordinary packets the transport must keep
         # admitting.
         self.validate(self.plain_packet("worker_packet2"))
         self.validate(self.plain_packet("worker_packet3"))
+        self.validate(self.plain_packet("worker_packet4"))
+        self.validate(self.plain_packet("worker_packet5"))
 
     def test_research_bearing_packet3_transports_and_malformed_refuses(self):
         self.validate(self.research_packet3())

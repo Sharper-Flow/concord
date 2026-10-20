@@ -307,7 +307,9 @@ func escalatedDispatchEpoch(t *testing.T, s *store.Store) int64 {
 // so the seed pins only the correction record.
 func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, failureAt ...time.Time) (int64, string, string) {
 	t.Helper()
-	if got := seedAgentWorkflow(t, s, grant); got != 4 {
+	// The wall's changed approach lands through an operator-substituted
+	// supersession, a legacy approval-policy flow.
+	if got := seedAgentWorkflowAt(t, s, grant, legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation")); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}

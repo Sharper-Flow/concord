@@ -8,6 +8,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // The worker-job production-size surface (CD-0225 D1, CD-0227 D1): an
@@ -20,7 +21,11 @@ import (
 // Closed bounds of the size surface. An over-bound member refuses whole;
 // content is never truncated to fit.
 const (
-	WorkerJobSizeCapMax             = 2147483647
+	WorkerJobSizeCapMax = 2147483647
+	// WorkerJobCallerExclusionPathMax is the packet's declared
+	// caller_exclusions item maxLength (worker_packet5_worker_job), counted
+	// in Unicode characters like the schema keyword, never bytes.
+	WorkerJobCallerExclusionPathMax = 512
 	WorkerJobMeasuredPathsMax       = 64
 	WorkerJobCallerExclusionsMax    = 64
 	WorkerJobAllowanceMechanismsMax = 8
@@ -643,19 +648,42 @@ func workerJobCorrectionExclusions(measured map[string][]string, jobID string) [
 	return exclusions
 }
 
+// validateWorkerJobPacketExclusions refuses a caller-exclusions set above
+// the packet's declared bounds (worker_packet5_worker_job): at most
+// WorkerJobCallerExclusionsMax paths, each at most
+// WorkerJobCallerExclusionPathMax Unicode characters. Both sites that
+// produce or project the set share this one guard: the computation owner
+// refuses the dispatch on its error, and the continuity ready projection
+// omits the whole set, so the read stays available and the dispatch refuses
+// with its recovery. The character count matches the schema keyword's
+// Unicode semantics, never a byte length.
+func validateWorkerJobPacketExclusions(jobID string, paths []string) error {
+	if len(paths) > WorkerJobCallerExclusionsMax {
+		return newFailure(KindInvalidOperation, "workflow_action",
+			fmt.Sprintf("worker job %s's caller exclusions would carry %d paths; the packet declares at most %d", jobID, len(paths), WorkerJobCallerExclusionsMax),
+			false, "accept or split an open correction job through accept_worker_result or record_worker_job, then dispatch again")
+	}
+	for _, path := range paths {
+		if utf8.RuneCountInString(path) > WorkerJobCallerExclusionPathMax {
+			return newFailure(KindInvalidOperation, "workflow_action",
+				fmt.Sprintf("worker job %s's caller exclusions carry a path above the packet's %d-character bound", jobID, WorkerJobCallerExclusionPathMax),
+				false, "accept or split an open correction job through accept_worker_result or record_worker_job, then dispatch again")
+		}
+	}
+	return nil
+}
+
 // workerJobCallerExclusionsTx computes the caller_exclusions one job's
 // implementation dispatch carries (CD-0227 D1) and refuses a set above the
-// packet's declared bound.
+// packet's declared bounds.
 func workerJobCallerExclusionsTx(ctx context.Context, q queryer, workID, jobID string) ([]string, error) {
 	measured, err := workerJobCorrectionMeasuredTx(ctx, q, workID)
 	if err != nil {
 		return nil, err
 	}
 	exclusions := workerJobCorrectionExclusions(measured, jobID)
-	if len(exclusions) > WorkerJobCallerExclusionsMax {
-		return nil, newFailure(KindInvalidOperation, "workflow_action",
-			fmt.Sprintf("worker job %s's caller exclusions would carry %d paths; the packet declares at most %d", jobID, len(exclusions), WorkerJobCallerExclusionsMax),
-			false, "accept or split an open correction job through accept_worker_result or record_worker_job, then dispatch again")
+	if err := validateWorkerJobPacketExclusions(jobID, exclusions); err != nil {
+		return nil, err
 	}
 	return exclusions, nil
 }

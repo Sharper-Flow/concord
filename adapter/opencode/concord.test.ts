@@ -8,7 +8,7 @@ import { configureCoreBinary, workerFailureObservationDigest } from "./dispatch"
 import { dispatchWindows, staleReleaseDispatchRefusal, TASK_TOOL_ID } from "./dispatch-window"
 import { claimHostLease, configureHostLease, hostLeaseFault, releaseDisplayName, releaseStaleness, resolveInstalledReleaseRoot } from "./host-lease"
 import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees, unlandedClaimedWorktree } from "./claimed-worktree"
-import { validateGeneratedEnvelope, envelopeFailurePath, expandedPublishedRequestSchema } from "./generated-contract-tests"
+import { validateGeneratedEnvelope, envelopeFailurePath, expandedPublishedRequestSchema, actionFieldsBranches } from "./generated-contract-tests"
 import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_MESSAGES_ROUTE, SESSION_ROUTE, type RouteResult } from "./move-session"
 import { adoptManifestDigest, resetManifestPinForTesting } from "./manifest-pin"
 import { resetMoveNotices, takeMoveNotice } from "./move-notice"
@@ -319,11 +319,25 @@ test("published tool arguments expose a host-safe request shape", async () => {
   // Select the approve_contract variant by its action_id const: it is the
   // variant whose fields carry the outcome_predicates admission rules.
   const actionBranch = actionInput(transition, "approve_contract")
+  // fields is one closed union: the legacy shape and the consequence_v1
+  // extension that requires decision_domains. Every inspection below reads
+  // each branch, never the factored parent view where a branch-only field
+  // is invisible.
+  const fieldsBranches = actionFieldsBranches(actionBranch)
+  expect(fieldsBranches, "approve_contract fields union branches").toHaveLength(2)
+  const legacyFields = fieldsBranches.find((fields: any) => !fields.required?.includes("decision_domains"))
+  const extensionFields = fieldsBranches.find((fields: any) => fields.required?.includes("decision_domains"))
+  expect(legacyFields, "the legacy fields branch").toBeObject()
+  expect(extensionFields, "the consequence_v1 fields branch").toBeObject()
+  expect(legacyFields.properties.decision_domains, "the legacy branch stays closed to the extension fields").toBeUndefined()
+  expect(extensionFields.properties.decision_domains, "the extension branch declares decision_domains").toBeObject()
   // CON-412: the items close per kind; each branch binds outcome_kind to
   // outcome_payload.kind and carries that branch's payload inline.
-  const itemVariants = actionBranch.properties.fields.properties.outcome_predicates.items.oneOf
-  expect(itemVariants.map((branch: any) => branch.properties.outcome_kind.const)).toEqual(["exists", "absent", "outcome", "check"])
-  expect(itemVariants.map((branch: any) => branch.properties.outcome_payload.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
+  for (const fields of fieldsBranches) {
+    const itemVariants = fields.properties.outcome_predicates.items.oneOf
+    expect(itemVariants.map((branch: any) => branch.properties.outcome_kind.const)).toEqual(["exists", "absent", "outcome", "check"])
+    expect(itemVariants.map((branch: any) => branch.properties.outcome_payload.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
+  }
   // The branch names the conditional action fields, so a calling agent can
   // read them before calling.
   for (const field of ["action_id", "selected_choice", "decision_context_digest"]) {
@@ -332,12 +346,14 @@ test("published tool arguments expose a host-safe request shape", async () => {
   // The approval premise an author writes is the published action field, so
   // it carries the unit guidance: code points, the UTF-8 byte admission, and
   // its distinction from packet and model-token limits.
-  const premise = actionBranch.properties.fields.properties.premise
-  expect(premise.maxLength).toBe(4_096)
-  expect(premise.description).toContain("Unicode code points")
-  expect(premise.description).toContain("UTF-8 bytes")
-  expect(premise.description).toContain("model-token limit")
-  expect(premise.description).toContain("Do not truncate an approved objective")
+  for (const fields of fieldsBranches) {
+    const premise = fields.properties.premise
+    expect(premise.maxLength).toBe(4_096)
+    expect(premise.description).toContain("Unicode code points")
+    expect(premise.description).toContain("UTF-8 bytes")
+    expect(premise.description).toContain("model-token limit")
+    expect(premise.description).toContain("Do not truncate an approved objective")
+  }
   // Every generated field reaches the host through the registration map,
   // which derives its field set from the generated capture/resume branches —
   // no handwritten parity list. The resume branch carries exactly work_id:
@@ -1299,10 +1315,14 @@ test("host publication round-trips check predicate payloads unchanged", async ()
   const expandedPublished: any = expandedPublishedRequestSchema(published)
   const actionBranch: any = expandedPublished.oneOf.find((branch: any) => branch.properties.operation.const === "workflow_action" && branch.properties.input.properties.action_id.const === "approve_contract").properties.input
   // CON-412: the items close per kind; each branch binds outcome_kind to
-  // outcome_payload.kind and carries that branch's payload inline.
-  const itemVariants = actionBranch.properties.fields.properties.outcome_predicates.items.oneOf
-  expect(itemVariants.map((branch: any) => branch.properties.outcome_kind.const)).toEqual(["exists", "absent", "outcome", "check"])
-  expect(itemVariants.map((branch: any) => branch.properties.outcome_payload.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
+  // outcome_payload.kind and carries that branch's payload inline. The
+  // check runs on each branch of the fields union, so a branch-only drop
+  // cannot hide behind the factored parent.
+  for (const fields of actionFieldsBranches(actionBranch)) {
+    const itemVariants = fields.properties.outcome_predicates.items.oneOf
+    expect(itemVariants.map((branch: any) => branch.properties.outcome_kind.const)).toEqual(["exists", "absent", "outcome", "check"])
+    expect(itemVariants.map((branch: any) => branch.properties.outcome_payload.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
+  }
   let sentInput: unknown
   const success = coreEnvelope("concord_work_transition", "workflow_action", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })
   adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], raw: string) => {

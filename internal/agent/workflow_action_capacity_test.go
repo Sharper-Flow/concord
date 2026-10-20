@@ -55,7 +55,7 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 	// proof uses, and the union of writer-owned member bounds carries each
 	// variant's prefix, so one options set serves every variant's walk.
 	findingRefMax := 2 + len("finding:") + 19 + 1 + 2
-	packet2, packet3, packet4 := derivedPacketFigures(t, defs, findingRefMax)
+	packet2, packet3, packet4, packet5 := derivedPacketFigures(t, defs, findingRefMax)
 	digestWire := 2 + len("sha256:") + 64
 	commitOIDWire := 2 + 64
 	const recordJob = "work_transition_action_variant_record_worker_job"
@@ -69,6 +69,7 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 			"worker_packet2":             packet2 + store.DispatchContextAggregateMaxBytes - 1,
 			"worker_packet3":             packet3 + store.DispatchContextAggregateMaxBytes - 1,
 			"worker_packet4":             packet4 + store.DispatchContextAggregateMaxBytes - 1,
+			"worker_packet5":             packet5 + store.DispatchContextAggregateMaxBytes - 1,
 		},
 		PathBounds: map[string]int{
 			recordJob + "/fields/oneOf/measurement_basis/worker_job_measurement_basis/base_commit":                                                                     commitOIDWire,

@@ -513,13 +513,13 @@ func TestOwnerOracleImmutableProjection(t *testing.T) {
 	attemptID := "attempt:" + workID
 	packet := joinPacketFor(t, s, workID, "repair", attemptID, lane.ID, lane.Version, lane.Digest)
 	packet["inputs"].(map[string]any)["worker_job"] = packetJobFromView(views[0])
-	if _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, lane, mustJSONValue(packet)); err != nil {
+	if _, _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, lane, mustJSONValue(packet)); err != nil {
 		t.Fatalf("recorded-oracle packet refused: %v", err)
 	}
 	claimed := packetJobFromView(views[0])
 	claimed.AcceptanceOracle.Controls[0].Argv = oracleGoArgv("tampered")
 	packet["inputs"].(map[string]any)["worker_job"] = claimed
-	if _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, lane, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "content does not match the recorded revision") {
+	if _, _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, lane, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "content does not match the recorded revision") {
 		t.Fatalf("tampered-oracle packet error = %v, want the content-mismatch refusal", err)
 	}
 }

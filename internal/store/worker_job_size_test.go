@@ -16,12 +16,18 @@ func testJobSizeBaseCommit() string {
 // workerJobSizeStore unwraps the fixture's store.
 func workerJobSizeStore(fixture workflowReturnRouteFixture) *Store { return fixture.store }
 
-// workerJobSizeFixture seeds one work item on the family's current head — the
-// size-capable pin this slice registers — with the oracle subject the shared
-// oracle fixture needs.
+// workerJobSizeFixture seeds one work item on the family's current registered
+// head — the size-capable pin this slice registers — with the oracle subject
+// the shared oracle fixture needs. The generic return-route helper pins the
+// legacy approval policy, whose catalog does not declare the size members.
 func workerJobSizeFixture(t *testing.T, workID string) workflowReturnRouteFixture {
 	t.Helper()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, "repair",
+		[]string{"verification"}, []string{"verification", "review", "artifact"})
 	bootstrapOracleFixtureSubject(t, workerJobSizeStore(fixture), workID)
 	return fixture
 }
@@ -90,8 +96,8 @@ func seedAllowanceAuthorityFixture(t *testing.T, fixture workflowReturnRouteFixt
 func TestWorkflowJobSizeGateFollowsTheDeclaredMember(t *testing.T) {
 	t.Parallel()
 	active := []WorkflowDefinition{
-		mustCompileWorkflowComposition(implementationCompositionV34()),
-		mustCompileWorkflowComposition(breakFixCompositionV31()),
+		mustCompileWorkflowComposition(implementationCompositionV36()),
+		mustCompileWorkflowComposition(breakFixCompositionV33()),
 	}
 	for _, definition := range active {
 		if !workflowJobSizeActive(definition) {
@@ -99,6 +105,8 @@ func TestWorkflowJobSizeGateFollowsTheDeclaredMember(t *testing.T) {
 		}
 	}
 	inactive := []WorkflowDefinition{
+		mustCompileWorkflowComposition(implementationCompositionV35()),
+		mustCompileWorkflowComposition(breakFixCompositionV32()),
 		mustCompileWorkflowComposition(implementationCompositionV33()),
 		mustCompileWorkflowComposition(breakFixCompositionV30()),
 		mustCompileWorkflowComposition(researchCompositionV20()),

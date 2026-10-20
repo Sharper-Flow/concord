@@ -16,8 +16,6 @@ import (
 
 func seedAgentWorkflow(t *testing.T, s *store.Store, grant Authority) int64 {
 	t.Helper()
-	ctx := context.Background()
-	seedCurrentWorkflowDomainFixture(t, s)
 	// Seed the live authoring head, not a frozen version: the boundary's
 	// closed action union admits only the current heads' declared shapes, so
 	// every seeded workflow walks the canonical graph (CD-0218 D4 keeps the
@@ -26,6 +24,14 @@ func seedAgentWorkflow(t *testing.T, s *store.Store, grant Authority) int64 {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return seedAgentWorkflowAt(t, s, grant, registered)
+}
+
+// seedAgentWorkflowAt seeds work-1 under the given registered pin.
+func seedAgentWorkflowAt(t *testing.T, s *store.Store, grant Authority, registered store.RegisteredDefinition) int64 {
+	t.Helper()
+	ctx := context.Background()
+	seedCurrentWorkflowDomainFixture(t, s)
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {

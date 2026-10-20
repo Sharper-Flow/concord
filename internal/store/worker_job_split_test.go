@@ -339,7 +339,7 @@ func TestWorkerJobSplitReleasesCorrectionPathsForSuccessorDispatch(t *testing.T)
 	packet := joinPacketFor(t, s, workID, "repair", "attempt:successor", lane.ID, lane.Version, lane.Digest)
 	packet["inputs"].(map[string]any)["worker_job"] = sizeDispatchPacketJob(t, s, workID, successor, nil)
 	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	if got, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet)); err != nil || got == nil || *got != successor {
+	if got, _, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet)); err != nil || got == nil || *got != successor {
 		t.Fatalf("successor packet admission = %+v, error = %v; want successor binding", got, err)
 	}
 	measured, err = workerJobCorrectionMeasuredTx(context.Background(), s.db, workID)

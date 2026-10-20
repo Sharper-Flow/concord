@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -136,9 +138,43 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(laneDispatchPayload)}}}); err != nil {
 		t.Fatal(err)
 	}
-	subject, subjectErr := readCurrentOracleSubject(ctx, s.DatabaseForTesting(), workID)
-	if subjectErr != nil || subject == "" {
-		t.Fatalf("qualified subject = %q err = %v, want the fixture's verify subject", subject, subjectErr)
+	entry, err := activeWorktreeEntryForProject(ctx, s.DatabaseForTesting(), "verify_worktree", workID, "project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The delivered edit is the dispatched job's own work: on a size-capable
+	// pin the job's measurement basis inventories one scope, so the edit
+	// lands inside it. A pre-size pin keeps the historical root edit.
+	editPath := "implementation.txt"
+	if job != nil {
+		content, contentErr := readWorkerJobSizeContentTx(ctx, s.DatabaseForTesting(), workID)
+		if contentErr != nil {
+			t.Fatal(contentErr)
+		}
+		if sizeEntry, recorded := content[*job]; recorded && sizeEntry.basis != nil && len(sizeEntry.basis.Paths) > 0 {
+			editPath = filepath.Join(sizeEntry.basis.Paths[0].Path, "implementation.txt")
+		}
+	}
+	if directory := filepath.Dir(editPath); directory != "." {
+		if err := os.MkdirAll(filepath.Join(entry.Path, directory), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(entry.Path, editPath), []byte("implementation delivery\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, entry.Path, "add", editPath)
+	runTestGit(t, entry.Path, "commit", "-m", "implementation delivery")
+	subject := runTestGit(t, entry.Path, "rev-parse", "HEAD")
+	git := newFakeWorktreeGit(entry.Path)
+	git.worktrees[entry.Path], git.worktreeRepos[entry.Path], git.branches[entry.Branch] = entry.Branch, entry.Path, subject
+	req := verifyRequest(git, "verify-accepted-delivery-"+workID, []string{"true"}, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil })
+	req.WorkID, req.ProjectID = workID, "project"
+	if _, err := s.VerifyWorktree(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if qualified, err := readCurrentOracleSubject(ctx, s.DatabaseForTesting(), workID); err != nil || qualified != subject {
+		t.Fatalf("qualified subject = %q err = %v, want the delivered commit %q", qualified, err, subject)
 	}
 	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,

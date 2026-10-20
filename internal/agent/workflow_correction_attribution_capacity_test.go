@@ -50,14 +50,20 @@ func TestRequestBudgetHoldsCorrectionAttributionVariant(t *testing.T) {
 	// The dispatch variant stays narrower than the widest admitted action
 	// shape the shared ceilings' rounding derives from; this structural
 	// check keeps the correction attribution input inside the dispatch
-	// composition that the per-shape request proof carries.
-	packet2, packet3, packet4 := derivedPacketFigures(t, defs, findingRefMax)
+	// composition that the per-shape request proof carries. Every packet
+	// identity the closed dispatch union admits — packet2, packet3, the
+	// checks-repair packet4, and the size-capable packet5 — derives from
+	// the same writer-bound inventory; the checks-repair metadata is
+	// writer-bounded by WorkerJobChecksRepairMaxBytes exactly as the
+	// acceptance oracle is.
+	packet2, packet3, packet4, packet5 := derivedPacketFigures(t, defs, findingRefMax)
 	dispatchOpt := schemawire.Options{
 		Defs: defs,
 		RefBounds: map[string]int{
 			"worker_packet2": packet2 + store.DispatchContextAggregateMaxBytes - 1,
 			"worker_packet3": packet3 + store.DispatchContextAggregateMaxBytes - 1,
 			"worker_packet4": packet4 + store.DispatchContextAggregateMaxBytes - 1,
+			"worker_packet5": packet5 + store.DispatchContextAggregateMaxBytes - 1,
 		},
 		FindingRefMax: findingRefMax,
 	}
@@ -66,7 +72,7 @@ func TestRequestBudgetHoldsCorrectionAttributionVariant(t *testing.T) {
 		t.Fatalf("the dispatch derivation hit an unbudgeted member: %v", err)
 	}
 	if correction >= dispatch {
-		t.Fatalf("the correction attribution composition %d bytes reaches the dispatch composition %d bytes; the dispatch input must stay the widest derivation the request rounding rests on", correction, dispatch)
+		t.Fatalf("the correction attribution composition %d bytes reaches the dispatch composition %d bytes; the correction attribution input must stay narrower than the dispatch composition this check pins", correction, dispatch)
 	}
 	if schemawire.NextPowerOfTwo(correction) >= MaxRequestBytes {
 		t.Fatalf("the correction composition rounds to %d, at or above the %d-byte request budget; it must stay inside the rounding the dispatch derivation owns", schemawire.NextPowerOfTwo(correction), MaxRequestBytes)

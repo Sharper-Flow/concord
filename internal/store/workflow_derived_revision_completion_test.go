@@ -29,7 +29,9 @@ func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/researcher", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	version := seedDerivedRevisionWorkflow(t, s, workID, owner)
+	// The operator signs the verdict, the premise, and the completion: the
+	// flow a legacy approval-policy pin keeps.
+	version := seedDerivedRevisionWorkflowAt(t, s, workID, owner, legacyApprovalPolicyDefinitionForRef(t, "workflow.research"))
 	approval := json.RawMessage(`{"premise":"Bring the derived law into conformance with the legislated one.","spec_mandate":["spec:legislated","spec:one"],"law_modifies":["spec:one"],"required_evidence":["artifact"],"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["report_recorded"]}}]}`)
 	if err := runDerivedLawApproval(t, s, workID, version, owner, approval); err != nil {
 		t.Fatalf("the derived revision was not admitted at approval: %v", err)

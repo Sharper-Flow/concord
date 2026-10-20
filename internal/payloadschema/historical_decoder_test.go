@@ -237,7 +237,8 @@ var frozenBaselineDefs = map[string]string{
 // of every addition this branch made. A definition here that the baseline
 // already carried, or an unlisted new definition, fails the witness.
 var newlyFrozenHistoricalDefs = map[string]string{
-	"reject_retry": "CD-0198 D5: the retry dispatch intent the new-pin reject_worker_result payload declares",
+	"workflow_law_text_pin": "the exact law text identity carried by consequence_v1 contract approvals",
+	"reject_retry":          "CD-0198 D5: the retry dispatch intent the new-pin reject_worker_result payload declares",
 	// The versioned packet2 identity the derived-failure heads declare, so
 	// their recorded 2.0 history replays here; the versioned view and group
 	// it anchors are the current nav-free shapes, and the frozen 1.0/1.1
@@ -265,8 +266,19 @@ var newlyFrozenHistoricalDefs = map[string]string{
 	"work_context_research_finding":      "CON-911: the native research finding the resolved entries carry, with the always-serialized applicability scopes",
 	"research_scopes":                    "CON-911: the applicability scopes the context research finding carries",
 	"research_source":                    "CON-911: the native source descriptor the resolved research entries cite",
+	// The checks-repair closure the repair-capable heads declare (implementation
+	// v35, break_fix v32): the packet4 identity anchors the
+	// repair-capable worker-job shape beside the byte-exact packet2/packet3
+	// baselines, and the repair metadata, its named-revision item, and the
+	// small recorded job reference the metadata and the promoted failure
+	// attribution surfaces share ride the same union addition.
+	"worker_packet4":                  "CON-1221: the checks-repair packet identity the repair-capable implementation v35 and break_fix v32 dispatch payloads declare",
+	"worker_packet_checks_repair_job": "CON-1221: the repair-capable worker-job shape worker_packet4 anchors, carrying the optional core-recorded checks repair beside the shared job content",
+	"worker_checks_repair":            "CON-1221: the core-recorded checks repair the repairing revision and its packet job carry: the stated reason and each named revision's binding and old checks",
+	"worker_job_repair_revision":      "CON-1221: the positive distinct revision integer the record_worker_job repair_revisions authoring array carries on the repair-capable heads",
+	"worker_failure_job_binding":      "CON-1221: the recorded worker-job revision reference the checks repair's named entries and the failure attribution surfaces share",
 	// The size-capable record_worker_job members the v2 action catalog
-	// declares (implementation v34, break_fix v31): the closed cap basis and
+	// declares (implementation v36, break_fix v33): the closed cap basis and
 	// direct-caller allowance objects and the measured path entry their
 	// inventories carry, beside the unchanged worker_acceptance_oracle
 	// closure.
@@ -274,10 +286,11 @@ var newlyFrozenHistoricalDefs = map[string]string{
 	"worker_job_measured_path":           "CON-1001: one classified measured inventory entry the worker_job_measurement_basis paths carry",
 	"worker_job_direct_caller_allowance": "CON-1001: the conditional direct-caller allowance the size-capable record_worker_job payloads declare",
 	// The size-capable packet closure the v2 catalog's dispatch_worker
-	// anchors: the packet3 identity with the size-bearing worker_job, whose
-	// four optional members ride the unchanged packet aggregate.
-	"worker_packet4":              "CON-1001: the size-capable packet identity the size-capable implementation v34 and break_fix v31 dispatch payloads declare",
-	"worker_packet4_worker_job":   "CON-1001: the size-bearing worker_job the worker_packet4 inputs carry, with the caller exclusions beside the recorded size members",
+	// anchors: the packet4 identity with the size-bearing worker_job, whose
+	// checks repair and recorded size members ride the unchanged packet
+	// aggregate.
+	"worker_packet5":              "CON-1001: the size-capable packet identity the size-capable implementation v36 and break_fix v33 dispatch payloads declare",
+	"worker_packet5_worker_job":   "CON-1001: the size-bearing worker_job the worker_packet5 inputs carry, with the caller exclusions beside the checks repair and the recorded size members",
 	"worker_job_split":            "CON-1001: record_worker_job's closed split variant (CD-0225 D3)",
 	"worker_job_split2":           "CON-1001: split variant with overrun-attempt replacement evidence",
 	"worker_job_split_successor":  "CON-1001: one split successor's ordinary record_worker_job content",

@@ -10,7 +10,8 @@ import (
 // TestConfirmPremiseEnvelopeKeepsThePublishedWireFormat holds the envelope
 // side of the single declaration: a confirm_premise input in the published
 // wire shape validates unchanged, the outer level carries exactly
-// the two declared fields and no contract_version, and fields stays
+// the two declared fields and no contract_version, the human digest stays
+// optional for engineering confirmation, and fields stays
 // forbidden. The generated schema is the projection of the registry
 // declaration, so this test guards the wire callers already depend on.
 func TestConfirmPremiseEnvelopeKeepsThePublishedWireFormat(t *testing.T) {
@@ -24,7 +25,6 @@ func TestConfirmPremiseEnvelopeKeepsThePublishedWireFormat(t *testing.T) {
 	for name, raw := range map[string][]byte{
 		"fields stays forbidden":                []byte(head + `wire-fields","selected_choice":"confirm","decision_context_digest":"` + digest + `","fields":{}}`),
 		"selected_choice is required":           []byte(head + `wire-choice","decision_context_digest":"` + digest + `"}`),
-		"decision_context_digest is required":   []byte(head + `wire-digest","selected_choice":"confirm"}`),
 		"an unknown choice refuses":             []byte(head + `wire-enum","selected_choice":"restart","decision_context_digest":"` + digest + `"}`),
 		"a malformed digest refuses":            []byte(head + `wire-pattern","selected_choice":"confirm","decision_context_digest":"not-a-digest"}`),
 		"contract_version is no outer property": []byte(head + `wire-version","selected_choice":"confirm","decision_context_digest":"` + digest + `","contract_version":1}`),
@@ -32,6 +32,13 @@ func TestConfirmPremiseEnvelopeKeepsThePublishedWireFormat(t *testing.T) {
 		if err := payloadschema.Validate("work_transition_action_input", raw); err == nil {
 			t.Fatalf("%s must refuse", name)
 		}
+	}
+	// The digest is optional at the wire: engineering confirmation on a
+	// consequence_v1 pin carries none, and the store requires it exactly on
+	// the operator question path.
+	engineering := []byte(head + `wire-engineering","selected_choice":"confirm"}`)
+	if err := payloadschema.Validate("work_transition_action_input", engineering); err != nil {
+		t.Fatalf("the engineering confirm_premise wire shape must validate: %v", err)
 	}
 	// revise and stop stay schema-admissible choices; the closed-choice
 	// runtime guard owns which one the open question accepts.

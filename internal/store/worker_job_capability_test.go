@@ -130,7 +130,7 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 					original := recorded[mutation.field]
 					recorded[mutation.field] = mutation.value
 					defer func() { recorded[mutation.field] = original }()
-					_, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, lane, mustJSONValue(packet))
+					_, _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, lane, mustJSONValue(packet))
 					if err == nil || !strings.Contains(err.Error(), mutation.want) {
 						t.Fatalf("%s job error = %v, want %q", lane.ID, err, mutation.want)
 					}
@@ -165,7 +165,7 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 			if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, unreadyFields); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, lane, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "is not ready") {
+			if _, _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, lane, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "is not ready") {
 				t.Fatalf("superseded %s job error = %v, want readiness refusal", lane.ID, err)
 			}
 			allViews, err := readWorkerJobRevisions(context.Background(), s.db, workID)
@@ -179,7 +179,7 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 				t.Fatalf("revisions of %s = %#v, error=%v, want two immutable revisions", job.JobID, views, err)
 			}
 			packet["inputs"].(map[string]any)["worker_job"] = packetJobFromView(views[1])
-			if _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, lane, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "is not ready") {
+			if _, _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, lane, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "is not ready") {
 				t.Fatalf("unready %s job error = %v, want readiness refusal", lane.ID, err)
 			}
 		})
@@ -203,12 +203,12 @@ func TestWorkerJobLegacyPinsNeverRequireOrSynthesizeJobs(t *testing.T) {
 				// Legacy admission needs no job projection read. Parent prose
 				// cannot become a recorded job, even for a verification lane.
 				packet := map[string]any{"inputs": map[string]any{"task": "Run all parent integration checks"}}
-				bound, err := validateWorkerPacketJob(context.Background(), nil, registered.Definition, "legacy-work", lane, mustJSONValue(packet))
+				bound, _, err := validateWorkerPacketJob(context.Background(), nil, registered.Definition, "legacy-work", lane, mustJSONValue(packet))
 				if err != nil || bound != nil {
 					t.Fatalf("legacy %s dispatch job = %#v, error = %v, want no binding", lane.ID, bound, err)
 				}
 				packet["inputs"].(map[string]any)["worker_job"] = map[string]any{"job_id": "job:forbidden"}
-				if _, err := validateWorkerPacketJob(context.Background(), nil, registered.Definition, "legacy-work", lane, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "does not admit") {
+				if _, _, err := validateWorkerPacketJob(context.Background(), nil, registered.Definition, "legacy-work", lane, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "does not admit") {
 					t.Fatalf("legacy %s bound-job error = %v, want refusal", lane.ID, err)
 				}
 			}

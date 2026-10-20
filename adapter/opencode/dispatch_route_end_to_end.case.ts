@@ -28,6 +28,9 @@ const PRODUCT_ID = "product-e2e"
 const PROJECT_ID = "project-e2e"
 const CLIENT_REF = "opencode"
 const SESSION_ID = "e2e-session"
+// A distinct coordinator session that executes no step of the work item, so
+// its verdict is independent under consequence_v1.
+const EVALUATOR_SESSION_ID = "e2e-evaluator"
 const MESSAGE_ID = "e2e-message"
 const READBACK_MODEL = "openai/gpt-5.6-luna"
 const PRIVATE_SEED = new Uint8Array(32).fill(7)
@@ -303,6 +306,9 @@ async function driveWorkflowToContract(
     route_conventions: [],
     spec_mandate: [],
     law_modifies: [],
+    // The consequence_v1 head requires the decision fact; none declares
+    // engineering work, which records without a consent question.
+    decision_domains: [],
     architecture_binding: {
       domain_registry_content_hash: registryHash,
       home_domain_id: `product-root:${PRODUCT_ID}`,
@@ -507,7 +513,8 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
     process.env.OPENCODE_CONFIG = configPath
     const a = contextFor(worktree, "g01-coordinator-a")
     const b = contextFor(worktree, "g01-coordinator-b")
-    const host = bindRouteSessions(worktree, [a.sessionID, b.sessionID])
+    const verdictSession = contextFor(worktree, "g01-evaluator")
+    const host = bindRouteSessions(worktree, [a.sessionID, b.sessionID, verdictSession.sessionID])
     const calls: Array<{ argv: string[]; input: JSONRecord }> = []
     const baseRunner = realStoreRunner(binary, dbPath, calls, worktree)
     let loseAcknowledgement = false
@@ -670,7 +677,9 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
       await action(b, "bind_evidence", `${key}-post-review-bind`, { evidence_kind: "verification", evidence_ref: postReviewRef })
       await action(b, "record_delivery", `${key}-refine-delivery`, { delivery_artifact: `commit:${subject}`, delivery_state: "asserted" })
       await action(b, "record_delivery", `${key}-gate-delivery`, { delivery_artifact: `commit:${subject}`, delivery_state: "asserted" })
-      await action(b, "record_verdict", `${key}-verdict`, { contract_version: 1, verdicts: [{ predicate_id: predicate.predicate_id, verdict_kind: pass === 0 ? "outcome_mismatch" : "ok", evaluation_evidence: [lastVerify!.packet.attempt_id] }] })
+      // consequence_v1 takes no operator substitution for a verdict: an
+      // evaluator session that executed no step records it.
+      await action(verdictSession, "record_verdict", `${key}-verdict`, { contract_version: 1, verdicts: [{ predicate_id: predicate.predicate_id, verdict_kind: pass === 0 ? "outcome_mismatch" : "ok", evaluation_evidence: [lastVerify!.packet.attempt_id] }] })
       if (pass === 0) {
         firstProducer = producer
         const review = await dispatch(b, "review", "g01-checkpoint-no-ship")
@@ -690,8 +699,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
       lastProducer = producer
     }
     seedInvestigationArtifact(dbPath, workID)
-    const continuity = await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID } }, b)
-    const confirmation = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: "confirm_premise", selected_choice: "confirm", decision_context_digest: continuity.result.pinned.pending_operator_decision.decision_context_digest, idempotency_key: "g01-confirm" } }, b)
+    const confirmation = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: "confirm_premise", selected_choice: "confirm", idempotency_key: "g01-confirm" } }, b)
     expect(confirmation.outcome, JSON.stringify(confirmation)).toBe("ok")
     const completeVersion = version()
     await action(b, "complete", "g01-complete", { impact_verdict: "non-breaking" })
@@ -700,10 +708,10 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
     expect(replay.outcome).toBe("ok")
     expect(events()).toBe(finalEvents)
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.completed'`).n).toBe(1)
-    expect(host.counts()).toEqual({ coordinatorSessions: 2, taskLaunches: 8, sessionCreates: 0 })
+    expect(host.counts()).toEqual({ coordinatorSessions: 3, taskLaunches: 8, sessionCreates: 0 })
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM worker_attempts WHERE work_id='${workID}'`).n).toBe(8)
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}' AND kind='worker.completed'`).n).toBe(8)
-    expect(new Set(calls.filter((call) => call.argv[1] === "invoke").map((call) => call.input.call_envelope.session_ref))).toEqual(new Set([a.sessionID, b.sessionID]))
+    expect(new Set(calls.filter((call) => call.argv[1] === "invoke").map((call) => call.input.call_envelope.session_ref))).toEqual(new Set([a.sessionID, b.sessionID, verdictSession.sessionID]))
     expect(lastProducer!.workerSessionID).not.toBe(lastVerify!.workerSessionID)
   } finally {
     configureConcordAdapter({ reset: true })
@@ -749,7 +757,7 @@ routeDeclaration("composes implementation and independent review through one ord
         }
         expect(url).toBe(SESSION_ROUTE)
         const id = path?.id
-        expect(id === SESSION_ID || id === "worker-session").toBe(true)
+        expect(id === SESSION_ID || id === "worker-session" || id === EVALUATOR_SESSION_ID).toBe(true)
         return { data: { id, directory: worktree, metadata: id === SESSION_ID ? sessionMetadata : {}, ...(id === "worker-session" ? { parentID: SESSION_ID, agent: activeWorkerAgent } : {}) }, response: new Response(null, { status: 200 }) }
       },
       patch: async ({ url, path, body }) => {
@@ -764,7 +772,7 @@ routeDeclaration("composes implementation and independent review through one ord
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
     const realRunner: DispatchRunner = {
       async run(argv, input, signal) {
-        if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: "worker-session", directory: worktree, parentID: SESSION_ID }, { id: SESSION_ID, directory: worktree }]), stderr: "" }
+        if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: "worker-session", directory: worktree, parentID: SESSION_ID }, { id: SESSION_ID, directory: worktree }, { id: EVALUATOR_SESSION_ID, directory: worktree }]), stderr: "" }
         if (argv[1] === "worker-dispatch" || argv[1] === "worker-complete" || argv[1] === "worker-fail" || argv[1] === "invoke") {
           realCalls.push({ argv, input: JSON.parse(input) as JSONRecord })
         }
@@ -1040,30 +1048,34 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("verify")
     const verifyVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    // CD-0116 after a lane exit: the session that accepted the worker result
-    // submits its own verdict, the adapter mints the operator challenge, the
-    // host approval signs it, and the verdict records under the operator
-    // identity rather than a distinct agent session.
-    response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verifyVersion, action_id: "record_verdict", idempotency_key: "e2e-record-verdict", fields: { contract_version: 1, verdicts: [{ predicate_id: predicate.predicate_id, verdict_kind: "ok", evaluation_evidence: [packet.attempt_id] }] } } }, context)
+    // consequence_v1 takes no operator substitution for a verdict: the
+    // session that accepted the worker result cannot evaluate its own
+    // delivery, so a distinct evaluator session records the verdict under
+    // its own agent identity.
+    const evaluatorContext = contextFor(worktree, EVALUATOR_SESSION_ID)
+    const selfVerdict = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verifyVersion, action_id: "record_verdict", idempotency_key: "e2e-record-self-verdict", fields: { contract_version: 1, verdicts: [{ predicate_id: predicate.predicate_id, verdict_kind: "ok", evaluation_evidence: [packet.attempt_id] }] } } }, context)
+    expect(selfVerdict.outcome).toBe("error")
+    expect((selfVerdict.error as JSONRecord).kind).toBe("unauthorized")
+    response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verifyVersion, action_id: "record_verdict", idempotency_key: "e2e-record-verdict", fields: { contract_version: 1, verdicts: [{ predicate_id: predicate.predicate_id, verdict_kind: "ok", evaluation_evidence: [packet.attempt_id] }] } } }, evaluatorContext)
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const verdictActor = dbValue(dbPath, `SELECT json_extract(payload,'$.verdict_actor_ref') AS actor FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.verdict_recorded' ORDER BY seq DESC LIMIT 1`).actor as string
     const verdictActorClass = dbValue(dbPath, `SELECT actor_class FROM workflow_actors WHERE actor_ref='${verdictActor}'`).actor_class as string
-    expect(verdictActorClass).toBe("operator")
+    expect(verdictActorClass).toBe("agent")
     const verdictVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     // The operator question gate requires an investigation observation naming
     // a current Domain of the Product and another work item.
     seedInvestigationArtifact(dbPath, workID)
     const continuity = await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID, page: { cursor: null, limit: 1 } } }, context)
     const continuityResult = continuity.result as JSONRecord
-    const decisionDigest = (((continuityResult.pinned as JSONRecord).pending_operator_decision as JSONRecord).decision_context_digest) as string
-    // The work pin is the discovery surface: a caller that prepares the call
-    // from the pin sees the two required fields the store validator demands.
+    // Engineering work opens no operator question: the coordinator records
+    // its own confirm choice, and the pin requires the closed choice alone.
+    expect((continuityResult.pinned as JSONRecord).pending_operator_decision ?? null).toBeNull()
     const pinIntents = ((((continuityResult.pinned as JSONRecord).work_pin as JSONRecord).next_valid_intents ?? []) as JSONRecord[])
     const confirmIntent = pinIntents.find((intent) => intent.action_id === "confirm_premise")
     expect(confirmIntent, JSON.stringify(pinIntents)).toBeDefined()
-    expect((confirmIntent as JSONRecord).required_fields).toEqual(["selected_choice", "decision_context_digest"])
-    response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verdictVersion, action_id: "confirm_premise", selected_choice: "confirm", decision_context_digest: decisionDigest, idempotency_key: "e2e-confirm" } }, context)
-    expect(response.outcome).toBe("ok")
+    expect((confirmIntent as JSONRecord).required_fields).toEqual(["selected_choice"])
+    response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verdictVersion, action_id: "confirm_premise", selected_choice: "confirm", idempotency_key: "e2e-confirm" } }, context)
+    expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const completeVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(completeVersion, "complete", "e2e-complete", { impact_verdict: "non-breaking" })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")

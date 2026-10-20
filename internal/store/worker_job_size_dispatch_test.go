@@ -13,11 +13,18 @@ import (
 	"time"
 )
 
-// sizeDispatchFixture seeds one work item on the family's current head with
-// the qualified oracle subject the shared recording helpers need.
+// sizeDispatchFixture seeds one work item on the family's current registered
+// head with the qualified oracle subject the shared recording helpers need.
+// The generic return-route helper pins the legacy approval policy, whose
+// catalog does not declare the size members.
 func sizeDispatchFixture(t *testing.T, workID string) workflowReturnRouteFixture {
 	t.Helper()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, "repair",
+		[]string{"verification"}, []string{"verification", "review", "artifact"})
 	bootstrapOracleFixtureSubject(t, workerJobSizeStore(fixture), workID)
 	return fixture
 }
@@ -181,7 +188,7 @@ func TestWorkerJobSizePacketProjectsSizeContent(t *testing.T) {
 		lane := reviewGateLane(t, "implementation")
 		packet := joinPacketFor(t, s, workID, "repair", "attempt-projected", lane.ID, lane.Version, lane.Digest)
 		packet["inputs"].(map[string]any)["worker_job"] = sizeDispatchPacketJob(t, s, workID, *job, nil)
-		if _, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet)); err != nil {
+		if _, _, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet)); err != nil {
 			t.Fatalf("implementation packet refused: %v", err)
 		}
 	})
@@ -189,7 +196,7 @@ func TestWorkerJobSizePacketProjectsSizeContent(t *testing.T) {
 		lane := reviewGateLane(t, "review")
 		packet := joinPacketFor(t, s, workID, "repair", "attempt-projected-review", lane.ID, lane.Version, lane.Digest)
 		packet["inputs"].(map[string]any)["worker_job"] = sizeDispatchPacketJob(t, s, workID, *job, nil)
-		if _, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet)); err != nil {
+		if _, _, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet)); err != nil {
 			t.Fatalf("review packet refused: %v", err)
 		}
 	})
@@ -197,7 +204,7 @@ func TestWorkerJobSizePacketProjectsSizeContent(t *testing.T) {
 		lane := reviewGateLane(t, "review")
 		packet := joinPacketFor(t, s, workID, "repair", "attempt-projected-review-excl", lane.ID, lane.Version, lane.Digest)
 		packet["inputs"].(map[string]any)["worker_job"] = sizeDispatchPacketJob(t, s, workID, *job, []string{"internal/store/worker_jobs.go"})
-		_, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet))
+		_, _, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet))
 		if err == nil || !strings.Contains(err.Error(), "caller_exclusions") {
 			t.Fatalf("review exclusions error = %v, want the implementation-only refusal", err)
 		}
@@ -208,7 +215,7 @@ func TestWorkerJobSizePacketProjectsSizeContent(t *testing.T) {
 		content := sizeDispatchPacketJob(t, s, workID, *job, nil)
 		content["production_size_max"] = 999999
 		packet["inputs"].(map[string]any)["worker_job"] = content
-		_, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet))
+		_, _, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet))
 		if err == nil || !strings.Contains(err.Error(), "content does not match the recorded revision") {
 			t.Fatalf("drifted content error = %v, want the equality refusal", err)
 		}
@@ -219,7 +226,7 @@ func TestWorkerJobSizePacketProjectsSizeContent(t *testing.T) {
 		lane := reviewGateLane(t, "implementation")
 		packet := joinPacketFor(t, s, workID, "repair", "attempt-projected-readonly", lane.ID, lane.Version, lane.Digest)
 		packet["inputs"].(map[string]any)["worker_job"] = sizeDispatchPacketJob(t, s, workID, *readOnly, nil)
-		binding, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet))
+		binding, _, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet))
 		if err != nil || binding == nil {
 			t.Fatalf("read-only packet refused: %v", err)
 		}
@@ -244,7 +251,7 @@ func TestWorkerJobSizeCallerExclusionsBindThePacket(t *testing.T) {
 	t.Run("implementation packet carries the computed exclusions", func(t *testing.T) {
 		packet := joinPacketFor(t, s, workID, "repair", "attempt-exclusions", lane.ID, lane.Version, lane.Digest)
 		packet["inputs"].(map[string]any)["worker_job"] = sizeDispatchPacketJob(t, s, workID, *other, exclusions)
-		if _, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet)); err != nil {
+		if _, _, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet)); err != nil {
 			t.Fatalf("exclusions-bearing packet refused: %v", err)
 		}
 	})
@@ -259,7 +266,7 @@ func TestWorkerJobSizeCallerExclusionsBindThePacket(t *testing.T) {
 		t.Run(refusal.name+" refuse", func(t *testing.T) {
 			packet := joinPacketFor(t, s, workID, "repair", "attempt-exclusions-"+strings.ReplaceAll(refusal.name, " ", "-"), lane.ID, lane.Version, lane.Digest)
 			packet["inputs"].(map[string]any)["worker_job"] = sizeDispatchPacketJob(t, s, workID, *other, refusal.exclusion)
-			_, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet))
+			_, _, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet))
 			if err == nil || !strings.Contains(err.Error(), "content does not match the recorded revision") {
 				t.Fatalf("exclusions %q error = %v, want the equality refusal", refusal.name, err)
 			}
@@ -274,7 +281,7 @@ func TestWorkerJobSizeCallerExclusionsBindThePacket(t *testing.T) {
 		reviewLane := reviewGateLane(t, "review")
 		packet := joinPacketFor(t, s, workID, "repair", "attempt-exclusions-review", reviewLane.ID, reviewLane.Version, reviewLane.Digest)
 		packet["inputs"].(map[string]any)["worker_job"] = sizeDispatchPacketJob(t, s, workID, *other, nil)
-		if _, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, reviewLane, mustJSONValue(packet)); err != nil {
+		if _, _, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, reviewLane, mustJSONValue(packet)); err != nil {
 			t.Fatalf("review packet without exclusions refused: %v", err)
 		}
 	})
@@ -282,16 +289,21 @@ func TestWorkerJobSizeCallerExclusionsBindThePacket(t *testing.T) {
 
 // The retained v33 pin keeps its packet3 closure and admits an uncapped
 // implementation job unchanged, while the size-capable heads anchor
-// dispatch_worker at the packet4 closure.
+// dispatch_worker at the packet5 closure.
 func TestWorkerJobSizeHistoricalPacketUnchanged(t *testing.T) {
 	t.Parallel()
-	v34 := mustCompileWorkflowComposition(implementationCompositionV34())
-	if got := dispatchPacketSchemaRef(t, v34); got != "worker_packet4" {
-		t.Fatalf("implementation v34 dispatch packet schema ref = %q, want worker_packet4", got)
+	implementation := mustCompileWorkflowComposition(implementationCompositionV36())
+	if got := dispatchPacketSchemaRef(t, implementation); got != "worker_packet5" {
+		t.Fatalf("implementation size-capable dispatch packet schema ref = %q, want worker_packet5", got)
 	}
-	v31 := mustCompileWorkflowComposition(breakFixCompositionV31())
-	if got := dispatchPacketSchemaRef(t, v31); got != "worker_packet4" {
-		t.Fatalf("break_fix v31 dispatch packet schema ref = %q, want worker_packet4", got)
+	breakFix := mustCompileWorkflowComposition(breakFixCompositionV33())
+	if got := dispatchPacketSchemaRef(t, breakFix); got != "worker_packet5" {
+		t.Fatalf("break_fix size-capable dispatch packet schema ref = %q, want worker_packet5", got)
+	}
+	for _, definition := range []WorkflowDefinition{mustCompileWorkflowComposition(implementationCompositionV35()), mustCompileWorkflowComposition(breakFixCompositionV32())} {
+		if got := dispatchPacketSchemaRef(t, definition); got != "worker_packet4" {
+			t.Fatalf("checks-repair predecessor dispatch packet schema ref = %q, want retained worker_packet4", got)
+		}
 	}
 	v33 := mustCompileWorkflowComposition(implementationCompositionV33())
 	if got := dispatchPacketSchemaRef(t, v33); got != "worker_packet3" {
@@ -329,7 +341,7 @@ func TestWorkerJobSizeHistoricalPacketUnchanged(t *testing.T) {
 	lane := reviewGateLane(t, "implementation")
 	packet := joinPacketFor(t, s, workID, "execution", "attempt-historical", lane.ID, lane.Version, lane.Digest)
 	packet["inputs"].(map[string]any)["worker_job"] = sizeDispatchPacketJob(t, s, workID, *job, nil)
-	if _, err := validateWorkerPacketJob(context.Background(), s.db, definition.Definition, workID, lane, mustJSONValue(packet)); err != nil {
+	if _, _, err := validateWorkerPacketJob(context.Background(), s.db, definition.Definition, workID, lane, mustJSONValue(packet)); err != nil {
 		t.Fatalf("historical v33 implementation dispatch refused: %v", err)
 	}
 }

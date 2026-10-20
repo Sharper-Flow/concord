@@ -426,7 +426,7 @@ func seedWorkContextFixtureWithDefinition(t *testing.T, workID string, registere
 		"agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": string(owner.ActorClass),
 	})}
 	version++
-	events = append(events, Event{
+	events = append(events, withPinnedDecisionFact(t, registered.Definition, Event{
 		EventID: "ctx-contract-" + workID, Kind: WorkflowContractApproved, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(5, 0).UTC(), PayloadVersion: 3,
 		Payload: mustJSONValue(map[string]any{
 			"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check",
@@ -438,7 +438,7 @@ func seedWorkContextFixtureWithDefinition(t *testing.T, workID string, registere
 				DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 			},
 		}),
-	})
+	}))
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
 		t.Fatal(err)
 	}

@@ -162,7 +162,7 @@ function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | u
   }
 }
 
-// selectReadyWorkerJob binds the one dispatch-ready worker-job revision the
+// selectReadyWorkerJob binds the one eligible worker-job revision the
 // pinned continuity carries (CD-0205). The pinned step declares
 // record_worker_job exactly where a job-capable definition dispatches a
 // job-executing lane, so that declaration, not a version table, decides
@@ -170,14 +170,17 @@ function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | u
 // the core refuses any packet whose worker_job differs from the recorded
 // ready revision. Zero ready revisions, or more than one, refuse: the
 // dispatcher never chooses between ready jobs or authors job content.
-function selectReadyWorkerJob(workId: string, pinned: Record<string, unknown>): { job?: Record<string, unknown>; failure?: AgentLanePacketFailure } {
+function selectReadyWorkerJob(workId: string, pinned: Record<string, unknown>, capability: AgentLane["capability_class"]): { job?: Record<string, unknown>; failure?: AgentLanePacketFailure } {
   const ready = Array.isArray(pinned.ready_worker_jobs) ? pinned.ready_worker_jobs.filter(isRecord) : []
+  if (capability === "review" && Array.isArray(pinned.checks_repair_review_jobs)) {
+    ready.push(...pinned.checks_repair_review_jobs.filter(isRecord))
+  }
   if (ready.length === 0) {
     return failure("worker_job_unavailable", `work ${workId} holds no dispatch-ready worker-job revision; record the bounded job with record_worker_job, ready, before dispatching this lane`)
   }
   if (ready.length > 1) {
     const ids = ready.map((job) => `${String(job.job_id)}@${String(job.revision)}`).join(", ")
-    return failure("worker_job_ambiguous", `work ${workId} holds ${ready.length} dispatch-ready worker-job revisions (${ids}); record the jobs not to dispatch now as not ready, or order them through prerequisites, so exactly one is ready`)
+    return failure("worker_job_ambiguous", `work ${workId} holds ${ready.length} eligible worker-job revisions (${ids}); dispatch requires one exact revision`)
   }
   return { job: ready[0] }
 }
@@ -454,7 +457,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   const stepActions = Array.isArray(pinned.step_actions) ? pinned.step_actions : []
   let workerJob: Record<string, unknown> | undefined
   if (stepActions.includes("record_worker_job")) {
-    const selected = selectReadyWorkerJob(request.workId, pinned)
+    const selected = selectReadyWorkerJob(request.workId, pinned, lane.capability_class)
     if (selected.failure) return { failure: selected.failure }
     workerJob = selected.job
     // The published caller exclusions bind only an implementation dispatch

@@ -110,7 +110,11 @@ func seedTerminalInstanceForTesting(t *testing.T, s *Store, workID, state string
 	}
 }
 
-func testApprovalPayload(actionID string, payload json.RawMessage) json.RawMessage {
+// testApprovalPayload fills the approval defaults a test leaves out. A
+// consequence_v1 pin's approval declares the engineering decision-domain
+// fact. It reads the pin through s, so call it outside any open transaction.
+func testApprovalPayload(t testing.TB, s *Store, workID, actionID string, payload json.RawMessage) json.RawMessage {
+	t.Helper()
 	if actionID == "record_proposal" {
 		var fields map[string]any
 		if json.Unmarshal(payload, &fields) == nil && len(fields) == 0 {
@@ -129,6 +133,9 @@ func testApprovalPayload(actionID string, payload json.RawMessage) json.RawMessa
 	}
 	if _, present := fields["premise"]; !present {
 		fields["premise"] = "The operator stated this premise."
+	}
+	if _, present := fields["decision_domains"]; !present && workflowApprovalPolicyRequiresDecisionFact(pinnedWorkflowDefinitionForTest(t, s, workID)) {
+		fields["decision_domains"] = []string{}
 	}
 	encoded, _ := json.Marshal(fields)
 	return encoded
@@ -375,4 +382,20 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 		return wrapFailure(KindUnavailable, "complete_workflow", "cannot commit workflow completion", true, "retry once the database is writable", err)
 	}
 	return nil
+}
+
+// pinnedWorkflowDefinitionForTest resolves the definition the work item's
+// instance pins.
+func pinnedWorkflowDefinitionForTest(t testing.TB, s *Store, workID string) WorkflowDefinition {
+	t.Helper()
+	var ref string
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
+		t.Fatal(err)
+	}
+	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	if !ok {
+		t.Fatalf("pinned definition %s v%d is not registered", ref, version)
+	}
+	return registered.Definition
 }

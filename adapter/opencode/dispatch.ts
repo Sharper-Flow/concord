@@ -161,6 +161,10 @@ export interface AgentLanePacketWorkerJob {
     law_bindings: AgentLaneOracleLawBinding[]
   }
   caller_exclusions?: string[]
+  checks_repair?: {
+    reason: string
+    revisions: { worker_job: AgentLaneReportWorkerJob; checks: string[] }[]
+  }
 }
 
 // The acceptance-oracle members mirror internal/store worker_oracle.go
@@ -353,7 +357,7 @@ export interface NativeOracleGoPreparation extends NativeOraclePreparationCommon
 
 export interface NativeOracleTargetPreparation extends NativeOraclePreparationCommon {
   recipe_kind: "target_runner_v1"
-  target_materializer: "none" | "uv"
+  target_materializer: "none" | "uv" | "bun"
   target_runner: "pytest" | "check"
   selected_witness_ids: string[]
   case_to_witness_map: Record<string, string[]>

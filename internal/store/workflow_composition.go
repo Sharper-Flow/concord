@@ -21,6 +21,7 @@ type WorkflowComposition struct {
 	StalenessRules        []WorkflowStalenessRule
 	CompositionRules      WorkflowCompositionRules
 	EvaluatorIndependence WorkflowEvaluatorIndependence
+	ApprovalPolicy        string
 	ActionCatalogVersion  int
 	Parts                 []WorkflowPartUse
 }
@@ -93,6 +94,9 @@ func CompileWorkflowComposition(composition WorkflowComposition) (WorkflowDefini
 			actions = append(actions, action)
 		}
 	}
+	if composition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
+		actions = withConsequenceConfirmPremise(actions)
+	}
 	changesProductTruth := workKindMayChangeProductTruth(composition.WorkKind)
 	definition := cloneWorkflowDefinition(WorkflowDefinition{
 		Ref: composition.Ref, Version: composition.Version, WorkKind: composition.WorkKind, ChangesProductTruth: &changesProductTruth,
@@ -100,7 +104,7 @@ func CompileWorkflowComposition(composition WorkflowComposition) (WorkflowDefini
 		AvailableActions: available, ActionDefinitions: actions,
 		RequiredEvidenceKinds: composition.RequiredEvidenceKinds, OutcomeSchema: composition.OutcomeSchema, RigorRules: composition.RigorRules,
 		StalenessRules: composition.StalenessRules, CompositionRules: composition.CompositionRules, EvaluatorIndependence: composition.EvaluatorIndependence,
-		RecoveryRoutes: routes,
+		RecoveryRoutes: routes, ApprovalPolicy: composition.ApprovalPolicy,
 	})
 	if err := ValidateWorkflowDefinition(definition); err != nil {
 		return WorkflowDefinition{}, err
@@ -121,9 +125,9 @@ func mustCompileWorkflowComposition(composition WorkflowComposition) WorkflowDef
 // builtinWorkflowCompositions lists every released composition.
 func builtinWorkflowCompositions() []WorkflowComposition {
 	return []WorkflowComposition{
-		implementationCompositionV33(), implementationCompositionV34(),
-		breakFixCompositionV30(), breakFixCompositionV31(),
-		researchCompositionV20(),
+		implementationCompositionV33(), implementationConsequenceV34(), implementationCompositionV35(), implementationCompositionV36(),
+		breakFixCompositionV30(), breakFixConsequenceV31(), breakFixCompositionV32(), breakFixCompositionV33(),
+		researchCompositionV20(), researchConsequenceV21(),
 	}
 }
 
@@ -195,26 +199,6 @@ func breakFixCompositionV30() WorkflowComposition {
 	}
 }
 
-// implementationCompositionV34 ships the size-capable implementation head
-// (CD-0225 D1, CD-0227 D1): v33's every surface with the v2 action catalog,
-// whose record_worker_job declares the optional size members. A job under
-// this head carries all three size members or none.
-func implementationCompositionV34() WorkflowComposition {
-	composition := implementationCompositionV33()
-	composition.Version = 34
-	composition.ActionCatalogVersion = 2
-	return composition
-}
-
-// breakFixCompositionV31 ships the size-capable break-fix head: v30's every
-// surface with the v2 action catalog.
-func breakFixCompositionV31() WorkflowComposition {
-	composition := breakFixCompositionV30()
-	composition.Version = 31
-	composition.ActionCatalogVersion = 2
-	return composition
-}
-
 func researchCompositionV20() WorkflowComposition {
 	return WorkflowComposition{
 		Ref: "workflow.research", Version: 20, WorkKind: WorkKindResearch,
@@ -231,4 +215,96 @@ func researchCompositionV20() WorkflowComposition {
 			{Ref: "part.close", Version: 1, StepID: "complete", RecoveryTo: "investigate"},
 		},
 	}
+}
+
+// withConsequencePolicy promotes a released composition to the next version
+// under the consequence_v1 approval policy (CD-0230 D5). Engineering
+// contract approval, premise confirmation, and completion admit without an
+// operator challenge; the declared decision domains, a serious law change,
+// crucial size, and destructive effects still reach the operator.
+func withConsequencePolicy(composition WorkflowComposition) WorkflowComposition {
+	composition.Version++
+	composition.ApprovalPolicy = WorkflowApprovalPolicyConsequenceV1
+	return composition
+}
+
+// withConsequenceConfirmPremise declares the human decision-context digest
+// optional on a consequence_v1 confirm_premise: engineering confirmation is
+// the coordinator's own confirm choice and carries no human digest, while a
+// decision-bearing confirmation still answers the operator question, whose
+// digest the confirmation validates (CD-0013 D11, CD-0129). The copy leaves
+// the shared catalog declaration unmutated.
+func withConsequenceConfirmPremise(actions []WorkflowActionDefinition) []WorkflowActionDefinition {
+	selected := slices.Clone(actions)
+	optionalDigest := func(payload WorkflowPayloadDefinition) WorkflowPayloadDefinition {
+		fields := slices.Clone(payload.Fields)
+		for index := range fields {
+			if fields[index].Name == "decision_context_digest" {
+				fields[index].Required = false
+			}
+		}
+		payload.Fields = fields
+		return payload
+	}
+	for index := range selected {
+		if selected[index].ID != "confirm_premise" {
+			continue
+		}
+		selected[index].Payload = optionalDigest(selected[index].Payload)
+		if selected[index].PublicPayload != nil {
+			public := optionalDigest(*selected[index].PublicPayload)
+			selected[index].PublicPayload = &public
+		}
+	}
+	return selected
+}
+
+func implementationConsequenceV34() WorkflowComposition {
+	return withConsequencePolicy(implementationCompositionV33())
+}
+
+func breakFixConsequenceV31() WorkflowComposition {
+	return withConsequencePolicy(breakFixCompositionV30())
+}
+
+func researchConsequenceV21() WorkflowComposition {
+	return withConsequencePolicy(researchCompositionV20())
+}
+
+// Checks-repair heads retain their predecessor's consequence policy and parts,
+// and repin only the action catalog for the repair authoring and packet members.
+func implementationCompositionV35() WorkflowComposition {
+	composition := implementationConsequenceV34()
+	composition.Version = 35
+	composition.ActionCatalogVersion = 2
+	return composition
+}
+
+func breakFixCompositionV32() WorkflowComposition {
+	composition := breakFixConsequenceV31()
+	composition.Version = 32
+	composition.ActionCatalogVersion = 2
+	return composition
+}
+
+// implementationCompositionV36 ships the size-capable implementation head
+// (CD-0225 D1, CD-0227 D1): v35's every surface — the consequence_v1
+// approval policy and the checks-repair authoring members included — with
+// the v3 action catalog, whose record_worker_job adds the optional size
+// members beside the repair authoring members and the closed split variant.
+// A job under this head carries all three size members or none.
+func implementationCompositionV36() WorkflowComposition {
+	composition := implementationCompositionV35()
+	composition.Version = 36
+	composition.ActionCatalogVersion = 3
+	return composition
+}
+
+// breakFixCompositionV33 ships the size-capable break-fix head: v32's every
+// surface with the v3 action catalog.
+func breakFixCompositionV33() WorkflowComposition {
+	composition := breakFixCompositionV32()
+	composition.Version = 33
+	composition.ActionCatalogVersion = 3
+	return composition
 }

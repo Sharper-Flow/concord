@@ -39,6 +39,8 @@ gate = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = gate
 SPEC.loader.exec_module(gate)
 
+from release_restore_invoke import INVOKE_PLAN
+
 TARGET = "a" * 40
 FILE_LIMIT = 64 << 20
 GROWTH_CAP = 8 << 20
@@ -77,9 +79,22 @@ request = json.load(sys.stdin)
 db = sqlite3.connect(os.environ["CONCORD_DB_PATH"])
 db.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)")
 db.execute("INSERT OR IGNORE INTO schema_migrations VALUES (7)")
-db.execute("CREATE TABLE IF NOT EXISTS domain_events (seq INTEGER PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL)")
-db.execute("INSERT INTO domain_events (kind, payload) VALUES (?, ?)", (sys.argv[1], json.dumps(request, sort_keys=True)))
+db.execute("CREATE TABLE IF NOT EXISTS domain_events (seq INTEGER PRIMARY KEY, event_id TEXT, kind TEXT NOT NULL, payload_version INTEGER, payload TEXT NOT NULL)")
+db.execute("INSERT INTO domain_events (event_id, kind, payload_version, payload) VALUES (?, ?, 1, ?)",
+           (sys.argv[1] + "-" + str(db.execute("SELECT COUNT(*) FROM domain_events").fetchone()[0]), sys.argv[1], json.dumps(request, sort_keys=True)))
+for table, key, subject in (("products", "id", "gate-product"), ("projects", "id", "gate-project"), ("managed_resources", "resource_id", "gate-resource")):
+    db.execute(f"CREATE TABLE IF NOT EXISTS {{table}} ({{key}} TEXT PRIMARY KEY, display_name TEXT, version INTEGER)")
+    db.execute(f"INSERT INTO {{table}} ({{key}}, version) VALUES (?, 1) ON CONFLICT({{key}}) DO UPDATE SET version = version + 1", (subject,))
 db.commit()
+if sys.argv[1] == "grant":
+    print(json.dumps({{"ok": True, "grant_token": "writer-token", "scope_version": "sha256:" + "0" * 64,
+                       "surface_version": "4.0.0", "envelope_version": "1.0"}}))
+    sys.exit(0)
+if sys.argv[1] == "invoke":
+    db.execute("INSERT INTO domain_events (event_id, kind, payload_version, payload) VALUES ('writer-invoke', 'work.created', 2, 'invoke')")
+    db.commit()
+    print(json.dumps({{"outcome": "ok"}}))
+    sys.exit(0)
 print(json.dumps({{"ok": True}}))
 """
 
@@ -109,7 +124,7 @@ source.close()
 if MODE == "rewrite-event":
     target.execute("UPDATE domain_events SET payload = '{{}}' WHERE seq = 1")
 if MODE == "drop-event":
-    target.execute("DELETE FROM domain_events WHERE seq = 2")
+    target.execute("DELETE FROM domain_events WHERE seq = (SELECT MAX(seq) FROM domain_events)")
 elif MODE == "rebuild-drift" or not second:
     target.execute("INSERT INTO domain_events (kind, payload) VALUES ('migration.appended', '{{}}')")
 for table, columns in (("products", "id, display_name"), ("projects", "id, display_name"), ("product_projects", "product_id, project_id, role"),
@@ -117,8 +132,8 @@ for table, columns in (("products", "id, display_name"), ("projects", "id, displ
     target.execute(f"CREATE TABLE IF NOT EXISTS {{table}} ({{columns}})")
 if not second:
     value = "https://example.invalid/other.git" if MODE == "lose-effect" else "https://example.invalid/gate/project.git"
-    target.execute("INSERT INTO products VALUES ('gate-product', 'Gate Product')")
-    target.execute("INSERT INTO projects VALUES ('gate-project', 'Gate Project')")
+    target.execute("INSERT OR REPLACE INTO products (id, display_name) VALUES ('gate-product', 'Gate Product')")
+    target.execute("INSERT OR REPLACE INTO projects (id, display_name) VALUES ('gate-project', 'Gate Project')")
     target.execute("INSERT INTO product_projects VALUES ('gate-product', 'gate-project', 'primary')")
     target.execute("INSERT INTO project_locators VALUES ('gate-project', 'gate-remote', 'git_remote', ?)", (value,))
 target.commit()
@@ -202,8 +217,52 @@ class CaseTests(unittest.TestCase):
     def test_a_writer_restores_twice_and_its_case_is_removed(self) -> None:
         row = self.case(self.fixture.publish("v1.0.0"), self.fixture.candidate())
         self.assertCase(row, "pass", "complete")
-        self.assertEqual((row["source"]["event_watermark"], row["restored"]["appended_events"], row["rebuilt"]["appended_events"]), (2, 1, 0))
+        steps = len(gate.recipe_for("v1.0.0")) + len(INVOKE_PLAN) + 1
+        self.assertEqual((row["source"]["event_watermark"], row["restored"]["appended_events"], row["rebuilt"]["appended_events"]), (steps, 1, 0))
         self.assertFalse((self.fixture.root / "work" / "v1.0.0").exists())
+
+    def test_a_passing_case_witnesses_every_writer_row_with_its_provenance(self) -> None:
+        writer = self.fixture.publish("v1.0.0")
+        row = self.case(writer, self.fixture.candidate())
+        steps = gate.recipe_for("v1.0.0") + [(verb.split(":")[0], {}) for verb in INVOKE_PLAN] + [("work.created", {})]
+        self.assertEqual([(w["seq"], w["kind"]) for w in row["witnesses"]], [(seq, verb) for seq, (verb, _) in enumerate(steps, start=1)])
+        provenance = {"tag": "v1.0.0", "asset_digest": writer.asset_digest, "recipe": gate.RECIPE_ID,
+                      "recipe_sha256": gate.recipe_sha256(gate.recipe_for("v1.0.0")), "snapshot_sha256": row["source"]["db_checksum"]}
+        self.assertEqual({json.dumps(w["writer"], sort_keys=True) for w in row["witnesses"]}, {json.dumps(provenance, sort_keys=True)})
+        self.assertEqual(json.loads(row["witnesses"][0]["payload"]), gate.PRODUCT)
+        # Versions come from the writer's own store, before each step.
+        self.assertEqual(json.loads(row["witnesses"][2]["payload"])["expected_version"], 2)
+
+    def test_only_passing_cases_emit_witnesses(self) -> None:
+        real = gate.run_writer_case
+
+        def late_failure(*args):
+            row = real(*args)
+            return row | {"status": "unknown", "stage": "budget"} if row["tag"] == "v1.1.2" else row
+
+        writers = (self.fixture.publish("v1.0.0"), self.fixture.publish("v1.1.2"))
+        with patch.object(gate, "run_writer_case", late_failure):
+            report, _ = self.gate_run(self.fixture.candidate(), *writers)
+        emitted = [json.loads(line) for line in (self.fixture.root / "out" / "witnesses.jsonl").read_text().splitlines()]
+        self.assertEqual(({w["writer"]["tag"] for w in emitted}, report["witnesses"]), ({"v1.0.0"}, len(gate.recipe_for("v1.0.0")) + len(INVOKE_PLAN) + 1))
+
+    def test_recipe_steps_start_at_their_release(self) -> None:
+        verbs = lambda tag: [verb for verb, _ in gate.recipe_for(tag)]
+        self.assertEqual(verbs("v0.37.1"), ["product-create", "project-locator-add"])
+        self.assertNotIn("product-knowledge-home-designate", verbs("v4.2.9"))
+        self.assertIn("product-knowledge-home-designate", verbs("v4.3.0"))
+        self.assertNotIn("product-knowledge-source-register", verbs("v11.58.9"))
+        self.assertEqual(len(verbs("v11.59.0")), len(gate.RECIPE))
+        self.assertNotEqual(gate.recipe_sha256(gate.recipe_for("v4.3.0")), gate.recipe_sha256(gate.recipe_for("v4.7.0")))
+
+    def test_a_missing_versioned_subject_is_a_named_recipe_failure(self) -> None:
+        store = self.fixture.root / "empty.db"
+        sqlite3.connect(store).execute("CREATE TABLE products (id TEXT, version INTEGER)").connection.commit()
+        with self.assertRaises(gate.CaseFailure) as raised:
+            gate.resolve({"expected_version": gate.PRODUCT_VERSION}, store, self.fixture.root, time.monotonic() + 10)
+        self.assertEqual((raised.exception.status, raised.exception.stage), ("unknown", "recipe"))
+        resolved = gate.resolve({"value": gate.repository("home")}, store, self.fixture.root, time.monotonic() + 10)
+        self.assertTrue(Path(resolved["value"]).is_dir())
 
     def test_writer_environment_is_constructed(self) -> None:
         self.case(self.fixture.publish("v1.0.0", mode="refuse"), self.fixture.candidate())
@@ -218,8 +277,8 @@ class CaseTests(unittest.TestCase):
         self.assertCase(self.case(self.fixture.publish("v1.0.0", corrupt=True), candidate), "fail", "checksum")
         self.assertCase(self.case(self.fixture.publish("v1.0.1", mode="wrong-version"), candidate), "fail", "version")
         self.assertCase(self.case(self.fixture.publish("v1.0.2", mode="refuse"), candidate), "unknown", "product-create")
-        self.assertCase(self.case(self.fixture.publish("v1.0.3", size_delta=1), candidate), "fail", "download")
-        replaced = dataclasses.replace(self.fixture.publish("v1.0.4"), asset_id=999)
+        self.assertCase(self.case(self.fixture.publish("v1.1.3", size_delta=1), candidate), "fail", "download")
+        replaced = dataclasses.replace(self.fixture.publish("v1.1.4"), asset_id=999)
         self.assertCase(self.case(replaced, candidate), "unknown", "download")
 
     def test_candidate_failures_are_named(self) -> None:
@@ -227,7 +286,7 @@ class CaseTests(unittest.TestCase):
                                                 ("rewrite-event", "conservation"), ("drop-event", "restore"),
                                                 ("lose-effect", "effects"), ("rebuild-drift", "rebuild"))):
             with self.subTest(mode=mode):
-                row = self.case(self.fixture.publish(f"v1.1.{number}"), self.fixture.candidate(mode))
+                row = self.case(self.fixture.publish(("v1.1.0", "v1.1.1", "v1.1.2", "v1.1.3", "v1.1.4", "v1.0.2")[number]), self.fixture.candidate(mode))
                 self.assertCase(row, "fail", stage)
 
     def test_resource_budgets_stop_the_case(self) -> None:
@@ -247,7 +306,7 @@ class CaseTests(unittest.TestCase):
     def test_a_writer_that_never_reads_stdin_meets_its_budget(self) -> None:
         started = time.monotonic()
         row = self.case(self.fixture.publish("v1.0.0", mode="deaf"), self.fixture.candidate(), case_seconds=2)
-        self.assertCase(row, "unknown", "product-create")
+        self.assertCase(row, "unknown", "step-0-product-create")
         self.assertLess(time.monotonic() - started, 10)
 
     def test_exhausted_wall_budget_is_unknown(self) -> None:
@@ -260,20 +319,78 @@ class CaseTests(unittest.TestCase):
     def args(self, candidate: Path, version: str = "v9.0.0") -> argparse.Namespace:
         return argparse.Namespace(repository="owner/repo", target_sha=TARGET, candidate=str(candidate), candidate_version=version,
                                   output_dir=str(self.fixture.root / "out"), workers=2, wall_seconds=600, case_seconds=60,
-                                  disk_bytes=1 << 30, transfer_bytes=1 << 30)
+                                  disk_bytes=1 << 30, transfer_bytes=1 << 30, census_dir=str(self.census()))
+
+    def census(self, rows: dict[str, dict] | None = None, covered: bool = False, written: tuple[str, ...] = ("v1.0.0", "v1.1.2"),
+               older_covered: bool = True, unbound: tuple[str, ...] = ()) -> Path:
+        """Write a shape census; by default it inventories v1.0.0 and v1.1.2, which write one unwitnessed shape."""
+        census = self.fixture.root / f"census-{len(list(self.fixture.root.glob('census-*')))}"
+        census.mkdir()
+        rows = rows if rows is not None else {tag: {"tag": tag, "status": "inventoried"} for tag in ("v1.0.0", "v1.1.2")}
+        (census / "writers.json").write_text(json.dumps({"rows": list(rows.values())}))
+        (census / "coverage.json").write_text(json.dumps({
+            "shapes": [{"kind": "work.created", "payload_version": 2, "writers": list(written), "covered": covered}],
+            "older_versions": [{"kind": "work.created", "payload_version": 1, "writers": list(written), "covered": older_covered}],
+            "unbound_writer_witnesses": list(unbound)}))
+        return census
+
+    def census_without(self, key: str, value: object = KeyError) -> Path:
+        """A closed census whose coverage lacks one section, or holds the given value there."""
+        census = self.census(covered=True)
+        coverage = json.loads((census / "coverage.json").read_text())
+        if value is KeyError:
+            del coverage[key]
+        else:
+            coverage[key] = value
+        (census / "coverage.json").write_text(json.dumps(coverage))
+        return census
 
     def gate_run(self, candidate: Path, *writers: gate.Writer) -> tuple[dict, int]:
         releases = [release_of(writer, index) for index, writer in enumerate(writers, start=1)]
         return gate.run_gate(self.args(candidate), releases, tag_map(*(writer.tag for writer in writers)))
 
+    def test_gate_passes_only_with_a_closed_census(self) -> None:
+        args = self.args(self.fixture.candidate())
+        args.census_dir = str(self.census(covered=True))
+        writers = (self.fixture.publish("v1.0.0"), self.fixture.publish("v1.1.2"))
+        releases = [release_of(writer, index) for index, writer in enumerate(writers, start=1)]
+        report, status = gate.run_gate(args, releases, tag_map(*(writer.tag for writer in writers)))
+        self.assertEqual((status, report["result"], report["coverage"]), (0, "pass", {"status": "closed", "writers": 2, "shapes": 1}))
+        emitted = [json.loads(line) for line in (Path(args.output_dir) / "witnesses.jsonl").read_text().splitlines()]
+        self.assertEqual(len(emitted), report["witnesses"])
+        self.assertEqual(sorted({w["writer"]["tag"] for w in emitted}), ["v1.0.0", "v1.1.2"])
+        self.assertFalse(any("witnesses" in row for row in report["rows"]))
+
+    def test_coverage_holds_on_every_census_gap(self) -> None:
+        writers = [gate.Writer(**{**dataclasses.asdict(self.fixture.publish("v1.0.0")), "tag": tag}) for tag in ("v1.0.0", "v1.1.2")]
+        excluded = {"tag": "v0.1.0", "status": "inventory_refused", "excluded": True}
+        cases = (
+            (self.census(covered=True), "closed", None),
+            (self.census({"v0.1.0": excluded, "v1.0.0": {"tag": "v1.0.0", "status": "inventoried"}}, covered=True), "held", "1 uninventoried writers, first v1.1.2"),
+            (self.census({"v1.0.0": {"tag": "v1.0.0", "status": "inventory_refused"}, "v1.1.2": {"tag": "v1.1.2", "status": "inventoried"}}, covered=True), "held", "1 refused writers, first v1.0.0"),
+            (self.census(covered=True, written=("v1.0.0",)), "held", "1 inventoried writers without shapes, first v1.1.2"),
+            (self.census(), "held", "1 unwitnessed shapes, first work.created v2"),
+            (self.census(covered=True, older_covered=False), "held", "1 unwitnessed older versions, first work.created v1"),
+            (self.census(covered=True, unbound=("v1.0.0 seq 3 work.created v1",)), "held", "1 unbound writer witnesses, first v1.0.0 seq 3"),
+            (self.fixture.root / "absent", "held", "is unreadable"),
+            (self.census_without("older_versions"), "held", "is unreadable"),
+            (self.census_without("unbound_writer_witnesses"), "held", "is unreadable"),
+            (self.census_without("unbound_writer_witnesses", None), "held", "is unreadable"),
+        )
+        for census, status, detail in cases:
+            coverage = gate.shape_coverage(census, writers)
+            self.assertEqual(coverage["status"], status, coverage)
+            if detail:
+                self.assertIn(detail, coverage["detail"])
+
     def test_gate_holds_coverage_when_every_writer_passes(self) -> None:
-        report, status = self.gate_run(self.fixture.candidate(), self.fixture.publish("v1.0.0"), self.fixture.publish("v1.2.0"))
+        report, status = self.gate_run(self.fixture.candidate(), self.fixture.publish("v1.0.0"), self.fixture.publish("v1.1.2"))
         self.assertEqual((status, report["result"], report["coverage"]["status"]), (3, "pass", "held"))
-        self.assertEqual([row["tag"] for row in report["rows"]], ["v1.0.0", "v1.2.0"])
+        self.assertEqual([row["tag"] for row in report["rows"]], ["v1.0.0", "v1.1.2"])
         self.assertGreater(report["budgets"]["transferred_bytes"], 0)
 
     def test_gate_fails_on_any_writer_or_empty_population(self) -> None:
-        report, status = self.gate_run(self.fixture.candidate(), self.fixture.publish("v1.0.0"), self.fixture.publish("v1.2.0", corrupt=True))
+        report, status = self.gate_run(self.fixture.candidate(), self.fixture.publish("v1.0.0"), self.fixture.publish("v1.1.2", corrupt=True))
         self.assertEqual((status, report["result"], report["counts"]), (1, "fail", {"pass": 1, "fail": 1, "unknown": 0}))
         report, status = gate.run_gate(self.args(self.fixture.candidate()), [], {})
         self.assertEqual((status, report["result"]), (1, "unknown"))
@@ -336,6 +453,7 @@ class CaseTests(unittest.TestCase):
             gate.run_gate(self.args(self.fixture.candidate(version="v8.0.0")), [], {})
         with self.assertRaisesRegex(gate.GateError, "changed during the run"):
             self.gate_run(self.fixture.candidate("self-modify"), self.fixture.publish("v1.0.0"))
+        self.assertFalse((self.fixture.root / "out" / "witnesses.jsonl").exists())
 
     def test_main_refuses_bad_identity_and_reused_output(self) -> None:
         output = self.fixture.root / "used"

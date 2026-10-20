@@ -31,10 +31,10 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 			// correction re-entry the derived-start heads admit (CD-0198 D3),
 			// since the live union authors no callable start. The lease
 			// identity contract is identical on both sides.
-			pinned, pinnedErr := store.LiveWorkflowDefinitionForRef("workflow.implementation")
-			if pinnedErr != nil {
-				t.Fatal(pinnedErr)
-			}
+			// The operator-approved correction re-entry is a legacy
+			// approval-policy flow; consequence_v1 takes no operator
+			// substitution for request_correction.
+			pinned := legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation")
 			grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 			ownerRef, ownerRefErr := store.WorkflowActorRef(grantActor)
 			if ownerRefErr != nil {

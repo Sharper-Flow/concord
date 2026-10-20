@@ -137,6 +137,14 @@ type WorkflowAdmissionState struct {
 	// RetryConvergence is derived from recorded finding sets or a contract
 	// supersession. An escalated retry needs this basis, not an approval.
 	RetryConvergence WorkflowRetryConvergence
+	// FundedChecksRepairReviews counts the jobs whose accepted, unconfirmed
+	// checks repair holds an unconsumed confirming-review funding (CD-0205
+	// D4, CD-0148 amendment). It is the wall's one named admission: the pure
+	// admission passes so the payload guard can bind the dispatch to the
+	// exact funded repairing revision on a review lane, and the completion
+	// that consumes the funding records it. The state stays comparable; the
+	// guard derives the funded jobs themselves from the same derivation.
+	FundedChecksRepairReviews int
 	// NonProgressAttempts counts failed, rejected, and no_ship attempts across
 	// the work item since the last productive acceptance.
 	NonProgressAttempts int64
@@ -543,6 +551,17 @@ func (l workflowAdmissionLoad) retryAndHolds(state *WorkflowAdmissionState) erro
 			return err
 		}
 		state.RetryConvergence = convergence
+		if !convergence.valid() {
+			// The wall's one named admission: an accepted, unconfirmed
+			// checks repair funds exactly one confirming review without a
+			// convergence basis (CD-0148 amendment). The payload guard
+			// binds the admitted dispatch to the funded revision.
+			fundings, fundingErr := workerChecksRepairReviewFundingsTx(l.ctx, l.q, l.workID)
+			if fundingErr != nil {
+				return fundingErr
+			}
+			state.FundedChecksRepairReviews = len(fundings)
+		}
 	}
 	failedRetry, retryErr := workflowCurrentFailedWorkerRetryBinding(l.ctx, l.q, l.workID, l.currentStep)
 	if retryErr != nil {
@@ -840,7 +859,7 @@ func workflowAdmitDispatchRefused(state WorkflowAdmissionState, actionID string,
 			decision.Failure = newFailure(KindLimitExceeded, "worker_dispatch", fmt.Sprintf("the work holds %d open oracle blockers above the %d-ID bound; dispatch is refused rather than truncating the set", state.OracleOpenFindings, WorkflowOpenOracleFindingsLimit), false, "close findings through supported closures or an approved scope/contract revision, or stop the work")
 			return true
 		}
-		if state.retryEscalated() && !state.RetryConvergence.valid() {
+		if state.retryEscalated() && !state.RetryConvergence.valid() && state.FundedChecksRepairReviews == 0 {
 			decision.Failure = workflowRetryConvergenceFailure(state)
 			decision.ConvergenceRequired = true
 			return true

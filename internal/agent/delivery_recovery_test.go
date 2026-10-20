@@ -114,10 +114,10 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 	// admission is authorable there and on no released pin (CD-0218 D2/D4).
 	// The released closed-gate v15 keeps its recorded behavior readable at
 	// its frozen pin.
-	pinned, err := store.LiveWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The operator-approved gate return is a legacy approval-policy flow;
+	// consequence_v1 takes no operator substitution for it.
+	pinned := legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation")
+	var err error
 	grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	grantActorRef, err := store.WorkflowActorRef(grantActor)
 	if err != nil {
@@ -185,6 +185,9 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 		response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": deliveryRecoveryPacket(t, s, "work-1", stepID, attemptID, capabilityClass)}, "idempotency_key": "gate-dispatch-" + attemptID})
 		if response.Outcome != OutcomeOK {
 			t.Fatalf("gate recovery dispatch %s: %+v", attemptID, response.Error)
+		}
+		if capabilityClass == "implementation" {
+			deliverAgentFixtureChange(t, s, "work-1", attemptID)
 		}
 		deliveryRecoveryCompletion(t, s, grant, attemptID, capabilityClass)
 	}

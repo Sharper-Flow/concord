@@ -1,6 +1,6 @@
 import { test, expect, mock } from "bun:test"
 import { contractOperations, workflowActionPublicVariants } from "./generated-contracts"
-import { advertisedAdmissionTeachingGaps, expandedPublishedRequestSchema } from "./generated-contract-tests"
+import { advertisedAdmissionTeachingGaps, expandedPublishedRequestSchema, actionFieldsBranches } from "./generated-contract-tests"
 import { validateAgainstSchema } from "./dispatch"
 
 const fakeTool = (config: unknown) => config
@@ -27,6 +27,21 @@ function actionInputBranch(published: any, actionId: string): any {
 // its selected branches, not a second copy returned by a subsequent traversal.
 function inlineExpanded(published: unknown): any {
   return expandedPublishedRequestSchema(published)
+}
+
+// approveOutcomePredicateHolders returns every outcome_predicates holder the
+// gap check can read on one cloned approve_contract view: the factored parent
+// fields view and each fields union branch. A mutation must cover every
+// holder, or a re-expansion revives the parent constraint into the branches.
+function approveOutcomePredicateHolders(clonedView: any): any[] {
+  const input = actionInputBranch(clonedView, "approve_contract")
+  const holders: any[] = []
+  const parent = input.properties.fields?.properties?.outcome_predicates
+  if (parent) holders.push(parent)
+  for (const fields of actionFieldsBranches(input)) {
+    if (fields.properties?.outcome_predicates) holders.push(fields.properties.outcome_predicates)
+  }
+  return holders
 }
 
 test("published request schemas are compact and safe for host publication", () => {
@@ -79,15 +94,22 @@ test("published workflow transition teaches every approve_contract admission rul
   // ValidateOperationPayload stays the closed boundary. The traversal reads
   // the compact document through the expansion helper.
   expect(advertisedAdmissionTeachingGaps(schema)).toEqual([])
-  const items = actionInputBranch(schema, "approve_contract").properties.fields.properties.outcome_predicates.items
-  // CON-412: each published predicate item is closed per kind — outcome_kind
-  // consts to the branch and outcome_payload carries that branch's payload,
-  // so a mismatched outcome_kind/outcome_payload pair validates no branch.
-  expect(items.oneOf.map((branch: any) => branch.properties.outcome_kind.const)).toEqual(["exists", "absent", "outcome", "check"])
-  for (const branch of items.oneOf) {
-    expect(branch.required).toEqual(["predicate_id", "ordinal", "outcome_kind", "outcome_payload"])
-    expect(branch.additionalProperties).toBe(false)
-    expect(branch.properties.outcome_kind.const).toBe(branch.properties.outcome_payload.properties.kind.const)
+  // fields is one closed union: the legacy shape and the consequence_v1
+  // extension. The exhaustive per-kind assertions read each branch, so a
+  // drop from one branch cannot hide behind the factored parent view.
+  const fieldsBranches = actionFieldsBranches(actionInputBranch(schema, "approve_contract"))
+  expect(fieldsBranches, "approve_contract fields union branches").toHaveLength(2)
+  for (const fields of fieldsBranches) {
+    const items = fields.properties.outcome_predicates.items
+    // Each published predicate item is closed per kind — outcome_kind
+    // consts to the branch and outcome_payload carries that branch's payload,
+    // so a mismatched outcome_kind/outcome_payload pair validates no branch.
+    expect(items.oneOf.map((branch: any) => branch.properties.outcome_kind.const)).toEqual(["exists", "absent", "outcome", "check"])
+    for (const branch of items.oneOf) {
+      expect(branch.required).toEqual(["predicate_id", "ordinal", "outcome_kind", "outcome_payload"])
+      expect(branch.additionalProperties).toBe(false)
+      expect(branch.properties.outcome_kind.const).toBe(branch.properties.outcome_payload.properties.kind.const)
+    }
   }
 
   // Schema-vs-payload conformance: a canonical workflow.research
@@ -130,10 +152,15 @@ test("delivery-decidable-rule: the published schema teaches it and the gap check
   // outcome_predicates array on approve_contract, shared with
   // supersede_contract. The add_condition hold bound retired with its
   // action, so the published surface carries no add_condition variant and
-  // no wait-rule teaching check exists to revive one.
-  const predicateFields = actionInputBranch(schema, "approve_contract").properties.fields.properties
-  expect(predicateFields.outcome_predicates.description).toContain("decidable at delivery")
-  expect(predicateFields.outcome_predicates.description).toContain("raised_from")
+  // no wait-rule teaching check exists to revive one. Every fields branch
+  // that carries the array must carry the teaching.
+  const approveFieldsBranches = actionFieldsBranches(actionInputBranch(schema, "approve_contract"))
+    .filter((fields: any) => fields.properties?.outcome_predicates)
+  expect(approveFieldsBranches.length).toBeGreaterThan(0)
+  for (const fields of approveFieldsBranches) {
+    expect(fields.properties.outcome_predicates.description).toContain("decidable at delivery")
+    expect(fields.properties.outcome_predicates.description).toContain("raised_from")
+  }
   const actionIds = (expandedPublishedRequestSchema(schema) as any).oneOf
     .filter((branch: any) => branch.properties?.operation?.const === "workflow_action")
     .map((branch: any) => branch.properties.input.properties.action_id.const)
@@ -141,18 +168,21 @@ test("delivery-decidable-rule: the published schema teaches it and the gap check
 
   // Dropping the teaching from the published document is a reported gap,
   // so generation and its tests fail on drift. The mutation lands on an
-  // inlined clone of the actual compact document, and the gap check walks
-  // that mutated document the same way it walks the real one.
+  // inlined clone of the actual compact document, and it removes the
+  // description from every outcome_predicates holder the gap check reads
+  // (the factored parent view and each fields union branch), the way a
+  // publication fault would drop it. The gap check walks that mutated
+  // document the same way it walks the real one.
   const droppedPredicateRule = inlineExpanded(schema)
-  delete actionInputBranch(droppedPredicateRule, "approve_contract").properties.fields.properties.outcome_predicates.description
+  for (const holder of approveOutcomePredicateHolders(droppedPredicateRule)) delete holder.description
   expect(advertisedAdmissionTeachingGaps(droppedPredicateRule)).toContain(
     "outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action approve_contract",
   )
 
   // A description cut down to its marker phrases no longer carries the rule,
-  // so it is a gap too.
+  // so it is a gap too, on every holder the check reads.
   const reducedRules = inlineExpanded(schema)
-  actionInputBranch(reducedRules, "approve_contract").properties.fields.properties.outcome_predicates.description = "decidable at delivery; raised_from"
+  for (const holder of approveOutcomePredicateHolders(reducedRules)) holder.description = "decidable at delivery; raised_from"
   expect(advertisedAdmissionTeachingGaps(reducedRules)).toContain(
     "outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action approve_contract",
   )

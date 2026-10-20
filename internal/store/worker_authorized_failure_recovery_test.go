@@ -264,7 +264,10 @@ func TestAuthorizedFailedWorkerRetryBindingPrecedesDisposition(t *testing.T) {
 		t.Fatal(err)
 	}
 	decision := workflowAdmit(entry.Definition, state, "dispatch_worker")
-	if !decision.ApprovalRequired || state.FailedWorkerRetry == nil || state.FailedWorkerRetry.FailedAttemptID != attemptID {
+	// consequence_v1 answers a failed retry below the wall as routine and
+	// revalidates the binding instead of asking for operator consent.
+	wantApproval := entry.Definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1
+	if decision.ApprovalRequired != wantApproval || state.FailedWorkerRetry == nil || state.FailedWorkerRetry.FailedAttemptID != attemptID {
 		t.Fatalf("the shared admission owner lost the failed authorization: decision=%#v binding=%#v", decision, state.FailedWorkerRetry)
 	}
 }

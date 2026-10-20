@@ -150,8 +150,14 @@ func TestDeclaredCrossFieldRulesMatchCoreAndPublishedVerdicts(t *testing.T) {
 			if actionID == "supersede_contract" {
 				// A canonical head pins the canonical recovery fields, so
 				// the core validator reads the same declaration the
-				// published variant generates from.
-				return validateWorkflowContractRecoveryPayload(currentWorkflowDefinition(t), encoded)
+				// published variant generates from. The published fields
+				// offer the legacy and the consequence_v1 successor, and
+				// only the consequence_v1 one carries decision_domains.
+				definition := legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation").Definition
+				if _, decisionFact := fields["decision_domains"]; decisionFact {
+					definition = currentWorkflowDefinition(t)
+				}
+				return validateWorkflowContractRecoveryPayload(definition, encoded)
 			}
 			return validateWorkflowActionPayload(WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{{ID: actionID, Payload: payload}}}, actionID, encoded)
 		}

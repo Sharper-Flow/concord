@@ -351,7 +351,12 @@ func TestWorkerJobSplitDischargeAnchorsIntegrationAfterTheLastAcceptance(t *test
 // only, so the complete log replays.
 func dischargeReplayFixture(t *testing.T, workID string) workflowReturnRouteFixture {
 	t.Helper()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, "repair",
+		[]string{"verification"}, []string{"verification", "review", "artifact"})
 	s := workerJobSizeStore(fixture)
 	bootstrapOracleFixtureSubject(t, s, workID)
 	predecessor := recordSplitPredecessor(t, workID, fixture)

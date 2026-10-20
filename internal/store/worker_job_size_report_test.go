@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -33,6 +35,24 @@ func reportBindingCompletion(t *testing.T, s *Store, workID, attemptID string, l
 		mutate(&payload)
 	}
 	return Event{EventID: "complete-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(21, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
+}
+
+// reviewLaneClaimRepo materializes the fixture's claimed worktree as one
+// real git repository with a committed seed file on the claim's own branch,
+// so the shared accepted-delivery helper's edit and commit run against the
+// claim the fixture already holds instead of a bare directory.
+func reviewLaneClaimRepo(t *testing.T, s *Store, workID string) {
+	t.Helper()
+	entry, err := activeWorktreeEntryForProject(context.Background(), s.DatabaseForTesting(), "verify_worktree", workID, "project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, entry.Path, "init", "-b", entry.Branch)
+	if err := os.WriteFile(filepath.Join(entry.Path, "seed.txt"), []byte("review lane fixture seed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, entry.Path, "add", "seed.txt")
+	runTestGit(t, entry.Path, "commit", "-m", "review lane fixture seed")
 }
 
 func TestWorkerCompletedReportSizeFoldBinding(t *testing.T) {
@@ -67,6 +87,7 @@ func TestWorkerCompletedReportSizeFoldBinding(t *testing.T) {
 		reviewWork := workID + "-review"
 		reviewFixture := sizeDispatchFixture(t, reviewWork)
 		reviewStore := workerJobSizeStore(reviewFixture)
+		reviewLaneClaimRepo(t, reviewStore, reviewWork)
 		seedAcceptedImplementationDeliveryAt(t, reviewStore, reviewWork, reviewFixture.owner, currentStep(t, reviewStore, reviewWork))
 		gateJob := &WorkerJobBinding{JobID: "job:report-review", Revision: 1}
 		gateFields := workerJobSizeEditingFields(t, reviewWork, reviewFixture)

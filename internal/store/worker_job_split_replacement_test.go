@@ -17,7 +17,12 @@ func seedSplitReplacementAcceptance(t *testing.T, workID string, mutate func(*Wo
 
 func seedSplitReplacementAcceptanceAtStep(t *testing.T, workID, step string, mutate func(*WorkerCompletedPayload)) sizeAcceptance {
 	t.Helper()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", step)
+	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, step,
+		[]string{"verification"}, []string{"verification", "review", "artifact"})
 	s := workerJobSizeStore(fixture)
 	bootstrapOracleFixtureSubject(t, s, workID)
 	fields := workerJobSizeEditingFields(t, workID, fixture)

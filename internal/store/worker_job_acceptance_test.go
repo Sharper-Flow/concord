@@ -540,8 +540,12 @@ func TestWorkerJobSizeAcceptanceRetainsDispatchCallerExclusions(t *testing.T) {
 		t.Fatal(err)
 	}
 	completed := reportBindingCompletion(t, f.store, workID, attemptID, reviewGateLane(t, "implementation"), job, func(payload *WorkerCompletedPayload) {
-		payload.ObservedDelivery = &WorkerObservedDelivery{Commit: base, Base: base, State: "clean", Paths: []WorkerObservedPath{{Path: caller, Added: 1}}}
-		payload.ProductionSize = &WorkerProductionSize{Base: base, Tree: base, Count: 1}
+		// The caller repair delivers a real changed tree: a clean delivery
+		// still at its dispatch subject is the no-op result the acceptance
+		// refuses before any exclusion check.
+		tree := strings.Repeat("6", 40)
+		payload.ObservedDelivery = &WorkerObservedDelivery{Commit: tree, Base: base, State: "clean", Paths: []WorkerObservedPath{{Path: caller, Added: 1}}}
+		payload.ProductionSize = &WorkerProductionSize{Base: base, Tree: tree, Count: 1}
 		payload.DirectCallerRepairs = []WorkerDirectCallerRepair{{
 			Owner:  WorkerCallerMechanism{Path: "internal/store/worker_jobs.go", EntryPoint: "foldWorkerJobRecorded"},
 			Caller: WorkerCallerMechanism{Path: caller, EntryPoint: "callOwner"}, Edge: "calls the changed owner", Exposing: "the direct call fixture",

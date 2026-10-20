@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -31,6 +32,11 @@ type workflowDeliveryAdmission struct {
 	JobsUnsatisfiedKeys string
 	JobsScopeKeys       string
 	JobsIntegrated      bool
+	// ChecksRepairReviewDebt reports an open unconfirmed checks repair
+	// (CD-0205 D4): delivery refuses while the funded confirming review's
+	// debt stands, whatever the required jobs' dispositions read.
+	ChecksRepairReviewDebt  bool
+	ChecksRepairPendingKeys string
 }
 
 // Runs retain binding order: a malformed operation refuses when reached,
@@ -180,6 +186,26 @@ func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID str
 	if !state.JobsRecorded {
 		return nil, nil
 	}
+	// Re-recording a job cannot hide an accepted repair's review debt.
+	// Pending repairs matter only when the combined route accepts them.
+	watermark, err := workerChecksRepairWatermarkTx(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
+	history, walkErr := workerChecksRepairWalkTx(ctx, q, workID, watermark)
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	pendingRepairs := make([]string, 0)
+	for key, repair := range history.checksRepairs {
+		if repair.openUnconfirmed() {
+			state.ChecksRepairReviewDebt = true
+		} else if repair.acceptanceSeq == 0 && !repair.voided {
+			pendingRepairs = append(pendingRepairs, key)
+		}
+	}
+	sort.Strings(pendingRepairs)
+	state.ChecksRepairPendingKeys = strings.Join(pendingRepairs, ",")
 	// The integration epoch opens at the latest of the phase start, every
 	// required job's recorded acceptance, and every required job's recorded
 	// result population: the latest worker.completed event of an attempt
@@ -318,6 +344,17 @@ func workflowDeliveryJobsFailure(state workflowDeliveryAdmission, accepting *Wor
 		return newFailure(KindMissingEvidence, "workflow_action",
 			fmt.Sprintf("the delivery assertion requires every recorded worker job satisfied: %d required job revision(s) remain unsatisfied", len(unsatisfied)),
 			false, "satisfy or re-record the unsatisfied worker jobs before asserting whole-work delivery")
+	}
+	repairDebt := state.ChecksRepairReviewDebt
+	if accepting != nil {
+		for _, key := range splitKeyJoin(state.ChecksRepairPendingKeys) {
+			repairDebt = repairDebt || key == workerJobKey(accepting.JobID, accepting.Revision)
+		}
+	}
+	if repairDebt {
+		return newFailure(KindMissingEvidence, "workflow_action",
+			"the delivery assertion refuses while an unconfirmed checks repair's confirming review debt stands",
+			false, "let the funded confirming review end and accept its ship verdict before asserting whole-work delivery")
 	}
 	if state.JobsRecorded && !state.JobsIntegrated {
 		return newFailure(KindMissingEvidence, "workflow_action",

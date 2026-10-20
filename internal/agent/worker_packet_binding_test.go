@@ -386,7 +386,9 @@ func fixtureOracleSubjectFor(t *testing.T, s *store.Store, workID string) string
 func seedOracleVerifySubjectForWork(t *testing.T, s *store.Store, workID string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	leaseID := "fixture-subject-verify-" + workID
+	path, branch := oracleFixtureActiveClaimFor(t, s, workID)
+	subject := fixtureClaimSubject(t, path)
+	leaseID := "fixture-subject-verify-" + workID + "-" + subject
 	var existing int
 	if err := db.QueryRow(`SELECT count(*) FROM worktree_verify_leases WHERE lease_id=?`, leaseID).Scan(&existing); err != nil {
 		t.Fatal(err)
@@ -394,8 +396,6 @@ func seedOracleVerifySubjectForWork(t *testing.T, s *store.Store, workID string)
 	if existing == 1 {
 		return
 	}
-	path, branch := oracleFixtureActiveClaimFor(t, s, workID)
-	subject := fixtureClaimSubject(t, path)
 	command := []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}
 	commandJSON, err := json.Marshal(command)
 	if err != nil {
@@ -414,6 +414,23 @@ func seedOracleVerifySubjectForWork(t *testing.T, s *store.Store, workID string)
 	if _, err := db.Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,?,'worktree.verify',1,'worktree_verify','internal_sqlite','digest','{}','completed',?,'[]','[]','principal/fixture','request/oracle-subject','2026-10-09T00:00:00Z','2026-10-09T00:00:01Z','sha256:`+strings.Repeat("9", 64)+`')`,
 		"worktree_verify:"+leaseID, workID, string(raw)); err != nil {
 		t.Fatalf("seed oracle verify subject producer: %v", err)
+	}
+}
+
+// deliverAgentFixtureChange commits one implementation attempt's changed file
+// and qualifies the new subject before the live terminal observation reads it.
+func deliverAgentFixtureChange(t *testing.T, s *store.Store, workID, attemptID string) {
+	t.Helper()
+	path, _ := oracleFixtureActiveClaimFor(t, s, workID)
+	before := fixtureClaimSubject(t, path)
+	if err := os.WriteFile(filepath.Join(path, "delivery.txt"), []byte(attemptID+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runFixtureGit(t, path, "add", "delivery.txt")
+	runFixtureGit(t, path, "commit", "-m", "implementation delivery")
+	seedOracleVerifySubjectForWork(t, s, workID)
+	if subject := fixtureOracleSubjectFor(t, s, workID); subject == before || subject != strings.TrimSpace(runFixtureGit(t, path, "rev-parse", "HEAD")) {
+		t.Fatalf("qualified delivery subject = %q, want a changed committed HEAD after %q", subject, before)
 	}
 }
 

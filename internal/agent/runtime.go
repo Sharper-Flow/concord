@@ -1667,6 +1667,9 @@ func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
 		if e.PreviousContractVersion != nil {
 			event["previous_contract_version"] = *e.PreviousContractVersion
 		}
+		if e.ConflictApplication != nil {
+			event["conflict_application"] = e.ConflictApplication
+		}
 		events = append(events, event)
 	}
 	payload := map[string]any{"events": events}
@@ -1789,6 +1792,9 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	// absent field keeps work without ready jobs byte-stable.
 	if len(snapshot.ReadyWorkerJobs) > 0 {
 		pinned["ready_worker_jobs"] = snapshot.ReadyWorkerJobs
+	}
+	if len(snapshot.ChecksRepairReviewJobs) > 0 {
+		pinned["checks_repair_review_jobs"] = snapshot.ChecksRepairReviewJobs
 	}
 	// Resumed sessions receive available context or explicit unavailability.
 	// Absence keeps context-free payload bytes unchanged.

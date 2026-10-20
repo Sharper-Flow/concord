@@ -1,0 +1,173 @@
+package store
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+)
+
+// historicalWitnessLogEnv names the file a release restore coverage run
+// collects historical corpus rows into. Unset, recording does nothing.
+const historicalWitnessLogEnv = "TEST_CONCORD_HISTORICAL_WITNESS_LOG"
+
+var (
+	historicalWitnessMu sync.Mutex
+	// historicalWitnessPending holds each test's queued rows by store until the
+	// test ends.
+	historicalWitnessPending = map[*testing.T]map[*Store][]historicalWitnessRow{}
+)
+
+type historicalWitnessRow struct {
+	eventID, kind  string
+	payloadVersion int
+	payload        []byte
+	line           []byte
+}
+
+// recordHistoricalWitness queues one historical row a corpus test wrote into
+// s. When the test passes, the recorder replays s through the candidate's
+// RebuildFromLog; the row is a witness only if that replay succeeds and the
+// row's stored bytes are unchanged. A failing or skipped test, a refused
+// replay, or a removed or rewritten row records nothing.
+func recordHistoricalWitness(t *testing.T, s *Store, eventID, kind string, payloadVersion int, payload []byte) {
+	t.Helper()
+	path := os.Getenv(historicalWitnessLogEnv)
+	if path == "" {
+		return
+	}
+	line, err := json.Marshal(struct {
+		Test           string `json:"test"`
+		Kind           string `json:"kind"`
+		PayloadVersion int    `json:"payload_version"`
+		Payload        string `json:"payload"`
+	}{t.Name(), kind, payloadVersion, string(payload)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	historicalWitnessMu.Lock()
+	defer historicalWitnessMu.Unlock()
+	stores, registered := historicalWitnessPending[t]
+	if !registered {
+		stores = map[*Store][]historicalWitnessRow{}
+		historicalWitnessPending[t] = stores
+		// A test's deferred Close runs before this cleanup, so the recorder
+		// replays a closed store through a fresh handle on the same file.
+		t.Cleanup(func() { admitHistoricalWitnesses(t, path) })
+	}
+	stores[s] = append(stores[s], historicalWitnessRow{eventID, kind, payloadVersion, payload, line})
+}
+
+func admitHistoricalWitnesses(t *testing.T, path string) {
+	historicalWitnessMu.Lock()
+	stores := historicalWitnessPending[t]
+	delete(historicalWitnessPending, t)
+	historicalWitnessMu.Unlock()
+	if t.Failed() || t.Skipped() {
+		return
+	}
+	ctx := context.Background()
+	var admitted []byte
+	for s, rows := range stores {
+		if s.db.PingContext(ctx) != nil {
+			reopened, err := Open(ctx, s.path)
+			if err != nil {
+				t.Fatalf("historical witness store %s: %v", s.path, err)
+			}
+			defer func() { _ = reopened.Close() }()
+			s = reopened
+		}
+		if RebuildFromLog(ctx, s) != nil {
+			continue
+		}
+		for _, row := range rows {
+			var present int
+			if s.db.QueryRowContext(ctx, `SELECT 1 FROM domain_events WHERE event_id=? AND kind=? AND payload_version=? AND CAST(payload AS BLOB)=CAST(? AS BLOB)`,
+				row.eventID, row.kind, row.payloadVersion, row.payload).Scan(&present) == nil {
+				admitted = append(admitted, append(row.line, '\n')...)
+			}
+		}
+	}
+	if len(admitted) == 0 {
+		return
+	}
+	historicalWitnessMu.Lock()
+	defer historicalWitnessMu.Unlock()
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatalf("historical witness log: %v", err)
+	}
+	_, err = file.Write(admitted)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatalf("historical witness log: %v", err)
+	}
+}
+
+func TestHistoricalWitnessRecorderIsInertWhenUnset(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv(historicalWitnessLogEnv, "")
+	passed := t.Run("unset", func(t *testing.T) {
+		recordHistoricalWitness(t, nil, "e", "work.created", 2, []byte(`{"title":"x"}`))
+	})
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !passed || len(entries) != 0 {
+		t.Fatalf("unset recorder: subtest passed=%v, wrote %d entries", passed, len(entries))
+	}
+}
+
+// The census sets the log path on the go test command line, so it must survive
+// TestMain's environment scrub.
+func TestHistoricalWitnessLogSurvivesTheScrub(t *testing.T) {
+	if len(witnessRowsOf(t, "TestRecordedHistoricalProjectionMigrationAndReplayAgree")) == 0 {
+		t.Fatal("corpus child recorded no witness rows")
+	}
+}
+
+// witnessRowsOf runs one corpus test in a child process with the witness log
+// set and returns the rows it recorded.
+func witnessRowsOf(t *testing.T, test string) []string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "witnesses.jsonl")
+	command := exec.Command(os.Args[0], "-test.v", "-test.run=^"+test+"$")
+	command.Env = append(os.Environ(), historicalWitnessLogEnv+"="+path)
+	output, err := command.CombinedOutput()
+	if err != nil || !strings.Contains(string(output), "--- PASS: "+test+" ") {
+		t.Fatalf("corpus child %s did not pass: %v\n%s", test, err, output)
+	}
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Fields(string(data))
+}
+
+// A row is a witness only when the candidate admits it: a passing test whose
+// historical row the candidate refuses to replay records nothing.
+func TestHistoricalWitnessRecordsOnlyAdmittedRows(t *testing.T) {
+	admitted := witnessRowsOf(t, "TestLegacySessionClaimLandingReplaysAsProcessIdentityFreeRow")
+	if len(admitted) != 1 || !strings.Contains(admitted[0], `"kind":"work.session_claim_landed"`) {
+		t.Fatalf("admitted landing recorded %q, want its one row", admitted)
+	}
+	if rows := witnessRowsOf(t, "TestRecordedOccupancyRowSetAbsentTargetKeepsOtherRow"); len(rows) != 2 {
+		t.Fatalf("a passing corpus test that closes its store before cleanup recorded %q, want its creation and release rows", rows)
+	}
+	for _, refusal := range []string{"TestLegacySessionClaimLandingAbsentPathStillRefuses", "TestCurrentShapeClaimLandingGenerationCheckPreserved"} {
+		if rows := witnessRowsOf(t, refusal); len(rows) != 0 {
+			t.Fatalf("%s asserts a replay refusal but recorded %q", refusal, rows)
+		}
+	}
+}

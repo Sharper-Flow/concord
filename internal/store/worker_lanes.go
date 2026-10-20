@@ -1504,7 +1504,7 @@ func validateWorkerDispatchedJob(ctx context.Context, tx *sql.Tx, event Event, p
 		return newFailure(KindInvalidPayload, "fold_event", "worker.dispatched worker_job does not match the worker job its dispatch_worker authorization bound", false, "record the dispatch with the worker job the authorization returned")
 	}
 	if payload.WorkerJob != nil {
-		if err := verifyWorkerDispatchedJobBindingTx(ctx, tx, event, payload.WorkerJob); err != nil {
+		if err := verifyWorkerDispatchedJobBindingTx(ctx, tx, event, payload.AttemptID, payload.WorkerJob); err != nil {
 			return err
 		}
 	}
@@ -1778,6 +1778,15 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	if err := verifyWorkerTerminalUpdate(result, "cannot verify worker completion projection", "record worker.dispatched before worker.completed"); err != nil {
 		return err
+	}
+	// A completed no_ship verdict voids its confirming review's repair
+	// (CD-0205 D4): the named revisions lose their provisional readiness at
+	// the strict prefix of this completion. A completed ship report keeps
+	// waiting for its acceptance and reverts nothing.
+	if payload.Review != nil && payload.Review.Verdict == "no_ship" {
+		if err := voidWorkerJobRepairByAttemptTx(ctx, tx, event.SubjectID, payload.AttemptID, event.Seq-1); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -2088,6 +2097,12 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot fail worker attempt projection", true, "retry once the database is writable", err)
 	}
 	if err := verifyWorkerTerminalUpdate(result, "cannot verify worker failure projection", "record worker.dispatched before worker.failed"); err != nil {
+		return err
+	}
+	// A failed or abandoned confirming review voids its repair (CD-0205
+	// D4): the named revisions lose their provisional readiness at the
+	// strict prefix of this terminal.
+	if err := voidWorkerJobRepairByAttemptTx(ctx, tx, event.SubjectID, payload.AttemptID, event.Seq-1); err != nil {
 		return err
 	}
 	return nil

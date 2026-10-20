@@ -920,7 +920,7 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 	s := openTemp(t)
 	expectedColumns := map[string][]string{
 		"workflow_instances":             {"work_id", "definition_ref", "definition_version", "definition_digest", "current_step", "instance_state", "execution_actor_ref", "execution_model", "started_at", "completed_at", "last_checkpoint_at", "execution_started_at", "outside_repair_state"},
-		"workflow_contracts":             {"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "definition_ref", "definition_version", "definition_digest", "decision_domains"},
+		"workflow_contracts":             {"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "definition_ref", "definition_version", "definition_digest", "decision_domains", "law_change"},
 		"workflow_contract_predicates":   {"work_id", "contract_version", "predicate_id", "ordinal", "outcome_kind", "outcome_payload"},
 		"workflow_candidate_sets":        {"work_id", "contract_version", "candidate_kind", "candidate_ref", "candidate_role", "candidate_scope", "recorded_at", "recorded_by"},
 		"workflow_actors":                {"actor_ref", "principal_ref", "client_ref", "agent_ref", "session_ref", "actor_class", "first_seen_at"},
@@ -1282,5 +1282,54 @@ func workflowEvent(id, kind, workID string, payload map[string]any) Event {
 func workflowEventWithActor(id, kind, workID, actor string, payload map[string]any) Event {
 	event := workflowEvent(id, kind, workID, payload)
 	event.Actor = actor
+	return event
+}
+
+// legacyApprovalPolicyDefinitionForRef resolves the newest registered
+// version of ref that answers consent under the released legacy policy.
+// Fixtures whose subject is an operator-substituted verdict, correction, or
+// premise confirmation pin it: instances captured before the consequence_v1
+// promotion keep that flow, and the consequence_v1 heads exercise the
+// routine flow in TestBuiltinWorkflowCompletionWitnesses.
+func legacyApprovalPolicyDefinitionForRef(t testing.TB, ref string) RegisteredDefinition {
+	t.Helper()
+	registry := BuiltinWorkflowRegistry()
+	for version := builtinWorkflowCurrentVersions[ref]; version >= 1; version-- {
+		registered, ok := registry.Lookup(ref, version)
+		if ok && registered.Definition.ApprovalPolicy == "" {
+			return registered
+		}
+	}
+	t.Fatalf("%s registers no legacy approval-policy version", ref)
+	return RegisteredDefinition{}
+}
+
+// withPinnedDecisionFact declares the explicit engineering decision-domain
+// fact on a seeded contract approval, or on a seeded supersession's successor
+// contract, when the pinned definition answers consent under consequence_v1,
+// at the payload version that carries the fact. A legacy pin keeps the seeded
+// bytes.
+func withPinnedDecisionFact(t *testing.T, definition WorkflowDefinition, event Event) Event {
+	t.Helper()
+	if !workflowApprovalPolicyRequiresDecisionFact(definition) {
+		return event
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	contract, factVersion := payload, workflowContractDecisionDomainsPayloadVersion
+	if event.Kind == WorkflowContractSuperseded {
+		successor, ok := payload["successor_contract"].(map[string]any)
+		if !ok {
+			t.Fatal("seeded supersession carries no successor contract")
+		}
+		contract, factVersion = successor, workflowContractSupersededDecisionDomainsPayloadVersion
+	}
+	if _, declared := contract["decision_domains"]; !declared {
+		contract["decision_domains"] = []string{}
+	}
+	event.Payload = mustJSONValue(payload)
+	event.PayloadVersion = max(event.PayloadVersion, factVersion)
 	return event
 }

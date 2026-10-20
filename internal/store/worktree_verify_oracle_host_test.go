@@ -543,24 +543,24 @@ func TestNativeTargetAxisInputDigestPlainRepo(t *testing.T) {
 		{Path: "tests/test_value.py", SHA256: nativeDigest([]byte(files["tests/test_value.py"]))},
 		{Path: "pytest.ini", SHA256: nativeDigest([]byte(files["pytest.ini"]))},
 	}, Target: &nativeTargetOraclePlan{Recipe: nativeTargetOracleManifest{Kind: nativeTargetKind, Materializer: nativeTargetMaterializerUV, Runner: nativeTargetRunnerPytest, Root: "."}}}
-	before, err := nativeTargetInputDigest(p, dir, true)
+	before, err := nativeTargetInputInventory(p, dir, true)
 	if err != nil {
 		t.Fatalf("plain repository inputs refused: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# pyfix\n\ngrown\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	after, err := nativeTargetInputDigest(p, dir, true)
-	if err != nil || after == before {
+	after, err := nativeTargetInputInventory(p, dir, true)
+	if err != nil || nativeTargetInventoryDigest(after) == nativeTargetInventoryDigest(before) {
 		t.Fatalf("mutated input did not move the digest: %v %v", after, err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, ".venv", "bin"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := nativeTargetInputDigest(p, dir, true); err == nil {
+	if _, err := nativeTargetInputInventory(p, dir, true); err == nil {
 		t.Fatal("strict digest admitted a materialized scratch tree")
 	}
-	if _, err := nativeTargetInputDigest(p, dir, false); err != nil {
+	if _, err := nativeTargetInputInventory(p, dir, false); err != nil {
 		t.Fatalf("post-materialization digest refused its own scratch: %v", err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "node_modules", "left"), 0700); err != nil {
@@ -569,13 +569,13 @@ func TestNativeTargetAxisInputDigestPlainRepo(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "node_modules", "left", "index.js"), []byte("export {}\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := nativeTargetInputDigest(p, dir, false); err != nil {
+	if _, err := nativeTargetInputInventory(p, dir, false); err != nil {
 		t.Fatalf("Node remnant carried scratch-dir authority: %v", err)
 	}
 	if err := os.Symlink("tests/test_value.py", filepath.Join(dir, "link.py")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := nativeTargetInputDigest(p, dir, false); err == nil {
+	if _, err := nativeTargetInputInventory(p, dir, false); err == nil {
 		t.Fatal("symlinked input admitted")
 	}
 }

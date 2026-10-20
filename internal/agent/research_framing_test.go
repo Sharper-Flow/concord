@@ -82,9 +82,9 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 	// one reaches the operator approval boundary.
 	predicates := []map[string]any{{"predicate_id": "predicate:answer", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}}
 	for i, fields := range []map[string]any{
-		{"outcome_predicates": predicates},
-		{"premise": "   ", "outcome_predicates": predicates},
-		{"premise": "workflow premise", "outcome_predicates": predicates},
+		{"outcome_predicates": predicates, "decision_domains": []string{}},
+		{"premise": "   ", "outcome_predicates": predicates, "decision_domains": []string{}},
+		{"premise": "workflow premise", "outcome_predicates": predicates, "decision_domains": []string{}},
 	} {
 		refused := action("approve_contract", fields, "framing-gate-unstated-question-"+strconv.Itoa(i))
 		if refused.Outcome != OutcomeError || refused.Error == nil {
@@ -97,7 +97,7 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 	if approvals := contractApprovals(); approvals != 0 {
 		t.Fatalf("contract approvals without a stated question=%d, want 0", approvals)
 	}
-	stated := action("approve_contract", map[string]any{"premise": "Which retry bound keeps the dispatch route live?", "outcome_predicates": predicates}, "framing-gate-stated-question")
+	stated := action("approve_contract", map[string]any{"premise": "Which retry bound keeps the dispatch route live?", "outcome_predicates": predicates, "decision_domains": []string{"product"}}, "framing-gate-stated-question")
 	if stated.Error == nil || stated.Error.Kind != "approval_required" {
 		t.Fatalf("approve_contract with a stated question = %+v, want the operator approval boundary", stated.Error)
 	}

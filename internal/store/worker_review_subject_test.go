@@ -182,6 +182,7 @@ func reviewSubjectSupersedeContract(t *testing.T, s *Store, workID string) {
 	}
 	event := workflowEventWithActor("review-supersede-1-"+workID, WorkflowContractSuperseded, workID, ownerRef, payload)
 	event.PayloadVersion = 1
+	event = withPinnedDecisionFact(t, pinnedWorkflowDefinitionForTest(t, s, workID), event)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("supersede contract v1: %v", err)
 	}

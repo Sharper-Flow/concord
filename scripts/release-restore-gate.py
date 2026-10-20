@@ -17,10 +17,21 @@ and the writer's events must remain the unchanged prefix.
 Assets are fetched by the asset IDs read at enumeration, so a replaced asset
 is refused rather than verified. A missing artifact, refused recipe step,
 exhausted budget, or incomplete
-population is a named `unknown`, never a skip. Exit status: 0 when every writer
+population is a named `unknown`, never a skip.
+
+A passing case emits one writer-produced witness per source event row to
+`witnesses.jsonl`: the row's exact bytes with the tag, verified asset digest,
+recipe hash, and snapshot checksum that produced it. A row is emitted only
+after it survived both candidate restores, and the recipe is a closed list of
+domain commands, so no imported or synthesized row can become a witness.
+scripts/release-restore-inventory/ binds each one to its own release's
+registered shape or older accepted version. Exit status: 0 when every writer
 passes and shape coverage is closed, 3 when every writer passes but coverage is
-held, 1 otherwise. Coverage stays held until the closed historical-shape
-inventory is bound, so a bootstrap-only run is never acceptance.
+held, 1 otherwise. Coverage closes only when the committed shape census
+inventories every writer outside the approved exclusion, witnesses every shape
+and every older accepted version it writes, and binds every writer row, so a
+gate run alone is never
+acceptance.
 
 Writer processes get a constructed environment: synthetic HOME, XDG, TMPDIR,
 and CONCORD_DB_PATH roots, and no inherited variable. Earlier releases predate
@@ -51,14 +62,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from release_restore_confine import STOP, CaseFailure, Guard, STREAM_LIMIT, checkpoint, install_interrupt_handlers, run_bounded
+from release_restore_invoke import INVOKE_PLAN, InvokeError, run_invoke_phase
 from release_restore_population import (
-    GateError, Writer, enumerate_writers, gh_release_page, gh_release_total, git_tags, list_releases,
+    GateError, Writer, enumerate_writers, gh_release_page, gh_release_total, git_tags, list_releases, semver,
 )
 
 FULL_SHA_RE = re.compile(r"\A[0-9a-f]{40}\Z")
 REPOSITORY_RE = re.compile(r"\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 NETWORK_SECONDS = 120
-RECIPE_ID = "bootstrap-v1"
+RECIPE_ID = "domain-v2"
+CENSUS_DIR = Path(__file__).resolve().parents[1] / "cmd" / "concord" / "testdata" / "release_restore"
 PRODUCT = {
     "product_id": "gate-product", "display_name": "Gate Product", "stage_maturity": "prototype",
     "stage_audience_commitment": "operator_only", "project_id": "gate-project",
@@ -68,7 +81,90 @@ LOCATOR = {
     "project_id": "gate-project", "locator_id": "gate-remote", "kind": "git_remote",
     "value": "https://example.invalid/gate/project.git", "expected_version": 1,
 }
-RECIPE = (("product-create", PRODUCT), ("project-locator-add", LOCATOR))
+
+
+def version(table: str, subject: str, key: str = "id") -> dict:
+    """A request value the runner fills with the subject's current version, read from the writer's store."""
+    return {"$version": [table, key, subject]}
+
+
+def repository(name: str) -> dict:
+    """A request value the runner fills with an existing directory inside the case."""
+    return {"$path": name}
+
+
+PRODUCT_VERSION, PROJECT_VERSION = version("products", "gate-product"), version("projects", "gate-project")
+MIRROR = {"project_id": "gate-project", "locator_id": "gate-mirror", "kind": "git_remote"}
+HOME = {"product_id": "gate-product", "project_id": "gate-project", "locator_id": "gate-home", "reason": "release restore gate"}
+SOURCE = HOME | {"locator_id": "gate-source"}
+ENVIRONMENTS = ["development"]
+# Each step runs on writers at or after its tag. The domain steps start at the
+# first inventoried release; earlier releases run the bootstrap pair only.
+DOMAIN = "v0.37.2"
+RECIPE = (
+    ("v0.1.0", "product-create", PRODUCT),
+    ("v0.1.0", "project-locator-add", LOCATOR),
+    (DOMAIN, "project-locator-add", MIRROR | {"value": "https://example.invalid/gate/mirror.git", "expected_version": PROJECT_VERSION}),
+    (DOMAIN, "project-locator-update", MIRROR | {"value": "https://example.invalid/gate/moved.git", "expected_version": PROJECT_VERSION}),
+    (DOMAIN, "project-locator-remove", {"project_id": "gate-project", "locator_id": "gate-mirror", "expected_version": PROJECT_VERSION}),
+    (DOMAIN, "project-create", {"project_id": "gate-member", "display_name": "Gate Member", "product_id": "gate-product", "role": "secondary",
+                                "reason": "release restore gate", "expected_product_version": PRODUCT_VERSION}),
+    (DOMAIN, "product-create", PRODUCT | {"product_id": "gate-other", "display_name": "Gate Other", "project_id": "gate-shared",
+                                          "project_display_name": "Gate Shared"}),
+    (DOMAIN, "product-project-add", {"product_id": "gate-product", "project_id": "gate-shared", "role": "secondary",
+                                     "reason": "release restore gate", "expected_version": PRODUCT_VERSION}),
+    ("v4.3.0", "project-locator-add", {"project_id": "gate-project", "locator_id": "gate-home", "kind": "canonical_path",
+                                       "value": repository("home"), "expected_version": PROJECT_VERSION}),
+    ("v4.3.0", "product-knowledge-home-designate", HOME | {"expected_version": PRODUCT_VERSION}),
+    ("v11.59.0", "project-locator-add", {"project_id": "gate-project", "locator_id": "gate-source", "kind": "canonical_path",
+                                         "value": repository("source"), "expected_version": PROJECT_VERSION}),
+    ("v11.59.0", "product-knowledge-source-register", SOURCE | {"expected_version": PRODUCT_VERSION}),
+    ("v11.59.0", "product-knowledge-source-remove", SOURCE | {"expected_version": PRODUCT_VERSION}),
+    ("v4.3.0", "product-knowledge-home-clear", {"product_id": "gate-product", "reason": "release restore gate", "expected_version": PRODUCT_VERSION}),
+    ("v5.3.0", "product-stage-update", {"product_id": "gate-product", "stage_maturity": "alpha", "stage_audience_commitment": "limited",
+                                        "reason": "release restore gate", "expected_version": PRODUCT_VERSION}),
+    ("v4.7.0", "resource-create", {
+        "event_id": "gate-resource-created", "resource_id": "gate-resource", "product_id": "gate-product", "display_name": "Gate Resource",
+        "class": "infrastructure", "kind": "database", "purpose": "release restore gate", "stage_maturity": "prototype",
+        "stage_audience_commitment": "operator_only", "environments": ENVIRONMENTS, "locator_absence_reason": "planned",
+        "metadata_schema_version": "1", "metadata": {"engine": "sqlite"}, "owner_purpose": "release restore gate",
+        "owner_environments": ENVIRONMENTS, "expected_product_version": PRODUCT_VERSION}),
+    ("v4.7.0", "resource-share", {"event_id": "gate-resource-shared", "resource_id": "gate-resource", "product_id": "gate-other",
+                                  "purpose": "release restore gate", "environments": ENVIRONMENTS,
+                                  "expected_resource_version": version("managed_resources", "gate-resource", "resource_id")}),
+)
+
+
+def recipe_for(tag: str) -> list[tuple[str, dict]]:
+    """The steps a writer runs: every step whose first tag is at or before the writer's."""
+    return [(verb, request) for first, verb, request in RECIPE if semver(first) <= semver(tag)]
+
+
+def recipe_sha256(steps: list[tuple[str, dict]]) -> str:
+    return hashlib.sha256(json.dumps([RECIPE_ID, steps, list(INVOKE_PLAN)], sort_keys=True).encode()).hexdigest()
+
+
+def resolve(value, store: Path, case: Path, deadline: float):
+    """Fill one recipe request: versions from the writer's own store, paths as case directories."""
+    if isinstance(value, dict) and set(value) == {"$version"}:
+        table, key, subject = value["$version"]
+        db = connect(store, deadline)
+        try:
+            row = db.execute(f"SELECT version FROM {table} WHERE {key}=?", (subject,)).fetchone()
+        finally:
+            db.close()
+        if row is None:
+            raise CaseFailure("unknown", "recipe", f"writer store has no {table} row {subject}")
+        return row[0]
+    if isinstance(value, dict) and set(value) == {"$path"}:
+        path = case / "repositories" / value["$path"]
+        path.mkdir(parents=True, exist_ok=True)
+        return str(path)
+    if isinstance(value, dict):
+        return {key: resolve(item, store, case, deadline) for key, item in value.items()}
+    if isinstance(value, list):
+        return [resolve(item, store, case, deadline) for item in value]
+    return value
 EFFECTS = (
     ("products", "SELECT display_name FROM products WHERE id='gate-product'", ("Gate Product",)),
     ("projects", "SELECT display_name FROM projects WHERE id='gate-project'", ("Gate Project",)),
@@ -171,7 +267,7 @@ def download_asset(repository: str, asset_id: int, size: int, destination: Path,
         raise CaseFailure("fail", "download", f"asset {asset_id} has {destination.stat().st_size} bytes, enumerated {size}")
 
 
-def verify_writer_asset(repository: str, writer: Writer, case: Path, deadline: float, streams: Path, transfer: Transfer, guard, room) -> Path:
+def verify_writer_asset(repository: str, writer: Writer, case: Path, deadline: float, streams: Path, transfer: Transfer, guard, room) -> tuple[Path, str]:
     name = f"concord-{writer.tag}"
     binary, checksums = case / "asset" / name, case / "asset" / f"{name}.sha256"
     download_asset(repository, writer.checksum_asset_id, writer.checksum_size, checksums, deadline, streams, transfer, guard, room())
@@ -184,7 +280,15 @@ def verify_writer_asset(repository: str, writer: Writer, case: Path, deadline: f
     rc, version = run_bounded([str(binary), "--version"], sandbox_env(case), "", deadline, streams, "version", guard)
     if rc != 0 or version.strip() != writer.tag:
         raise CaseFailure("fail", "version", f"writer reports {version.strip()!r}, want {writer.tag}")
-    return binary
+    return binary, f"sha256:{actual}"
+
+
+def witnesses(snapshot: Path, deadline: float, provenance: dict) -> list[dict]:
+    """One witness per writer event row, with the provenance that produced it."""
+    _, rows = event_rows(snapshot, deadline, ["seq", "event_id", "kind", "payload_version", "payload"])
+    return [{"writer": provenance, "seq": seq, "event_id": event_id, "kind": kind, "payload_version": payload_version,
+             "payload": payload.decode() if isinstance(payload, bytes) else payload}
+            for seq, event_id, kind, payload_version, payload in rows]
 
 
 def connect(path: Path, deadline: float, readonly: bool = True) -> sqlite3.Connection:
@@ -288,10 +392,23 @@ def restore(candidate: Path, snapshot: Path, restored: Path, case: Path, deadlin
     return inventory | {"appended_events": len(restored_events) - len(source_events)}
 
 
+def invoke_runner(binary: Path, env: dict[str, str], streams: Path, deadline: float, guard):
+    """A `run(verb, request) -> (rc, out, err)` for the invoke phase, confined like every writer step."""
+    calls = iter(range(1 << 30))
+
+    def run(verb: str, request: dict) -> tuple[int, str, str]:
+        label = f"invoke-{next(calls)}-{verb}"
+        rc, out = run_bounded([str(binary), verb], env, json.dumps(request), deadline, streams, label, guard)
+        return rc, out, (streams / f"{label}.stderr").read_text(errors="replace")
+
+    return run
+
+
 def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path, streams: Path, case_seconds: int,
                     wall_deadline: float, scratch: Scratch, transfer: Transfer) -> dict:
     started = time.monotonic()
-    row = dataclasses.asdict(writer) | {"recipe": RECIPE_ID, "streams": str(streams)}
+    steps = recipe_for(writer.tag)
+    row = dataclasses.asdict(writer) | {"recipe": RECIPE_ID, "recipe_sha256": recipe_sha256(steps), "streams": str(streams), "witnesses": []}
     case = work / writer.tag
 
     def room() -> int:
@@ -307,14 +424,22 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
         if started >= wall_deadline:
             raise CaseFailure("unknown", "wall", "global budget exhausted before the case started")
         deadline = min(started + case_seconds, wall_deadline)
-        binary = verify_writer_asset(repository, writer, case, deadline, streams, transfer, guard, room)
+        binary, asset_digest = verify_writer_asset(repository, writer, case, deadline, streams, transfer, guard, room)
         env = sandbox_env(case)
-        for verb, request in RECIPE:
-            rc, _ = run_bounded([str(binary), verb], env, json.dumps(request), deadline, streams, verb, guard)
+        store = Path(env["CONCORD_DB_PATH"])
+        for step, (verb, request) in enumerate(steps):
+            request = resolve(request, store, case, deadline)
+            rc, _ = run_bounded([str(binary), verb], env, json.dumps(request), deadline, streams, f"step-{step}-{verb}", guard)
             if rc != 0:
-                raise CaseFailure("unknown", verb, f"writer refused recipe step {verb} with exit {rc}")
+                raise CaseFailure("unknown", verb, f"writer refused recipe step {step} {verb} with exit {rc}")
+        try:
+            capture = run_invoke_phase(invoke_runner(binary, env, streams, deadline, guard), Path(__file__).resolve().parents[1],
+                                       writer.tag, case, store)
+            row["invoke"] = {"outcome": capture.get("outcome"), "plan": list(INVOKE_PLAN)}
+        except InvokeError as error:
+            raise CaseFailure("unknown", f"invoke-{error.stage}", error.detail) from None
         snapshot = case / "snapshot.db"
-        manifest = snapshot_fixture(Path(env["CONCORD_DB_PATH"]), snapshot, writer.tag, room, guard, deadline)
+        manifest = snapshot_fixture(store, snapshot, writer.tag, room, guard, deadline)
         row["source"] = {key: manifest[key] for key in ("schema_version", "event_watermark", "db_checksum")}
         row["restored"] = restore(candidate, snapshot, case / "restored.db", case, deadline, streams, "restore", guard)
         again = case / "restored-snapshot.db"
@@ -322,6 +447,8 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
         row["rebuilt"] = restore(candidate, again, case / "rebuilt.db", case, deadline, streams, "rebuild", guard)
         if row["rebuilt"]["appended_events"] or row["rebuilt"]["event_watermark"] != row["restored"]["event_watermark"]:
             raise CaseFailure("fail", "rebuild", "a second restore of the restored store changed its event log")
+        row["witnesses"] = witnesses(snapshot, deadline, {"tag": writer.tag, "asset_digest": asset_digest, "recipe": RECIPE_ID,
+                                                          "recipe_sha256": row["recipe_sha256"], "snapshot_sha256": manifest["db_checksum"]})
         guard()
         if time.monotonic() > deadline:
             raise CaseFailure("unknown", "budget", "case finished after its budget")
@@ -343,6 +470,31 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
         shutil.rmtree(case / "asset", ignore_errors=True)
     scratch.retain(tree_bytes(case) + tree_bytes(streams))
     return row
+
+
+def shape_coverage(census: Path, writers: list[Writer]) -> dict:
+    """Close coverage only when the committed census (scripts/release-restore-inventory/)
+    inventories every writer outside the approved exclusion, witnesses every shape and older
+    accepted version, and binds every writer-produced row."""
+    try:
+        rows = {row["tag"]: row for row in json.loads((census / "writers.json").read_text(encoding="utf-8"))["rows"]}
+        census_coverage = json.loads((census / "coverage.json").read_text(encoding="utf-8"))
+        shapes = census_coverage["shapes"]
+        written = {tag for shape in shapes for tag in shape["writers"]}
+        gaps = {
+            "uninventoried writers": [w.tag for w in writers if w.tag not in rows],
+            "refused writers": [tag for tag, row in rows.items() if row["status"] != "inventoried" and not row.get("excluded")],
+            "inventoried writers without shapes": [tag for tag, row in rows.items() if row["status"] == "inventoried" and tag not in written],
+            "unwitnessed shapes": [f"{shape['kind']} v{shape['payload_version']}" for shape in shapes if not shape["covered"]],
+            "unwitnessed older versions": [f"{older['kind']} v{older['payload_version']}" for older in census_coverage["older_versions"] if not older["covered"]],
+            "unbound writer witnesses": list(census_coverage["unbound_writer_witnesses"]),
+        }
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return {"status": "held", "detail": f"the shape census at {census} is unreadable: {error}"}
+    gaps = {name: items for name, items in gaps.items() if items}
+    if gaps:
+        return {"status": "held", "detail": "; ".join(f"{len(items)} {name}, first {items[0]}" for name, items in gaps.items())}
+    return {"status": "closed", "writers": len(rows), "shapes": len(shapes)}
 
 
 def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tuple[str, str]], wall_deadline: float | None = None,
@@ -378,7 +530,10 @@ def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tup
         rows = [future.result() for future in futures]
     if sha256_file(candidate) != candidate_sha256:
         raise GateError("the candidate binary changed during the run")
+    emitted = [witness for row in rows for witness in row.pop("witnesses") if row["status"] == "pass"]
+    (output / "witnesses.jsonl").write_text("".join(json.dumps(w, sort_keys=True) + "\n" for w in emitted), encoding="utf-8")
     rows += unknown
+    coverage = shape_coverage(Path(args.census_dir), writers)
     counts = {status: sum(row["status"] == status for row in rows) for status in ("pass", "fail", "unknown")}
     result = "fail" if counts["fail"] else "unknown" if STOP.is_set() or counts["unknown"] or not writers or len(rows) != len(writers) + len(unknown) else "pass"
     report = {
@@ -390,11 +545,11 @@ def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tup
         "budgets": {"workers": args.workers, "wall_seconds": args.wall_seconds, "case_seconds": args.case_seconds,
                     "disk_bytes": args.disk_bytes, "retained_bytes": scratch.retained,
                     "transfer_bytes": args.transfer_bytes, "transferred_bytes": transfer.used},
-        "counts": counts, "result": result,
-        "coverage": {"status": "held", "detail": "the closed historical-shape inventory is not bound; a bootstrap recipe is not acceptance"},
+        "counts": counts, "result": result, "witnesses": len(emitted),
+        "coverage": coverage,
         "rows": rows,
     }
-    return report, 3 if result == "pass" else 1
+    return report, 1 if result != "pass" else 0 if coverage["status"] == "closed" else 3
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -406,6 +561,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--candidate", required=True)
     run.add_argument("--candidate-version", required=True)
     run.add_argument("--output-dir", required=True)
+    run.add_argument("--census-dir", default=str(CENSUS_DIR))
     for name, default in (("--workers", 4), ("--wall-seconds", 14400), ("--case-seconds", 120), ("--disk-bytes", 6 << 30), ("--transfer-bytes", 40 << 30)):
         run.add_argument(name, type=int, default=default)
     args = parser.parse_args(argv)

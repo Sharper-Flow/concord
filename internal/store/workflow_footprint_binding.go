@@ -33,12 +33,44 @@ func deriveWorkflowFootprintBindingTx(ctx context.Context, q queryer, workID str
 	if retention := workflowFullRetentionFor(decision.Model.Footprint); live && retention != nil {
 		return nil, newFailure(KindInvalidOperation, "workflow_action", "the size assessment no longer proves every footprint check executable ("+retention.Reason+")", false, "rerun the size assessment once every footprint check has an executing suite, or resize the work item")
 	}
+	if live {
+		if err := checkWorkflowFootprintIdentityTx(ctx, q, workID, decision.Model.Footprint); err != nil {
+			return nil, err
+		}
+	}
 	var eventID string
 	err = q.QueryRowContext(ctx, `SELECT event_id FROM work_size_assessments WHERE work_id=? AND sequence=?`, workID, decision.Model.Sequence).Scan(&eventID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read the size assessment", true, "retry once the database is readable", err)
 	}
 	return &workflowFootprintBinding{ContractVersion: contractVersion, AssessmentEventID: eventID}, nil
+}
+
+// The assessment's shard declaration and behavior matches belong to its
+// indexed knowledge commit, not the candidate's Git HEAD. Reuse the footprint
+// join to compare that identity in the same transaction as approval.
+func checkWorkflowFootprintIdentityTx(ctx context.Context, q queryer, workID string, recorded WorkSizeFootprint) error {
+	product, err := architectureBindingProductID(ctx, q, workID)
+	if err != nil {
+		return err
+	}
+	home, err := resolveKnowledgeQueryHome(ctx, q, product, "", KnowledgeHome{}, "workflow_action")
+	if err != nil {
+		return err
+	}
+	selected, err := footprintSelectTx(ctx, q, DomainFootprintRequest{Product: product}, home, nil, nil, recorded.KnowledgeCommit)
+	if err != nil {
+		return err
+	}
+	current := selected.result
+	mapMatches := (recorded.PackageMapContentHash == nil) == (current.PackageMapContentHash == nil)
+	if mapMatches && recorded.PackageMapContentHash != nil {
+		mapMatches = *recorded.PackageMapContentHash == *current.PackageMapContentHash
+	}
+	if recorded.RegistryContentHash != current.RegistryContentHash || !mapMatches {
+		return newFailure(KindStaleContext, "workflow_action", "the footprint registry or package map changed after the size assessment", true, "rerun the size assessment before approving or superseding the contract")
+	}
+	return nil
 }
 
 // checkWorkflowFootprintBindingTx refuses a contract whose recorded binding is
@@ -55,18 +87,24 @@ func checkWorkflowFootprintBindingTx(ctx context.Context, q queryer, workID stri
 }
 
 // readWorkflowFootprintBindingTx reads the binding the approval or successor
-// event of contractVersion recorded, or nil when that contract carries none.
-func readWorkflowFootprintBindingTx(ctx context.Context, q queryer, workID string, contractVersion int64) (*workflowFootprintBinding, error) {
+// event of contractVersion recorded, with that event's sequence: the frontier
+// after which the contract's proof must be produced. The binding is nil when
+// that contract carries none.
+func readWorkflowFootprintBindingTx(ctx context.Context, q queryer, workID string, contractVersion int64) (*workflowFootprintBinding, int64, error) {
 	var assessment sql.NullString
-	err := q.QueryRowContext(ctx, `SELECT coalesce(json_extract(payload,'$.footprint_binding.assessment_event_id'),json_extract(payload,'$.successor_contract.footprint_binding.assessment_event_id')) FROM domain_events
+	var seq int64
+	err := q.QueryRowContext(ctx, `SELECT coalesce(json_extract(payload,'$.footprint_binding.assessment_event_id'),json_extract(payload,'$.successor_contract.footprint_binding.assessment_event_id')),seq FROM domain_events
 		WHERE subject_type='work_item' AND subject_id=?
 		  AND ((kind=? AND json_extract(payload,'$.contract_version')=?) OR (kind=? AND json_extract(payload,'$.successor_contract.contract_version')=?))
-		ORDER BY seq DESC LIMIT 1`, workID, WorkflowContractApproved, contractVersion, WorkflowContractSuperseded, contractVersion).Scan(&assessment)
-	if err == sql.ErrNoRows || (err == nil && !assessment.Valid) {
-		return nil, nil
+		ORDER BY seq DESC LIMIT 1`, workID, WorkflowContractApproved, contractVersion, WorkflowContractSuperseded, contractVersion).Scan(&assessment, &seq)
+	if err == sql.ErrNoRows {
+		return nil, 0, nil
 	}
 	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_admission", "cannot read the contract's footprint binding", true, "retry once the database is readable", err)
+		return nil, 0, wrapFailure(KindUnavailable, "workflow_admission", "cannot read the contract's footprint binding", true, "retry once the database is readable", err)
 	}
-	return &workflowFootprintBinding{ContractVersion: contractVersion, AssessmentEventID: assessment.String}, nil
+	if !assessment.Valid {
+		return nil, seq, nil
+	}
+	return &workflowFootprintBinding{ContractVersion: contractVersion, AssessmentEventID: assessment.String}, seq, nil
 }

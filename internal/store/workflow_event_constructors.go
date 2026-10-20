@@ -236,7 +236,7 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 		contract["footprint_binding"] = footprintBinding
 	}
 	approvalEvent := workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)
-	approvalEvent.PayloadVersion = workflowContractLawChangePayloadVersion
+	approvalEvent.PayloadVersion = workflowContractFootprintPayloadVersion
 	return []Event{approvalEvent}, nil
 }
 

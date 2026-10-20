@@ -161,6 +161,8 @@ const workflowContractDecisionDomainsPayloadVersion = 5
 // boundary are authored, never replayed.
 const workflowContractLawChangePayloadVersion = 6
 
+const workflowContractFootprintPayloadVersion = 7
+
 // workflowContractSupersededDecisionDomainsPayloadVersion is the
 // workflow.contract_superseded payload version whose successor_contract may
 // carry the typed decision_domains fact.
@@ -170,6 +172,8 @@ const workflowContractSupersededDecisionDomainsPayloadVersion = 4
 // workflow.contract_superseded payload version whose successor_contract may
 // carry law_change.
 const workflowContractSupersededLawChangePayloadVersion = 5
+
+const workflowContractSupersededFootprintPayloadVersion = 6
 
 // workflowDecisionDomainSet is the closed canonical decision-domain set. It is
 // sorted, so canonical order is the slice order.
@@ -1234,8 +1238,14 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 	if definitionErr != nil {
 		return definitionErr
 	}
-	if err := checkWorkflowFootprintBindingTx(ctx, tx, event.SubjectID, registered.Definition, p.ContractVersion, p.FootprintBinding, !isWorkflowReplay(ctx)); err != nil {
-		return err
+	if event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowContractFootprintPayloadVersion {
+		if p.FootprintBinding != nil {
+			return newFailure(KindInvalidPayload, "fold_event", "footprint_binding predates its recorded payload boundary", false, "replay the recorded contract without footprint_binding")
+		}
+	} else {
+		if err := checkWorkflowFootprintBindingTx(ctx, tx, event.SubjectID, registered.Definition, p.ContractVersion, p.FootprintBinding, !isWorkflowReplay(ctx)); err != nil {
+			return err
+		}
 	}
 	changesProductTruth := registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
 	// consequence_v1 answers consent from the contract's declared decision
@@ -1494,7 +1504,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		successorEvent := event
 		successorEvent.EventID = event.EventID + ":successor"
 		successorEvent.Kind = WorkflowContractApproved
-		successorEvent.PayloadVersion = workflowContractLawChangePayloadVersion
+		successorEvent.PayloadVersion = workflowContractFootprintPayloadVersion
 		successorEvent.Payload = successorPayload
 		// The inner contract's replay provenance is the supersession's own
 		// version boundaries: a supersession recorded below a boundary counts
@@ -1507,6 +1517,8 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 			successorEvent.replaySourcePayloadVersion = workflowContractDecisionDomainsPayloadVersion - 1
 		case event.replaySourcePayloadVersion < workflowContractSupersededLawChangePayloadVersion:
 			successorEvent.replaySourcePayloadVersion = workflowContractLawChangePayloadVersion - 1
+		case event.replaySourcePayloadVersion < workflowContractSupersededFootprintPayloadVersion:
+			successorEvent.replaySourcePayloadVersion = workflowContractFootprintPayloadVersion - 1
 		default:
 			successorEvent.replaySourcePayloadVersion = 0
 		}
@@ -4078,6 +4090,11 @@ func upcastWorkflowContractApprovedV5(event Event) (Event, error) {
 	return event, nil
 }
 
+func upcastWorkflowContractApprovedV6(event Event) (Event, error) {
+	event.PayloadVersion = workflowContractFootprintPayloadVersion
+	return event, nil
+}
+
 // workflowPremiseConfirmedAuthorityTx validates a claimed confirmation
 // authority against the verified definition and the active contract's stored
 // decision fact: only consequence_v1 engineering admits coordinator authority,
@@ -4218,6 +4235,11 @@ func upcastWorkflowContractSupersededV3(event Event) (Event, error) {
 // carried one, so the upcast keeps the bytes.
 func upcastWorkflowContractSupersededV4(event Event) (Event, error) {
 	event.PayloadVersion = 5
+	return event, nil
+}
+
+func upcastWorkflowContractSupersededV5(event Event) (Event, error) {
+	event.PayloadVersion = workflowContractSupersededFootprintPayloadVersion
 	return event, nil
 }
 

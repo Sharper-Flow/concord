@@ -459,6 +459,26 @@ class CaseTests(unittest.TestCase):
         self.assertEqual(row["witnesses"], [])
         self.assertNotIn("invoke", row)
 
+    def test_tree_bytes_counts_a_journal_the_writer_deletes_mid_walk_as_zero(self) -> None:
+        # The merge-queue failure on #1946: the confined writer's SQLite journal
+        # vanished between is_file() and stat(), and the walk failed the whole
+        # case at the harness stage instead of counting the remaining tree.
+        root = self.fixture.root / "journal-race"
+        (root / "store").mkdir(parents=True)
+        journal = root / "store" / "concord.db-journal"
+        journal.write_bytes(b"j" * 4096)
+        (root / "keep.db").write_bytes(b"k" * 1024)
+        real_stat, real_is_file = Path.stat, Path.is_file
+
+        def vanished_after_the_existence_check(path, **flags):
+            if path == journal:
+                raise FileNotFoundError(2, "No such file or directory", str(path))
+            return real_stat(path, **flags)
+
+        with patch.object(Path, "is_file", lambda path: True if path == journal else real_is_file(path)), \
+                patch.object(Path, "stat", vanished_after_the_existence_check):
+            self.assertEqual(gate.tree_bytes(root), 1024)
+
     def test_gate_run_binds_the_legacy_remote_commit_for_its_cases(self) -> None:
         # The gate derives each case's remote commit from the enumerated tag map,
         # as a live run does, so the selection inside run_writer_case binds it.

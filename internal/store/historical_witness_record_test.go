@@ -152,7 +152,14 @@ func witnessRowsOf(t *testing.T, test string) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return strings.Fields(string(data))
+	// One row per line: a recorded payload may itself contain spaces.
+	var rows []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if line != "" {
+			rows = append(rows, line)
+		}
+	}
+	return rows
 }
 
 // A row is a witness only when the candidate admits it: a passing test whose
@@ -169,5 +176,21 @@ func TestHistoricalWitnessRecordsOnlyAdmittedRows(t *testing.T) {
 		if rows := witnessRowsOf(t, refusal); len(rows) != 0 {
 			t.Fatalf("%s asserts a replay refusal but recorded %q", refusal, rows)
 		}
+	}
+	// The retired planning kinds are corpus witnesses: their rows predate the
+	// retirement, and the passing replay proves the candidate still folds
+	// every one unchanged.
+	retired := witnessRowsOf(t, "TestRetiredPlanningEventsReplayWithoutInitiativeState")
+	kinds := map[string]bool{}
+	for _, row := range retired {
+		for _, kind := range []string{"product.planning_mode_set", "initiative_entry.added", "initiative_entry.reordered",
+			"initiative_entry.requiredness_changed", "initiative.narrative_revised", "initiative_entry.removed"} {
+			if strings.Contains(row, `"kind":"`+kind+`"`) {
+				kinds[kind] = true
+			}
+		}
+	}
+	if len(retired) != 6 || len(kinds) != 6 {
+		t.Fatalf("retired planning corpus test recorded %d rows covering %v, want one row per retired kind", len(retired), kinds)
 	}
 }

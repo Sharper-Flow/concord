@@ -124,6 +124,12 @@ func TestRetiredPlanningEventsReplayWithoutInitiativeState(t *testing.T) {
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatalf("RebuildFromLog() over retired planning events error = %v", err)
 	}
+	// Every retired kind is a corpus witness under the recorder rule: the log
+	// rows predate the retirement, and this passing replay proves the
+	// candidate still folds each one unchanged.
+	for _, event := range events {
+		recordHistoricalWitness(t, s, event.EventID, event.Kind, event.PayloadVersion, event.Payload)
+	}
 	var includes int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM relations WHERE kind='includes'`).Scan(&includes); err != nil {
 		t.Fatal(err)

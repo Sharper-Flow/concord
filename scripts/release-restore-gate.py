@@ -223,7 +223,25 @@ def sandbox_env(root: Path) -> dict[str, str]:
 
 
 def tree_bytes(root: Path) -> int:
-    return sum(path.stat().st_size for path in root.rglob("*") if path.is_file()) if root.exists() else 0
+    """File bytes under root.
+
+    The confined writer may remove its SQLite journal mid-walk after a rollback;
+    a path that disappears between the is_file check and stat counts zero rather
+    than failing the case at the harness stage.
+    """
+    if not root.exists():
+        return 0
+    total = 0
+    try:
+        for path in root.rglob("*"):
+            try:
+                if path.is_file():
+                    total += path.stat().st_size
+            except FileNotFoundError:
+                continue
+    except FileNotFoundError:
+        pass
+    return total
 
 
 def sha256_file(path: Path) -> str:

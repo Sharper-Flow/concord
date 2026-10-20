@@ -32,6 +32,11 @@ type workflowDeliveryAdmission struct {
 	JobsUnsatisfiedKeys string
 	JobsScopeKeys       string
 	JobsIntegrated      bool
+	// JobsUndischargedSplits is the deterministic join of the recorded
+	// worker-job splits without a recorded integration discharge
+	// (CD-0225 D3): the delivery assertion refuses while one stands, and a
+	// combined acceptance never substitutes for the recorded discharge.
+	JobsUndischargedSplits string
 	// ChecksRepairReviewDebt reports an open unconfirmed checks repair
 	// (CD-0205 D4): delivery refuses while the funded confirming review's
 	// debt stands, whatever the required jobs' dispositions read.
@@ -150,6 +155,27 @@ func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID str
 	if !workflowWorkerJobsActive(definition) {
 		return nil, nil
 	}
+	// The split read model is the one exact lineage/discharge source
+	// (CD-0225 D3): the replaced predecessors drop out of the required
+	// population, the transitive leaves' satisfaction joins it, and every
+	// split must carry its recorded discharge.
+	splitStates, err := readWorkerJobSplitStatesTx(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
+	replacedJobs := make(map[string]bool, len(splitStates))
+	undischarged := make([]string, 0, len(splitStates))
+	splitLeafDebt := make(map[string]bool)
+	for _, split := range splitStates {
+		replacedJobs[split.Split.Predecessor.JobID] = true
+		if split.DischargeID == "" {
+			undischarged = append(undischarged, split.SplitID)
+		}
+		for _, key := range split.Unsatisfied {
+			splitLeafDebt[key] = true
+		}
+	}
+	sort.Strings(undischarged)
 	rows, err := q.QueryContext(ctx, `SELECT j.job_id, j.revision, j.state, COALESCE(j.satisfied_result_ref,''), COALESCE(j.project_scope,'') FROM worker_job_revisions j WHERE j.work_id=? AND j.revision=(SELECT MAX(latest.revision) FROM worker_job_revisions latest WHERE latest.work_id=j.work_id AND latest.job_id=j.job_id) ORDER BY j.job_id`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read the worker-job dispositions for delivery", true, "retry once the worker-job projection is readable", err)
@@ -166,6 +192,12 @@ func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID str
 		if err := rows.Scan(&jobID, &revision, &jobState, &resultRef, &scope); err != nil {
 			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot scan the worker-job dispositions for delivery", true, "retry once the worker-job projection is readable", err)
 		}
+		if replacedJobs[jobID] {
+			// The replaced predecessor contributes no required revision,
+			// scope, acceptance, or debt of its own: only its split's
+			// recorded discharge closes it.
+			continue
+		}
 		state.JobsRecorded = true
 		requiredRevisions = append(requiredRevisions, workerJobKey(jobID, revision))
 		if !requiredScopes[scope] {
@@ -181,6 +213,18 @@ func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID str
 	if err := rows.Err(); err != nil {
 		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot scan the worker-job dispositions for delivery", true, "retry once the worker-job projection is readable", err)
 	}
+	unsatisfiedSet := make(map[string]bool, len(unsatisfied)+len(splitLeafDebt))
+	for _, key := range unsatisfied {
+		unsatisfiedSet[key] = true
+	}
+	for key := range splitLeafDebt {
+		if !unsatisfiedSet[key] {
+			unsatisfiedSet[key] = true
+			unsatisfied = append(unsatisfied, key)
+		}
+	}
+	sort.Strings(unsatisfied)
+	state.JobsUndischargedSplits = strings.Join(undischarged, ",")
 	state.JobsUnsatisfiedKeys = strings.Join(unsatisfied, ",")
 	state.JobsScopeKeys = strings.Join(scopes, ",")
 	if !state.JobsRecorded {
@@ -342,8 +386,13 @@ func workflowDeliveryJobsFailure(state workflowDeliveryAdmission, accepting *Wor
 	}
 	if len(unsatisfied) != 0 {
 		return newFailure(KindMissingEvidence, "workflow_action",
-			fmt.Sprintf("the delivery assertion requires every recorded worker job satisfied: %d required job revision(s) remain unsatisfied", len(unsatisfied)),
+			fmt.Sprintf("the delivery assertion requires every recorded worker job satisfied: %d required job revision(s) remain unsatisfied (%s)", len(unsatisfied), workflowRefExcerpt(strings.Join(unsatisfied, ", "))),
 			false, "satisfy or re-record the unsatisfied worker jobs before asserting whole-work delivery")
+	}
+	if undischarged := splitKeyJoin(state.JobsUndischargedSplits); state.JobsRecorded && len(undischarged) != 0 {
+		return newFailure(KindMissingEvidence, "workflow_action",
+			fmt.Sprintf("the delivery assertion requires every recorded worker-job split discharged: %d split(s) carry no recorded integration discharge (%s)", len(undischarged), workflowRefExcerpt(strings.Join(undischarged, ", "))),
+			false, "run worktree_verify on the integrated work after the accepted leaves and bind the run's verification evidence: the binding action records the split discharge")
 	}
 	repairDebt := state.ChecksRepairReviewDebt
 	if accepting != nil {

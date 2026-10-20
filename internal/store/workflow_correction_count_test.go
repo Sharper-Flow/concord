@@ -67,11 +67,12 @@ func TestWorkflowCorrectionAttemptCountMatchesWindowPopulation(t *testing.T) {
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
-	// The count reads only these columns. The real-schema integration and plan
+	// The count reads only these columns beside the split event id the walk
+	// joins recorded discharges on. The real-schema integration and plan
 	// tests cover projection constraints; this fixture exhausts window bounds.
 	for _, statement := range []string{
 		`CREATE TABLE worker_attempts(work_id TEXT NOT NULL,attempt_id TEXT PRIMARY KEY)`,
-		`CREATE TABLE domain_events(seq INTEGER PRIMARY KEY,subject_type TEXT,subject_id TEXT,kind TEXT,payload BLOB)`,
+		`CREATE TABLE domain_events(seq INTEGER PRIMARY KEY,subject_type TEXT,subject_id TEXT,kind TEXT,payload BLOB,event_id TEXT)`,
 	} {
 		if _, err := db.ExecContext(ctx, statement); err != nil {
 			t.Fatal(err)
@@ -124,7 +125,7 @@ func TestWorkflowCorrectionAttemptCountMatchesWindowPopulation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.ExecContext(ctx, `INSERT INTO domain_events VALUES(?,?,?,?,?)`, event.seq, event.subjectType, event.work, event.kind, payload); err != nil {
+		if _, err := db.ExecContext(ctx, `INSERT INTO domain_events VALUES(?,?,?,?,?,?)`, event.seq, event.subjectType, event.work, event.kind, payload, fmt.Sprintf("%s-e%d", event.work, event.seq)); err != nil {
 			t.Fatal(err)
 		}
 	}

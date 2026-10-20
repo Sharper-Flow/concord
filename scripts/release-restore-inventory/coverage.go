@@ -68,6 +68,7 @@ type shapeCoverage struct {
 	PayloadVersion int      `json:"payload_version"`
 	Type           string   `json:"type"`
 	Writers        []string `json:"writers"`
+	Discharged     []string `json:"discharged"`
 	Witnesses      []string `json:"witnesses"`
 	Missing        []string `json:"missing_paths,omitempty"`
 	Covered        bool     `json:"covered"`
@@ -76,11 +77,15 @@ type shapeCoverage struct {
 // olderCoverage is one accepted payload version below a registration's current
 // one. It has no static type: the release's upcaster reads raw JSON. Every
 // release that accepts it owes a witness from its own writer at that
-// (kind, version); a corpus row names no release and cannot stand in.
+// (kind, version); a corpus row names no release and cannot stand in. A
+// release whose finding discharges the obligation owes no witness: it is
+// reported as discharged, and missing_writers names only a release with
+// neither.
 type olderCoverage struct {
 	Kind           string   `json:"kind"`
 	PayloadVersion int      `json:"payload_version"`
 	Writers        []string `json:"writers"`
+	Discharged     []string `json:"discharged"`
 	Witnesses      []string `json:"witnesses"`
 	Missing        []string `json:"missing_writers,omitempty"`
 	Covered        bool     `json:"covered"`
@@ -121,10 +126,19 @@ func readWitnesses(witnessLog string) ([]witness, error) {
 // release registers for its (kind, version), and only when it conforms to it,
 // or that release's older accepted version when its payload is a JSON object;
 // a writer row from an approved excluded release is excluded with it; any
-// other writer row is returned as unbound. Each release's writer finding is
-// reported beside coverage.
+// other writer row is returned as unbound. A release's finding for a
+// (kind, version) discharges that release's obligation for it: an older
+// version is covered when every release that accepts it is witnessed or
+// discharged, and a shape is covered by a conforming witness or when every
+// writer that registers it is discharged.
 func cover(inv inventory, rows []witness, table exemptionTable) (coverageReport, error) {
 	findings := writerFindings(inv, table)
+	discharged := map[string]bool{}
+	for _, finding := range findings {
+		for _, d := range finding.Discharged {
+			discharged[fmt.Sprintf("%s\x00%s\x00%d", finding.Tag, d.Kind, d.PayloadVersion)] = true
+		}
+	}
 	shapes, older := map[string]*shapeCoverage{}, map[string]*olderCoverage{}
 	registered, accepted, excluded := map[string]string{}, map[string]bool{}, map[string]bool{}
 	for _, result := range inv.Rows {
@@ -136,14 +150,17 @@ func cover(inv inventory, rows []witness, table exemptionTable) (coverageReport,
 			registered[fmt.Sprintf("%s\x00%s\x00%d", result.Tag, r.Kind, r.CurrentVersion)] = r.Type
 			key := fmt.Sprintf("%s\x00%d\x00%s", r.Kind, r.CurrentVersion, r.Type)
 			if shapes[key] == nil {
-				shapes[key] = &shapeCoverage{Kind: r.Kind, PayloadVersion: r.CurrentVersion, Type: r.Type, Witnesses: []string{}}
+				shapes[key] = &shapeCoverage{Kind: r.Kind, PayloadVersion: r.CurrentVersion, Type: r.Type, Witnesses: []string{}, Discharged: []string{}}
 			}
 			shapes[key].Writers = append(shapes[key].Writers, result.Tag)
+			if discharged[fmt.Sprintf("%s\x00%s\x00%d", result.Tag, r.Kind, r.CurrentVersion)] {
+				shapes[key].Discharged = append(shapes[key].Discharged, result.Tag)
+			}
 			for version := r.MinSupported; version < r.CurrentVersion; version++ {
 				accepted[fmt.Sprintf("%s\x00%s\x00%d", result.Tag, r.Kind, version)] = true
 				key := fmt.Sprintf("%s\x00%d", r.Kind, version)
 				if older[key] == nil {
-					older[key] = &olderCoverage{Kind: r.Kind, PayloadVersion: version, Witnesses: []string{}}
+					older[key] = &olderCoverage{Kind: r.Kind, PayloadVersion: version, Witnesses: []string{}, Discharged: []string{}}
 				}
 				older[key].Writers = append(older[key].Writers, result.Tag)
 			}
@@ -182,7 +199,7 @@ func cover(inv inventory, rows []witness, table exemptionTable) (coverageReport,
 		}
 		sort.Strings(s.Witnesses)
 		sort.Strings(s.Missing)
-		s.Covered = len(tests) > 0 && len(missing) == 0
+		s.Covered = len(tests) > 0 && len(missing) == 0 || len(s.Discharged) == len(s.Writers)
 		coverage = append(coverage, *s)
 	}
 	witnessed := map[string]bool{}
@@ -201,9 +218,13 @@ func cover(inv inventory, rows []witness, table exemptionTable) (coverageReport,
 	olderCoverages := make([]olderCoverage, 0, len(older))
 	for _, o := range older {
 		for _, tag := range o.Writers {
-			if witnessed[fmt.Sprintf("%s\x00%s\x00%d", tag, o.Kind, o.PayloadVersion)] {
+			key := fmt.Sprintf("%s\x00%s\x00%d", tag, o.Kind, o.PayloadVersion)
+			switch {
+			case witnessed[key]:
 				o.Witnesses = append(o.Witnesses, tag)
-			} else {
+			case discharged[key]:
+				o.Discharged = append(o.Discharged, tag)
+			default:
 				o.Missing = append(o.Missing, tag)
 			}
 		}

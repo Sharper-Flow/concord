@@ -89,14 +89,19 @@ type writerSite struct {
 
 // upcastDispatcher is the one function declaration that calls Upcaster
 // values and holds every other expression of the Upcaster type, with the
-// conditions of its if statements whose body ends in a return, and its
-// callers: every declared function that calls it, or calls a caller that
-// passes its own parameter as the EventKindRegistration argument.
+// conditions of its if statements whose body ends in a return, its callers:
+// every declared function that calls it, or calls a caller that
+// passes its own parameter as the EventKindRegistration argument, and the
+// package's registeredEventKind declaration, by full name and the digest of
+// its exact declaration bytes, when the package declares one.
 type upcastDispatcher struct {
 	Function       string      `json:"function"`
 	FunctionDigest string      `json:"function_digest"`
 	Guards         []string    `json:"guards"`
 	Callers        []namedHash `json:"callers"`
+	// RegisteredKind pins the registry-lookup helper the callers pass
+	// event.Kind through; nil when the package declares none.
+	RegisteredKind *namedHash `json:"registered_event_kind,omitempty"`
 }
 
 type namedHash struct {
@@ -482,7 +487,7 @@ func (a *analyzer) index(p *checkedPackage) {
 					a.adaptCalls[stack[1].(ast.Decl)] = p
 					a.callees[selector.Sel] = true
 				}
-				a.indexCall(p, v, a.enclosingFunc(p, stack))
+				a.indexCall(p, v, a.enclosingFunc(p, stack), a.enclosingDecl(p, stack))
 			case *ast.DeferStmt:
 				if fn := a.enclosingFunc(p, stack); fn != nil {
 					fn.deferred = true
@@ -582,7 +587,7 @@ func (a *analyzer) indexFunc(p *checkedPackage, decl *ast.FuncDecl) {
 
 // indexCall records a static call. A method expression call, whose arguments
 // start with the receiver, uses its function as a value.
-func (a *analyzer) indexCall(p *checkedPackage, call *ast.CallExpr, caller *function) {
+func (a *analyzer) indexCall(p *checkedPackage, call *ast.CallExpr, caller, encloser *function) {
 	id := calleeIdent(call.Fun)
 	f, ok := p.info.Uses[id].(*types.Func)
 	if !ok {
@@ -593,29 +598,21 @@ func (a *analyzer) indexCall(p *checkedPackage, call *ast.CallExpr, caller *func
 		a.function(f).value = true
 		return
 	}
-	a.function(f).calls = append(a.function(f).calls, callSite{call, p, caller, a.enclosingDecl(p, call)})
+	a.function(f).calls = append(a.function(f).calls, callSite{call, p, caller, encloser})
 }
 
-// enclosingDecl returns the declared function whose body encloses the call,
-// through closures, or nil outside any declaration.
-func (a *analyzer) enclosingDecl(p *checkedPackage, call *ast.CallExpr) *function {
-	var fn *function
-	for _, file := range p.files {
-		ast.Inspect(file, func(n ast.Node) bool {
-			if n == nil {
-				return true
+// enclosingDecl returns the declared function whose body encloses the
+// current node, through closures, or nil outside any declaration.
+func (a *analyzer) enclosingDecl(p *checkedPackage, stack []ast.Node) *function {
+	for i := len(stack) - 1; i >= 0; i-- {
+		if decl, ok := stack[i].(*ast.FuncDecl); ok {
+			if f, ok := p.info.Defs[decl.Name].(*types.Func); ok {
+				return a.function(f)
 			}
-			if n.Pos() <= call.Pos() && call.End() <= n.End() {
-				if decl, ok := n.(*ast.FuncDecl); ok {
-					if f, ok := p.info.Defs[decl.Name].(*types.Func); ok {
-						fn = a.function(f)
-					}
-				}
-			}
-			return true
-		})
+			return nil
+		}
 	}
-	return fn
+	return nil
 }
 
 func calleeIdent(fun ast.Expr) *ast.Ident {
@@ -1224,7 +1221,26 @@ func (a *analyzer) findDispatcher() *upcastDispatcher {
 		return true
 	})
 	name, body := a.declName(p, fn)
-	return &upcastDispatcher{Function: name, FunctionDigest: body, Guards: guards, Callers: callers}
+	return &upcastDispatcher{Function: name, FunctionDigest: body, Guards: guards, Callers: callers, RegisteredKind: a.registeredKind(p)}
+}
+
+// registeredKind records the declaration named registeredEventKind in the
+// dispatcher's package: the helper the reviewed callers pass event.Kind
+// through. The digest covers the exact declaration bytes, so a changed
+// helper body changes the pin and refuses every pinned exemption entry; a
+// package without the helper records none.
+func (a *analyzer) registeredKind(p *checkedPackage) *namedHash {
+	for _, file := range p.files {
+		for _, d := range file.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Name.Name != "registeredEventKind" {
+				continue
+			}
+			name, body := a.declName(p, fn)
+			return &namedHash{Function: name, Digest: body}
+		}
+	}
+	return nil
 }
 
 // dispatchCallers lists upcastDispatcher's callers of dispatcher, sorted, or

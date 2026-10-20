@@ -38,9 +38,9 @@ const TUPLES = {
   worker_abandon_receipt_failed: { kind: "operation_conflict", adapter_reason: "worker_abandon_receipt_failed", effect_state: "possible", recovery: "reconcile_operation" },
   worker_reconcile_failed_recorded: { kind: "operation_conflict", adapter_reason: "worker_reconcile_failed_recorded", effect_state: "possible", recovery: "reconcile_operation" },
   lane_tool_refusal: { kind: "unauthorized", adapter_reason: "lane_tool_refusal", effect_state: "none", recovery: "contact_operator" },
-  invalid_cli_input: { kind: "invalid_input", adapter_reason: "invalid_cli_input", effect_state: "none", recovery: "restart_query" },
-  invalid_request_wrapper: { kind: "invalid_input", adapter_reason: "invalid_request_wrapper", effect_state: "none", recovery: "restart_query" },
-  invalid_tool_input: { kind: "invalid_input", adapter_reason: "invalid_tool_input", effect_state: "none", recovery: "restart_query" },
+  invalid_cli_input: { kind: "invalid_input", adapter_reason: "invalid_cli_input", effect_state: "none", recovery: "correct_request" },
+  invalid_request_wrapper: { kind: "invalid_input", adapter_reason: "invalid_request_wrapper", effect_state: "none", recovery: "correct_request" },
+  invalid_tool_input: { kind: "invalid_input", adapter_reason: "invalid_tool_input", effect_state: "none", recovery: "correct_request" },
   vacate_replay: { kind: "operation_conflict", adapter_reason: "unknown_effect", effect_state: "possible", recovery: "retry_same_request" },
   vacate_unavailable: { kind: "operation_conflict", adapter_reason: "unknown_effect", effect_state: "possible", recovery: "contact_operator" },
 }
@@ -205,7 +205,7 @@ describe("CON-913 closed adapter error tuples", () => {
     expect(validateGeneratedEnvelope(transport("transport_failure", "none")), "adapter transport + none stays admitted").toBe(true)
     const inputEnvelope = (reason: string, operation: string, effect: string) => ({
       ...adapterBase, tool: "concord_work_browse", ...(operation ? queryID("concord_work_browse", operation) : {}), operation,
-      error: errorMember({ kind: "invalid_input", adapter_reason: reason, effect_state: effect, retry_safe: effect === "none" ? false : true, recovery_action: { kind: "restart_query" } }),
+      error: errorMember({ kind: "invalid_input", adapter_reason: reason, effect_state: effect, retry_safe: effect === "none" ? false : true, recovery_action: { kind: "correct_request" } }),
     })
     for (const reason of ["invalid_request_wrapper", "invalid_cli_input", "invalid_tool_input"]) {
       expect(validateGeneratedEnvelope(inputEnvelope(reason, "list", "none")), `${reason} declared pair`).toBe(true)

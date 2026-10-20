@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from evaluation import (claim_in_scope, dispatch_in_scope, continuity_in_scope,
-                        evaluate, served_correction_step,
+                        evaluate, served_correction_step, served_input_correction,
                         start_in_scope)
 from scenarios import (BOUNDARY_NOTICE, SCENARIOS, START, TRANSITION, WORK, TRACE, RUNTIME,
                        WORKTREE, OTHER_REPO, SAME_REPO_PROJECT, BASE_SHA,
@@ -76,13 +76,13 @@ def served_correction_refusal(message="request.input failed validation: idempote
 def served_production_claim_refusal(message="missing payload field idempotency_key"):
     """The exact refusal the executed production core boundary serves for a
     malformed worktree_claim (`concord invoke`, observed in
-    test_production_parity): the same invalid_input kind, none effect, and
-    retry_safe false, but the core's restart_query recovery. The adapter
-    passes core error envelopes through, so this is what a coordinator
-    session is served; it is not the correction triple and grants no
-    correction credit."""
+    test_production_parity): the same correction triple the adapter's start
+    boundary serves — invalid_input, effect_state none, recovery_action
+    correct_request, retry_safe false — with the core's own diagnostic. The
+    adapter passes core error envelopes through, so this is what a
+    coordinator session is served for a malformed claim."""
     return {"outcome": "error", "error": {"kind": "invalid_input", "retry_safe": False,
-                                          "recovery_action": {"kind": "restart_query"},
+                                          "recovery_action": {"kind": "correct_request"},
                                           "effect_state": "none", "message": message}}
 
 
@@ -100,7 +100,9 @@ def refusal_prefixed_observation(case, tool, refused_args, refused_result):
 
 def malformed_claim_args():
     """A worktree_claim missing its idempotency_key: the shape the recording
-    double's strict schema refuses before any effect."""
+    double's core payload classification refuses before any effect (the
+    double's strict tool schema types idempotency_key as optional; the
+    core-classified payload rule refuses its absence)."""
     return {"request": {"operation": "worktree_claim", "input": {
         "work_id": WORK, "project_id": SAME_REPO_PROJECT,
         "base_sha": BASE_SHA, "expected_version": 1,
@@ -555,19 +557,18 @@ class ServedInputCorrectionTests(unittest.TestCase):
     retry_safe false, a corrected in-scope call of the same tool, and full
     event/log/result fidelity. Nothing else grants correction authority."""
 
-    def test_production_claim_refusal_grants_no_correction(self):
+    def test_served_claim_refusal_correction_collapses_the_refused_call(self):
         # The executed production core boundary serves a malformed
-        # worktree_claim invalid_input with the restart_query recovery
-        # (test_production_parity drives the real CLI). That is not the
-        # correction triple, so the malformed call stays what it is — an
-        # out-of-scope mutation attempt — and the corrected retry cannot
-        # collapse it out of the admitted plan.
+        # worktree_claim invalid_input with the correct_request recovery
+        # (test_production_parity drives the real CLI). That is the
+        # correction triple, so the refused call collapses out of the
+        # admitted plan and the corrected in-scope claim passes.
         case = SCENARIOS["same-repository-second-project"]
         calls, events = refusal_prefixed_observation(
             case, TRANSITION, malformed_claim_args(), served_production_claim_refusal())
         result = evaluate(case, calls, events, 0, {"source": "nonce"})
-        self.assertFalse(result["checks"]["no_unauthorized_mutations"])
-        self.assertFalse(result["passed"])
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["unauthorized_mutation_calls"], 0)
 
     def test_start_correction_after_a_served_input_refusal_passes(self):
         case = SCENARIOS["default-checkout-resume"]
@@ -791,23 +792,27 @@ class ServedInputCorrectionTests(unittest.TestCase):
 
 
 class CorrectionAuthorityBindingTests(unittest.TestCase):
-    """Epoch9 P1: correction credit binds to the tool whose executed
-    production boundary serves the correction triple. Only concord_work_start's
-    adapter argument boundary serves invalid_input/none/correct_request with
-    retry_safe false; the core's worktree_claim payload boundary answers the
-    same malformed input with restart_query, so a claim trace carrying the
-    correction triple is production-impossible and earns no credit."""
+    """Correction credit binds to the tools whose executed production
+    boundaries serve the correction triple: concord_work_start's adapter
+    argument boundary and the core's pre-effect worktree_claim payload
+    boundary both serve invalid_input/none/correct_request with retry_safe
+    false. The binding never admits a tool, operation, or refusal shape the
+    executed boundaries do not serve."""
 
-    def test_invented_claim_correction_triple_earns_no_credit(self):
-        # A worktree_claim served the correction triple and the next call is
-        # the corrected in-scope claim. Production never serves that triple on
-        # a claim (the core serves restart_query), so the refused call stays
-        # an out-of-scope mutation attempt and the observation must fail.
+    def test_executed_claim_triple_is_the_admitted_triple(self):
+        # The exact refusal the executed core CLI serves on a malformed
+        # claim (test_production_parity drives it) carries the triple the
+        # evaluator admits, so a claim trace carrying it earns credit.
+        self.assertTrue(served_input_correction(served_production_claim_refusal()))
+
+    def test_served_claim_triple_earns_the_correction_step(self):
+        # A worktree_claim served the executed core triple and the next call
+        # is the corrected in-scope claim: the refused call collapses and the
+        # correction step is admitted.
         case = SCENARIOS["same-repository-second-project"]
         calls, events = refusal_prefixed_observation(
-            case, TRANSITION, malformed_claim_args(), served_correction_refusal())
-        result = evaluate(case, calls, events, 0, {"source": "nonce"})
-        self.assertFalse(result["passed"])
+            case, TRANSITION, malformed_claim_args(), served_production_claim_refusal())
+        self.assertEqual(served_correction_step(calls, case, [TRANSITION]), 0)
 
     def test_forged_refusal_on_valid_claim_args_earns_no_credit(self):
         # Two valid claims differing only in idempotency_key: the first carries
@@ -846,7 +851,7 @@ class CorrectionAuthorityBindingTests(unittest.TestCase):
 
 
 class TypeSensitiveGateTests(unittest.TestCase):
-    """Epoch9 P1: Python == admits True == 1 and 1 == 1.0, so every owning
+    """Python == admits True == 1 and 1 == 1.0, so every owning
     event/log/result and in-scope identity gate compares structurally: same
     types, same shapes, same values, recursively."""
 
@@ -931,7 +936,7 @@ class TypeSensitiveGateTests(unittest.TestCase):
 
 
 class RelocationGuidanceFixtureTests(unittest.TestCase):
-    """Epoch9 P2: both postures' shared guidance must state that input
+    """Both postures' shared guidance must state that input
     correction authority comes from the served production triple —
     invalid_input kind, effect_state none, recovery_action correct_request —
     and the six relocation boundaries stay named. These are deterministic

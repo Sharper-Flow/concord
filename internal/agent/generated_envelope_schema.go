@@ -561,6 +561,54 @@ const GeneratedEnvelopeSchemaDocument = `{
           "if": {
             "properties": {
               "error": {
+                "properties": {
+                  "recovery_action": {
+                    "properties": {
+                      "kind": {
+                        "const": "correct_request"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  }
+                },
+                "required": [
+                  "recovery_action"
+                ]
+              }
+            },
+            "required": [
+              "error"
+            ]
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "properties": {
+                  "effect_state": {
+                    "const": "none"
+                  },
+                  "kind": {
+                    "const": "invalid_input"
+                  },
+                  "retry_safe": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "kind",
+                  "effect_state",
+                  "retry_safe"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "error": {
                 "anyOf": [
                   {
                     "properties": {
@@ -619,7 +667,7 @@ const GeneratedEnvelopeSchemaDocument = `{
                   "recovery_action": {
                     "properties": {
                       "kind": {
-                        "const": "restart_query"
+                        "const": "correct_request"
                       }
                     },
                     "required": [
@@ -1540,6 +1588,7 @@ const GeneratedEnvelopeSchemaDocument = `{
         "kind": {
           "enum": [
             "none",
+            "correct_request",
             "retry_same_request",
             "refresh_context",
             "reread_entities",

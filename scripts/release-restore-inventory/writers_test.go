@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -55,6 +56,11 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"thing.a": {CurrentVersion: 2, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastA1}, Fold: foldA},
 	"thing.b": {CurrentVersion: 3, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastB1, 2: upcastB2},
 		RecordedSchemas: map[int][]recordedPayloadSchema{2: {{matches: matchB, adapt: upcastB2}}}, Fold: foldB},
+}
+
+func registeredEventKind(kind string) (EventKindRegistration, bool) {
+	registration, ok := eventKindRegistry[kind]
+	return registration, ok
 }
 
 func checkSubject(event Event, want SubjectType) error {
@@ -127,7 +133,7 @@ func upcastEventWithRegistration(event Event, registration EventKindRegistration
 }
 
 func prepareRecordedEvent(event Event) (Event, error) {
-	registration, ok := eventKindRegistry[event.Kind]
+	registration, ok := registeredEventKind(event.Kind)
 	if !ok {
 		return Event{}, errors.New("unknown")
 	}
@@ -525,6 +531,32 @@ func TestDispatcherCallersFollowEveryForwardingCall(t *testing.T) {
 	}
 	if !slices.Equal(callers, []string{"Stray", "prepareEventWithRegistration", "prepareRecordedEvent", "twice"}) {
 		t.Fatalf("dispatcher callers %q", callers)
+	}
+}
+
+// The analysis pins the registry-lookup helper the reviewed callers pass
+// event.Kind through by its exact declaration bytes: the recorded digest
+// follows the helper's body while every dispatcher key stays fixed, and the
+// pin serializes into the analysis.
+func TestRegisteredKindPinFollowsTheDeclaration(t *testing.T) {
+	const store = "internal/store/store.go"
+	analysis := analyzeFixture(t)
+	d := analysis.Dispatcher
+	if d == nil || d.RegisteredKind == nil || d.RegisteredKind.Function != storePkg+".registeredEventKind" {
+		t.Fatalf("dispatcher %+v", d)
+	}
+	drifted := analyzeFixture(t, mutation{store, "return registration, ok", "return registration, ok // the reviewed lookup"})
+	if drifted.Dispatcher == nil || drifted.Dispatcher.RegisteredKind == nil ||
+		drifted.Dispatcher.RegisteredKind.Digest == d.RegisteredKind.Digest ||
+		drifted.Dispatcher.RegisteredKind.Function != d.RegisteredKind.Function ||
+		drifted.Dispatcher.Function != d.Function || drifted.Dispatcher.FunctionDigest != d.FunctionDigest ||
+		!slices.Equal(drifted.Dispatcher.Guards, d.Guards) ||
+		!slices.Equal(drifted.Dispatcher.Callers, d.Callers) {
+		t.Fatalf("drifted %+v want %+v", drifted.Dispatcher, d)
+	}
+	data, err := json.Marshal(analysis)
+	if err != nil || !strings.Contains(string(data), `"registered_event_kind"`) {
+		t.Fatalf("analysis serialization %s: %v", data, err)
 	}
 }
 

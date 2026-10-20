@@ -89,14 +89,19 @@ type writerSite struct {
 
 // upcastDispatcher is the one function declaration that calls Upcaster
 // values and holds every other expression of the Upcaster type, with the
-// conditions of its if statements whose body ends in a return, and its
-// callers: every declared function that calls it, or calls a caller that
-// passes its own parameter as the EventKindRegistration argument.
+// conditions of its if statements whose body ends in a return, its callers:
+// every declared function that calls it, or calls a caller that
+// passes its own parameter as the EventKindRegistration argument, and the
+// package's registeredEventKind declaration, by full name and the digest of
+// its exact declaration bytes, when the package declares one.
 type upcastDispatcher struct {
 	Function       string      `json:"function"`
 	FunctionDigest string      `json:"function_digest"`
 	Guards         []string    `json:"guards"`
 	Callers        []namedHash `json:"callers"`
+	// RegisteredKind pins the registry-lookup helper the callers pass
+	// event.Kind through; nil when the package declares none.
+	RegisteredKind *namedHash `json:"registered_event_kind,omitempty"`
 }
 
 type namedHash struct {
@@ -1216,7 +1221,26 @@ func (a *analyzer) findDispatcher() *upcastDispatcher {
 		return true
 	})
 	name, body := a.declName(p, fn)
-	return &upcastDispatcher{Function: name, FunctionDigest: body, Guards: guards, Callers: callers}
+	return &upcastDispatcher{Function: name, FunctionDigest: body, Guards: guards, Callers: callers, RegisteredKind: a.registeredKind(p)}
+}
+
+// registeredKind records the declaration named registeredEventKind in the
+// dispatcher's package: the helper the reviewed callers pass event.Kind
+// through. The digest covers the exact declaration bytes, so a changed
+// helper body changes the pin and refuses every pinned exemption entry; a
+// package without the helper records none.
+func (a *analyzer) registeredKind(p *checkedPackage) *namedHash {
+	for _, file := range p.files {
+		for _, d := range file.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Name.Name != "registeredEventKind" {
+				continue
+			}
+			name, body := a.declName(p, fn)
+			return &namedHash{Function: name, Digest: body}
+		}
+	}
+	return nil
 }
 
 // dispatchCallers lists upcastDispatcher's callers of dispatcher, sorted, or

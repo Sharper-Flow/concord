@@ -273,6 +273,64 @@ func TestDischargeProvesUnwritablePairs(t *testing.T) {
 	}
 }
 
+// The registered-kind pin keys the registry-lookup helper the reviewed
+// callers pass event.Kind through. An upcast entry covers a confined site
+// only through the exact helper declaration: a drifted helper body, a
+// renamed helper, a helperless analysis, or a pin-less entry refuses the
+// cover, with every dispatcher, caller, and adapt key held fixed, and the
+// confined pair stays undischarged.
+func TestRegisteredKindPinRefusesHelperDrift(t *testing.T) {
+	const good = "sha256:b09e1e161eb2d2e64d9249c7201e610f5d60966492a1bb098d7c7be000fec67e"
+	const name = storePkg + ".registeredEventKind"
+	analysis := func(helper *namedHash) writerAnalysis {
+		a := findingAnalysis()
+		a.Open = a.Open[1:2]
+		a.Open[0].Confinement = "upcaster"
+		a.Dispatcher = &upcastDispatcher{
+			Function:       "store.dispatch",
+			FunctionDigest: "sha256:2222",
+			Guards:         []string{"event.PayloadVersion != registration.CurrentVersion"},
+			Callers:        []namedHash{{"store.prepare", "sha256:3333"}},
+			RegisteredKind: helper,
+		}
+		return a
+	}
+	table := func(pinnedName, pinnedDigest string) exemptionTable {
+		e := exemption{ID: "upcast", Class: "upcast_confinement", Dispatcher: "store.dispatch", DispatcherDigest: "sha256:2222",
+			Guard: "event.PayloadVersion != registration.CurrentVersion", Callers: []namedHash{{"store.prepare", "sha256:3333"}}, Check: "test"}
+		if pinnedName != "" {
+			e.RegisteredKind, e.RegisteredKindDigest = pinnedName, pinnedDigest
+		}
+		data, err := json.Marshal(exemptionTable{Schema: exemptionsSchema, Entries: []exemption{e}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		parsed, err := parseExemptions(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return parsed
+	}
+	if f := finding(t, analysis(&namedHash{name, good}), table(name, good)); len(f.Exempted) != 1 {
+		t.Fatalf("the exact helper must cover the confined site: %+v", f)
+	}
+	for name, drifted := range map[string]*namedHash{
+		"helper body drifted": {storePkg + ".registeredEventKind", "sha256:9999"},
+		"helper renamed":      {storePkg + ".registeredEventKindV2", good},
+	} {
+		f := finding(t, analysis(drifted), table(storePkg+".registeredEventKind", good))
+		if len(f.Exempted) != 0 || len(f.Held) != 1 || slices.ContainsFunc(f.Discharged, func(d discharge) bool { return d.PayloadVersion == 2 }) {
+			t.Errorf("%s: held %+v exempted %+v discharged %+v", name, f.Held, f.Exempted, f.Discharged)
+		}
+	}
+	if f := finding(t, analysis(nil), table(storePkg+".registeredEventKind", good)); len(f.Exempted) != 0 || len(f.Held) != 1 {
+		t.Fatalf("helperless analysis: held %+v exempted %+v", f.Held, f.Exempted)
+	}
+	if f := finding(t, analysis(&namedHash{storePkg + ".registeredEventKind", good}), table("", "")); len(f.Exempted) != 0 || len(f.Held) != 1 {
+		t.Fatalf("unpinned entry over a pinned analysis: held %+v exempted %+v", f.Held, f.Exempted)
+	}
+}
+
 func TestDriftLeavesTheSiteHeld(t *testing.T) {
 	for name, edit := range map[string]func(*writerSite){
 		"function digest changed": func(s *writerSite) { s.FunctionDigest = "sha256:9999" },
@@ -308,6 +366,28 @@ func TestRefusedOrMissingAnalysisIsRecorded(t *testing.T) {
 	} {
 		if len(f.Discharged) != 0 {
 			t.Errorf("%s analysis discharged %v", name, f.Discharged)
+		}
+	}
+}
+
+// A registration whose accepted range is not a fact — a minimum below 1, or
+// a current below its minimum — proves nothing unwritable: no version of it
+// discharges, and the versions it names stay undischarged. The invalid
+// registrations join the group's inventory here rather than in
+// findingInventory, whose other tests assert exact lists.
+func TestInvalidRegistrationDischargesNothing(t *testing.T) {
+	inv := findingInventory(findingAnalysis())
+	inv.Groups["g"] = append(inv.Groups["g"],
+		registration{Kind: "thing.c", CurrentVersion: 1, MinSupported: 0, Type: "t"},
+		registration{Kind: "thing.d", CurrentVersion: 1, MinSupported: 3, Type: "t"},
+	)
+	f := writerFindings(inv, findingTable(t))[0]
+	if slices.ContainsFunc(f.Discharged, func(d discharge) bool { return d.Kind == "thing.c" || d.Kind == "thing.d" }) {
+		t.Fatalf("an invalid registration discharged %+v", f.Discharged)
+	}
+	for _, pair := range []string{"thing.c v0", "thing.c v1"} {
+		if !slices.Contains(f.Undischarged, pair) {
+			t.Fatalf("%s not undischarged: %v", pair, f.Undischarged)
 		}
 	}
 }
@@ -378,6 +458,9 @@ func TestExemptionTableRefusesMalformedEntries(t *testing.T) {
 		"upcast without guard":            `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","check":"c"}]}`,
 		"upcast with a site key":          `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","callers":[{"function":"c","digest":"h"}],"function":"f","check":"c"}]}`,
 		"read-back with a dispatcher":     `{"schema":"concord.release-writer-exemptions.v1","entries":[` + strings.Replace(entry, `"check":"c"`, `"dispatcher":"d","check":"c"`, 1) + `]}`,
+		"registered kind without digest":  `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","callers":[{"function":"c","digest":"h"}],"registered_kind":"h","check":"c"}]}`,
+		"registered kind without a name":  `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","callers":[{"function":"c","digest":"h"}],"registered_kind_digest":"sha256:d","check":"c"}]}`,
+		"read-back with registered kind":  `{"schema":"concord.release-writer-exemptions.v1","entries":[` + strings.Replace(entry, `"check":"c"`, `"registered_kind":"h","registered_kind_digest":"sha256:d","check":"c"`, 1) + `]}`,
 		"repeated upcast key":             `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","callers":[{"function":"c","digest":"h"}],"check":"c"},{"id":"v","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","callers":[{"function":"c","digest":"h"}],"check":"c"}]}`,
 		"site key in two classes":         `{"schema":"concord.release-writer-exemptions.v1","entries":[` + entry + `,` + strings.TrimSuffix(strings.Replace(strings.Replace(entry, "read_back", "replay_decoder", 1), `"x"`, `"y"`, 1), "}") + `,"check_subject_digest":"s"}]}`,
 		"replay without check subject":    `{"schema":"concord.release-writer-exemptions.v1","entries":[` + strings.Replace(entry, "read_back", "replay_decoder", 1) + `]}`,

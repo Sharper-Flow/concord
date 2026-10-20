@@ -60,7 +60,11 @@ three-attempt limit, retry through `dispatch_worker` with the unchanged approved
 contract: the core requests operator approval and binds it to that attempt.
 At the three-attempt limit, `dispatch_worker` needs a store-derived basis:
 shrinking `open_finding_ids` or an approved `supersede_contract` that changes
-the approach. An approval cannot open the wall. Follow the served recovery
+the approach. An approval cannot open the wall. A contract supersession
+recorded after the latest dispatch is a changed approach: after productive
+acceptance, truthfully admitting the next stage is one, without inventing a
+redesign. It admits exactly one fresh fenced attempt and does not renew the
+three-attempt budget. Follow the served recovery
 route or stop; a diagnosis alone is not a convergence basis.
 
 ## The operator's decisions

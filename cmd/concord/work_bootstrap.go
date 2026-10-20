@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -78,6 +79,18 @@ func storeFailureExit(err error) int {
 	return 1
 }
 
+// unclaimedOriginHint appends the caller-aware location line the store's
+// unclaimed-origin refusal cannot know: the actual safe directory this
+// invocation can run from. The store gate, its kind, and the caller's exit
+// classification stay untouched.
+func unclaimedOriginHint(err error, location string) error {
+	var failure *store.Failure
+	if errors.As(err, &failure) && failure.Kind == store.KindInvalidOperation && failure.Detail == "linked bootstrap origin is not an active Concord worktree" {
+		return fmt.Errorf("%w\nsafe location: %s", err, location)
+	}
+	return err
+}
+
 func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	var input workBootstrapInput
 	if err := decodeObject(raw, &input); err != nil {
@@ -109,7 +122,7 @@ func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	resolvedRef := ""
 	if !resolution.MainWorktree {
 		if _, err := s.ValidateBootstrapOrigin(ctx, input.ProjectID, resolution.Repository.WorktreePath, store.ExecGitRunner{}); err != nil {
-			writeOperatorDiagnostic(errOut, "work-bootstrap", diagnosticText(err))
+			writeOperatorDiagnostic(errOut, "work-bootstrap", diagnosticText(unclaimedOriginHint(err, "capture new work from the default checkout "+resolution.Repository.CanonicalPath)))
 			return storeFailureExit(err)
 		}
 		if input.Ref == "" {

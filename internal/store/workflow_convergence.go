@@ -26,6 +26,10 @@ func (s WorkflowAdmissionState) retryEscalated() bool {
 // (CD-0164 D5). It names which populations stand at their limits — the
 // correction window, the whole-work nonprogress population, or both — and
 // separates a one-use basis or funded review from a renewed window. The
+// refusal states the current step and separates the historical recorded
+// corrections that escalated the window from the active nonprogress
+// population, and the remedy names the supersession prerequisites and the
+// one fresh fenced attempt a basis buys. The
 // nonprogress count runs since the applicable nonprogress anchor, which the
 // obligation-satisfaction policy renews from a qualified coordinator
 // satisfaction as well as a satisfying worker acceptance (CD-0164 D2a); the
@@ -36,9 +40,9 @@ func workflowRetryConvergenceFailure(definition WorkflowDefinition, state Workfl
 	nonprogress := state.NonProgressAttempts >= workflowCorrectionAttemptLimit
 	switch {
 	case state.CorrectionEscalated && nonprogress:
-		detail += fmt.Sprintf(": both populations block the dispatch — %d non-progress attempts since the applicable nonprogress anchor (step %s), and the correction window sits at its escalation threshold", state.NonProgressAttempts, state.Step)
+		detail += fmt.Sprintf(": both populations block the dispatch — %d non-progress attempts since the applicable nonprogress anchor (step %s), and the correction window sits at its escalation threshold from historical recorded corrections, a distinct population from the active nonprogress window", state.NonProgressAttempts, state.Step)
 	case state.CorrectionEscalated:
-		detail += ": the correction window sits at its escalation threshold"
+		detail += fmt.Sprintf(": the correction window sits at its escalation threshold from historical recorded corrections while the active nonprogress population holds %d attempts (step %s)", state.NonProgressAttempts, state.Step)
 	default:
 		detail += fmt.Sprintf(": %d non-progress attempts since the applicable nonprogress anchor (step %s)", state.NonProgressAttempts, state.Step)
 	}
@@ -48,7 +52,7 @@ func workflowRetryConvergenceFailure(definition WorkflowDefinition, state Workfl
 	}
 	detail += ". Dispatched attempts escalate the correction window at three or more; correction requests escalate it past three. A convergence basis or funded confirming review admits exactly one dispatch and renews no window; only " + renewal + " reopens the nonprogress window. Host recovery applies only to an eligible recorded host execution failure and an unused host basis in the current worker-satisfaction window: repair the fault, restart the host more than one minute after the failure, resume the item, then retry once"
 	return newFailure(KindMissingEvidence, "worker_dispatch", detail, false,
-		"record shrinking open_finding_ids, supersede_contract with a changed approach, or stop the work; after a host execution failure, repair and restart the host, resume the item, and dispatch once from the restarted host (one host_changed retry per worker-satisfaction window)")
+		"record shrinking open_finding_ids, or supersede_contract with a changed approach recorded through audit_evidence and a new contract_version — one fresh fenced attempt that does not renew the three-attempt budget — or stop the work; after a host execution failure, repair and restart the host, resume the item, and dispatch once from the restarted host (one host_changed retry per worker-satisfaction window)")
 }
 
 // workflowRetryConvergenceForRegistry derives a basis rather than trusting a caller's

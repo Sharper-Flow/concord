@@ -33,6 +33,43 @@ const boundUnits: Record<string, string> = {
   minProperties: "properties", maxProperties: "properties",
 }
 
+const pairedBounds = [
+  ["minimum", "maximum"], ["minLength", "maxLength"], ["x-minBytes", "x-maxBytes"],
+  ["minItems", "maxItems"], ["minProperties", "maxProperties"],
+] as const
+
+function numberTokens(description: string): number[] {
+  return (description.match(/-?\d+(?:\.\d+)?/g) ?? []).map((token: string) => Number(token))
+}
+
+// A bound description names the enforced value, its count unit, and inclusive
+// endpoints; a paired bound states the lower endpoint before the upper one.
+function boundFindings(schema: unknown, tool: string) {
+  const missing: string[] = []
+  let checked = 0
+  visitSchemas(schema, tool, (node, path) => {
+    for (const [keyword, unit] of Object.entries(boundUnits)) {
+      if (typeof node[keyword] !== "number") continue
+      checked++
+      const description = node.description ?? ""
+      const numbers = numberTokens(description)
+      if (!numbers.some((number: number) => number === node[keyword]) || !description.includes(unit) || !description.includes("inclusive")) {
+        missing.push(`${path}: ${keyword}=${node[keyword]} ${unit}`)
+      }
+    }
+    for (const [low, high] of pairedBounds) {
+      if (typeof node[low] !== "number" || typeof node[high] !== "number" || node[low] >= node[high]) continue
+      const tokens = numberTokens(node.description ?? "")
+      const lowIndex = tokens.findIndex((token: number) => token === node[low])
+      const highIndex = tokens.findIndex((token: number) => token === node[high])
+      if (lowIndex === -1 || highIndex === -1 || lowIndex > highIndex) {
+        missing.push(`${path}: ${low}/${high} must state ${node[low]} before ${node[high]}`)
+      }
+    }
+  })
+  return { missing, checked }
+}
+
 test("every enforced input bound reaches production tool descriptions with its unit and inclusive endpoint", async () => {
   const published: Record<string, unknown> = {}
   for (const toolID of new Set(contractOperations.map(operation => operation.tool))) {
@@ -55,17 +92,9 @@ test("every enforced input bound reaches production tool descriptions with its u
   let checked = 0
   for (const [tool, schema] of Object.entries(published)) {
     expect(schema, tool).toBeObject()
-    visitSchemas(schema, tool, (node, path) => {
-      for (const [keyword, unit] of Object.entries(boundUnits)) {
-        if (typeof node[keyword] !== "number") continue
-        checked++
-        const description = node.description ?? ""
-        const numbers = description.match(/-?\d+(?:\.\d+)?/g) ?? []
-        if (!numbers.some((number: string) => Number(number) === node[keyword]) || !description.includes(unit) || !description.includes("inclusive")) {
-          missing.push(`${path}: ${keyword}=${node[keyword]} ${unit}`)
-        }
-      }
-    })
+    const findings = boundFindings(schema, tool)
+    missing.push(...findings.missing)
+    checked += findings.checked
   }
   expect(checked).toBeGreaterThan(100)
   expect(missing).toEqual([])
@@ -87,6 +116,14 @@ test("startup, capture and revise sizing keep identical bounds and source-free r
     expect(validateAgainstSchema(capture, { ...research, size_inputs }, [])).toBe(false)
     expect(validateGeneratedPayload("work_define_capture_input", { ...input, size_inputs })).toBe(false)
   }
+  // The supplied estimate range is inclusive at both documented endpoints.
+  for (const estimate of [1, 100000]) {
+    const size_inputs = { behavior: "investigate", security: false, user_visible: false, blast_radius: "contained", estimated_production_lines: estimate }
+    expect(validateAgainstSchema(capture, { ...research, size_inputs }, [])).toBe(true)
+    expect(validateGeneratedPayload("work_define_capture_input", { ...input, size_inputs })).toBe(true)
+    const revise = { work_id: "work-1", expected_version: 1, title: "Research", value_statement: "No source changes", kind: "research", reason: "narrow the title only", idempotency_key: `revise-${estimate}`, size_inputs }
+    expect(validateGeneratedPayload("work_define_revise_input", revise)).toBe(true)
+  }
 })
 
 test("observation publication retains code-point bounds after reference expansion", async () => {
@@ -101,4 +138,28 @@ test("observation publication retains code-point bounds after reference expansio
     expect(field.description).toContain("inclusive")
     expect(field["x-maxBytes"]).toBeUndefined()
   }
+  for (const [name, maximum] of [["refs", 16], ["tags", 8]] as const) {
+    expect(input.properties[name].maxItems).toBe(maximum)
+  }
+})
+
+test("the bound checker itself catches wrong units, missing values, excluded endpoints, and reversed roles", async () => {
+  const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
+  await publishRequestDefinition({ toolID: "concord_work_define" }, output)
+  const expanded: any = expandedPublishedRequestSchema(output.jsonSchema)
+  const input = expanded.oneOf.find((branch: any) => branch.properties.operation.const === "observation_record").properties.input
+  const statement = input.properties.statement
+  expect(statement.minLength).toBe(1)
+  expect(statement.maxLength).toBe(512)
+  const check = (description: string) => boundFindings({ ...statement, description }, "witness").missing
+  expect(check(`Bounded 1 to ${statement.maxLength} code points, inclusive.`)).toEqual([])
+  // A byte unit on a code-point bound must fail.
+  expect(check(`Up to ${statement.maxLength} UTF-8 bytes, inclusive.`).some((finding: string) => finding.includes("maxLength"))).toBe(true)
+  // A description without the enforced value must fail.
+  expect(check("Bounded non-empty code points, inclusive.").length).toBeGreaterThan(0)
+  // An exclusive endpoint contradicts the inclusive keyword pair.
+  expect(check(`1 to ${statement.maxLength} code points, exclusive.`).length).toBeGreaterThan(0)
+  // A paired numeric bound stated high-before-low must fail.
+  const reversed = boundFindings({ minimum: 1, maximum: 100000, description: "100000 down to 1, inclusive" }, "witness").missing
+  expect(reversed.some((finding: string) => finding.includes("minimum/maximum"))).toBe(true)
 })

@@ -1,0 +1,47 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-20T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0241",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0010"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0088"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0089"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0166"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0241-rapid-development-phases-run-the-machine-on-a-rapid-branch.md",
+  "product_wide_rationale": "Rapid-development phases change the source coordination target and delivery evidence across all Domains while preserving full main-branch verification and automated releases.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:2fbbfe71af16ab20ab888dc9db99bf9bb1131e8aceae34ba89c7b3929cc3ed65",
+  "status": "accepted",
+  "summary": "Declared rapid-development phases target one expiring integration branch and record reduced local gate evidence in merge commits. Phase completion uses those merges while the installed engine stays main-based. Main consolidation uses the full merge queue, automated releases remain main-only, and law, security, data-safety, migration, and release-tooling changes keep the full standard route.",
+  "tags": [
+    "development",
+    "verification",
+    "coordination",
+    "release"
+  ],
+  "title": "Rapid-development phases run the machine on a rapid branch; main and releases keep the full contract"
+}

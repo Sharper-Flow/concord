@@ -1,0 +1,5 @@
+{
+  "id": "CD-0241",
+  "reason": "This law records the operator-declared development and merge process. This change does not implement rapid-branch admission or workflow completion support; executable coverage of those mechanisms has not been assessed.",
+  "state": "unmeasured"
+}

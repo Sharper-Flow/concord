@@ -318,6 +318,10 @@ function inlinedProperty(schema: any): any {
 function mergeRefSiblings(target: any, node: any): any {
   if (target === undefined) throw new Error(`authored property names the unknown reference ${node.$ref}`)
   const merged: Record<string, unknown> = { ...target }
+  // Generated examples travel in the target's description on publication.
+  // A sibling description can override that annotation without changing a
+  // validation constraint, so it must not inherit a second examples carrier.
+  if (typeof target.description === "string" && target.description.includes("Accepted shape:")) delete merged.examples
   for (const [key, value] of Object.entries(node)) {
     if (key === "$ref") continue
     if (key === "required" && Array.isArray(value) && Array.isArray(merged.required)) {
@@ -356,9 +360,25 @@ function deepInline(value: any, resolving = new Set<string>()): any {
 // the constraint keywords each authored branch carries must survive
 // factoring's hoist-and-inherit round trip; scalar keywords, descriptions,
 // and bounds must be equal everywhere.
-function expectStructureLossless(authored: any, actual: any, label: string): void {
+function expectStructureLossless(authored: any, actual: any, label: string, field = true): void {
   const inlined = deepInline(authored)
   for (const [keyword, value] of Object.entries(inlined)) {
+    const description = inlined.description
+    const guided = typeof description === "string" && description.includes("Accepted shape:")
+    if (guided && keyword === "examples") {
+      expect(actual?.examples, `${label} does not duplicate its illustrative example`).toBeUndefined()
+      if (field || inlined.type !== "object") {
+        for (const example of value as unknown[]) {
+          expect(actual?.description, `${label} preserves the complete validated example`).toContain(`example: ${JSON.stringify(example)}`)
+        }
+      }
+      continue
+    }
+    if (guided && keyword === "description" && !field && inlined.type === "object") {
+      const original = description.slice(0, description.indexOf("Accepted shape:")).trimEnd()
+      expect(actual?.description, `${label} keeps its authored description`).toBe(original || undefined)
+      continue
+    }
     if (keyword === "properties") {
       for (const [name, property] of Object.entries(value as Record<string, unknown>)) {
         expectStructureLossless(property, (actual?.properties as Record<string, unknown> | undefined)?.[name], `${label}.${name}`)
@@ -375,7 +395,7 @@ function expectStructureLossless(authored: any, actual: any, label: string): voi
       expect(Array.isArray(actualBranches), `${label} carries ${keyword}`).toBe(true)
       expect(actualBranches ?? [], `${label} ${keyword} branch count`).toHaveLength(branches.length)
       for (const [index, branch] of branches.entries()) {
-        expectStructureLossless(branch, (actualBranches as unknown[])[index], `${label} ${keyword}[${index}]`)
+        expectStructureLossless(branch, (actualBranches as unknown[])[index], `${label} ${keyword}[${index}]`, false)
       }
       continue
     }

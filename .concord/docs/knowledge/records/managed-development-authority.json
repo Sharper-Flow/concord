@@ -9,7 +9,7 @@
     },
     {
       "criterion": 2,
-      "exemption": "Process-authority assignment for public merge evidence. Repository review and CI retain their existing verification contracts."
+      "exemption": "Process-authority assignment distinguishes eligible phase-local integration from main-branch merge evidence. Repository review, installed workflow admission, and CI retain their existing verification contracts."
     },
     {
       "criterion": 3,
@@ -68,6 +68,10 @@
     {
       "kind": "subordinate_to",
       "target_id": "CD-0213"
+    },
+    {
+      "kind": "subordinate_to",
+      "target_id": "CD-0241"
     }
   ],
   "path": ".concord/docs/managed-development-authority.md",
@@ -78,7 +82,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6310220bcda0727e36c1f69739ed8b9cb7cf6a80e4697f1c849608837e59542e",
+  "sha256": "sha256:f2536e213416681b7485762c730af2539297a28b5ecc85844a38264a7b89c111",
   "status": "accepted",
   "summary": "Assigns planning to Linear through the Linear MCP server, keeps managed workflow, review, merge, isolation, and law authority in their existing owners, and preserves the outside-work and defect-repair boundaries.",
   "tags": [

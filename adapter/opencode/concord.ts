@@ -206,7 +206,7 @@ function publishClosedSchema(value: unknown, resolving = new Set<string>()): JSO
     // any: required sets union, properties overlay, annotations win. A
     // dropped structural sibling would silently loosen the published bound
     // (CON-412).
-    const siblings = Object.fromEntries(Object.entries(schema).filter(([key]) => key !== "$ref"))
+    const siblings = Object.fromEntries(Object.entries(schema).filter(([key]) => key !== "$ref" && !(key === "examples" && typeof schema.description === "string" && schema.description.includes("Accepted shape:"))))
     if (Object.keys(siblings).length === 0) return resolved
     const merged: Record<string, unknown> = { ...resolved }
     for (const [key, value] of Object.entries(siblings)) {
@@ -223,12 +223,15 @@ function publishClosedSchema(value: unknown, resolving = new Set<string>()): JSO
   const result: Record<string, unknown> = {}
   for (const [key, child] of Object.entries(schema)) {
     if (key === "$defs" || key === "definitions") continue
+    // The generated description already carries this complete illustrative value.
+    // Keep the canonical, validated examples annotation without publishing it twice.
+    if (key === "examples" && typeof schema.description === "string" && schema.description.includes("Accepted shape:")) continue
     if (key === "properties" && typeof child === "object" && child !== null && !Array.isArray(child)) {
       result[key] = Object.fromEntries(Object.entries(child as Record<string, unknown>).map(([name, property]) => [name, publishClosedSchema(property, resolving)]))
     } else if (key === "items") {
       result[key] = Array.isArray(child) ? child.map((item) => publishClosedSchema(item, resolving)) : publishClosedSchema(child, resolving)
     } else if (["allOf", "anyOf", "oneOf"].includes(key) && Array.isArray(child)) {
-      result[key] = child.map((member) => publishClosedSchema(member, resolving))
+      result[key] = child.map((member) => publishSchemaAlternative(member, resolving))
     } else if (["if", "then", "else", "not", "additionalProperties", "patternProperties", "propertyNames", "contains"].includes(key) && typeof child === "object" && child !== null) {
       result[key] = publishClosedSchema(child, resolving)
     } else {
@@ -236,6 +239,22 @@ function publishClosedSchema(value: unknown, resolving = new Set<string>()): JSO
     }
   }
   return result as JSONSchema
+}
+
+// An alternative container has no field of its own. Its property descriptions
+// already teach every authored member; repeating a full request example on each
+// container spends the provider's bounded input budget without adding a field.
+function publishSchemaAlternative(value: unknown, resolving = new Set<string>()): JSONSchema {
+  const schema = publishClosedSchema(value, resolving)
+  if (schema.type === "object" && typeof schema.description === "string") {
+    const marker = schema.description.indexOf("Accepted shape:")
+    if (marker >= 0) {
+      const original = schema.description.slice(0, marker).trimEnd()
+      if (original) schema.description = original
+      else delete schema.description
+    }
+  }
+  return schema
 }
 
 // Only schema-valued positions are traversed. Property maps and annotation
@@ -293,6 +312,11 @@ function factorPublication(schema: JSONSchema): JSONSchema {
 // Each publication owns its definition table. Only identical repeated schema
 // nodes large enough to outweigh a local pointer/table entry are interned.
 // Children are interned first, so definition dependencies form an acyclic DAG.
+// Interning then re-measures the finished graph: an interned ancestor absorbs
+// duplicate occurrences of a child, so a child definition can end up
+// referenced fewer times than the expanded tree counted. Definitions whose
+// final references no longer outweigh their table entry are inlined back,
+// one candidate per pass in table order, to a fixpoint.
 function internPublication(schema: JSONSchema): JSONSchema {
   const counts = new Map<string, number>()
   const count = (node: JSONSchema): JSONSchema => {
@@ -322,7 +346,43 @@ function internPublication(schema: JSONSchema): JSONSchema {
     definitions[name] = body
     return pointer
   }
-  const result = intern(schema)
+  let result = intern(schema)
+  const referenceCounts = (): Map<string, number> => {
+    const refs = new Map<string, number>()
+    const tally = (node: JSONSchema): JSONSchema => {
+      if (typeof node.$ref === "string") refs.set(node.$ref, (refs.get(node.$ref) ?? 0) + 1)
+      mapPublicationChildren(node, tally)
+      return node
+    }
+    tally(result)
+    for (const body of Object.values(definitions)) tally(body)
+    return refs
+  }
+  for (;;) {
+    const refs = referenceCounts()
+    const inlined = Object.keys(definitions).find((name) => {
+      const body = definitions[name]
+      const occurrences = refs.get(`#/$defs/${name}`) ?? 0
+      const bytes = Buffer.byteLength(JSON.stringify(body), "utf8")
+      const pointerBytes = Buffer.byteLength(JSON.stringify({ $ref: `#/$defs/${name}` }), "utf8")
+      const entryBytes = Buffer.byteLength(JSON.stringify(name), "utf8") + 2
+      return occurrences * bytes <= bytes + occurrences * pointerBytes + entryBytes
+    })
+    if (inlined === undefined) break
+    const ref = `#/$defs/${inlined}`
+    const body = definitions[inlined]
+    // Each substitution site gets its own copy: published documents must stay
+    // structurally alias-free because host hooks may mutate what they receive.
+    const substitute = (node: JSONSchema): JSONSchema => {
+      if (Object.keys(node).length === 1 && node.$ref === ref) return JSON.parse(JSON.stringify(body)) as JSONSchema
+      return mapPublicationChildren(node, substitute)
+    }
+    result = substitute(result)
+    for (const [name, definition] of Object.entries(definitions)) {
+      if (name !== inlined) definitions[name] = substitute(definition)
+    }
+    delete definitions[inlined]
+  }
   return Object.keys(definitions).length ? { ...result, $defs: definitions } : result
 }
 
@@ -342,7 +402,7 @@ export function publishedRequestSchema(toolName: string): JSONSchema {
     const operationName = operation.id.slice(operation.id.indexOf(".") + 1)
     if (operation.id !== "concord_work_transition.workflow_action") return branchFor(operationName, publishClosedSchema((payloadSchemas as Record<string, unknown>)[schemaName(operation.input_schema)]))
     const variants = workflowActionPublicVariants.map((variant) => {
-      const input = publishClosedSchema((payloadSchemas as Record<string, unknown>)[variant.schema])
+      const input = publishSchemaAlternative((payloadSchemas as Record<string, unknown>)[variant.schema])
       return { ...input, description: [input.description, `workflow_action action ${variant.action_id}: closed action-discriminated variant`].filter(Boolean).join("\n") }
     })
     return branchFor(operationName, { type: "object", oneOf: variants })
@@ -395,14 +455,17 @@ export async function publishWorkStartDefinition(
   // Anthropic rejects root oneOf/anyOf/allOf. Presence of work_id selects
   // the same closed branch as validateWorkStartArgs, including invalid IDs.
   // Parameters remain unchanged: publication cannot alter runtime admission.
-  output.jsonSchema = JSON.parse(JSON.stringify({
+  // The merged root properties repeat each branch's field constraints, so the
+  // published document interns like the request tools instead of carrying
+  // every field schema twice.
+  output.jsonSchema = internPublication(JSON.parse(JSON.stringify({
     type: "object",
     properties: { ...capture.properties, ...resume.properties },
     additionalProperties: false,
     if: { required: ["work_id"] },
     then: resume,
     else: capture,
-  }))
+  })))
 }
 
 function baseEnvelope(toolName: string, operation: string, requestID: string) {

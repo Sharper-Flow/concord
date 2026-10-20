@@ -44,7 +44,8 @@ participation remain host-owned. This contract does not change host roles.
 | Work found for another Product | That Product's Linear team, through the Linear MCP server | The Linear issue identity; no serving-Product Concord work unit |
 | Managed work unit and its Linear issue link | Concord | Durable work identity and the recorded issue key, UUID, and URL |
 | Workflow transitions, verdicts, and completion | Concord | Session identity and typed operation records |
-| Review and merge | Repository pull requests and required checks | Review decisions, check results, merge record, and changed files |
+| Main-branch review and merge | Repository pull requests and required checks | Review decisions, check results, merge record, and changed files |
+| Eligible phase-local integration under CD-0241 | Coordinating agent under the declared phase | Rapid-branch merge commit and recorded local gate evidence digests |
 | Implementation isolation | Git branches and worktrees | Branch ancestry, worktree boundaries, and commits |
 | Product law | Accepted decisions, specifications, and constitutional documents | Canonical knowledge records, approved versions, and law relations |
 | Predecessor lessons | Public predecessor records | Reachable citations in [advance-predecessor-lessons.md](advance-predecessor-lessons.md) |
@@ -53,7 +54,11 @@ participation remain host-owned. This contract does not change host roles.
 
 1. Planning records do not silently amend accepted Product law.
 2. Concord's public repository retains public pull-request and required-check
-   evidence. A local assertion is not proof of merge.
+   evidence for merges to main. A local assertion is not proof of a merge to main.
+   CD-0241's recorded local merge evidence proves eligible phase-local integration
+   only, not main-branch delivery, release publication, or installation. Existing
+   independent-review obligations, workflow acceptance, and admission remain
+   required. CD-0241 D4's excluded surfaces keep the standard full route.
 3. Implementation uses an isolated branch and worktree, not the default checkout.
 4. Each pull request for managed work carries one non-closing
    `Related to <issue key>` line that names the recorded issue.
@@ -73,7 +78,10 @@ participation remain host-owned. This contract does not change host roles.
 
 - Given a claim that a Concord change merged
   When the claim is checked
-  Then the public pull request and required checks supply the merge evidence.
+  Then main-branch integration uses public pull-request and required-check evidence,
+  and eligible phase-local integration uses the local merge evidence in CD-0241.
+  Phase-local integration does not assert main-branch delivery, release publication,
+  or installation. Existing workflow acceptance and admission remain required.
 
 - Given implementation work
   When an agent writes it
@@ -116,8 +124,11 @@ participation remain host-owned. This contract does not change host roles.
 - Criterion 1: CD-0213 D1 owns the rule, and
   `python3 scripts/check-knowledge-index.py` validates its supersession graph.
   The deletion slices remove every Concord planning write route.
-- Criterion 2: a merge claim requires the public pull request and required
-  checks. `python3 scripts/check-doc-links.py` validates the cited records only.
+- Criterion 2: main-branch merge claims require the public pull request and
+  required checks. Eligible phase-local integration claims use CD-0241's local
+  merge evidence and do not establish release publication or installation.
+  `python3 scripts/check-doc-links.py` validates the cited records only; it does
+  not prove a merge or workflow admission.
 - Criterion 3: worktree occupancy isolation is exercised by
   `internal/store.TestClaimWorktreeStillRefusesForeignWorkOccupancy`.
 - Criterion 4: `python3 scripts/check-knowledge-index.py` validates the

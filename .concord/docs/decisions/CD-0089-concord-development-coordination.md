@@ -12,7 +12,7 @@
 - **Supersedes:** CD-0010's prohibition on Concord coordinating its own
   development before replacement readiness, and only that prohibition
 - **Preserves:** GitHub Issues as planning authority; pull requests and required
-  checks as review and merge authority; branch and worktree isolation; Product
+  checks as main-branch review and merge authority; branch and worktree isolation; Product
   law; replacement readiness as an evidence claim; and Advance as reference-only
 
 ## Context
@@ -39,8 +39,13 @@ completion claims for that session.
 ### D2. GitHub remains authoritative for planning and merge
 
 GitHub Issues remain the authority for planned work and defects. Pull requests
-and required checks remain the authority for review and merge evidence. Concord
-records links to those public records but does not replace their authority.
+and required checks remain the authority for review and merge evidence for
+changes entering main. For eligible rapid-phase changes, CD-0241 defines local
+integration and phase-delivery evidence. Existing independent-review obligations
+remain unchanged; the reduced merge gate does not waive them. Phase-local
+integration is not evidence of main-branch delivery, release publication, or
+installation. Concord records links to the applicable evidence but does not
+replace its authority. Branch and worktree isolation remain required.
 
 ### D3. Replacement readiness does not gate development
 
@@ -65,9 +70,10 @@ Concord while retaining the external authority boundaries in D2.
 This decision supersedes only CD-0010's self-hosting prohibition. It also
 retires equivalent restatements in CD-0007 D5, CD-0017 D9, CD-0019 D4,
 CD-0021's consequences, CD-0047's context and consequences, CD-0082 D2, and
-CD-0084's context. CD-0010's
-planning, review, merge, isolation, Product-law, and Advance rules remain
-current. Historical research records remain unchanged.
+CD-0084's context. CD-0010's surviving planning, isolation, Product-law, and Advance rules remain
+current. Its review and merge evidence governs main-branch integration;
+CD-0241 defines eligible phase-local integration evidence. Historical research
+records remain unchanged.
 
 The self-hosting prohibition is not current law. A compatible edit states the
 current rule in the owning record under CD-0036. Git history preserves the
@@ -75,7 +81,10 @@ earlier prohibition and the decision that removed it.
 
 CD-0088 D5 records the same self-hosting prohibition for the host-owned work
 bootstrap. This decision supersedes that prohibition after the issue #600 release.
-CD-0088's authority boundaries and bootstrap contract remain current.
+CD-0088's surviving authority boundaries and bootstrap contract remain current.
+Its main-branch review and merge evidence remains GitHub-native; CD-0241 defines
+eligible phase-local integration evidence. The default-checkout implementation
+firewall remains unchanged.
 
 Current instructions and living law cite this decision where they describe
 Concord development authority. This record supersedes only the boundary named
@@ -85,7 +94,9 @@ above.
 
 - Concord development records session identity, issue linkage, transitions,
   evidence, and completion in Concord.
-- GitHub Issues, pull requests, and required checks retain their authority.
+- Pull requests and required checks retain their authority for main-branch
+  integration. CD-0241 defines eligible rapid-phase local integration evidence
+  without waiving independent review.
 - The readiness floor remains measurable evidence and does not block dogfooding.
 - Advance remains a reference source with no Concord write path.
 - Issue #600 is the final bootstrap exception.
@@ -108,7 +119,10 @@ remains an evidence claim governed by the accepted floor and release evidence.
 - Workflow transitions, evidence verdicts, and completion claims have Concord
   operation records.
 - Planned work and defect claims link to authoritative GitHub Issues.
-- Review and merge claims link to the pull request and required checks.
+- Main-branch review and merge claims link to the pull request and required
+  checks. Eligible phase-local integration claims link to the local merge and
+  recorded gate evidence required by CD-0241, with existing independent review
+  preserved.
 - The existing readiness floor remains the source of replacement-readiness
   evidence without blocking Concord development.
 - No Concord operation writes Advance state.

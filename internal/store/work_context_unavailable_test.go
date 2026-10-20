@@ -189,9 +189,14 @@ func TestWorkContextUnavailableTerminalCustody(t *testing.T) {
 		terminal func(t *testing.T, s *Store, workID, attemptID, model string) Event
 	}{
 		{"completed", func(t *testing.T, s *Store, workID, attemptID, model string) Event {
-			return oracleCompletionEvent(t, s, workID, attemptID, "terminal-custody-completed", func(payload *WorkerCompletedPayload) {
+			completion := oracleCompletionEvent(t, s, workID, attemptID, "terminal-custody-completed", func(payload *WorkerCompletedPayload) {
 				payload.ContextFindings = retained
 			})
+			// The sealed terminal ingest derives observed_delivery inside the
+			// transaction; no caller can supply it. Drop the direct-route
+			// fixture members so the custody run rides the core observation
+			// route, and the seam rebinds the reported size to the sealed tree.
+			return checksRepairSealedCompletion(t, completion)
 		}},
 		{"failed", func(t *testing.T, s *Store, workID, attemptID, model string) Event {
 			event := s2WorkerFailedAttributedEvent(workID, attemptID, "terminal-custody-failed", model, WorkerFailureWorkerError, "bounded worker error", time.Unix(3, 0).UTC())

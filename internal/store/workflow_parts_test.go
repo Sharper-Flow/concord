@@ -76,8 +76,9 @@ func TestLiveHeadsAreTheirCompiledCompositions(t *testing.T) {
 // The composed heads match the released heads they succeed beyond the
 // declared member change: each size-capable head equals its predecessor
 // except the version, the action-catalog pin, and the optional job-size
-// members the v2 catalog declares. The normalization
-// strips exactly those members, so any other drift fails the comparison.
+// members, closed split variant, and acceptance classifications the v3
+// catalog declares. The normalization strips exactly those members, so any
+// other drift fails the comparison.
 func TestComposedHeadsMatchTheReleasedHeadsTheySucceed(t *testing.T) {
 	t.Parallel()
 	for _, pair := range []struct {
@@ -88,8 +89,8 @@ func TestComposedHeadsMatchTheReleasedHeadsTheySucceed(t *testing.T) {
 		{"workflow.implementation", 33, 32, false},
 		{"workflow.break_fix", 30, 29, false},
 		{"workflow.research", 20, 19, false},
-		{"workflow.implementation", 34, 33, true},
-		{"workflow.break_fix", 31, 30, true},
+		{"workflow.implementation", 36, 35, true},
+		{"workflow.break_fix", 33, 32, true},
 	} {
 		composed, ok := BuiltinWorkflowRegistry().Lookup(pair.ref, pair.composed)
 		previous, held := BuiltinWorkflowRegistry().Lookup(pair.ref, pair.release)
@@ -112,9 +113,11 @@ func TestComposedHeadsMatchTheReleasedHeadsTheySucceed(t *testing.T) {
 	}
 }
 
-// stripWorkerJobSizeMembers removes the optional size members from the
-// rendered job and acceptance declarations and renames the dispatch packet
-// closure back to the retained one, so the size-capable heads compare equal
+// stripWorkerJobSizeMembers removes the optional size members and the closed
+// split variant from the rendered job declaration, restores the ordinary
+// group's required flags the split variant relaxes, removes the acceptance's
+// supplemental classifications, and renames the dispatch packet closure back
+// to the retained one, so the size-capable heads compare equal
 // to their predecessors modulo the declared member and closure change.
 func stripWorkerJobSizeMembers(t *testing.T, shape string) string {
 	t.Helper()
@@ -150,8 +153,11 @@ func stripWorkerJobSizeMembers(t *testing.T, shape string) string {
 			kept := fields[:0]
 			for _, field := range fields {
 				named, ok := field.(map[string]any)
-				if ok && ((id == "record_worker_job" && members[named["name"].(string)]) || (id == "accept_worker_result" && named["name"] == "supplemental_classifications")) {
+				if ok && ((id == "record_worker_job" && (members[named["name"].(string)] || named["name"] == "split")) || (id == "accept_worker_result" && named["name"] == "supplemental_classifications")) {
 					continue
+				}
+				if ok && id == "record_worker_job" && slices.Contains(workerJobOrdinaryGroup, named["name"].(string)) {
+					named["required"] = true
 				}
 				kept = append(kept, field)
 			}
@@ -160,7 +166,7 @@ func stripWorkerJobSizeMembers(t *testing.T, shape string) string {
 		if id == "dispatch_worker" {
 			for _, field := range fields {
 				if named, ok := field.(map[string]any); ok && named["name"] == "worker_packet" {
-					named["schema_ref"] = "worker_packet3"
+					named["schema_ref"] = checksRepairPacketSchema
 				}
 			}
 		}

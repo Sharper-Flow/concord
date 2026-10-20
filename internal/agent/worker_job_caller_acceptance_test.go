@@ -17,7 +17,12 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 	for _, scenario := range []string{"contained", "missing repair", "wrong owner"} {
 		t.Run(scenario, func(t *testing.T) {
 			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-			grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
+			// Caller repair needs size members absent from legacy consent pins.
+			live, err := store.LiveWorkflowDefinitionForRef("workflow.implementation")
+			if err != nil {
+				t.Fatal(err)
+			}
+			grant.Worktree = seedWorkerRetryMutationFixtureAt(t, s, grant, live)
 			write := func(path, contents string) {
 				t.Helper()
 				path = filepath.Join(grant.Worktree, path)

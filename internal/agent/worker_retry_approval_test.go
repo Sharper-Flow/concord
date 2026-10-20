@@ -404,7 +404,14 @@ func seedWorkerRetryMutationFixture(t *testing.T, s *store.Store, grant Authorit
 	// A failed retry below the wall asks for the operator's approval only
 	// under the legacy approval policy; consequence_v1 revalidates the
 	// binding instead.
-	if got := seedAgentWorkflowAt(t, s, grant, legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation")); got != 4 {
+	return seedWorkerRetryMutationFixtureAt(t, s, grant, legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation"))
+}
+
+// seedWorkerRetryMutationFixtureAt shares the execution/worktree setup across
+// registered pins without changing the legacy consent fixture's default.
+func seedWorkerRetryMutationFixtureAt(t *testing.T, s *store.Store, grant Authority, registered store.RegisteredDefinition) string {
+	t.Helper()
+	if got := seedAgentWorkflowAt(t, s, grant, registered); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}

@@ -395,6 +395,47 @@ func TestUpcasterConfinement(t *testing.T) {
 	}
 }
 
+// The analysis proves the recorded-schema adapt route: the one adapt caller,
+// and every adapt result passing through the forwarder to the dispatcher.
+// The analysis proves the recorded-schema adapt route: the one adapt caller,
+// and every adapt result passing through the forwarder to the dispatcher.
+// Each escape a reviewed route must exclude leaves no route.
+func TestAdaptRoute(t *testing.T) {
+	const store = "internal/store/store.go"
+	analysis := analyzeFixture(t)
+	route := analysis.Adapt
+	if route == nil || route.Function != storePkg+".prepareRecordedEvent" {
+		t.Fatalf("adapt route %+v", route)
+	}
+	if route.FunctionDigest == "" || !slices.Equal(route.Forwarders, []namedHash{{storePkg + ".prepareEventWithRegistration", route.Forwarders[0].Digest}}) {
+		t.Fatalf("adapt route %+v", route)
+	}
+	// tail replaces prepareRecordedEvent's adapt tail; escape runs between
+	// the adapt assignment and the forwarder call.
+	tail := func(escape string) mutation {
+		old := "\t\tevent, err = schemas[selected].adapt(event)\n\t\tif err != nil {\n\t\t\treturn Event{}, err\n\t\t}\n\t}\n\treturn prepareEventWithRegistration(event, registration)\n}"
+		now := "\t\tevent, err = schemas[selected].adapt(event)\n\t\tif err != nil {\n\t\t\treturn Event{}, err\n\t\t}\n\t\t" + escape + "\n\t}\n\treturn prepareEventWithRegistration(event, registration)\n}"
+		return mutation{store, old, now}
+	}
+	written := tail("if err := appendEvent(nil, event); err != nil {\n\t\t\treturn Event{}, err\n\t\t}")
+	compared := tail("if event.Kind == \"thing.b\" {\n\t\t\treturn Event{}, nil\n\t\t}")
+	handAdapt := tail("if _, err := handAdapt(schemas[selected].adapt, event); err != nil {\n\t\t\treturn Event{}, err\n\t\t}")
+	for name, mutations := range map[string][]mutation{
+		"adapt result written":   {written},
+		"adapt result returned":  {mutation{store, "\treturn prepareEventWithRegistration(event, registration)\n}", "\treturn event, nil\n}"}},
+		"adapt result compared":  {compared},
+		"forwarder leaks result": {mutation{store, "return upcastEventWithRegistration(event, registration)\n}", "sink(event)\n\treturn upcastEventWithRegistration(event, registration)\n}"}, mutation{store, "func ReadEvent(", "func sink(Event) {}\n\nfunc ReadEvent("}},
+		"second adapt caller":    {mutation{store, "func ReadEvent(", "func secondAdaptCaller(schemas []recordedPayloadSchema, event Event) (Event, error) { return schemas[0].adapt(event) }\n\nfunc ReadEvent("}},
+		"adapt field handed on":  {mutation{store, "func ReadEvent(", "func handAdapt(adapt func(Event) (Event, error), event Event) (Event, error) { return adapt(event) }\n\nfunc ReadEvent("}, handAdapt},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if analysis := analyzeFixture(t, mutations...); analysis.Adapt != nil {
+				t.Fatalf("adapt route survived: %+v", analysis.Adapt)
+			}
+		})
+	}
+}
+
 // A function that calls the dispatcher once with a lookup and once with its
 // own registration parameter forwards it: its callers are dispatcher callers.
 func TestDispatcherCallersFollowEveryForwardingCall(t *testing.T) {

@@ -460,9 +460,9 @@ class CaseTests(unittest.TestCase):
         self.assertNotIn("invoke", row)
 
     def test_tree_bytes_counts_a_journal_the_writer_deletes_mid_walk_as_zero(self) -> None:
-        # The merge-queue failure on #1946: the confined writer's SQLite journal
-        # vanished between is_file() and stat(), and the walk failed the whole
-        # case at the harness stage instead of counting the remaining tree.
+        # The confined writer may delete its SQLite journal between is_file()
+        # and stat(); the walk must count the remaining tree instead of failing
+        # the whole case at the harness stage.
         root = self.fixture.root / "journal-race"
         (root / "store").mkdir(parents=True)
         journal = root / "store" / "concord.db-journal"

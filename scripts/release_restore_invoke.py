@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """The approval-free invoke phase of the release restore gate.
 
-Every released binary exposes `concord invoke`, and from v0.1.0 the operation
-`concord_work_define.capture` is approval-free in its CLI enum at every tag.
+Released binaries register `concord invoke` and the approval-free operation
+`concord_work_define.capture`. Registration alone does not prove a usable
+mutation response: execution errors keep the writer held, never green-skipped.
 Reaching it needs a registered client and, before v4.6.0, a grant minted from
 an Ed25519-signed canonical assertion; the binary has no keygen, so the key
 material comes from `openssl` on PATH. The signing eras, envelope shapes, and
@@ -25,11 +26,12 @@ digest changed formulas with the membership-set projection: the tag's own
 A refusal here is a named case failure, never a skip: the gate reports the
 stage that refused and the writer stays unevaluated.
 
-The invoke plan is per-tag and lists only steps the tag's own source can run:
+The invoke plan is per-tag and lists steps supported by tagged registrations:
 capture-only before `concord_work_relate.message_send` and
 `concord_work_relate.message_withdraw` are registered, and two distinct
 captures then send and withdraw once they are. The gate hashes the actual
-plan, so no report lists an unexecuted step or reuses another variant's hash.
+plan. Only successful execution reports that plan as completed; no failed
+capture becomes a bootstrap-only success without a separate source/behavior proof.
 """
 
 from __future__ import annotations

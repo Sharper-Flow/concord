@@ -146,6 +146,9 @@ if sys.argv[1] == "invoke":
                (operation + "-" + str(db.execute("SELECT COUNT(*) FROM domain_events").fetchone()[0]), kind, payload_version,
                 json.dumps(payload)))
     db.commit()
+    if MODE == "capture-marshal-error" and operation == "capture":
+        print("json: error calling MarshalJSON for type agent.Envelope: invalid result payload: type mismatch at $.changed_refs[0].version", file=sys.stderr)
+        sys.exit(1)
     print(json.dumps({{"outcome": "ok", "changed_refs": refs}}))
     sys.exit(0)
 print(json.dumps({{"ok": True}}))
@@ -353,6 +356,13 @@ class CaseTests(unittest.TestCase):
         resolved = gate.resolve({"value": gate.repository("home")}, store, self.fixture.root, time.monotonic() + 10)
         self.assertTrue(Path(resolved["value"]).is_dir())
 
+    def test_a_capture_output_failure_keeps_the_legacy_writer_held(self) -> None:
+        row = self.case(self.fixture.publish("v0.1.0", mode="capture-marshal-error"), self.fixture.candidate())
+        self.assertCase(row, "unknown", "invoke-invoke")
+        self.assertIn("capture exited 1: json: error calling MarshalJSON for type agent.Envelope: invalid result payload: type mismatch at $.changed_refs[0].version", row["detail"])
+        self.assertEqual(row["witnesses"], [])
+        self.assertNotIn("invoke", row)
+
     def test_writer_environment_is_constructed(self) -> None:
         self.case(self.fixture.publish("v1.0.0", mode="refuse"), self.fixture.candidate())
         case = self.fixture.root / "work" / "v1.0.0"
@@ -401,8 +411,10 @@ class CaseTests(unittest.TestCase):
     def test_exhausted_wall_budget_is_unknown(self) -> None:
         writer = self.fixture.publish("v1.0.0")
         work = self.fixture.root / "work"
-        row = gate.run_writer_case("owner/repo", writer, self.fixture.candidate(), work, work / "s", 60, time.monotonic() - 1,
-                                   gate.Scratch(1 << 30, 1), gate.Transfer(1 << 30))
+        with patch.object(gate, "tag_facts", side_effect=AssertionError("expired cases must not read source")) as facts:
+            row = gate.run_writer_case("owner/repo", writer, self.fixture.candidate(), work, work / "s", 60, time.monotonic() - 1,
+                                       gate.Scratch(1 << 30, 1), gate.Transfer(1 << 30))
+        facts.assert_not_called()
         self.assertCase(row, "unknown", "wall")
 
     def args(self, candidate: Path, version: str = "v9.0.0") -> argparse.Namespace:

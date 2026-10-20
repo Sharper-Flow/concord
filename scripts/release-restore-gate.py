@@ -410,8 +410,7 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
     started = time.monotonic()
     repo = Path(__file__).resolve().parents[1]
     steps = recipe_for(writer.tag)
-    # The hash is empty only when the tag's own source cannot name a plan; the
-    # row then holds at invoke-tag-facts before anything runs.
+    # No hash claims a plan when the wall is exhausted or its source is unreadable.
     row = dataclasses.asdict(writer) | {"recipe": RECIPE_ID, "recipe_sha256": "", "streams": str(streams), "witnesses": []}
     case = work / writer.tag
 
@@ -425,14 +424,14 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
     guard = Guard(check, scratch.allowance)
 
     try:
+        if started >= wall_deadline:
+            raise CaseFailure("unknown", "wall", "global budget exhausted before the case started")
         try:
             facts = tag_facts(repo, writer.tag)
             plan = invoke_plan(facts)
         except InvokeError as error:
             raise CaseFailure("unknown", f"invoke-{error.stage}", error.detail) from None
         row["recipe_sha256"] = recipe_sha256(steps, plan)
-        if started >= wall_deadline:
-            raise CaseFailure("unknown", "wall", "global budget exhausted before the case started")
         deadline = min(started + case_seconds, wall_deadline)
         binary, asset_digest = verify_writer_asset(repository, writer, case, deadline, streams, transfer, guard, room)
         env = sandbox_env(case)

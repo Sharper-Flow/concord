@@ -537,8 +537,9 @@ func validateWorkflowActionPayloadInDocument(document map[string]any, definition
 	// generated envelope schema requires them there, and the
 	// operator-selection guard owns their presence at the agent boundary.
 	missing := make([]string, 0)
+	exempt := workflowAlternativeForbiddenFields(actionID, fields)
 	for _, field := range definitionFields {
-		if field.Required && !field.Envelope {
+		if field.Required && !field.Envelope && !exempt[field.Name] {
 			if _, ok := fields[field.Name]; !ok {
 				missing = append(missing, field.Name)
 			}
@@ -596,6 +597,23 @@ func validateWorkflowActionPayloadInDocument(document map[string]any, definition
 		return err
 	}
 	return nil
+}
+
+// workflowAlternativeForbiddenFields names the fields a fully supplied
+// alternative group forbids. A required field is not required beside a group
+// that forbids it: the published branch for that group omits it, and the
+// cross-field rule refuses it there.
+func workflowAlternativeForbiddenFields(actionID string, fields map[string]json.RawMessage) map[string]bool {
+	forbidden := map[string]bool{}
+	for _, group := range workflowActionCrossField(actionID).Alternatives {
+		if slices.ContainsFunc(group.Fields, func(name string) bool { _, ok := fields[name]; return !ok }) {
+			continue
+		}
+		for _, name := range group.Forbids {
+			forbidden[name] = true
+		}
+	}
+	return forbidden
 }
 
 // validateWorkflowPayloadCrossFieldRules enforces the legal input

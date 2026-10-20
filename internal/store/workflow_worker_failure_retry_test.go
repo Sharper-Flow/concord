@@ -417,7 +417,7 @@ func TestCombinedRejectRetryDispatchesThroughTheDispatchOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := payloadschema.Validate("worker_packet", packetBytes); err != nil {
+	if err := payloadschema.Validate(pinnedDispatchPacketSchemaRef(t, s, workID), packetBytes); err != nil {
 		t.Fatalf("the serialized retry packet does not satisfy the published worker packet schema: %v", err)
 	}
 	var serializedPacket map[string]any

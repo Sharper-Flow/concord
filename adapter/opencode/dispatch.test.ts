@@ -2327,6 +2327,38 @@ const dispatchedJob = {
 }
 const dispatchedJobBinding = { job_id: dispatchedJob.job_id, revision: dispatchedJob.revision, digest: dispatchedJob.digest }
 const jobPacket = (): AgentLanePacket => ({ ...packet(), schema_version: "1.1", inputs: { ...packet().inputs, worker_job: { ...dispatchedJob } } })
+
+test("size and direct-caller claims remain reported content with packet-owned identity", () => {
+  const p = { ...jobPacket(), schema_version: packetSchemaVersions[packetSchemaVersions.length - 1] }
+  const production_size = { base: "1".repeat(40), tree: "2".repeat(40), count: 17 }
+  const direct_caller_repairs = [{
+    owner: { path: "adapter/opencode/dispatch.ts", entry_point: "readWorkerReport" },
+    caller: { path: "adapter/opencode/packet.ts", entry_point: "buildAgentLanePacket" },
+    edge: "function call",
+    exposing: "fixture:packet-with-size-binding",
+    changed_paths: ["adapter/opencode/packet.ts"],
+    checks: {
+      baseline_pass: { observed: "evidence:baseline-pass" },
+      owner_only_fail: { observed: "evidence:owner-only-fail", inferred_cause: "the caller still used the old return shape" },
+      combined_pass: { observed: "evidence:combined-pass" },
+    },
+  }]
+  const claimed = report({ production_size, direct_caller_repairs, worker_job: { job_id: "job:foreign" } })
+  const before = structuredClone(claimed)
+  for (const admitted of [resolveWorkerReportFromText(JSON.stringify(claimed), p), resolveWorkerReport(runOutput("", claimed), p)]) {
+    expect("report" in admitted).toBe(true)
+    if ("report" in admitted) {
+      expect(admitted.report.production_size).toEqual(production_size)
+      expect(admitted.report.direct_caller_repairs).toEqual(direct_caller_repairs)
+      expect(admitted.report.worker_job).toEqual(dispatchedJobBinding)
+      expect(Object.hasOwn(admitted.report, "supplemental_classifications")).toBe(false)
+      expect(Object.hasOwn(admitted.report, "worker_production_size")).toBe(false)
+    }
+  }
+  expect(claimed).toEqual(before)
+  expect("report" in resolveWorkerReportFromText(JSON.stringify(report({ production_size: { ...production_size, count: -1 } })), p)).toBe(false)
+})
+
 const workerJobEchoes = [
   ["matching", dispatchedJobBinding],
   ["wrong job", { ...dispatchedJobBinding, job_id: "job:other" }],

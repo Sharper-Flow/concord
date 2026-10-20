@@ -149,6 +149,18 @@ export interface AgentLanePacketWorkerJob {
   // revision a pre-oracle definition recorded; required by oracle-capable
   // definition versions. The same copy reaches every admitted lane.
   acceptance_oracle?: AgentLaneAcceptanceOracle
+  production_size_max?: number
+  measurement_basis?: {
+    base_commit: string
+    paths: { path: string; class: "production" | "test" | "documentation" | "generated"; generator_ref?: string }[]
+  }
+  direct_caller_allowance?: {
+    project_id: string
+    mechanisms: AgentLaneOracleMechanism[]
+    domain_ids: string[]
+    law_bindings: AgentLaneOracleLawBinding[]
+  }
+  caller_exclusions?: string[]
   checks_repair?: {
     reason: string
     revisions: { worker_job: AgentLaneReportWorkerJob; checks: string[] }[]
@@ -507,6 +519,40 @@ export interface AgentLaneReportBaseComparison {
   checks: AgentLaneReportBaseComparisonCheck[]
 }
 
+// AgentLaneReportProductionSize mirrors the report's production_size
+// (CD-0225 D2): the production lines the worker counted between the job's
+// recorded base and its delivered tree. The core binds base and tree.
+export interface AgentLaneReportProductionSize {
+  base: string
+  tree: string
+  count: number
+}
+
+// AgentLaneReportCallerMechanism names one direct-caller repair endpoint.
+export interface AgentLaneReportCallerMechanism {
+  path: string
+  entry_point: string
+}
+
+// AgentLaneReportCallerRepairCheck keeps the observed output reference apart
+// from the optional inferred cause (CD-0227 D2).
+export interface AgentLaneReportCallerRepairCheck {
+  observed: string
+  inferred_cause?: string
+}
+
+// AgentLaneReportDirectCallerRepair mirrors one direct_caller_repairs entry
+// of contracts/agent-lane-report.schema.json (CD-0227 D2).
+export interface AgentLaneReportDirectCallerRepair {
+  owner: AgentLaneReportCallerMechanism
+  caller: AgentLaneReportCallerMechanism
+  edge: string
+  exposing: string
+  changed_paths: string[]
+  checks: { baseline_pass: AgentLaneReportCallerRepairCheck; owner_only_fail: AgentLaneReportCallerRepairCheck; combined_pass: AgentLaneReportCallerRepairCheck }
+  generator_ref?: string[]
+}
+
 // AgentLaneReportReviewFinding is one typed review finding as the schema
 // closes it (CD-0197): a severity from the P0-P3 scale, a confidence from the
 // closed low/medium/high scale, and the bounded detail. The optional oracle
@@ -594,6 +640,8 @@ export interface AgentLaneReport {
   base_comparison?: AgentLaneReportBaseComparison
   review?: AgentLaneReportReview
   worker_job?: AgentLaneReportWorkerJob
+  production_size?: AgentLaneReportProductionSize
+  direct_caller_repairs?: AgentLaneReportDirectCallerRepair[]
 }
 
 export type CanonicalLaneReport = AgentLaneReport & Pick<AgentLanePacket, "attempt_id" | "lane_id" | "lane_version" | "lane_digest">
@@ -3118,6 +3166,8 @@ async function completeWorkerSession(
     base_comparison: terminal.report.base_comparison,
     review: terminal.report.review,
     worker_job: terminal.report.worker_job,
+    production_size: terminal.report.production_size,
+    direct_caller_repairs: terminal.report.direct_caller_repairs,
     worker_directory: workerDirectory,
     assertion: terminalAssertion,
   }

@@ -39,7 +39,33 @@ func workerDiffCommit(t *testing.T, j *candidateJourney, id, content string) str
 
 func workerDiffDispatch(t *testing.T, j *candidateJourney, attempt string) WorkerDiffRequest {
 	t.Helper()
-	job := reviewSubjectReadyRevision(t, j.fixture)
+	// The diff-reading job's scope covers the fixture's committed edit
+	// paths, so the bounded read returns the review delta.
+	fields := map[string]any{
+		"job_id": "diff-read-" + attempt, "objective": "read the bounded review delta",
+		"stopping_condition": "the bounded review delta is read", "path_scope": []string{"internal/store"},
+		"checks": []string{}, "ready": true, "readiness_evidence": []string{"evidence:ready"},
+	}
+	if sizeCapablePinForWork(t, j.s, j.workID) {
+		bootstrapOracleFixtureSubject(t, j.s, j.workID)
+		fields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, j.s, j.workID)
+		for member, value := range workerJobSizeMembersForTest(t, j.s, j.workID, fields) {
+			fields[member] = value
+		}
+	}
+	if err := recordWorkerJobActionForTest(t, j.s, j.workID, j.fixture.owner, fields); err != nil {
+		t.Fatalf("record diff-read job: %v", err)
+	}
+	views, err := readWorkerJobRevisions(context.Background(), j.s.db, j.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var job WorkerJobBinding
+	for _, view := range views {
+		if view.Binding.JobID == "diff-read-"+attempt {
+			job = view.Binding
+		}
+	}
 	return workerDiffDispatchJob(t, j, attempt, job)
 }
 
@@ -47,7 +73,7 @@ func workerDiffDispatchJob(t *testing.T, j *candidateJourney, attempt string, jo
 	t.Helper()
 	version, digest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attempt, "review", version, digest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job, "review")
 	ctx, err := reviewSubjectPrepareDispatch(j.s, j.workID, j.repo)
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +185,19 @@ func TestReadWorkerDiffRequiresNonemptyLiteralJobScope(t *testing.T) {
 	for i, scope := range [][]string{{"internal/store/*"}, {}} {
 		jobID := fmt.Sprintf("diff-scope-%d", i)
 		fields := map[string]any{"job_id": jobID, "objective": "read only the declared literal scope", "stopping_condition": "the bounded review delta is read", "path_scope": scope, "checks": []string{}, "ready": true, "readiness_evidence": []string{"evidence:ready"}}
-		if err := recordWorkerJobFieldsForTest(t, j.s, j.workID, j.fixture.owner, fields); err != nil {
+		var err error
+		if len(scope) == 0 {
+			// A read-only job keeps the declared empty scope; the shared
+			// helper's size members would author a per-job scope instead.
+			if oracleCapablePinForWork(t, j.s, j.workID) {
+				bootstrapOracleFixtureSubject(t, j.s, j.workID)
+				fields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, j.s, j.workID)
+			}
+			err = recordWorkerJobActionForTest(t, j.s, j.workID, j.fixture.owner, fields)
+		} else {
+			err = recordWorkerJobFieldsForTest(t, j.s, j.workID, j.fixture.owner, fields)
+		}
+		if err != nil {
 			t.Fatal(err)
 		}
 		views, err := readWorkerJobRevisions(context.Background(), j.s.db, j.workID)

@@ -1128,8 +1128,12 @@ func TestDistinctWorkflowOwnerAcceptsCompletedWorkerResult(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version,json_extract(payload,'$.worker_attempt_id') FROM domain_events WHERE event_id=?`, "accept-authority:completed").Scan(&payloadVersion, &workerAttempt); err != nil {
 		t.Fatal(err)
 	}
-	if payloadVersion != 5 || workerAttempt != attemptID {
-		t.Fatalf("accept completion evidence = version %d attempt %q, want v5 %q", payloadVersion, workerAttempt, attemptID)
+	completion, ok := registeredEventKind(WorkflowActionCompleted)
+	if !ok {
+		t.Fatal("workflow.action_completed is not registered")
+	}
+	if payloadVersion != completion.CurrentVersion || workerAttempt != attemptID {
+		t.Fatalf("accept completion evidence = version %d attempt %q, want v%d %q", payloadVersion, workerAttempt, completion.CurrentVersion, attemptID)
 	}
 }
 

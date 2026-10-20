@@ -148,20 +148,27 @@ func oracleBoundedText(value, label string) error {
 // union for one law binding: the store's law-revision identity only, with
 // no repository fields.
 func validateOracleLawSource(source WorkContextReadingSource) error {
+	return validateWorkerJobLawSource("acceptance oracle", source)
+}
+
+// validateWorkerJobLawSource is the surface-parameterized form of
+// validateOracleLawSource: surface names the carrying member (the acceptance
+// oracle owner or the direct-caller allowance) in every refusal.
+func validateWorkerJobLawSource(surface string, source WorkContextReadingSource) error {
 	if source.Kind != WorkContextSourceKnowledge {
-		return oracleFailure(KindInvalidPayload, "acceptance oracle law binding source must be a knowledge source", "bind law by source_id, law_id, and the pinned content hash")
+		return oracleFailure(KindInvalidPayload, surface+" law binding source must be a knowledge source", "bind law by source_id, law_id, and the pinned content hash")
 	}
 	if len(source.SourceID) < 2 || len(source.SourceID) > oracleProjectIDMaxBytes {
-		return oracleFailure(KindInvalidPayload, "acceptance oracle law binding source_id must be between 2 and 128 bytes", "name the knowledge source")
+		return oracleFailure(KindInvalidPayload, surface+" law binding source_id must be between 2 and 128 bytes", "name the knowledge source")
 	}
 	if len(source.LawID) < 2 || len(source.LawID) > workContextLawIDMaxBytes {
-		return oracleFailure(KindInvalidPayload, "acceptance oracle law binding law_id must be between 2 and 256 bytes", "name the bound law")
+		return oracleFailure(KindInvalidPayload, surface+" law binding law_id must be between 2 and 256 bytes", "name the bound law")
 	}
 	if !workflowDigest(source.ContentHash) {
-		return oracleFailure(KindInvalidPayload, "acceptance oracle law binding content_hash must be a sha256 digest", "pin the law revision content hash")
+		return oracleFailure(KindInvalidPayload, surface+" law binding content_hash must be a sha256 digest", "pin the law revision content hash")
 	}
 	if source.ProjectID != "" || source.Path != "" || source.CommitOID != "" {
-		return oracleFailure(KindInvalidPayload, "acceptance oracle law binding carries repository source fields", "use one closed source arm")
+		return oracleFailure(KindInvalidPayload, surface+" law binding carries repository source fields", "use one closed source arm")
 	}
 	return nil
 }
@@ -655,7 +662,7 @@ func validateAcceptanceOracleAuthorityTx(ctx context.Context, tx *sql.Tx, workID
 		projects[control.RecipeSource.ProjectID] = true
 	}
 	for domainID := range domains {
-		if err := validateOracleDomainTx(ctx, tx, workID, contractVersion, domainID); err != nil {
+		if err := validateOracleDomainTx(ctx, tx, workID, contractVersion, "acceptance oracle", domainID); err != nil {
 			return err
 		}
 	}
@@ -670,16 +677,8 @@ func validateAcceptanceOracleAuthorityTx(ctx context.Context, tx *sql.Tx, workID
 		}
 	}
 	for binding := range laws {
-		var pinnedHash string
-		err := tx.QueryRowContext(ctx, `SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=? AND law_id=?`, workID, contractVersion, binding.Source.LawID).Scan(&pinnedHash)
-		if err == sql.ErrNoRows {
-			return oracleFailure(KindInvalidPayload, "acceptance oracle binds law "+binding.Source.LawID+" that the active parent contract did not pin", "bind a law revision the active contract pinned")
-		}
-		if err != nil {
-			return wrapFailure(KindUnavailable, "worker_oracle", "cannot verify the acceptance-oracle law pin", true, "retry once the contract projection is readable", err)
-		}
-		if pinnedHash != binding.Source.ContentHash {
-			return oracleFailure(KindInvalidPayload, "acceptance oracle binds law "+binding.Source.LawID+" at a content hash the active parent contract did not pin", "bind the pinned law revision content hash")
+		if err := validateOracleLawPinTx(ctx, tx, workID, contractVersion, "acceptance oracle", binding); err != nil {
+			return err
 		}
 	}
 	for _, control := range oracle.Controls {
@@ -704,13 +703,31 @@ func validateAcceptanceOracleAuthorityTx(ctx context.Context, tx *sql.Tx, workID
 	return nil
 }
 
+// validateOracleLawPinTx joins one law binding against the active contract's
+// pinned law revisions: the law must be pinned at the binding's content
+// hash. Surface names the carrying member in every refusal.
+func validateOracleLawPinTx(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64, surface string, binding OracleLawBinding) error {
+	var pinnedHash string
+	err := tx.QueryRowContext(ctx, `SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=? AND law_id=?`, workID, contractVersion, binding.Source.LawID).Scan(&pinnedHash)
+	if err == sql.ErrNoRows {
+		return oracleFailure(KindInvalidPayload, surface+" binds law "+binding.Source.LawID+" that the active parent contract did not pin", "bind a law revision the active contract pinned")
+	}
+	if err != nil {
+		return wrapFailure(KindUnavailable, "worker_oracle", "cannot verify the "+surface+" law pin", true, "retry once the contract projection is readable", err)
+	}
+	if pinnedHash != binding.Source.ContentHash {
+		return oracleFailure(KindInvalidPayload, surface+" binds law "+binding.Source.LawID+" at a content hash the active parent contract did not pin", "bind the pinned law revision content hash")
+	}
+	return nil
+}
+
 // validateOracleDomainTx joins one owner Domain against the current Product
 // registry and the active contract's approved affected scope. It mirrors the
 // registry and scope joins of ValidateWorkContextDomainTx without that
 // surface's product-wide rationale rule: an owner names a mechanism inside
 // one Domain, and the oracle shape carries no rationale field to import
-// that rule's semantics.
-func validateOracleDomainTx(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64, domainID string) error {
+// that rule's semantics. Surface names the carrying member in every refusal.
+func validateOracleDomainTx(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64, surface, domainID string) error {
 	productID, err := architectureBindingProductIDTx(ctx, tx, workID)
 	if err != nil {
 		return err
@@ -730,14 +747,14 @@ func validateOracleDomainTx(ctx context.Context, tx *sql.Tx, workID string, cont
 				return wrapFailure(KindUnavailable, "worker_oracle", "cannot resolve the named Domain", true, "retry once the Domain projection is readable", err)
 			}
 			if elsewhere > 0 {
-				return oracleFailure(KindUnknownScope, "acceptance oracle Domain "+domainID+" belongs to another Product", "name a current Domain of the work's Product")
+				return oracleFailure(KindUnknownScope, surface+" Domain "+domainID+" belongs to another Product", "name a current Domain of the work's Product")
 			}
-			return oracleFailure(KindUnknownScope, "acceptance oracle names unknown Domain "+domainID, "name a current Domain of the Product registry")
+			return oracleFailure(KindUnknownScope, surface+" names unknown Domain "+domainID, "name a current Domain of the Product registry")
 		}
 		return wrapFailure(KindUnavailable, "worker_oracle", "cannot read the named Domain", true, "retry once the Domain projection is readable", err)
 	}
 	if status != "current" || domainHash != registryHash {
-		return oracleFailure(KindStaleRequiresReview, "acceptance oracle names non-current or stale Domain "+domainID, "rebuild the current Product Domain registry")
+		return oracleFailure(KindStaleRequiresReview, surface+" names non-current or stale Domain "+domainID, "rebuild the current Product Domain registry")
 	}
 	var binding int
 	err = tx.QueryRowContext(ctx, `SELECT 1 FROM workflow_architecture_bindings WHERE work_id=? AND contract_version=?`, workID, contractVersion).Scan(&binding)
@@ -747,7 +764,7 @@ func validateOracleDomainTx(ctx context.Context, tx *sql.Tx, workID string, cont
 			return wrapFailure(KindUnavailable, "worker_oracle", "cannot read the approved affected Domain scope", true, "retry once the contract projection is readable", err)
 		}
 		if affected == 0 {
-			return oracleFailure(KindUnknownScope, "acceptance oracle Domain "+domainID+" is outside the approved affected Domain scope of the active contract", "name a Domain the approved contract affects")
+			return oracleFailure(KindUnknownScope, surface+" Domain "+domainID+" is outside the approved affected Domain scope of the active contract", "name a Domain the approved contract affects")
 		}
 	} else if err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "worker_oracle", "cannot read the contract architecture binding", true, "retry once the contract projection is readable", err)

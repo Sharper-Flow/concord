@@ -882,6 +882,163 @@ class CommittedContentRuleTests(unittest.TestCase):
                     generator.committed_content_rule()
 
 
+class JobSizeProjectionTests(unittest.TestCase):
+    # CD-0225 D2 and CD-0227 D2: the capped job's size accounting, the
+    # coordinator-owned overrun split, and the direct-caller repair boundary
+    # are generated lane instructions, so the tests prove the projected
+    # behavior for every relevant lane, not only the helper.
+
+    @staticmethod
+    def normalized(lane):
+        return " ".join(lane_projection(lane).split())
+
+    def manifest_lane(self, lane_id):
+        manifest, _ = generator.load_manifest()
+        return next(lane for lane in manifest["lanes"] if lane["id"] == lane_id)
+
+    def test_capped_size_rule_is_stated_for_every_registered_lane(self):
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            with self.subTest(lane=lane["id"]):
+                text = self.normalized(lane)
+                self.assertIn("## Job size and caller boundary", text)
+                self.assertIn("carries `production_size_max` and `measurement_basis`", text)
+                self.assertIn(
+                    "measured against the recorded `measurement_basis.base_commit` under the recorded path inventory",
+                    text,
+                )
+                self.assertIn("counts as `production`", text)
+                self.assertIn("additions plus deletions of text lines over the whole base..tree delta", text)
+                self.assertIn("a binary path adds no text lines and never establishes available production size", text)
+
+    def test_only_the_implementation_lane_carries_the_size_report_and_split_boundary(self):
+        manifest, _ = generator.load_manifest()
+        carrying = set()
+        for lane in manifest["lanes"]:
+            text = self.normalized(lane)
+            if "completed report carries `production_size`" not in text:
+                continue
+            carrying.add(lane["id"])
+            self.assertIn(
+                "`base` is the packet's `measurement_basis.base_commit`, `tree` is the raw delivered commit OID, "
+                "and `count` is that whole base..tree text count",
+                text,
+            )
+            self.assertIn(
+                "Never pre-apply a proposed supplemental classification and never subtract another job's accepted paths",
+                text,
+            )
+            self.assertIn(
+                "the coordinator alone applies final classifications and foreign subtraction, "
+                "records the accepted size, and holds it to the fixed cap",
+                text,
+            )
+            self.assertIn("an overrun stays reported", text)
+            self.assertIn(
+                "Never raise the cap, hide the delta, rebase the correction, invent an acceptance, "
+                "author a split, or reset the cumulative base",
+                text,
+            )
+        self.assertEqual(carrying, {"implement"})
+
+    def test_direct_caller_boundary_is_implementation_lane_text(self):
+        manifest, _ = generator.load_manifest()
+        repairs_max = REPORT_SCHEMA["properties"]["direct_caller_repairs"]["maxItems"]
+        for lane in manifest["lanes"]:
+            text = self.normalized(lane)
+            if lane["id"] != "implement":
+                self.assertNotIn("`direct_caller_repairs` entries", text)
+                continue
+            with self.subTest(lane=lane["id"]):
+                self.assertIn(
+                    "under the packet's `direct_caller_allowance` and outside its `caller_exclusions`, "
+                    "never as a widening of `path_scope`",
+                    text,
+                )
+                self.assertIn(f"Report at most {repairs_max} `direct_caller_repairs` entries", text)
+                self.assertIn(
+                    "the owner and caller mechanisms, the direct edge between them, "
+                    "the exposing request or fixture, the changed paths",
+                    text,
+                )
+                self.assertIn("the three checks `baseline_pass`, `owner_only_fail`, and `combined_pass`", text)
+                self.assertIn("its `observed` output apart from any `inferred_cause`", text)
+                self.assertIn("A compile-time break names the compile check in all three", text)
+                self.assertIn("minimum source and test change that preserves an existing direct caller's request behavior", text)
+                self.assertIn("names each generator input in `generator_ref` and among the changed paths", text)
+                self.assertIn("a generated output is never hand-edited", text)
+                self.assertIn("A transitive caller is not a direct edge and joins no repair", text)
+                self.assertIn("a path another work item owns is never claimed", text)
+                self.assertIn(
+                    "the Project, approved Domains, pinned law, and other work's scope, resource, and overlap boundaries stay",
+                    text,
+                )
+                self.assertIn(
+                    "Missing authority or evidence stops the repair: report the blocker through this report, "
+                    "never as a direct operator question",
+                    text,
+                )
+
+    def test_other_lanes_invent_no_size_fields_and_gain_no_capability(self):
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            if lane["id"] == "implement":
+                continue
+            with self.subTest(lane=lane["id"]):
+                text = self.normalized(lane)
+                self.assertIn("A capped packet expands no capability", text)
+                self.assertIn("reports no `production_size` and no `direct_caller_repairs`", text)
+                self.assertIn("never invents either field", text)
+
+    def test_review_distinguishes_missing_evidence_from_a_proven_defect(self):
+        text = self.normalized(self.manifest_lane("review"))
+        self.assertIn("Examine the size and caller-repair evidence a completed report carries", text)
+        self.assertIn("distinguish missing evidence from a proven defect", text)
+
+    def test_design_is_not_mislabelled_read_only_by_the_size_block(self):
+        # The design lane edits its scoped files; it is not the implementation
+        # capability class, and the size block must not call it read-only.
+        projection = lane_projection(self.manifest_lane("design"))
+        section = projection.split("## Job size and caller boundary", 1)[1]
+        self.assertNotIn("read-only", section)
+        self.assertIn("expands no capability", section)
+
+    def test_uncapped_and_historical_packets_gain_no_fields(self):
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            with self.subTest(lane=lane["id"]):
+                text = self.normalized(lane)
+                self.assertIn("A packet without these members is historical or uncapped", text)
+                self.assertIn("report without the absent fields and never invent them", text)
+
+    def test_repairs_ceiling_tracks_the_report_schema(self):
+        # The entries ceiling in the direct-caller paragraph is a parameter
+        # fed from the report schema, not a literal in the generator body.
+        changed = copy.deepcopy(REPORT_SCHEMA)
+        changed["properties"]["direct_caller_repairs"]["maxItems"] = 3
+        text = " ".join(lane_projection(self.manifest_lane("implement"), changed).split())
+        self.assertIn("at most 3 `direct_caller_repairs` entries", text)
+        self.assertNotIn("at most 8 `direct_caller_repairs` entries", text)
+
+    def test_implementation_projects_closed_size_and_repair_report_shapes(self):
+        fields = ("production_size", "direct_caller_repairs")
+        definitions = ("production_size", "direct_caller_repair", "caller_mechanism", "caller_repair_checks", "caller_repair_check")
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            lines = generator.report_projection_constraints(REPORT_SCHEMA, lane)
+            with self.subTest(lane=lane["id"]):
+                for name in fields:
+                    expected = f"{name}: implementation-only report member; schema={json.dumps(REPORT_SCHEMA['properties'][name], ensure_ascii=False)}."
+                    if lane["id"] == "implement":
+                        self.assertIn(expected, lines)
+                        self.assertIn(expected, lane_projection(lane))
+                    else:
+                        self.assertNotIn(expected, lines)
+                if lane["id"] == "implement":
+                    for name in definitions:
+                        self.assertIn(f"{name} shape: {json.dumps(REPORT_SCHEMA['$defs'][name], ensure_ascii=False)}.", lines)
+
+
 class AgentDirectoryInventoryTests(unittest.TestCase):
     def run_check(self, extra=None):
         with tempfile.TemporaryDirectory() as directory:

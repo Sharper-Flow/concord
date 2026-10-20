@@ -147,6 +147,11 @@ func (j *candidateJourney) recordReadyJob(t *testing.T, jobID string, preparatio
 		"ready":                true, "readiness_evidence": []string{preparation.OperationRef},
 		"acceptance_oracle": json.RawMessage(oracle),
 	}
+	if sizeCapablePinForWork(t, j.s, j.workID) {
+		for member, value := range workerJobSizeMembersForTest(t, j.s, j.workID, fields) {
+			fields[member] = value
+		}
+	}
 	if err := recordWorkerJobActionForTest(t, j.s, j.workID, j.fixture.owner, fields); err != nil {
 		t.Fatalf("record ready job %s: %v", jobID, err)
 	}
@@ -491,7 +496,7 @@ func (j *candidateJourney) dispatchJob(t *testing.T, attemptID, laneID, capabili
 	laneVersion, laneDigest := registeredLaneIdentity(t, laneID)
 	packet := joinPacketFor(t, j.s, j.workID, step, attemptID, laneID, laneVersion, laneDigest)
 	inputs := packet["inputs"].(map[string]any)
-	inputs["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job)
+	inputs["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job, "implement")
 	correction, err := workflowCorrectionContextForDispatch(context.Background(), j.s.db, j.workID, step, attemptID)
 	if err != nil {
 		t.Fatal(err)

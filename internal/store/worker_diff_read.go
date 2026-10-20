@@ -243,6 +243,17 @@ func checkWorkerDiffSubject(ctx context.Context, runner GitRunner, before worker
 	return nil
 }
 
+// workerDiffSharedDiffArgs is the one owner of the diff argument list both
+// editing-surface readers share (CD-0225 D2): the global flags, the diff
+// subcommand, and the closed flag set that disables rename detection,
+// external diffs, and text conversion under the Myers algorithm. The review
+// diff read appends its patch-shaping flags; the terminal size observation
+// appends --numstat -z and the two commits. No second reader copies these
+// flags.
+func workerDiffSharedDiffArgs() []string {
+	return []string{"--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames", "--diff-algorithm=myers", "--no-indent-heuristic"}
+}
+
 // ReadWorkerDiff reads immutable objects only, creates no evidence, and samples
 // the same live authority again before returning at most one bounded byte page.
 func (s *Store) ReadWorkerDiff(ctx context.Context, req WorkerDiffRequest) (WorkerDiffPage, error) {
@@ -265,7 +276,7 @@ func (s *Store) ReadWorkerDiff(ctx context.Context, req WorkerDiffRequest) (Work
 	if err := checkWorkerDiffSubject(ctx, runner, before); err != nil {
 		return empty, err
 	}
-	args := []string{"--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames", "--full-index", "--diff-algorithm=myers", "--no-indent-heuristic", "--src-prefix=a/", "--dst-prefix=b/", "--unified=3", before.base, before.window.SubjectCommit, "--"}
+	args := append(workerDiffSharedDiffArgs(), "--full-index", "--src-prefix=a/", "--dst-prefix=b/", "--unified=3", before.base, before.window.SubjectCommit, "--")
 	content, err := runner.Run(ctx, before.repo, append(args, before.paths...)...)
 	if err != nil {
 		return empty, err

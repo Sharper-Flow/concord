@@ -9,6 +9,6 @@ func RetryWallV2AdmissionFixture(step string, nonProgress int64) WorkflowAdmissi
 		LatestResultDisposition: "accept_worker_result", ActiveContracts: 1,
 	}
 	var decision WorkflowAdmissionDecision
-	workflowAdmitDispatchRefused(state, "dispatch_worker", &decision)
+	workflowAdmitDispatchRefused(WorkflowDefinition{}, state, "dispatch_worker", &decision)
 	return decision
 }

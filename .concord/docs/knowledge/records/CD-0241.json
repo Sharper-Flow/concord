@@ -7,7 +7,24 @@
   "home_domain_id": "product-root:concord",
   "id": "CD-0241",
   "kind": "decision",
-  "law_relations": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0010"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0088"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0089"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0166"
+    }
+  ],
   "path": ".concord/docs/decisions/CD-0241-rapid-development-phases-run-the-machine-on-a-rapid-branch.md",
   "product_wide_rationale": "Rapid-development phases change the source coordination target and delivery evidence across all Domains while preserving full main-branch verification and automated releases.",
   "scopes": {

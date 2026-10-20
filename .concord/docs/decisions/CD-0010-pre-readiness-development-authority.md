@@ -15,7 +15,10 @@ Before Concord reaches replacement readiness, public GitHub and Git remain the
 development authority:
 
 - GitHub Issues are the authority for planned work and defects.
-- Pull requests and required checks are the authority for review and merge evidence.
+- Pull requests and required checks are the authority for review and merge
+  evidence for changes entering main. CD-0241 defines eligible rapid-phase local
+  integration evidence without waiving existing independent review, workflow
+  acceptance, admission, or branch and worktree isolation.
 - Git branches and worktrees are the authority for implementation isolation.
 - Concord decision records, specifications, and constitutional docs are the
   authority for Product law.

@@ -28,7 +28,7 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0089-concord-development-coordination.md",
-  "product_wide_rationale": "Owns Concord development coordination and its separation from planning, repository review, merge, and predecessor evidence. CD-0213 amends planning and issue linkage without changing those other boundaries.",
+  "product_wide_rationale": "Owns Concord development coordination and its separation from planning, repository review, merge, and predecessor evidence. CD-0213 amends planning and issue linkage. CD-0241 distinguishes eligible phase-local integration from main-branch review and merge evidence.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -36,9 +36,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:83126a4fba6df25f920a981a0d8d9a4ca67603c276ee4f285229693a5ae9868b",
+  "sha256": "sha256:419498ee42efe738f22bed1602d5004684de63a303689f6473d1e233b39cf981",
   "status": "accepted",
-  "summary": "Concord owns its development workflow and supersedes the self-hosting prohibition. CD-0213 amends its planning and issue-linkage clauses; repository review and merge evidence retain their authority.",
+  "summary": "Concord owns its development workflow and supersedes the self-hosting prohibition. CD-0213 amends its planning and issue-linkage clauses. Pull requests and required checks retain main-branch review and merge authority; CD-0241 defines eligible rapid-phase local integration evidence without waiving existing independent review.",
   "tags": [
     "authority",
     "coordination",

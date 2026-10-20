@@ -18,7 +18,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:df72a725347e746128340a0acf82663a223f5d68d335400d4818552579a2212b",
+  "sha256": "sha256:9c77b6e07e04afddf93ef2761537de3104b756484d6b7ba5d388c25b0f0b08fb",
   "status": "accepted",
   "summary": "Defines development authority with CD-0089 governing self-hosting and CD-0213 governing Product-scoped planning and issue linkage. Its other authority boundaries remain in force.",
   "tags": [

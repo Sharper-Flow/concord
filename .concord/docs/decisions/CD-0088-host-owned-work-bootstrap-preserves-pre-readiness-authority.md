@@ -109,7 +109,9 @@ agent identity matches the prepared agent.
 ### D5. Capability does not activate Concord self-hosting
 
 This decision does not claim replacement readiness and does not amend CD-0010.
-Concord's own planned work, review, and merge evidence remain GitHub-native. Using
+Main-branch review and merge evidence remain GitHub-native. CD-0241 defines
+eligible rapid-phase local integration evidence without changing bootstrap,
+default-checkout isolation, or installed workflow admission. Using
 `concord_work_start` to coordinate Concord development requires both a proven
 replacement-readiness claim and a later accepted decision that changes development
 authority.

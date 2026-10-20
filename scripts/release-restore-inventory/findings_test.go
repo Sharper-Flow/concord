@@ -120,7 +120,7 @@ func TestUpcastConfinementHoldsCurrentVersions(t *testing.T) {
 	inv := findingInventory(analysis())
 	inv.Groups["g"] = append(inv.Groups["g"], registration{Kind: "thing.b", CurrentVersion: 1, MinSupported: 1, Type: "t"}, registration{Kind: "thing.c", CurrentVersion: 3, MinSupported: 3, Upcasters: []int{2}, RecordedSchemas: []int{3}, Type: "t"})
 	f := writerFindings(inv, table)[0]
-	if !reflect.DeepEqual(f.Exempted, []exemptedSite{{inv.Analyses["g"].Open[1], "upcast", "upcast_confinement"}}) || !reflect.DeepEqual(f.UpcastHeld, []string{"* v3", "thing.a v2", "thing.c v3"}) {
+	if !reflect.DeepEqual(f.Exempted, []exemptedSite{{inv.Analyses["g"].Open[1], "upcast", "upcast_confinement"}}) || !reflect.DeepEqual(f.UpcastHeld, []string{"thing.a v2", "thing.c v3"}) {
 		t.Fatalf("exempted %+v upcast held %v", f.Exempted, f.UpcastHeld)
 	}
 	for name, drift := range map[string]func(*writerAnalysis){
@@ -154,7 +154,7 @@ func TestAdaptKeyedUpcastEntryMatchesOnlyTheProvenRoute(t *testing.T) {
 		a.Open = slices.Clone(a.Open)
 		a.Open[1].Confinement = "upcaster"
 		a.Dispatcher = &upcastDispatcher{Function: "store.dispatch", FunctionDigest: "sha256:2222", Guards: []string{"event.PayloadVersion != registration.CurrentVersion"}, Callers: []namedHash{{"store.prepare", "sha256:3333"}}}
-		a.Adapt = &adaptRoute{Function: "store.adaptCaller", FunctionDigest: "sha256:8888", Forwarders: []namedHash{{"store.forward", "sha256:7777"}}}
+		a.Adapt = &adaptRoute{Function: "store.adaptCaller", FunctionDigest: "sha256:8888", Forwarders: []namedHash{{"store.forward", "sha256:7777"}}, Values: []namedHash{{"store.adaptValue", "sha256:5555"}}}
 		return a
 	}
 	entry := func(adapt bool) exemptionTable {
@@ -163,6 +163,7 @@ func TestAdaptKeyedUpcastEntryMatchesOnlyTheProvenRoute(t *testing.T) {
 		if adapt {
 			e.ID, e.AdaptCaller, e.AdaptCallerDigest = "upcast:adapt", "store.adaptCaller", "sha256:8888"
 			e.Forwarders = []namedHash{{"store.forward", "sha256:7777"}}
+			e.AdaptValues = []namedHash{{"store.adaptValue", "sha256:5555"}}
 		}
 		data, err := json.Marshal(exemptionTable{Schema: exemptionsSchema, Entries: []exemption{e}})
 		if err != nil {
@@ -183,6 +184,12 @@ func TestAdaptKeyedUpcastEntryMatchesOnlyTheProvenRoute(t *testing.T) {
 		"forwarder changed": func(a *writerAnalysis) { a.Adapt.Forwarders = []namedHash{{"store.forward", "sha256:9999"}} },
 		"forwarder added": func(a *writerAnalysis) {
 			a.Adapt.Forwarders = append(a.Adapt.Forwarders, namedHash{"store.other", "sha256:6666"})
+		},
+		"adapt value drifted": func(a *writerAnalysis) {
+			a.Adapt.Values = []namedHash{{"store.adaptValue", "sha256:9999"}}
+		},
+		"adapt value added": func(a *writerAnalysis) {
+			a.Adapt.Values = append(a.Adapt.Values, namedHash{"store.otherValue", "sha256:4444"})
 		},
 	} {
 		a := analysis()

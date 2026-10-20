@@ -64,11 +64,13 @@ type exemption struct {
 	DispatcherDigest string      `json:"dispatcher_digest,omitempty"`
 	Guard            string      `json:"guard,omitempty"`
 	Callers          []namedHash `json:"callers,omitempty"`
-	// AdaptCaller, AdaptCallerDigest, and Forwarders key an upcast_confinement
-	// entry's adapt route; an entry without them demands a route-free release.
+	// AdaptCaller, AdaptCallerDigest, Forwarders, and AdaptValues key an
+	// upcast_confinement entry's adapt route, all or none together; an entry
+	// without them demands a route-free release.
 	AdaptCaller       string      `json:"adapt_caller,omitempty"`
 	AdaptCallerDigest string      `json:"adapt_caller_digest,omitempty"`
 	Forwarders        []namedHash `json:"forwarders,omitempty"`
+	AdaptValues       []namedHash `json:"adapt_values,omitempty"`
 	// CheckSubjectDigest is the reviewed checkSubject a replay_decoder's
 	// fold refusals rely on; no other class has one.
 	CheckSubjectDigest string `json:"check_subject_digest,omitempty"`
@@ -108,15 +110,19 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 			callers = string(data)
 		}
 		route := ""
-		if (e.AdaptCaller == "") != (e.AdaptCallerDigest == "") || (e.AdaptCaller == "") != (len(e.Forwarders) == 0) {
+		if (e.AdaptCaller == "") != (e.AdaptCallerDigest == "") || (e.AdaptCaller == "") != (len(e.Forwarders) == 0) || (e.AdaptCaller == "") != (len(e.AdaptValues) == 0) {
 			return table, fmt.Errorf("exemption %q names only part of an adapt route", e.ID)
 		}
 		if e.AdaptCaller != "" {
-			data, err := json.Marshal(e.Forwarders)
+			forwarders, err := json.Marshal(e.Forwarders)
 			if err != nil {
 				return table, err
 			}
-			route = e.AdaptCaller + "\x00" + e.AdaptCallerDigest + "\x00" + string(data)
+			values, err := json.Marshal(e.AdaptValues)
+			if err != nil {
+				return table, err
+			}
+			route = e.AdaptCaller + "\x00" + e.AdaptCallerDigest + "\x00" + string(forwarders) + "\x00" + string(values)
 		}
 		upcast := []string{e.Dispatcher, e.DispatcherDigest, e.Guard, callers}
 		if route != "" {
@@ -154,7 +160,7 @@ func (e exemption) covers(site writerSite, analysis writerAnalysis) bool {
 		if e.AdaptCaller == "" {
 			return common && route == nil
 		}
-		return common && route != nil && route.Function == e.AdaptCaller && route.FunctionDigest == e.AdaptCallerDigest && slices.Equal(route.Forwarders, e.Forwarders)
+		return common && route != nil && route.Function == e.AdaptCaller && route.FunctionDigest == e.AdaptCallerDigest && slices.Equal(route.Forwarders, e.Forwarders) && slices.Equal(route.Values, e.AdaptValues)
 	}
 	return site.Function == e.Function && site.Expression == e.Expression && site.FunctionDigest == e.FunctionDigest
 }
@@ -229,9 +235,6 @@ func writerFindings(inv inventory, table exemptionTable) []writerFinding {
 					for _, r := range inv.Groups[result.Group] {
 						if r.MinSupported < r.CurrentVersion || len(r.Upcasters) > 0 {
 							finding.UpcastHeld = append(finding.UpcastHeld, r.Kind+" v"+strconv.Itoa(r.CurrentVersion))
-							if len(r.RecordedSchemas) > 0 {
-								finding.UpcastHeld = append(finding.UpcastHeld, "* v"+strconv.Itoa(r.CurrentVersion))
-							}
 						}
 					}
 					finding.UpcastHeld = slices.Compact(slices.Sorted(slices.Values(finding.UpcastHeld)))

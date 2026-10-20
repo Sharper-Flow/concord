@@ -101,12 +101,16 @@ type namedHash struct {
 }
 
 // adaptRoute names the one function that calls the recorded-schema adapt
-// field and the forwarders its result passes through, when the analysis
-// proves every adapt result reaches only the upcast dispatcher.
+// field, the forwarders its result passes through, and every function the
+// registry's schema literals name as an adapt value, when the analysis
+// proves every adapt result reaches only the upcast dispatcher. The value
+// digests pin what an adapt can do to an event; a changed adapt function
+// changes a digest and refuses every adapt-keyed entry.
 type adaptRoute struct {
 	Function       string      `json:"function"`
 	FunctionDigest string      `json:"function_digest"`
 	Forwarders     []namedHash `json:"forwarders"`
+	Values         []namedHash `json:"values"`
 }
 
 // writerAnalysis is one release binary's event writers. Writes are the pairs
@@ -269,9 +273,12 @@ type analyzer struct {
 	dispatcher    *upcastDispatcher
 	// adaptField is recordedPayloadSchema's adapt func field; adaptCalls the
 	// top-level declarations that call it, adaptEscapes how often the field
-	// is mentioned anywhere else but a call or a nil comparison.
+	// is mentioned anywhere else but a call or a nil comparison, and
+	// adaptValues the function identifiers the registry's schema literals
+	// name as adapt values.
 	adaptField   *types.Var
 	adaptCalls   map[ast.Decl]*checkedPackage
+	adaptValues  map[*ast.Ident]bool
 	adaptEscapes int
 }
 
@@ -379,7 +386,7 @@ func analyzeWritersIn(dir string) (writerAnalysis, error) {
 	a.assigns, a.declared, a.unknown, a.writes = map[types.Object][]assignment{}, map[types.Object]bool{}, map[types.Object]bool{}, map[string]bool{}
 	a.captured, a.formals, a.funcs, a.callees, a.dynamic = map[types.Object]bool{}, map[types.Object]formal{}, map[string]*function{}, map[*ast.Ident]bool{}, map[string]bool{}
 	a.upcastValues, a.upcasterExprs, a.upcasterCalls = map[*ast.Ident]bool{}, map[ast.Decl]*checkedPackage{}, map[ast.Decl]*checkedPackage{}
-	a.adaptCalls = map[ast.Decl]*checkedPackage{}
+	a.adaptCalls, a.adaptValues = map[ast.Decl]*checkedPackage{}, map[*ast.Ident]bool{}
 	if schema, ok := store.types.Scope().Lookup("recordedPayloadSchema").(*types.TypeName); ok {
 		if fields, ok := schema.Type().Underlying().(*types.Struct); ok {
 			for i := range fields.NumFields() {
@@ -483,6 +490,24 @@ func (a *analyzer) index(p *checkedPackage) {
 			case *ast.RangeStmt:
 				for _, e := range []ast.Expr{v.Key, v.Value} {
 					a.markUnknown(p, e)
+				}
+			case *ast.CompositeLit:
+				if a.adaptField != nil && a.isNamed(p.info.Types[v].Type, "recordedPayloadSchema") {
+					fields := p.info.Types[v].Type.Underlying().(*types.Struct)
+					for i, element := range v.Elts {
+						at := -1
+						if pair, ok := element.(*ast.KeyValueExpr); ok {
+							element = pair.Value
+							if key, ok := pair.Key.(*ast.Ident); ok && key.Name == "adapt" {
+								at = 0
+							}
+						} else if i < fields.NumFields() && fields.Field(i) == a.adaptField {
+							at = 0
+						}
+						if id, ok := ast.Unparen(element).(*ast.Ident); ok && at == 0 {
+							a.adaptValues[id] = true
+						}
+					}
 				}
 			}
 			return true
@@ -1248,11 +1273,28 @@ func (a *analyzer) adaptRoute() *adaptRoute {
 		return nil
 	}
 	name, digest := a.declName(p, fn)
-	route := &adaptRoute{Function: name, FunctionDigest: digest, Forwarders: []namedHash{}}
+	route := &adaptRoute{Function: name, FunctionDigest: digest, Forwarders: []namedHash{}, Values: []namedHash{}}
 	for _, forwarder := range forwarders {
 		route.Forwarders = append(route.Forwarders, forwarder)
 	}
 	slices.SortFunc(route.Forwarders, func(x, y namedHash) int { return strings.Compare(x.Function, y.Function) })
+	seen := map[string]bool{}
+	for id := range a.adaptValues {
+		f, ok := p.info.Uses[id].(*types.Func)
+		if !ok {
+			return nil
+		}
+		target := a.funcs[f.Origin().FullName()]
+		if target == nil || target.decl == nil {
+			return nil
+		}
+		valueName, valueDigest := a.declName(target.pkg, target.decl)
+		if !seen[valueName+"\x00"+valueDigest] {
+			seen[valueName+"\x00"+valueDigest] = true
+			route.Values = append(route.Values, namedHash{valueName, valueDigest})
+		}
+	}
+	slices.SortFunc(route.Values, func(x, y namedHash) int { return strings.Compare(x.Function, y.Function) })
 	return route
 }
 

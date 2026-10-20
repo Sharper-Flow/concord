@@ -410,6 +410,15 @@ func TestAdaptRoute(t *testing.T) {
 	if route.FunctionDigest == "" || !slices.Equal(route.Forwarders, []namedHash{{storePkg + ".prepareEventWithRegistration", route.Forwarders[0].Digest}}) {
 		t.Fatalf("adapt route %+v", route)
 	}
+	// The registry names upcastB2 as an adapt value, so the route pins its
+	// digest: a changed adapt function must change the pinned value set.
+	if !slices.ContainsFunc(route.Values, func(v namedHash) bool { return v.Function == storePkg+".upcastB2" && v.Digest != "" }) {
+		t.Fatalf("adapt route values %v", route.Values)
+	}
+	mutated := analyzeFixture(t, mutation{store, "func upcastB2(event Event) (Event, error) {\n\tevent.PayloadVersion = 3\n\treturn event, nil\n}", "func upcastB2(event Event) (Event, error) {\n\tevent.PayloadVersion = 3\n\tevent.Payload = nil\n\treturn event, nil\n}"})
+	if mutated.Adapt == nil || slices.Equal(mutated.Adapt.Values, route.Values) {
+		t.Fatalf("a mutated adapt value must change the pinned digests: %+v", mutated.Adapt)
+	}
 	// tail replaces prepareRecordedEvent's adapt tail; escape runs between
 	// the adapt assignment and the forwarder call.
 	tail := func(escape string) mutation {

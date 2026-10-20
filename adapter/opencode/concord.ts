@@ -2,7 +2,7 @@ import { createHash, sign as signBytes } from "node:crypto"
 import { b64, clientRef, privateKeyObject, randomNonce, SecretToolCredentialStore, type CredentialStore } from "./credentials"
 import { contractOperations, hostToolDescriptions, hostToolSchemas, maxEnvelopeBytes, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } from "./manifest-pin"
-import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath } from "./generated-contract-tests"
+import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath, payloadFailureMessage } from "./generated-contract-tests"
 import { dispatchLaneWorker, dispatchRetriedLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
 import { AdapterContractDefect } from "./adapter-contract-defect"
 // The typed fail-closed error re-exports so callers of this module can catch
@@ -494,9 +494,9 @@ export const adapterErrorTuples = {
   worker_abandon_receipt_failed: { kind: "operation_conflict", adapter_reason: "worker_abandon_receipt_failed", effect_state: "possible", recovery: "reconcile_operation" },
   worker_reconcile_failed_recorded: { kind: "operation_conflict", adapter_reason: "worker_reconcile_failed_recorded", effect_state: "possible", recovery: "reconcile_operation" },
   lane_tool_refusal: { kind: "unauthorized", adapter_reason: "lane_tool_refusal", effect_state: "none", recovery: "contact_operator" },
-  invalid_cli_input: { kind: "invalid_input", adapter_reason: "invalid_cli_input", effect_state: "none", recovery: "restart_query" },
-  invalid_request_wrapper: { kind: "invalid_input", adapter_reason: "invalid_request_wrapper", effect_state: "none", recovery: "restart_query" },
-  invalid_tool_input: { kind: "invalid_input", adapter_reason: "invalid_tool_input", effect_state: "none", recovery: "restart_query" },
+  invalid_cli_input: { kind: "invalid_input", adapter_reason: "invalid_cli_input", effect_state: "none", recovery: "correct_request" },
+  invalid_request_wrapper: { kind: "invalid_input", adapter_reason: "invalid_request_wrapper", effect_state: "none", recovery: "correct_request" },
+  invalid_tool_input: { kind: "invalid_input", adapter_reason: "invalid_tool_input", effect_state: "none", recovery: "correct_request" },
   vacate_replay: { kind: "operation_conflict", adapter_reason: "unknown_effect", effect_state: "possible", recovery: "retry_same_request" },
   vacate_unavailable: { kind: "operation_conflict", adapter_reason: "unknown_effect", effect_state: "possible", recovery: "contact_operator" },
 } as const
@@ -2045,7 +2045,7 @@ const WORKER_ABANDON_OPERATION = "worker_abandon"
 async function executeWorkerReconcile(args: HostToolArgs, context: ToolContext): Promise<HostConcordEnvelope> {
   const operation = "worker_reconcile"
   const requestID = `${context.sessionID}-${context.messageID}`
-  if (!validateGeneratedPayload("work_transition_worker_reconcile_input", args.input)) return adapterError("concord_work_transition", operation, requestID, "invalid_tool_input", "worker_reconcile requires only the work, original attempt, retained Task part and idempotency key")
+  if (!validateGeneratedPayload("work_transition_worker_reconcile_input", args.input)) return adapterError("concord_work_transition", operation, requestID, "invalid_tool_input", `worker_reconcile input failed the generated contract: ${payloadFailureMessage("work_transition_worker_reconcile_input", args.input)}`)
   const input = args.input as { work_id: string; attempt_id: string; task_part_id: string; idempotency_key: string }
   const key = (phase: string) => `worker-reconcile-${createHash("sha256").update(`${phase}\0${input.idempotency_key}`).digest("hex")}`
   const prepared = await invokeConcordOperation("concord_work_transition", { ...args, input: { ...args.input, idempotency_key: key("prepare") } }, context)
@@ -2102,7 +2102,7 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
   if (leaseFault) return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "host_lease_missing", `${leaseFault}; no worker attempt was closed`)
   const input = args.input
   if (!validateGeneratedPayload("work_transition_worker_abandon_input", input)) {
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "invalid_tool_input", `worker_abandon input failed the generated contract at ${payloadFailurePath("work_transition_worker_abandon_input", input)}`)
+    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "invalid_tool_input", `worker_abandon input failed the generated contract: ${payloadFailureMessage("work_transition_worker_abandon_input", input)}`)
   }
   const abandonInput = input as { work_id: string; attempt_id: string; lane_id: string; detail: string; idempotency_key: string }
   const lane = agentLanes.find((candidate) => candidate.id === abandonInput.lane_id)

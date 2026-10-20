@@ -16,14 +16,17 @@ Two conformance planes:
 
 from __future__ import annotations
 
+import functools
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 try:
     import yaml
@@ -49,7 +52,18 @@ SPEC.loader.exec_module(checker)
 # The pinned upstream release: an external tool, never a go.mod dependency.
 LEFTHOOK_MODULE = "github.com/evilmartians/lefthook/v2"
 LEFTHOOK_PIN = "v2.1.14"
-LEFTHOOK = ["go", "run", f"{LEFTHOOK_MODULE}@{LEFTHOOK_PIN}"]
+
+
+@functools.cache
+def lefthook_binary() -> str:
+    binary = shutil.which("lefthook")
+    if binary is None:
+        raise RuntimeError(f"prepare Lefthook before testing: go install {LEFTHOOK_MODULE}@{LEFTHOOK_PIN}")
+    result = subprocess.run([binary, "version"], text=True, capture_output=True, check=True)
+    if result.stdout.strip() != LEFTHOOK_PIN.lstrip("v"):
+        raise RuntimeError(f"Lefthook {LEFTHOOK_PIN} required; found {result.stdout.strip()!r}")
+    return binary
+
 
 GO_GATES = ("gofmt", "go-vet", "go-build", "go-compile-tests", "go-lint")
 GO_PLANE_GATES = GO_GATES + ("check-reachability", "check-complexity")
@@ -381,7 +395,7 @@ class RealToolRepository:
         return {marker.name for marker in (self.root / ".routing").iterdir()}
 
     def run_hook(self, *files: str) -> subprocess.CompletedProcess:
-        argv = list(LEFTHOOK) + ["run", "pre-push"]
+        argv = [lefthook_binary(), "run", "pre-push"]
         for path in files:
             argv += ["--file", path]
         return subprocess.run(argv, cwd=self.root, text=True, capture_output=True, check=False)
@@ -404,7 +418,6 @@ def marker_config(mutate=None) -> dict:
     return document
 
 
-@unittest.skipUnless(shutil.which("go"), "real-tool routing needs go on PATH")
 class RealToolRoutingTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -450,7 +463,6 @@ class RealToolRoutingTest(unittest.TestCase):
         self.assertTrue(all(hook.name.endswith(".sample") for hook in hooks), hooks)
 
 
-@unittest.skipUnless(shutil.which("go"), "real-tool config smoke needs go on PATH")
 class RealToolConfigSmokeTest(unittest.TestCase):
     def test_the_committed_config_parses_under_the_real_tool(self) -> None:
         # The routing fixtures re-dump a parsed copy, so the committed file
@@ -459,12 +471,17 @@ class RealToolConfigSmokeTest(unittest.TestCase):
         with RealToolRepository({}, raw_config=(REPO / "lefthook.yml").read_text(encoding="utf-8")) as repository:
             repository.add_file("README.md")
             repository.commit()
-            result = repository.run_hook("README.md")
+            with tempfile.TemporaryDirectory() as cache, mock.patch.dict(os.environ, {
+                "GOMODCACHE": cache,
+                "GOPROXY": "off",
+                "GOSUMDB": "off",
+                "GOTOOLCHAIN": "local",
+            }):
+                result = repository.run_hook("README.md")
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(repository.markers(), set())
 
 
-@unittest.skipUnless(shutil.which("go"), "real-tool quoting needs go on PATH")
 class RealToolQuotingTest(unittest.TestCase):
     WEIRD_PATHS = (
         "scripts/plain.py",

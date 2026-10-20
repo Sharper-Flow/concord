@@ -79,15 +79,15 @@ const refused = {outcome:"error", error:{reason_code:"authorization_denied", eff
 // branch schemas validateWorkStartArgs selects, so its message is the
 // executed adapter's bytes, never a hand-written copy;
 // the core owns the worktree_claim and continuity input boundaries and
-// answers a malformed payload with the same kind and effect but
-// recovery_action restart_query and the core's own diagnostics.
+// answers a malformed payload with the same invalid_input/none/
+// correct_request/retry_safe false triple and the core's own diagnostics.
 const [workStartCaptureBranch, workStartResumeBranch] = hostToolSchemas.concord_work_start.oneOf;
 // The usage line derives its field lists from the generated branches exactly
 // as the adapter's own workStartUsage does.
 const workStartUsage = `Capture requires ${workStartCaptureBranch.required.join(", ")}. Resume requires only ${workStartResumeBranch.required.join(", ")}, and names no Project: the resume claims in the Project the calling session resolves. Another Project of this repository is selected through concord_work_transition worktree_claim instead, and another repository needs a host-started session there that resumes by work_id. Do not combine capture and resume fields.`;
 const adapterInputRefusalMessage = detail => "work_start arguments failed the host-tool contract: " + detail + ". " + workStartUsage + " Submit a corrected request; resubmitting unchanged arguments will fail again.";
 const adapterInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"correct_request"},retry_safe:false,message}});
-const coreInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"restart_query"},retry_safe:false,message}});
+const coreInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"correct_request"},retry_safe:false,message}});
 // The core's executed payload classification, in the core's own order: the
 // closed per-operation rule names every missing required field in declared
 // order, then the payload schema validates each present value stop-at-first
@@ -359,7 +359,7 @@ import { appendFileSync } from "node:fs";
 export default recordingTool("runtime_status", {description:"Read the owning synthetic runtime diagnostic; no mutations.",args:{},async execute(args){
 const value=VALUE; appendFileSync(TRACE,JSON.stringify({tool:"runtime_status",args,result:value})+"\\n");
 return {title:"Synthetic runtime",output:JSON.stringify(value),metadata:{synthetic:true}};
-}}, message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"restart_query"},retry_safe:false,message}}));
+}}, message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"correct_request"},retry_safe:false,message}}));
 '''
     runtime_source = runtime_source.replace("SDK", replacements["SDK"]).replace("TRACE", replacements["TRACE"]).replace("VALUE", json.dumps(runtime_response(case)))
     return {

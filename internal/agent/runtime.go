@@ -328,7 +328,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		// fields. Semantic workflow payload validation remains below the registry
 		// availability check.
 		if err := ValidateOperationPayload(request.Tool, request.Operation, request.Input, false); err != nil {
-			return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
+			return coreError(base, "invalid_input", err.Error(), "correct_request", false), nil
 		}
 		var strictAction actionMutationInput
 		if err := decodeOperationInput(request.Input, &strictAction); err != nil {
@@ -363,7 +363,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 			return failureEnvelope(base, err), nil
 		}
 	} else if err := ValidateOperationPayload(request.Tool, request.Operation, request.Input, false); err != nil {
-		return base, err
+		return coreError(base, "invalid_input", err.Error(), "correct_request", false), nil
 	}
 	ctx, cancel, budget, budgetErr := applyBudget(ctx, op, request.Input)
 	if budgetErr != nil {
@@ -837,6 +837,12 @@ func failureEnvelope(base Envelope, err error) Envelope {
 	if errors.As(err, &sf) {
 		kind := mapFailureKind(sf.Kind)
 		recovery := publicRecovery(kind, sf.RecoveryAction)
+		if recovery == "correct_request" && (kind != "invalid_input" || sf.RetrySafe || sf.EffectPossible || len(sf.CommittedRefs) > 0) {
+			recovery = publicRecovery(kind, "")
+			if sf.EffectPossible || len(sf.CommittedRefs) > 0 {
+				recovery = "reconcile_operation"
+			}
+		}
 		refs := sf.RecoveryRefs
 		if recovery != "use_declared_route" {
 			// Route refs ride the declared-route action alone; any other
@@ -1120,7 +1126,7 @@ func publicRecovery(kind, proposed string) string {
 	if coupled, ok := enforcedRecoveryCouplings[kind]; ok {
 		return coupled
 	}
-	allowed := map[string]bool{"none": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_declared_route": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
+	allowed := map[string]bool{"none": true, "correct_request": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_declared_route": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
 	if allowed[proposed] {
 		return proposed
 	}

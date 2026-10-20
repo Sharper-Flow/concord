@@ -161,9 +161,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 			input["delivery_artifact"] = "file:internal/adapter/opencode/other.ts"
 		})
 		rejected, rejectErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: repoPathRaw}, env)
-		if rejectErr == nil || !strings.Contains(rejectErr.Error(), "delivery_artifact") {
-			t.Fatalf("repository path evidence = (%+v, %v), want an input refusal naming delivery_artifact", rejected, rejectErr)
-		}
+		assertInputCorrection(t, rejected, rejectErr, "delivery_artifact")
 		if corrections := agentDeliveryCorrectionEvents(t, s); corrections != 0 {
 			t.Fatalf("refused corrections wrote %d correction events", corrections)
 		}

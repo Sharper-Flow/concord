@@ -19,7 +19,7 @@ function strings(value: unknown): string[] {
 
 // The closed admitted materializer/runner pairs of target_runner_v1. Every
 // other pair — including unknown members — refuses before any probe.
-const admittedTargetPairs = new Set(["uv:pytest", "none:check", "uv:check"])
+const admittedTargetPairs = new Set(["uv:pytest", "none:check", "uv:check", "bun:check"])
 
 // Witness IDs are runner-defined exact identities: 1 to 256 bytes, unique,
 // and free of control characters, mirroring the core's closed manifest rule.

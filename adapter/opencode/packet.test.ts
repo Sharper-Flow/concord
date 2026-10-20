@@ -1389,6 +1389,39 @@ test("a job-executing lane binds the one ready worker-job revision verbatim", as
   expect(built.packet!.inputs.task).toBe(pinnedContract().premise)
 })
 
+test("a checks repair review binds the satisfied revision and its old checks verbatim", async () => {
+  const repair = {
+    ...READY_JOB,
+    checks_repair: {
+      reason: "The old command had no executable control.",
+      revisions: [{ worker_job: { job_id: READY_JOB.job_id, revision: 1, digest: `sha256:${"b".repeat(64)}` }, checks: ["unavailable old command"] }],
+    },
+  }
+  const continuity = jobContinuity(["dispatch_worker", "record_worker_job"], [])
+  continuity.result.pinned.checks_repair_review_jobs = [repair]
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity }, { laneId: "review" })
+  expect(built.failure).toBeUndefined()
+  expect(built.packet!.inputs.worker_job).toEqual(repair)
+  expect(built.packet!.inputs.task).toBe(pinnedContract().premise)
+  expect(validateAgentLanePacket(built.packet!)).toBe(true)
+})
+
+test("a checks repair review never funds an implementation or verification packet", async () => {
+  const continuity = jobContinuity(["dispatch_worker", "record_worker_job"], [])
+  continuity.result.pinned.checks_repair_review_jobs = [READY_JOB]
+  for (const laneId of ["implement", "verify"]) {
+    const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity }, { laneId })
+    expect(built.failure?.kind).toBe("worker_job_unavailable")
+  }
+})
+
+test("a checks repair review does not choose between eligible job revisions", async () => {
+  const continuity = jobContinuity(["dispatch_worker", "record_worker_job"], [{ ...READY_JOB, job_id: "job:ordinary" }])
+  continuity.result.pinned.checks_repair_review_jobs = [READY_JOB]
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity }, { laneId: "review" })
+  expect(built.failure?.kind).toBe("worker_job_ambiguous")
+})
+
 // The closed packet schema admits the same predicate-id grammar the store,
 // the report schema, and the tool surface admit: one or more characters
 // after the "predicate:" prefix, not an eleven-character suffix minimum. A

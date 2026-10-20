@@ -263,9 +263,11 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.break_fix", "30"}:          "sha256:252af47b2f64825844595e4ec05dbafc223b9bbd254f621ddc2def5bb1756309",
 	{"workflow.research", "20"}:           "sha256:93c26a941ef7e76e2e6e75eac61ca4654fdc832f7c2340eb2f287dc7353b1d21",
 	{"workflow.implementation", "34"}:     "sha256:7055412eb83264cddd99e1cb51bdf675f3299fd380c4910a1623353776aeb49c",
-	{"workflow.implementation", "35"}:     "sha256:62bbe235417c56507d8bddd62f335a8319ca9d75d9074c77e2e48b057fbbdd97",
-	{"workflow.implementation", "36"}:     "sha256:979f42719606ba64067f0722d3a0fe11fa3f72cb56cfddf237bc7071c21117d8",
+	{"workflow.implementation", "35"}:     "sha256:27517b4ae91181916323a1f92c63955eedcb9c58f3f4a6e351aceeba6235abb2",
+	{"workflow.implementation", "36"}:     "sha256:1255ab3449c142112015e95e58cfc72aa9d541f821dc0e903231166a16bebf41",
+	{"workflow.implementation", "37"}:     "sha256:b46b9a0c0a5218d06b8fa3b37adb8ed1f6b7d3a7cd1f8e1001ea65ab901d8d7b",
 	{"workflow.break_fix", "31"}:          "sha256:2a2baab65976d8994e0d70459438552e985402c4e6b924da25e59eb2d8fa770d",
+	{"workflow.break_fix", "32"}:          "sha256:84e2bb3699bf0d91e44dede7b3711b643048f9e4e4269176069372b6dac31301",
 	{"workflow.research", "21"}:           "sha256:a8c1173342a5b706c15511824470e60ebd7cdfb2ff49217e3a20c8e2c06b8ca0",
 	{"workflow.architecture_spike", "17"}: "sha256:3e9d434cba63d47aadea18399c3f950b89e93a5cc69317b8685fbbee2d245e55",
 	{"workflow.ops_runbook", "18"}:        "sha256:354390116b3faf7a73524ca4bfbbfe962650f8ed8eaf73a68845d812daade63a",
@@ -278,9 +280,8 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 // Run with: bin/oc-test targeted -- go test ./internal/store -run '^TestWorkflowDefinitionDraftVersionDigests$' -v -count=1 -timeout=180s
 func TestWorkflowDefinitionDraftVersionDigests(t *testing.T) {
 	for _, definition := range []WorkflowDefinition{
-		mustCompileWorkflowComposition(implementationCompositionV33()),
-		mustCompileWorkflowComposition(breakFixCompositionV30()),
-		mustCompileWorkflowComposition(researchCompositionV20()),
+		mustCompileWorkflowComposition(implementationCompositionV35()),
+		mustCompileWorkflowComposition(breakFixCompositionV32()),
 	} {
 		digest, err := WorkflowDefinitionDigest(definition)
 		if err != nil {
@@ -453,8 +454,8 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          31,
-		"workflow.implementation":     36,
+		"workflow.break_fix":          32,
+		"workflow.implementation":     37,
 		"workflow.generic_one_off":    16,
 		"workflow.research":           21,
 		"workflow.architecture_spike": 17,

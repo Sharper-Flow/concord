@@ -49,9 +49,12 @@ func init() {
 		defFailureSubject   = "/$defs/worker_failure_subject"
 		defPacket2          = "/$defs/worker_packet2"
 		defPacket3          = "/$defs/worker_packet3"
+		defPacket4          = "/$defs/worker_packet4"
 		defPacketBinding    = "/$defs/worker_packet_binding"
 		defWorkRecord       = "/$defs/worker_packet_work_record"
 		defPacketJob        = "/$defs/worker_packet_worker_job"
+		defRepairJob        = "/$defs/worker_packet_checks_repair_job"
+		defChecksRepair     = "/$defs/worker_checks_repair"
 		defRecovery         = "/$defs/worker_recovery_context"
 	)
 
@@ -261,12 +264,14 @@ func init() {
 	registerOutputBound(defPacket2+"/properties/inputs/properties/constraints/maxItems", proposalConstraints)
 	registerOutputBound(defPacket3+"/properties/inputs/properties/constraints/items/maxLength", proposalConstraintText)
 	registerOutputBound(defPacket3+"/properties/inputs/properties/constraints/maxItems", proposalConstraints)
+	registerOutputBound(defPacket4+"/properties/inputs/properties/constraints/items/maxLength", proposalConstraintText)
+	registerOutputBound(defPacket4+"/properties/inputs/properties/constraints/maxItems", proposalConstraints)
 	// Dispatch admission validates every packet against the schema its
 	// definition version declares (validateWorkflowPayloadSchema in
 	// workflow_preflight.go, against the published document whatever the
 	// pin's age), so the admitted caps bound the retry copy whatever the
 	// retained record holds.
-	for _, packet := range []string{defPacket2, defPacket3} {
+	for _, packet := range []string{defPacket2, defPacket3, defPacket4} {
 		for _, member := range []string{"context", "task"} {
 			pointer := packet + "/properties/inputs/properties/" + member + "/maxLength"
 			registerOutputBound(pointer, inputBound(pointer))
@@ -299,39 +304,30 @@ func init() {
 	// definition, so the admitted shape is the copied value's bound. The
 	// digest is core-derived over the content and re-derived equal at the
 	// fold, so it rides the recorded derivation bound.
-	registerOutputBound(defPacketJob+"/properties/checks/items/maxLength",
+	for _, job := range []string{defPacketJob, defRepairJob} {
+		registerOutputBound(job+"/properties/digest/maxLength", recordedJobDigest)
+		for _, member := range []string{
+			"checks/items/maxLength", "checks/maxItems", "job_id/maxLength", "objective/maxLength",
+			"path_scope/items/maxLength", "path_scope/maxItems", "predicate_ids/items/maxLength", "predicate_ids/maxItems",
+			"prerequisites/items/properties/job_id/maxLength", "prerequisites/items/properties/result_ref/maxLength", "prerequisites/maxItems",
+			"project_scope/maxLength", "reserved_integration/maxLength", "stopping_condition/maxLength",
+			"unresolved_refs/items/maxLength", "unresolved_refs/maxItems",
+		} {
+			pointer := job + "/properties/" + member
+			registerOutputBound(pointer, inputBound(pointer))
+		}
+	}
+
+	// Repair metadata is guarded on append and replay before a packet copies it.
+	registerOutputBound(defChecksRepair+"/properties/reason/maxLength",
+		goInlineBound("internal/store/worker_jobs.go", "validateWorkerJobRecordedPayload", "len(payload.ChecksRepair.Reason)", boundBytes))
+	registerOutputBound(defChecksRepair+"/properties/revisions/maxItems",
+		goInlineBound("internal/store/worker_jobs.go", "validateWorkerJobRecordedPayload", "len(entries)", boundItems))
+	registerOutputBound(defChecksRepair+"/properties/revisions/items/properties/checks/maxItems",
+		goInlineBound("internal/store/worker_jobs.go", "validateWorkerJobRecordedPayload", "len(entry.Checks)", boundItems))
+	// Old checks copy the named revision's admitted checks verbatim.
+	registerOutputBound(defChecksRepair+"/properties/revisions/items/properties/checks/items/maxLength",
 		inputBound(defPacketJob+"/properties/checks/items/maxLength"))
-	registerOutputBound(defPacketJob+"/properties/checks/maxItems",
-		inputBound(defPacketJob+"/properties/checks/maxItems"))
-	registerOutputBound(defPacketJob+"/properties/digest/maxLength", recordedJobDigest)
-	registerOutputBound(defPacketJob+"/properties/job_id/maxLength",
-		inputBound(defPacketJob+"/properties/job_id/maxLength"))
-	registerOutputBound(defPacketJob+"/properties/objective/maxLength",
-		inputBound(defPacketJob+"/properties/objective/maxLength"))
-	registerOutputBound(defPacketJob+"/properties/path_scope/items/maxLength",
-		inputBound(defPacketJob+"/properties/path_scope/items/maxLength"))
-	registerOutputBound(defPacketJob+"/properties/path_scope/maxItems",
-		inputBound(defPacketJob+"/properties/path_scope/maxItems"))
-	registerOutputBound(defPacketJob+"/properties/predicate_ids/items/maxLength",
-		inputBound(defPacketJob+"/properties/predicate_ids/items/maxLength"))
-	registerOutputBound(defPacketJob+"/properties/predicate_ids/maxItems",
-		inputBound(defPacketJob+"/properties/predicate_ids/maxItems"))
-	registerOutputBound(defPacketJob+"/properties/prerequisites/items/properties/job_id/maxLength",
-		inputBound(defPacketJob+"/properties/prerequisites/items/properties/job_id/maxLength"))
-	registerOutputBound(defPacketJob+"/properties/prerequisites/items/properties/result_ref/maxLength",
-		inputBound(defPacketJob+"/properties/prerequisites/items/properties/result_ref/maxLength"))
-	registerOutputBound(defPacketJob+"/properties/prerequisites/maxItems",
-		inputBound(defPacketJob+"/properties/prerequisites/maxItems"))
-	registerOutputBound(defPacketJob+"/properties/project_scope/maxLength",
-		inputBound(defPacketJob+"/properties/project_scope/maxLength"))
-	registerOutputBound(defPacketJob+"/properties/reserved_integration/maxLength",
-		inputBound(defPacketJob+"/properties/reserved_integration/maxLength"))
-	registerOutputBound(defPacketJob+"/properties/stopping_condition/maxLength",
-		inputBound(defPacketJob+"/properties/stopping_condition/maxLength"))
-	registerOutputBound(defPacketJob+"/properties/unresolved_refs/items/maxLength",
-		inputBound(defPacketJob+"/properties/unresolved_refs/items/maxLength"))
-	registerOutputBound(defPacketJob+"/properties/unresolved_refs/maxItems",
-		inputBound(defPacketJob+"/properties/unresolved_refs/maxItems"))
 
 	// Recovery context re-marshals the retained dispatch payload verbatim;
 	// its provenance was admitted by ValidateWorkerHostProvenance, whose

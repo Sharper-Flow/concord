@@ -15,7 +15,7 @@ func releasedWorkflowGateExpectations(d WorkflowDefinition) [9]bool {
 	research := d.Ref == "workflow.research"
 	// The small composition has no refine step, so it enables none of the
 	// refine gates; its execution step carries the small proof.
-	small := implementation && d.Version == 35
+	small := implementation && d.Version == 36
 	refined := implementation && !small
 	return [9]bool{
 		refined && d.Version >= 28 || breakFix && d.Version >= 25,

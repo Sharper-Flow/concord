@@ -128,9 +128,9 @@ func mustCompileWorkflowComposition(composition WorkflowComposition) WorkflowDef
 // builtinWorkflowCompositions lists every released composition.
 func builtinWorkflowCompositions() []WorkflowComposition {
 	return []WorkflowComposition{
-		implementationCompositionV33(), implementationConsequenceV34(),
-		implementationSmallV35(), implementationConsequenceV36(),
-		breakFixCompositionV30(), breakFixConsequenceV31(),
+		implementationCompositionV33(), implementationConsequenceV34(), implementationCompositionV35(),
+		implementationSmallV36(), implementationCompositionV37(),
+		breakFixCompositionV30(), breakFixConsequenceV31(), breakFixCompositionV32(),
 		researchCompositionV20(), researchConsequenceV21(),
 	}
 }
@@ -302,13 +302,14 @@ func implementationConsequenceV34() WorkflowComposition {
 	return withConsequencePolicy(implementationCompositionV33())
 }
 
-// implementationSmallV35 is the small implementation composition (CD-0229
+// implementationSmallV36 is the small implementation composition (CD-0229
 // D5): define is alignment and planning, then implement, review, and ship.
-// It keeps the full composition's outcome contract, evidence, and approval
-// policy; a review finding returns to execution, which fixes it in scope.
-func implementationSmallV35() WorkflowComposition {
-	composition := implementationConsequenceV34()
-	composition.Version, composition.Size = 35, WorkSizeSmall
+// It keeps the full composition's outcome contract, evidence, approval
+// policy, and action catalog; a review finding returns to execution, which
+// fixes it in scope.
+func implementationSmallV36() WorkflowComposition {
+	composition := implementationCompositionV35()
+	composition.Version, composition.Size = 36, WorkSizeSmall
 	composition.Parts = []WorkflowPartUse{
 		{Ref: "part.alignment", Version: 1},
 		{Ref: "part.planning", Version: 1, StepID: "planning"},
@@ -319,11 +320,11 @@ func implementationSmallV35() WorkflowComposition {
 	return composition
 }
 
-// implementationConsequenceV36 keeps the full composition the family head
+// implementationCompositionV37 keeps the full composition the family head
 // above the small composition.
-func implementationConsequenceV36() WorkflowComposition {
-	composition := implementationConsequenceV34()
-	composition.Version = 36
+func implementationCompositionV37() WorkflowComposition {
+	composition := implementationCompositionV35()
+	composition.Version = 37
 	return composition
 }
 
@@ -333,4 +334,20 @@ func breakFixConsequenceV31() WorkflowComposition {
 
 func researchConsequenceV21() WorkflowComposition {
 	return withConsequencePolicy(researchCompositionV20())
+}
+
+// Checks-repair heads retain their predecessor's consequence policy and parts,
+// and repin only the action catalog for the repair authoring and packet members.
+func implementationCompositionV35() WorkflowComposition {
+	composition := implementationConsequenceV34()
+	composition.Version = 35
+	composition.ActionCatalogVersion = 2
+	return composition
+}
+
+func breakFixCompositionV32() WorkflowComposition {
+	composition := breakFixConsequenceV31()
+	composition.Version = 32
+	composition.ActionCatalogVersion = 2
+	return composition
 }

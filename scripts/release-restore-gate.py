@@ -62,6 +62,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from release_restore_confine import STOP, CaseFailure, Guard, STREAM_LIMIT, checkpoint, install_interrupt_handlers, run_bounded
+from release_restore_invoke import INVOKE_PLAN, InvokeError, run_invoke_phase
 from release_restore_population import (
     GateError, Writer, enumerate_writers, gh_release_page, gh_release_total, git_tags, list_releases, semver,
 )
@@ -140,7 +141,7 @@ def recipe_for(tag: str) -> list[tuple[str, dict]]:
 
 
 def recipe_sha256(steps: list[tuple[str, dict]]) -> str:
-    return hashlib.sha256(json.dumps([RECIPE_ID, steps], sort_keys=True).encode()).hexdigest()
+    return hashlib.sha256(json.dumps([RECIPE_ID, steps, list(INVOKE_PLAN)], sort_keys=True).encode()).hexdigest()
 
 
 def resolve(value, store: Path, case: Path, deadline: float):
@@ -391,6 +392,18 @@ def restore(candidate: Path, snapshot: Path, restored: Path, case: Path, deadlin
     return inventory | {"appended_events": len(restored_events) - len(source_events)}
 
 
+def invoke_runner(binary: Path, env: dict[str, str], streams: Path, deadline: float, guard):
+    """A `run(verb, request) -> (rc, out, err)` for the invoke phase, confined like every writer step."""
+    calls = iter(range(1 << 30))
+
+    def run(verb: str, request: dict) -> tuple[int, str, str]:
+        label = f"invoke-{next(calls)}-{verb}"
+        rc, out = run_bounded([str(binary), verb], env, json.dumps(request), deadline, streams, label, guard)
+        return rc, out, (streams / f"{label}.stderr").read_text(errors="replace")
+
+    return run
+
+
 def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path, streams: Path, case_seconds: int,
                     wall_deadline: float, scratch: Scratch, transfer: Transfer) -> dict:
     started = time.monotonic()
@@ -419,6 +432,12 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
             rc, _ = run_bounded([str(binary), verb], env, json.dumps(request), deadline, streams, f"step-{step}-{verb}", guard)
             if rc != 0:
                 raise CaseFailure("unknown", verb, f"writer refused recipe step {step} {verb} with exit {rc}")
+        try:
+            capture = run_invoke_phase(invoke_runner(binary, env, streams, deadline, guard), Path(__file__).resolve().parents[1],
+                                       writer.tag, case, store)
+            row["invoke"] = {"outcome": capture.get("outcome"), "plan": list(INVOKE_PLAN)}
+        except InvokeError as error:
+            raise CaseFailure("unknown", f"invoke-{error.stage}", error.detail) from None
         snapshot = case / "snapshot.db"
         manifest = snapshot_fixture(store, snapshot, writer.tag, room, guard, deadline)
         row["source"] = {key: manifest[key] for key in ("schema_version", "event_watermark", "db_checksum")}

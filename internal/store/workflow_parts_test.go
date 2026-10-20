@@ -85,7 +85,7 @@ func TestComposedHeadsMatchTheReleasedHeadsTheySucceed(t *testing.T) {
 		composed, release int64
 	}{
 		{"workflow.implementation", 33, 32},
-		{"workflow.implementation", 36, 34},
+		{"workflow.implementation", 37, 35},
 		{"workflow.break_fix", 30, 29},
 		{"workflow.research", 20, 19},
 	} {

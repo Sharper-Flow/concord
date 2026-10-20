@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -264,23 +265,27 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 		}
 	})
 
-	t.Run("live engineering families declare consequence_v1 from their first consequence version", func(t *testing.T) {
+	t.Run("engineering consequence generations retain their declared policy", func(t *testing.T) {
 		t.Parallel()
+		// Every consequence_v1 version, sized or full; every other version
+		// carries no policy.
+		generations := map[string][]int64{
+			"workflow.implementation": {34, 35, 36, 37},
+			"workflow.break_fix":      {31, 32},
+			"workflow.research":       {21},
+		}
 		live := map[string]int64{}
 		for _, head := range BuiltinWorkflowDefinitions() {
 			live[head.Ref] = head.Version
 		}
-		// Each engineering family's first consequence_v1 version; every later
-		// version, sized or full, keeps the policy and every earlier one has none.
-		firstConsequence := map[string]int64{"workflow.implementation": 34, "workflow.break_fix": 31, "workflow.research": 21}
-		for ref, first := range firstConsequence {
-			if head, ok := live[ref]; !ok || head < first {
-				t.Fatalf("%s is not a live authoring head at or above v%d", ref, first)
+		for ref := range generations {
+			if !slices.Contains(generations[ref], live[ref]) {
+				t.Fatalf("%s v%d is not a declared consequence generation", ref, live[ref])
 			}
 		}
 		for _, definition := range builtinWorkflowDefinitionsWithHistory() {
 			want := ""
-			if first, ok := firstConsequence[definition.Ref]; ok && definition.Version >= first {
+			if slices.Contains(generations[definition.Ref], definition.Version) {
 				want = WorkflowApprovalPolicyConsequenceV1
 			}
 			if definition.ApprovalPolicy != want {

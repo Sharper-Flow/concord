@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -400,7 +401,7 @@ func dispatchJobBoundAttempt(t *testing.T, s *Store, workID, stepID, attemptID s
 	if correction != nil {
 		packet["inputs"].(map[string]any)["correction"] = correction
 	}
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "implement")
 	if err := dispatchJobPacketForTest(t, s, workID, attemptID, actor, key, packet); err != nil {
 		t.Fatalf("dispatch job-bound attempt %s: %v", attemptID, err)
 	}
@@ -432,7 +433,7 @@ func dispatchJobPacketForTest(t *testing.T, s *Store, workID, attemptID string, 
 
 // recordedPacketJobForTest projects the recorded revision onto the packet's
 // inputs.worker_job shape.
-func recordedPacketJobForTest(t *testing.T, s *Store, workID string, job WorkerJobBinding) map[string]any {
+func recordedPacketJobForTest(t *testing.T, s *Store, workID string, job WorkerJobBinding, laneID string) map[string]any {
 	t.Helper()
 	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
@@ -444,11 +445,33 @@ func recordedPacketJobForTest(t *testing.T, s *Store, workID string, job WorkerJ
 			if err := json.Unmarshal(mustJSONValue(packetJobFromView(view)), &out); err != nil {
 				t.Fatal(err)
 			}
+			// Mirror the dispatch admission's own projection: an
+			// implementation lane of a size-capable pin carries the
+			// computed caller exclusions; every other lane carries none.
+			if testLaneCapabilityClass(laneID) == "implementation" && sizeCapablePinForWork(t, s, workID) {
+				exclusions, exclusionsErr := workerJobCallerExclusionsTx(context.Background(), s.db, workID, job.JobID)
+				if exclusionsErr != nil {
+					t.Fatal(exclusionsErr)
+				}
+				if len(exclusions) > 0 {
+					out["caller_exclusions"] = exclusions
+				}
+			}
 			return out
 		}
 	}
 	t.Fatalf("worker job %#v is not recorded", job)
 	return nil
+}
+
+// testLaneCapabilityClass resolves one registered lane's capability class.
+func testLaneCapabilityClass(laneID string) string {
+	for _, lane := range BuiltinLaneDefinitions() {
+		if lane.ID == laneID {
+			return lane.CapabilityClass
+		}
+	}
+	return ""
 }
 
 // recordJobBoundWorkerDispatch records the worker.dispatched event through
@@ -464,7 +487,15 @@ func recordJobBoundWorkerDispatch(t *testing.T, s *Store, workID, attemptID stri
 
 func appendJobBoundWorkerDispatch(t *testing.T, s *Store, workID, attemptID string, job *WorkerJobBinding) error {
 	t.Helper()
-	lane := reviewGateLane(t, "implementation")
+	return appendLaneBoundWorkerDispatch(t, s, workID, attemptID, reviewGateLane(t, "implementation"), job)
+}
+
+// appendLaneBoundWorkerDispatch records the worker.dispatched evidence of the
+// named lane through the authoritative lane-actor dispatch route, carrying
+// the packet digest and the worker-job binding the dispatch_worker
+// authorization recorded.
+func appendLaneBoundWorkerDispatch(t *testing.T, s *Store, workID, attemptID string, lane LaneDefinition, job *WorkerJobBinding) error {
+	t.Helper()
 	var packetDigest string
 	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
 		packetDigest = "sha256:" + strings.Repeat("d", 64)
@@ -494,7 +525,132 @@ func recordWorkerJobFieldsForTest(t *testing.T, s *Store, workID string, actor W
 		bootstrapOracleFixtureSubject(t, s, workID)
 		fields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, s, workID)
 	}
+	if sizeCapablePinForWork(t, s, workID) {
+		for member, value := range workerJobSizeMembersForTest(t, s, workID, fields) {
+			fields[member] = value
+		}
+	}
 	return recordWorkerJobActionForTest(t, s, workID, actor, fields)
+}
+
+// sizeCapablePinForWork reports whether the work's pinned definition declares
+// the size members, so shared test helpers author them exactly where the pin
+// requires them and nowhere else.
+func sizeCapablePinForWork(t *testing.T, s *Store, workID string) bool {
+	t.Helper()
+	var ref string
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
+		t.Fatalf("read pinned definition for %s: %v", workID, err)
+	}
+	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	if !ok {
+		t.Fatalf("pinned definition %s@%d is not registered", ref, version)
+	}
+	return workflowJobSizeActive(registered.Definition)
+}
+
+// workerJobSizeMembersForTest authors the three size members the shared job
+// recording helper carries on a size-capable pin: a bounded cap over the
+// work's own edit surface, the measurement basis at the work's current
+// qualified subject, and a minimal allowance inside the job's Project and
+// contract boundaries. The inventory comes from the caller's declared
+// path_scope — its first entry — or a per-job scope, so coexisting jobs
+// never share measured paths unless the caller declares the overlap.
+func workerJobSizeMembersForTest(t *testing.T, s *Store, workID string, fields map[string]any) map[string]any {
+	t.Helper()
+	base := strings.Repeat("a", 40)
+	if subject, err := readCurrentOracleSubject(context.Background(), s.db, workID); err == nil && worktreeSHAPattern.MatchString(subject) {
+		base = subject
+	}
+	var project string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
+		t.Fatalf("read primary Project for %s: %v", workID, err)
+	}
+	oracleFields := acceptanceOracleFieldsWithoutPreparationsForTest(t, s, workID)
+	domain := oracleFields["owners"].([]map[string]any)[0]["domain_id"].(string)
+	inventory := "internal/store"
+	if scope, ok := fields["path_scope"].([]string); ok && len(scope) > 0 {
+		inventory = scope[0]
+	} else if scope, ok := fields["path_scope"].([]any); ok && len(scope) > 0 {
+		if named, ok := scope[0].(string); ok {
+			inventory = named
+		}
+	} else {
+		// No declared scope: one per-job scope carries the job's own
+		// inventory, so coexisting jobs never share measured paths unless
+		// the caller declares the overlap.
+		inventory = "generated/" + strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(fmt.Sprint(fields["job_id"]), ":", "-"), " ", "-"), "\"", "")
+		if scope, ok := fields["path_scope"].([]string); !ok || len(scope) == 0 {
+			fields["path_scope"] = []string{inventory}
+		}
+	}
+	// CD-0225 D1 inheritance: a later revision keeps every path an earlier
+	// revision of the same job classified production, inside its scope, and
+	// a job in correction keeps its original base.
+	paths := []map[string]any{{"path": inventory, "class": "production"}}
+	inherited, correctionBase := earlierJobSizeBasisForTest(t, s, workID, fmt.Sprint(fields["job_id"]))
+	if correctionBase != "" {
+		base = correctionBase
+	}
+	if len(inherited) > 0 {
+		scope, _ := fields["path_scope"].([]string)
+		if declared, ok := fields["path_scope"].([]any); ok {
+			for _, entry := range declared {
+				scope = append(scope, fmt.Sprint(entry))
+			}
+		}
+		for _, path := range inherited {
+			if path == inventory {
+				continue
+			}
+			paths = append(paths, map[string]any{"path": path, "class": "production"})
+			if !slices.Contains(scope, path) {
+				scope = append(scope, path)
+			}
+		}
+		fields["path_scope"] = scope
+	}
+	return map[string]any{
+		"production_size_max": 400,
+		"measurement_basis": map[string]any{
+			"base_commit": base,
+			"paths":       paths,
+		},
+		"direct_caller_allowance": map[string]any{
+			"project_id":   project,
+			"mechanisms":   []map[string]any{{"project_id": project, "path": inventory, "entry_point": "recorded job"}},
+			"domain_ids":   []string{domain},
+			"law_bindings": []map[string]any{},
+		},
+	}
+}
+
+// earlierJobSizeBasisForTest reads what CD-0225 D1 makes a later revision
+// of the job inherit: the sorted paths earlier revisions classified
+// production and, while the job is in correction, its original base.
+func earlierJobSizeBasisForTest(t *testing.T, s *Store, workID, jobID string) (paths []string, correctionBase string) {
+	t.Helper()
+	ctx := context.Background()
+	content, err := readWorkerJobSizeContentTx(ctx, s.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if correctionBase, err = workerJobRetainedBaseTx(ctx, s.db, workID, jobID); err != nil {
+		t.Fatal(err)
+	}
+	for binding, entry := range content {
+		if binding.JobID != jobID || entry.basis == nil {
+			continue
+		}
+		for _, measured := range entry.basis.Paths {
+			if measured.Class == "production" && !slices.Contains(paths, measured.Path) {
+				paths = append(paths, measured.Path)
+			}
+		}
+	}
+	slices.Sort(paths)
+	return paths, correctionBase
 }
 
 // recordWorkerJobRevisionForTest records one worker-job revision through the
@@ -506,10 +662,16 @@ func recordWorkerJobRevisionForTest(t *testing.T, s *Store, workID string, actor
 	t.Helper()
 	fields := map[string]any{
 		"job_id": job.JobID, "objective": "bounded job objective for " + job.JobID,
-		"stopping_condition": "the recorded checks pass with no unresolved reference",
-		"path_scope":         []string{"internal/store"}, "checks": []string{"go test ./internal/store/"},
+		"stopping_condition":   "the recorded checks pass with no unresolved reference",
+		"checks":               []string{"go test ./internal/store/"},
 		"reserved_integration": "integration evidence binds at the parent effect step",
 		"ready":                true, "readiness_evidence": []string{"evidence:coordinator-ready"},
+	}
+	// A size-capable pin takes the per-job scope the size members author,
+	// so coexisting jobs never share measured paths; earlier pins keep the
+	// shared store scope.
+	if !sizeCapablePinForWork(t, s, workID) {
+		fields["path_scope"] = []string{"internal/store"}
 	}
 	if err := recordWorkerJobFieldsForTest(t, s, workID, actor, fields); err != nil {
 		t.Fatalf("record worker-job %s: %v", job.JobID, err)
@@ -537,7 +699,7 @@ func readyWorkerJobForTest(t *testing.T, s *Store, workID string, definition Wor
 	}
 	job := &WorkerJobBinding{JobID: jobID, Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, actor, job)
-	return recordedPacketJobForTest(t, s, workID, *job)
+	return recordedPacketJobForTest(t, s, workID, *job, "implement")
 }
 
 func recordWorkerJobActionForTest(t *testing.T, s *Store, workID string, actor WorkflowActor, fields map[string]any) error {
@@ -592,7 +754,64 @@ func completeJobBoundAttemptForTest(s *Store, workID, attemptID string, _ LaneDe
 		return err
 	}
 	completed := jobBoundCompletionEvent(workID, "job-window-completed-"+attemptID, attemptID, lane, time.Unix(16, 0).UTC(), job, directory)
+	if err := attachCompletedReportSizeForTest(context.Background(), s, workID, attemptID, job, &completed); err != nil {
+		return err
+	}
 	return ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}})
+}
+
+// attachCompletedReportSizeForTest carries the folded size binding on a
+// completed report whose dispatched job is capped (CD-0225 D2): the
+// production size between the job's recorded base and the observed tree.
+// The generic append route owns no delivery observation, so the fixture
+// authors the observation the terminal ingest derives on the live route,
+// with the job's recorded base as the observed tree.
+func attachCompletedReportSizeForTest(ctx context.Context, s *Store, workID, attemptID string, job *WorkerJobBinding, event *Event) error {
+	if job == nil {
+		return nil
+	}
+	var class string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT capability_class FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&class); err != nil {
+		return err
+	}
+	if class != "implementation" {
+		return nil
+	}
+	content, err := readWorkerJobSizeContentTx(ctx, s.db, workID)
+	if err != nil {
+		return err
+	}
+	entry, recorded := content[*job]
+	if !recorded || entry.basis == nil {
+		return nil
+	}
+	var payload WorkerCompletedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return err
+	}
+	payload.ObservedDelivery = &WorkerObservedDelivery{Commit: entry.basis.BaseCommit, State: "clean", Base: entry.basis.BaseCommit}
+	payload.ProductionSize = &WorkerProductionSize{Base: entry.basis.BaseCommit, Tree: entry.basis.BaseCommit, Count: 0}
+	event.Payload = mustJSONValue(payload)
+	return nil
+}
+
+// completionProductionSizeForTest authors the production_size member a
+// completed report of a capped job owes, with the named tree commit; nil
+// when the job records no measurement basis.
+func completionProductionSizeForTest(t *testing.T, s *Store, workID string, job *WorkerJobBinding, treeCommit string) *WorkerProductionSize {
+	t.Helper()
+	if job == nil {
+		return nil
+	}
+	content, err := readWorkerJobSizeContentTx(context.Background(), s.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, recorded := content[*job]
+	if !recorded || entry.basis == nil {
+		return nil
+	}
+	return &WorkerProductionSize{Base: entry.basis.BaseCommit, Tree: treeCommit, Count: 0}
 }
 
 // attachReadyWorkerJobIfJobCapable records one ready worker-job revision on
@@ -629,7 +848,7 @@ func attachReadyWorkerJobIfJobCapable(t *testing.T, s *Store, workID, stepID str
 	recordWorkerJobRevisionForTest(t, s, workID, actor, job)
 	bindPacketToRecordedState(t, s, packet)
 	packet["schema_version"] = WorkerPacketSchemaVersion
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "implement")
 	return job
 }
 
@@ -671,7 +890,7 @@ func TestWorkerJobDispatchRequiresRecordedRevision(t *testing.T) {
 			t.Fatalf("dispatch %s error = %v, want %q", attemptID, err, want)
 		}
 	}
-	recorded := recordedPacketJobForTest(t, s, workID, *job)
+	recorded := recordedPacketJobForTest(t, s, workID, *job, "implement")
 	refused("attempt:"+workID+":unbound", "carries no inputs.worker_job", nil)
 	refused("attempt:"+workID+":fabricated", "does not name a recorded worker-job revision", func(inputs map[string]any) {
 		fabricated := map[string]any{}

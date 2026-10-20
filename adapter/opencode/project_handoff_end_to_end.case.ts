@@ -19,6 +19,7 @@ import { agentLanes } from "./generated-agent-lanes"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
 import { dbValue, fixturePublicKeyBase64, type JSONRecord } from "./end-to-end.fixture"
+import { headCommit, jobSizeFields, reportedProductionSize } from "./job-size.fixture"
 
 // The Project-session handoff acceptance runs on the real boundary: a real
 // core binary against a real store, two Projects in two repositories, the
@@ -753,7 +754,7 @@ routeDeclaration(RESTART_WITNESS, async () => {
     if (!prepareResult.oracle) throw new Error("native preparation returned no oracle result")
     expect(prepareResult.oracle.qualification).toBe("ready")
     const preparationRef = prepareResult.oracle.run_ref
-    const job = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: "record_worker_job", idempotency_key: "handoff-receiver-job", fields: { job_id: "job:handoff-receiver", predicate_ids: owner.predicate_ids, objective: expectedHandoff.bounded_job, stopping_condition: "The receiving adapter surface is verified.", path_scope: ["oraclekit"], checks: ["go test ./oraclekit"], ready: true, readiness_evidence: [preparationRef], acceptance_oracle: { owners: [owner], cases: [oracleCase], controls: [{ ...control, readiness_evidence_refs: [preparationRef] }] } } } }, context)
+    const job = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: "record_worker_job", idempotency_key: "handoff-receiver-job", fields: { job_id: "job:handoff-receiver", predicate_ids: owner.predicate_ids, objective: expectedHandoff.bounded_job, stopping_condition: "The receiving adapter surface is verified.", path_scope: ["oraclekit"], checks: ["go test ./oraclekit"], ready: true, readiness_evidence: [preparationRef], acceptance_oracle: { owners: [owner], cases: [oracleCase], controls: [{ ...control, readiness_evidence_refs: [preparationRef] }] }, ...jobSizeFields(owner, "oraclekit", head.stdout.trim(), SOURCE_PROJECT) } } }, context)
     expect(job.outcome, JSON.stringify(job)).toBe("ok")
     const dispatched = await dispatchLaneWorker({ work_id: workID, expected_version: version(), idempotency_key: "handoff-receiver-dispatch", lane_id: "implement" }, { context, invoke, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, windows: dispatchWindows() })
     expect(dispatched.outcome, JSON.stringify(dispatched)).toBe("ok")
@@ -767,7 +768,7 @@ routeDeclaration(RESTART_WITNESS, async () => {
     expect(packet.inputs.work_record).toEqual({ value_statement: "The bounded handoff crosses Projects without operator copying.", task: "Exercise the handoff route." })
     const lane = agentLanes.find((candidate) => candidate.id === "implement")!
     const workerJob = packet.inputs.worker_job
-    const report = { schema_version: packet.schema_version, readback_model: "openai/gpt-5.6-luna", status: "completed", worker_job: { job_id: workerJob.job_id, revision: workerJob.revision, digest: workerJob.digest }, evidence: lane.evidence_obligations.map((obligation, index) => ({ obligation, detail: `original handoff ${obligation}`, ...(index === 0 ? { predicate_ids: [HANDOFF_PREDICATE.predicate_id] } : {}) })) }
+    const report = { schema_version: packet.schema_version, readback_model: "openai/gpt-5.6-luna", status: "completed", worker_job: { job_id: workerJob.job_id, revision: workerJob.revision, digest: workerJob.digest }, ...reportedProductionSize(packet, headCommit(fixture.receiveWorktree)), evidence: lane.evidence_obligations.map((obligation, index) => ({ obligation, detail: `original handoff ${obligation}`, ...(index === 0 ? { predicate_ids: [HANDOFF_PREDICATE.predicate_id] } : {}) })) }
     const reportText = `\`\`\`${WORKER_REPORT_PROTOCOL}\n${JSON.stringify(report)}\n\`\`\``
     const workerID = "worker-handoff-original"
     host.sessions[workerID] = { directory: fixture.receiveWorktree, parentID: RECEIVE_SESSION, metadata: {}, messages: [

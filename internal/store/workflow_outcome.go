@@ -16,15 +16,16 @@ import (
 // payload; the whole-action decode budget is maxWorkflowActionPayloadBytes.
 const maxWorkflowPredicateBytes = 64 * 1024
 
-// maxWorkflowActionPayloadBytes is the whole-action payload decode budget:
-// the next power of two above the composed declared maxima of every part a
-// worker packet can carry — the 64 KiB dispatch context aggregate plus the
-// generated packet schema's declared maxima with the store-owned bounds the
-// schema leaves to the writers (the 32 KiB serialized acceptance oracle) and
-// the action envelope's own field names. The composition test pins the
-// constant to that derivation, so a later part increase fails the test
-// instead of the transport.
-const maxWorkflowActionPayloadBytes = 32 * 1024 * 1024
+// MaxWorkflowActionPayloadBytes is the whole-action payload decode budget:
+// the shared action payload ceiling the agent request transport limit
+// aliases. The widest-shape derivation in internal/agent pins it to one
+// next power of two, so a shape growth fails the derivation instead of the
+// transport.
+const MaxWorkflowActionPayloadBytes = 128 * 1024 * 1024
+
+// maxWorkflowActionPayloadBytes is the package-local alias of the shared
+// action payload ceiling.
+const maxWorkflowActionPayloadBytes = MaxWorkflowActionPayloadBytes
 
 const maxWorkflowJSONDepth = 64
 const maxWorkflowJSONContainerEntries = 128

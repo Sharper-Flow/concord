@@ -305,7 +305,7 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	if err != nil {
 		return out, err
 	}
-	if err := continuityReadReadyWorkerJobsTx(ctx, tx, req.Work, &out); err != nil {
+	if err := continuityReadReadyWorkerJobsTx(ctx, tx, req.Work, instance.sizeCapable, &out); err != nil {
 		return out, err
 	}
 	if err := continuityReadProposalTx(ctx, tx, req.Work, &out); err != nil {
@@ -533,15 +533,34 @@ func validateWorkerPacketCheckpoint(ctx context.Context, q queryer, workID strin
 
 // continuityReadReadyWorkerJobsTx reads the dispatch-ready worker-job
 // revisions through the one readiness predicate dispatch admission applies.
-func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) error {
+// On a size-capable pin each job carries the caller_exclusions its
+// implementation dispatch binds (CD-0227 D1); a dispatcher drops them for
+// every other lane. A set above the packet's declared bounds — in count or
+// in per-path characters — is not published, so the read stays available
+// and the dispatch refuses with its recovery.
+func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work string, sizeCapable bool, out *ContinuitySnapshot) error {
 	views, err := readWorkerJobRevisions(ctx, tx, work)
 	if err != nil {
 		return err
 	}
-	for _, view := range views {
-		if view.Ready {
-			out.ReadyWorkerJobs = append(out.ReadyWorkerJobs, packetJobFromView(view))
+	var corrections map[string][]string
+	if sizeCapable {
+		if corrections, err = workerJobCorrectionMeasuredTx(ctx, tx, work); err != nil {
+			return err
 		}
+	}
+	for _, view := range views {
+		if !view.Ready {
+			continue
+		}
+		job := packetJobFromView(view)
+		if sizeCapable {
+			exclusions := workerJobCorrectionExclusions(corrections, view.Binding.JobID)
+			if len(exclusions) > 0 && validateWorkerJobPacketExclusions(view.Binding.JobID, exclusions) == nil {
+				job.CallerExclusions = exclusions
+			}
+		}
+		out.ReadyWorkerJobs = append(out.ReadyWorkerJobs, job)
 	}
 	// The awaiting confirming-review jobs (CD-0205 D4, CD-0148 amendment):
 	// every open accepted exact repairing revision whose one confirming
@@ -776,6 +795,7 @@ type continuityInstance struct {
 	definition  WorkflowReadDefinition
 	workVersion int64
 	present     bool
+	sizeCapable bool
 }
 
 // readContinuityInstanceForRegistryTx is the registry-threaded continuity
@@ -812,6 +832,7 @@ func readContinuityInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, work s
 		return instance, err
 	}
 	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
+	instance.sizeCapable = workflowJobSizeActive(registered.Definition)
 	if step := workflowStep(registered.Definition, instance.step); step != nil {
 		out.StepActions = append(out.StepActions, step.Actions...)
 	}

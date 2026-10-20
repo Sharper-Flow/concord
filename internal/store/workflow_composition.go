@@ -125,8 +125,8 @@ func mustCompileWorkflowComposition(composition WorkflowComposition) WorkflowDef
 // builtinWorkflowCompositions lists every released composition.
 func builtinWorkflowCompositions() []WorkflowComposition {
 	return []WorkflowComposition{
-		implementationCompositionV33(), implementationConsequenceV34(), implementationCompositionV35(),
-		breakFixCompositionV30(), breakFixConsequenceV31(), breakFixCompositionV32(),
+		implementationCompositionV33(), implementationConsequenceV34(), implementationCompositionV35(), implementationCompositionV36(),
+		breakFixCompositionV30(), breakFixConsequenceV31(), breakFixCompositionV32(), breakFixCompositionV33(),
 		researchCompositionV20(), researchConsequenceV21(),
 	}
 }
@@ -284,5 +284,27 @@ func breakFixCompositionV32() WorkflowComposition {
 	composition := breakFixConsequenceV31()
 	composition.Version = 32
 	composition.ActionCatalogVersion = 2
+	return composition
+}
+
+// implementationCompositionV36 ships the size-capable implementation head
+// (CD-0225 D1, CD-0227 D1): v35's every surface — the consequence_v1
+// approval policy and the checks-repair authoring members included — with
+// the v3 action catalog, whose record_worker_job adds the optional size
+// members beside the repair authoring members and the closed split variant.
+// A job under this head carries all three size members or none.
+func implementationCompositionV36() WorkflowComposition {
+	composition := implementationCompositionV35()
+	composition.Version = 36
+	composition.ActionCatalogVersion = 3
+	return composition
+}
+
+// breakFixCompositionV33 ships the size-capable break-fix head: v32's every
+// surface with the v3 action catalog.
+func breakFixCompositionV33() WorkflowComposition {
+	composition := breakFixCompositionV32()
+	composition.Version = 33
+	composition.ActionCatalogVersion = 3
 	return composition
 }

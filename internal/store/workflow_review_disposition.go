@@ -116,7 +116,7 @@ func workflowRefineReviewCorrectionDecision(ctx context.Context, q queryer, work
  AND NOT EXISTS(SELECT 1 FROM domain_events disposition WHERE disposition.subject_type=opening.subject_type
   AND disposition.subject_id=opening.subject_id AND disposition.kind=? AND disposition.seq>opening.seq
   AND json_extract(disposition.payload,'$.worker_attempt_id')=json_extract(opening.payload,'$.worker_attempt_id')
-  AND json_extract(disposition.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure')))`, workID, WorkflowActionCompleted, boundary, step, WorkflowActionCompleted).Scan(&unsettled); err != nil {
+  AND json_extract(disposition.payload,'$.action_id') IN (`+workerAttemptDisposalActions+`)))`, workID, WorkflowActionCompleted, boundary, step, WorkflowActionCompleted).Scan(&unsettled); err != nil {
 		return workflowRefineReviewCorrectionNotApplicable, wrapFailure(KindUnavailable, subject, "cannot inspect refinement authorization dispositions", true, "retry once the workflow projection is readable", err)
 	}
 	if unsettled != 0 {

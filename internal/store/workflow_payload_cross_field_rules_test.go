@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -248,6 +249,11 @@ func TestDeclaredCrossFieldRulesMatchCoreAndPublishedVerdicts(t *testing.T) {
 						delete(fields, name)
 					}
 				}
+				// A required field the group forbids is not required
+				// beside it; the base sample from another branch may carry it.
+				for _, name := range group.Forbids {
+					delete(fields, name)
+				}
 				for _, name := range groupFields(group) {
 					if _, present := fields[name]; !present {
 						fields[name] = sampleFieldValue(t, defs, variantName, name)
@@ -313,6 +319,9 @@ func TestDeclaredCrossFieldRulesMatchCoreAndPublishedVerdicts(t *testing.T) {
 								for _, name := range groupFields(group) {
 									delete(fields, name)
 								}
+							}
+							for _, name := range complete.Forbids {
+								delete(fields, name)
 							}
 							for _, name := range groupFields(complete) {
 								if _, present := fields[name]; !present {
@@ -474,6 +483,10 @@ func requiredNames(node map[string]any) []string {
 	return names
 }
 
+// crossFieldLiteralPrefix matches an identifier pattern that opens with a
+// literal lowercase prefix and colon.
+var crossFieldLiteralPrefix = regexp.MustCompile(`^\^([a-z_]+:)`)
+
 func crossFieldSampleValue(defs map[string]any, node map[string]any) any {
 	node = mergeRefSiblings(defs, node)
 	if value, ok := node["const"]; ok {
@@ -512,16 +525,18 @@ func crossFieldSampleValue(defs map[string]any, node map[string]any) any {
 	case "string":
 		pattern, _ := node["pattern"].(string)
 		switch {
-		case strings.HasPrefix(pattern, "^predicate:"):
-			return "predicate:cross-field-sample"
 		case strings.Contains(pattern, "sha256:"):
 			return "sha256:" + strings.Repeat("0", 64)
 		case strings.HasPrefix(pattern, "^msg:"):
 			return "msg:" + strings.Repeat("0", 32)
 		case strings.HasPrefix(pattern, "^https://"):
 			return "https://example.test/pull/1"
-		case strings.Contains(pattern, "[0-9a-f]{40}"):
+		case strings.Contains(pattern, "[0-9a-f]{40"):
 			return strings.Repeat("0", 40)
+		case crossFieldLiteralPrefix.MatchString(pattern):
+			// An identifier pattern with a literal prefix such as
+			// predicate:, case:, owner:, or control: takes that prefix.
+			return crossFieldLiteralPrefix.FindStringSubmatch(pattern)[1] + "cross-field-sample"
 		}
 		// The default sample clears the two-byte floor every fold holds
 		// workflow strings to, which minLength alone does not encode.

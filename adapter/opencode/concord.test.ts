@@ -367,13 +367,16 @@ test("published tool arguments expose a host-safe request shape", async () => {
   expect((adapter.work_start as any).args.project_id).toBeUndefined()
   expect(Object.keys(generatedResume.properties)).toEqual(["work_id"])
   // Conditional branches preserve both generated closed modes without a
-  // root union that Anthropic's tool-schema validator would reject.
+  // root union that Anthropic's tool-schema validator would reject. The
+  // published branches may share repeated field schemas through local
+  // definitions, so the mode comparison runs on the resolved view.
   const workStartDefinition = { description: "", parameters: {}, jsonSchema: undefined as unknown }
   await adapter.publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartDefinition)
   const publishedWorkStart = workStartDefinition.jsonSchema as any
   expect(publishedWorkStart.if).toEqual({ required: ["work_id"] })
-  expect(publishedWorkStart.else).toEqual(generatedCapture)
-  expect(publishedWorkStart.then).toEqual(generatedResume)
+  const expandedWorkStart: any = expandedPublishedRequestSchema(publishedWorkStart)
+  expect(expandedWorkStart.else).toEqual(generatedCapture)
+  expect(expandedWorkStart.then).toEqual(generatedResume)
 })
 
 test("work define publishes the record-only issue identity contract", () => {

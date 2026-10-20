@@ -65,13 +65,19 @@ func bindPacketToRecordedState(t *testing.T, s *store.Store, packet map[string]a
 	// A job-executing lane also binds the work's one dispatch-ready worker-job
 	// revision, as the adapter selects it from the continuity projection
 	// (CD-0205). Call it immediately before the dispatch the packet rides.
-	if _, ok := builtinLane(laneID); ok {
+	if lane, ok := builtinLane(laneID); ok {
 		snapshot, err := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: workID})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(snapshot.ReadyWorkerJobs) == 1 {
-			raw, err := json.Marshal(snapshot.ReadyWorkerJobs[0])
+			job := snapshot.ReadyWorkerJobs[0]
+			// As the adapter does, only an implementation lane keeps the
+			// published caller exclusions (CD-0227 D1).
+			if lane.CapabilityClass != "implementation" {
+				job.CallerExclusions = nil
+			}
+			raw, err := json.Marshal(job)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -150,6 +156,7 @@ func recordReadyRetryJobForWork(t *testing.T, s *store.Store, service *Service, 
 		"checks":            []string{"go vet ./..."},
 		"acceptance_oracle": agentOracleFieldsForWork(t, s, workID),
 	}
+	addAgentJobSizeMembers(t, s, workID, fields)
 	raw, err := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "action_id": "record_worker_job", "idempotency_key": "record-ready-" + jobID,
 		"fields": fields,
@@ -178,9 +185,16 @@ func recordReadyRetryJobUnderContract(t *testing.T, s *store.Store, service *Ser
 // one derivation rule the registry owns.
 func oracleCapableAgentPin(t *testing.T, s *store.Store) bool {
 	t.Helper()
+	return agentPinRecordsJobField(t, s, oracleFixtureWork, "acceptance_oracle")
+}
+
+// agentPinRecordsJobField reports whether the work's pinned definition's
+// record_worker_job payload names the field.
+func agentPinRecordsJobField(t *testing.T, s *store.Store, workID, name string) bool {
+	t.Helper()
 	var ref string
 	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id='work-1'`).Scan(&ref, &version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
 		t.Fatal(err)
 	}
 	registered, ok := store.BuiltinWorkflowRegistry().Lookup(ref, version)
@@ -192,12 +206,39 @@ func oracleCapableAgentPin(t *testing.T, s *store.Store) bool {
 			continue
 		}
 		for _, field := range action.Payload.Fields {
-			if field.Name == "acceptance_oracle" {
+			if field.Name == name {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// addAgentJobSizeMembers authors the CD-0225 size members an editing job
+// carries on a size-capable pin: a per-job path scope and inventory, so
+// coexisting jobs never share measured paths, the measurement base at the
+// work's qualified subject, and an allowance inside the oracle owner's
+// Project and Domain. The oracle fields must already be present.
+func addAgentJobSizeMembers(t *testing.T, s *store.Store, workID string, fields map[string]any) {
+	t.Helper()
+	if !agentPinRecordsJobField(t, s, workID, "production_size_max") {
+		return
+	}
+	owner := fields["acceptance_oracle"].(map[string]any)["owners"].([]any)[0].(map[string]any)
+	project := owner["mechanism"].(map[string]any)["project_id"]
+	inventory := "generated/" + strings.NewReplacer(":", "-", " ", "-").Replace(fmt.Sprint(fields["job_id"]))
+	fields["path_scope"] = []string{inventory}
+	fields["production_size_max"] = 400
+	fields["measurement_basis"] = map[string]any{
+		"base_commit": fixtureOracleSubjectFor(t, s, workID),
+		"paths":       []map[string]any{{"path": inventory, "class": "production"}},
+	}
+	fields["direct_caller_allowance"] = map[string]any{
+		"project_id":   project,
+		"mechanisms":   []map[string]any{{"project_id": project, "path": inventory, "entry_point": "recorded job"}},
+		"domain_ids":   []any{owner["domain_id"]},
+		"law_bindings": []map[string]any{},
+	}
 }
 
 // The oracle fixture constants mirror the store's trusted ledger fixture
@@ -380,17 +421,47 @@ func seedOracleVerifySubjectForWork(t *testing.T, s *store.Store, workID string)
 // and qualifies the new subject before the live terminal observation reads it.
 func deliverAgentFixtureChange(t *testing.T, s *store.Store, workID, attemptID string) {
 	t.Helper()
+	delivery := recordedJobDeliveryPath(t, s, workID, attemptID)
 	path, _ := oracleFixtureActiveClaimFor(t, s, workID)
 	before := fixtureClaimSubject(t, path)
-	if err := os.WriteFile(filepath.Join(path, "delivery.txt"), []byte(attemptID+"\n"), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(path, filepath.Dir(delivery)), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	runFixtureGit(t, path, "add", "delivery.txt")
+	if err := os.WriteFile(filepath.Join(path, delivery), []byte(attemptID+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runFixtureGit(t, path, "add", delivery)
 	runFixtureGit(t, path, "commit", "-m", "implementation delivery")
 	seedOracleVerifySubjectForWork(t, s, workID)
 	if subject := fixtureOracleSubjectFor(t, s, workID); subject == before || subject != strings.TrimSpace(runFixtureGit(t, path, "rev-parse", "HEAD")) {
 		t.Fatalf("qualified delivery subject = %q, want a changed committed HEAD after %q", subject, before)
 	}
+}
+
+// Size-capable fixtures record one production path. Deliver there rather than
+// changing an unscoped path and claiming an unevidenced caller repair.
+func recordedJobDeliveryPath(t *testing.T, s *store.Store, workID, attemptID string) string {
+	t.Helper()
+	binding := authorizedWorkerJobFor(t, s, workID, attemptID)
+	if binding == nil {
+		return "delivery.txt"
+	}
+	var raw []byte
+	err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=?`, workID, store.WorkerJobRecorded, binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
+	if err != nil {
+		t.Fatalf("read the authorized worker job %+v: %v", binding, err)
+	}
+	var job store.WorkerJobRecordedPayload
+	if err := json.Unmarshal(raw, &job); err != nil {
+		t.Fatal(err)
+	}
+	if job.MeasurementBasis == nil {
+		return "delivery.txt"
+	}
+	if len(job.MeasurementBasis.Paths) != 1 || job.MeasurementBasis.Paths[0].Class != "production" {
+		t.Fatalf("delivery fixture requires one recorded production path: %+v", job.MeasurementBasis.Paths)
+	}
+	return job.MeasurementBasis.Paths[0].Path
 }
 
 // seedOraclePreparationReceiptForWork records the exact native preparation
@@ -727,6 +798,7 @@ func recordReadyRetryJobWithChecks(t *testing.T, s *store.Store, service *Servic
 		return
 	}
 	fields["acceptance_oracle"] = agentOracleFieldsForTest(t, s)
+	addAgentJobSizeMembers(t, s, workID, fields)
 	raw, err := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "action_id": "record_worker_job", "idempotency_key": "record-ready-" + jobID,
 		"fields": fields,

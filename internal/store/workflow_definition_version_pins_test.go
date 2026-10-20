@@ -112,6 +112,10 @@ import (
 // predecessor except for the order of the two definition-level action lists.
 // Implementation 34, break_fix 31, and research 21 equal those compositions
 // under the consequence_v1 approval policy (CD-0230 D5).
+// Checks repair repins implementation 35 and break_fix 32 at the v2 action
+// catalog (CD-0205 D4); the size-capable heads implementation 36 and
+// break_fix 33 repin the v3 catalog, whose record_worker_job adds the size
+// members and the closed split variant (CD-0225 D1, CD-0227 D1, CD-0225 D3).
 //
 // Editing a definition changes its computed digest and fails this test. Ship
 // the new content as a new version and add its digest here; never edit a row
@@ -267,6 +271,11 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.break_fix", "31"}:          "sha256:2a2baab65976d8994e0d70459438552e985402c4e6b924da25e59eb2d8fa770d",
 	{"workflow.break_fix", "32"}:          "sha256:84e2bb3699bf0d91e44dede7b3711b643048f9e4e4269176069372b6dac31301",
 	{"workflow.research", "21"}:           "sha256:a8c1173342a5b706c15511824470e60ebd7cdfb2ff49217e3a20c8e2c06b8ca0",
+	// The size-capable heads derive their digests in the merge test window;
+	// the zero digests fail loudly until the draft test below supplies the
+	// computed values.
+	{"workflow.implementation", "36"}:     "sha256:34cb51a2e26e208d613627e88c97d7ab5afded7671ace79961df440b93fea895",
+	{"workflow.break_fix", "33"}:          "sha256:1cd9d8a70f67d3622ab37204a5821b8ab8c1ed72ee94a3770948683f8173984a",
 	{"workflow.architecture_spike", "17"}: "sha256:3e9d434cba63d47aadea18399c3f950b89e93a5cc69317b8685fbbee2d245e55",
 	{"workflow.ops_runbook", "18"}:        "sha256:354390116b3faf7a73524ca4bfbbfe962650f8ed8eaf73a68845d812daade63a",
 	{"workflow.static_analysis", "15"}:    "sha256:5a561e9d53d26fc0ddec0f84aa72ca5cd2a0018e92dfa5dd0732efd0a8b32ade",
@@ -278,8 +287,8 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 // Run with: bin/oc-test targeted -- go test ./internal/store -run '^TestWorkflowDefinitionDraftVersionDigests$' -v -count=1 -timeout=180s
 func TestWorkflowDefinitionDraftVersionDigests(t *testing.T) {
 	for _, definition := range []WorkflowDefinition{
-		mustCompileWorkflowComposition(implementationCompositionV35()),
-		mustCompileWorkflowComposition(breakFixCompositionV32()),
+		mustCompileWorkflowComposition(implementationCompositionV36()),
+		mustCompileWorkflowComposition(breakFixCompositionV33()),
 	} {
 		digest, err := WorkflowDefinitionDigest(definition)
 		if err != nil {
@@ -451,23 +460,16 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
-	cases := map[string]int64{
-		"workflow.break_fix":          32,
-		"workflow.implementation":     35,
-		"workflow.generic_one_off":    16,
-		"workflow.research":           21,
-		"workflow.architecture_spike": 17,
-		"workflow.ops_runbook":        18,
-		"workflow.static_analysis":    15,
-	}
-	for ref, version := range cases {
+	// The current head comes from the registry's own version table, never a
+	// hand-written number: a new head must not require editing this test.
+	for ref, want := range builtinWorkflowCurrentVersions {
 		registered, err := BuiltinWorkflowDefinitionForRef(ref)
 		if err != nil {
 			t.Errorf("%s does not resolve: %v", ref, err)
 			continue
 		}
-		if registered.Definition.Version != version {
-			t.Errorf("%s resolved version %d, want %d", ref, registered.Definition.Version, version)
+		if registered.Definition.Version != want {
+			t.Errorf("%s resolved version %d, want %d", ref, registered.Definition.Version, want)
 		}
 	}
 }

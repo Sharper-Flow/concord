@@ -268,8 +268,8 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 	t.Run("engineering consequence generations retain their declared policy", func(t *testing.T) {
 		t.Parallel()
 		generations := map[string][]int64{
-			"workflow.implementation": {34, 35},
-			"workflow.break_fix":      {31, 32},
+			"workflow.implementation": {34, 35, 36},
+			"workflow.break_fix":      {31, 32, 33},
 			"workflow.research":       {21},
 		}
 		live := map[string]int64{}

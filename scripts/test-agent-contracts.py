@@ -1102,14 +1102,13 @@ def _schema_sample(node, root, path="$"):
         return value
     if kind == "array":
         minimum = node.get("minItems", 0)
-        item = _schema_sample(node.get("items", {}), root, f"{path}[]")
-        return [item for _ in range(max(minimum, 0))]
+        return [_schema_sample(node.get("items", {}), root, f"{path}[]") for _ in range(max(minimum, 0))]
     if kind in ("integer", "number"):
         return node.get("minimum", 1)
     if kind == "boolean":
         return False
     if kind == "string":
-        minimum, maximum = node.get("minLength", 0), node.get("maxLength", 64)
+        minimum, maximum = node.get("minLength", 0), node.get("maxLength", float("inf"))
         pattern = node.get("pattern")
         if pattern is not None:
             candidates = ["id-1", "conformance", "TestOne", "predicate:x", "control:c-1", "case:c-1", "owner:o-1",
@@ -1196,16 +1195,27 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
         defs = payload_schema["$defs"]
         self.assertNotIn("work_transition_action_legacy_input", defs)
         current = _condition_branches(_action_condition(defs, "record_worker_job"))
-        self.assertEqual(len(current), 1)
-        oracle_fields = _schema_sample(_fields_object(current[0]), payload_schema)
         envelope = {"work_id": "work-1", "expected_version": 1, "action_id": "record_worker_job", "idempotency_key": "job-1"}
-        generator.schema_validate(envelope | {"fields": oracle_fields}, defs["work_transition_action_input"], payload_schema, "core")
-        generator.schema_validate(envelope | {"fields": oracle_fields}, defs["work_transition_action_public_input"], payload_schema, "public")
-        historical = copy.deepcopy(oracle_fields)
-        historical.pop("acceptance_oracle")
-        for name in ("work_transition_action_input", "work_transition_action_public_input"):
-            with self.assertRaises(ValueError, msg=f"{name} admits a historical layout"):
-                generator.schema_validate(envelope | {"fields": historical}, defs[name], payload_schema, name)
+        ordinary = [branch for branch in current if "acceptance_oracle" in _fields_object(branch).get("required", [])]
+        self.assertEqual(len(ordinary), 1)
+        for branch in current:
+            fields = _schema_sample(_fields_object(branch), payload_schema)
+            historical = copy.deepcopy(fields)
+            if "split" in historical:
+                for successor in historical["split"]["successors"]:
+                    successor.pop("acceptance_oracle")
+            else:
+                historical.pop("acceptance_oracle")
+            for name in ("work_transition_action_input", "work_transition_action_public_input"):
+                generator.schema_validate(envelope | {"fields": fields}, defs[name], payload_schema, name)
+                with self.assertRaises(ValueError, msg=f"{name} admits a historical layout"):
+                    generator.schema_validate(envelope | {"fields": historical}, defs[name], payload_schema, name)
+
+    def test_sampler_preserves_declared_string_bounds(self):
+        digest = {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+        self.assertEqual(_schema_sample(digest, payload_schema), "sha256:" + "0" * 64)
+        with self.assertRaises(AssertionError):
+            _schema_sample(digest | {"maxLength": 64}, payload_schema)
 
     def test_no_merged_union_admits_combinations_no_definition_allows(self):
         defs = payload_schema["$defs"]
@@ -1244,11 +1254,12 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
 
     def test_the_public_dispatch_override_remains_correct(self):
         # Versioned packet schemas do not expose packet authoring publicly.
-        # The canonical heads anchor dispatch at the retained research-context
-        # worker_packet3 closure and the repair-capable worker_packet4
-        # closure, so the families' identical public halves dedupe to one
-        # two-branch core variant whose public override stays the lane
-        # identity alone.
+        # The size-capable heads anchor dispatch at the size-bearing
+        # worker_packet5 closure and research at worker_packet3. The
+        # historical repair-capable packet4 stays frozen but is not a
+        # current authoring variant, so the current families'
+        # identical public halves project one variant per closure whose
+        # public override stays the lane identity alone.
         action = self.action("dispatch_worker")
         self.assertEqual(len(action["variants"]), 2)
         for variant in action["variants"]:
@@ -1260,7 +1271,7 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
             for field in variant["payload"]["fields"]
             if field["name"] == "worker_packet"
         }
-        self.assertEqual(packet_refs, {"worker_packet3", "worker_packet4"})
+        self.assertEqual(packet_refs, {"worker_packet3", "worker_packet5"})
         internal = payload_schema["$defs"]["work_transition_action_variant_dispatch_worker"]["properties"]["fields"]
         branches = internal.get("anyOf", internal.get("oneOf", [internal]))
         self.assertEqual(len(branches), 2)
@@ -2913,7 +2924,7 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
             for key in schema.get("required", []):
                 result[key] = self._sample(self._property(schema, fallback_properties, key), f"{path}.{key}")
             return result
-        if kind == "array": return [] if not schema.get("minItems") else [self._sample(schema.get("items", {"type": "string"}), path)]
+        if kind == "array": return [self._sample(schema.get("items", {"type": "string"}), path) for _ in range(schema.get("minItems", 0))]
         if kind == "integer": return schema.get("minimum", 0)
         if kind == "boolean": return True
         if schema.get("format") == "date-time": return "2026-08-08T00:00:00Z"
@@ -3069,12 +3080,13 @@ class RetryResponsePacketUnionTests(unittest.TestCase):
     the pinned dispatch already admitted.
 
     mutation_result.retry_worker_packet is a closed anyOf over the unchanged
-    worker_packet2, worker_packet3, and worker_packet4 closures. The three
-    overlap — a plain packet validates under each — so oneOf would refuse
-    exactly the ordinary packets the union must keep admitting. The response
-    member carries no schema_version gate of its own: the pinned dispatch
-    admission selects the generation the work's pinned definition declares,
-    and the response returns exactly those admitted bytes.
+    worker_packet2, worker_packet3, worker_packet4, and worker_packet5
+    closures. They overlap — a plain packet validates under several — so
+    oneOf would refuse exactly the ordinary packets the union must keep
+    admitting. The response member carries no schema_version gate of its
+    own: the pinned dispatch admission selects the generation the work's
+    pinned definition declares, and the response returns exactly those
+    admitted bytes.
     """
 
     def member(self):
@@ -3106,10 +3118,11 @@ class RetryResponsePacketUnionTests(unittest.TestCase):
                                   "finding_ids": ["research:9:0"]}]
         return packet
 
-    def test_the_retry_response_is_the_closed_three_generation_anyof(self):
+    def test_the_retry_response_is_the_closed_four_generation_anyof(self):
         member = self.member()
         self.assertEqual([branch["$ref"] for branch in member["anyOf"]],
-                         ["#/$defs/worker_packet2", "#/$defs/worker_packet3", "#/$defs/worker_packet4"])
+                         ["#/$defs/worker_packet2", "#/$defs/worker_packet3", "#/$defs/worker_packet4",
+                          "#/$defs/worker_packet5"])
         self.assertNotIn("oneOf", member)
         self.assertNotIn("$ref", member)
         self.assertNotIn("always the versioned packet2 identity", member["description"],
@@ -3122,6 +3135,7 @@ class RetryResponsePacketUnionTests(unittest.TestCase):
         self.validate(self.plain_packet("worker_packet2"))
         self.validate(self.plain_packet("worker_packet3"))
         self.validate(self.plain_packet("worker_packet4"))
+        self.validate(self.plain_packet("worker_packet5"))
 
     def test_research_bearing_packet3_transports_and_malformed_refuses(self):
         self.validate(self.research_packet3())

@@ -312,6 +312,11 @@ function factorPublication(schema: JSONSchema): JSONSchema {
 // Each publication owns its definition table. Only identical repeated schema
 // nodes large enough to outweigh a local pointer/table entry are interned.
 // Children are interned first, so definition dependencies form an acyclic DAG.
+// Interning then re-measures the finished graph: an interned ancestor absorbs
+// duplicate occurrences of a child, so a child definition can end up
+// referenced fewer times than the expanded tree counted. Definitions whose
+// final references no longer outweigh their table entry are inlined back,
+// one candidate per pass in table order, to a fixpoint.
 function internPublication(schema: JSONSchema): JSONSchema {
   const counts = new Map<string, number>()
   const count = (node: JSONSchema): JSONSchema => {
@@ -341,7 +346,43 @@ function internPublication(schema: JSONSchema): JSONSchema {
     definitions[name] = body
     return pointer
   }
-  const result = intern(schema)
+  let result = intern(schema)
+  const referenceCounts = (): Map<string, number> => {
+    const refs = new Map<string, number>()
+    const tally = (node: JSONSchema): JSONSchema => {
+      if (typeof node.$ref === "string") refs.set(node.$ref, (refs.get(node.$ref) ?? 0) + 1)
+      mapPublicationChildren(node, tally)
+      return node
+    }
+    tally(result)
+    for (const body of Object.values(definitions)) tally(body)
+    return refs
+  }
+  for (;;) {
+    const refs = referenceCounts()
+    const inlined = Object.keys(definitions).find((name) => {
+      const body = definitions[name]
+      const occurrences = refs.get(`#/$defs/${name}`) ?? 0
+      const bytes = Buffer.byteLength(JSON.stringify(body), "utf8")
+      const pointerBytes = Buffer.byteLength(JSON.stringify({ $ref: `#/$defs/${name}` }), "utf8")
+      const entryBytes = Buffer.byteLength(JSON.stringify(name), "utf8") + 2
+      return occurrences * bytes <= bytes + occurrences * pointerBytes + entryBytes
+    })
+    if (inlined === undefined) break
+    const ref = `#/$defs/${inlined}`
+    const body = definitions[inlined]
+    // Each substitution site gets its own copy: published documents must stay
+    // structurally alias-free because host hooks may mutate what they receive.
+    const substitute = (node: JSONSchema): JSONSchema => {
+      if (Object.keys(node).length === 1 && node.$ref === ref) return JSON.parse(JSON.stringify(body)) as JSONSchema
+      return mapPublicationChildren(node, substitute)
+    }
+    result = substitute(result)
+    for (const [name, definition] of Object.entries(definitions)) {
+      if (name !== inlined) definitions[name] = substitute(definition)
+    }
+    delete definitions[inlined]
+  }
   return Object.keys(definitions).length ? { ...result, $defs: definitions } : result
 }
 
@@ -414,14 +455,17 @@ export async function publishWorkStartDefinition(
   // Anthropic rejects root oneOf/anyOf/allOf. Presence of work_id selects
   // the same closed branch as validateWorkStartArgs, including invalid IDs.
   // Parameters remain unchanged: publication cannot alter runtime admission.
-  output.jsonSchema = JSON.parse(JSON.stringify({
+  // The merged root properties repeat each branch's field constraints, so the
+  // published document interns like the request tools instead of carrying
+  // every field schema twice.
+  output.jsonSchema = internPublication(JSON.parse(JSON.stringify({
     type: "object",
     properties: { ...capture.properties, ...resume.properties },
     additionalProperties: false,
     if: { required: ["work_id"] },
     then: resume,
     else: capture,
-  }))
+  })))
 }
 
 function baseEnvelope(toolName: string, operation: string, requestID: string) {

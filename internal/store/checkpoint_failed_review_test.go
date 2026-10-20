@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -122,7 +123,7 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 	attemptID := "attempt:accepted-delivery:" + workID
 	packet := joinPacketFor(t, s, workID, stepID, attemptID, "implement", lane.Version, lane.Digest)
 	if job != nil {
-		packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+		packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "review")
 	}
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, workID)
 	if err := dispatchJobPacketForTest(t, s, workID, attemptID, owner, "accepted-delivery-"+workID, packet); err != nil {
@@ -141,10 +142,28 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(entry.Path+"/implementation.txt", []byte("implementation delivery\n"), 0o644); err != nil {
+	// The delivered edit is the dispatched job's own work: on a size-capable
+	// pin the job's measurement basis inventories one scope, so the edit
+	// lands inside it. A pre-size pin keeps the historical root edit.
+	editPath := "implementation.txt"
+	if job != nil {
+		content, contentErr := readWorkerJobSizeContentTx(ctx, s.DatabaseForTesting(), workID)
+		if contentErr != nil {
+			t.Fatal(contentErr)
+		}
+		if sizeEntry, recorded := content[*job]; recorded && sizeEntry.basis != nil && len(sizeEntry.basis.Paths) > 0 {
+			editPath = filepath.Join(sizeEntry.basis.Paths[0].Path, "implementation.txt")
+		}
+	}
+	if directory := filepath.Dir(editPath); directory != "." {
+		if err := os.MkdirAll(filepath.Join(entry.Path, directory), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(entry.Path, editPath), []byte("implementation delivery\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runTestGit(t, entry.Path, "add", "implementation.txt")
+	runTestGit(t, entry.Path, "add", editPath)
 	runTestGit(t, entry.Path, "commit", "-m", "implementation delivery")
 	subject := runTestGit(t, entry.Path, "rev-parse", "HEAD")
 	git := newFakeWorktreeGit(entry.Path)
@@ -160,6 +179,7 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: job,
+		ProductionSize: completionProductionSizeForTest(t, s, workID, job, subject),
 	})}
 	prepared, prepErr := PrepareWorkerTerminalDelivery(ctx, s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attemptID, EventID: completion.EventID, Runner: qualifiedSubjectRunner{head: subject}})
 	if prepErr != nil {

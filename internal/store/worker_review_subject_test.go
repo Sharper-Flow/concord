@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -206,7 +207,7 @@ func reviewSubjectDispatch(t *testing.T, s *Store, f workContextFixture, attempt
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	job := reviewSubjectReadyRevision(t, f)
 	packet := joinPacketFor(t, s, f.workID, stepID, attemptID, "review", laneVersion, laneDigest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, f.workID, job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, f.workID, job, "review")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, f.workID)
 	packetBytes, err := json.Marshal(packet)
 	if err != nil {
@@ -511,7 +512,7 @@ func rawLiveDispatch(t *testing.T, s *Store, f workContextFixture, stepID, attem
 	t.Helper()
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, s, f.workID, stepID, attemptID, "review", laneVersion, laneDigest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, f.workID, job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, f.workID, job, "review")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, f.workID)
 	packetBytes, err := json.Marshal(packet)
 	if err != nil {
@@ -641,10 +642,11 @@ func TestLiveDispatchRequiresSealedPreparation(t *testing.T) {
 }
 
 // qualifiedSubjectRunner answers the delivery probe without touching the
-// filesystem: HEAD is the work's qualified verify subject and the tree is
-// clean. Every other git call — the declared-reading resolution's committed
-// proofs — runs against the real fixture repositories. A preparation over a
-// subject-less view probes nothing.
+// filesystem: HEAD is the work's qualified verify subject, the tree is
+// clean, and the measured-delta probe answers an empty numstat — the clean
+// zero-delta observation. Every other git call — the declared-reading
+// resolution's committed proofs — runs against the real fixture
+// repositories. A preparation over a subject-less view probes nothing.
 type qualifiedSubjectRunner struct{ head string }
 
 func (r qualifiedSubjectRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
@@ -653,6 +655,9 @@ func (r qualifiedSubjectRunner) Run(ctx context.Context, dir string, args ...str
 	}
 	if len(args) > 0 && args[0] == "rev-parse" {
 		return []byte(r.head), nil
+	}
+	if slices.Contains(args, "--numstat") {
+		return nil, nil
 	}
 	return ExecGitRunner{}.Run(ctx, dir, args...)
 }
@@ -675,7 +680,7 @@ func seedAcceptedImplementationDelivery(t *testing.T, s *Store, workID string, o
 	recordWorkerJobRevisionForTest(t, s, workID, owner, &job)
 	attemptID := "attempt:accepted-delivery:" + workID
 	packet := joinPacketFor(t, s, workID, stepID, attemptID, "implement", lane.Version, lane.Digest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, "implement")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, workID)
 	if err := dispatchJobPacketForTest(t, s, workID, attemptID, owner, "accepted-delivery-"+workID, packet); err != nil {
 		t.Fatalf("accepted-delivery dispatch refused: %v", err)
@@ -690,6 +695,7 @@ func seedAcceptedImplementationDelivery(t *testing.T, s *Store, workID string, o
 	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
+		ProductionSize: completionProductionSizeForTest(t, s, workID, &job, subject),
 	})}
 	prepared, prepErr := PrepareWorkerTerminalDelivery(ctx, s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attemptID, EventID: completion.EventID, Runner: qualifiedSubjectRunner{head: subject}})
 	if prepErr != nil {

@@ -277,6 +277,24 @@ var newlyFrozenHistoricalDefs = map[string]string{
 	"worker_checks_repair":            "CON-1221: the core-recorded checks repair the repairing revision and its packet job carry: the stated reason and each named revision's binding and old checks",
 	"worker_job_repair_revision":      "CON-1221: the positive distinct revision integer the record_worker_job repair_revisions authoring array carries on the repair-capable heads",
 	"worker_failure_job_binding":      "CON-1221: the recorded worker-job revision reference the checks repair's named entries and the failure attribution surfaces share",
+	// The size-capable record_worker_job members the v2 action catalog
+	// declares (implementation v36, break_fix v33): the closed cap basis and
+	// direct-caller allowance objects and the measured path entry their
+	// inventories carry, beside the unchanged worker_acceptance_oracle
+	// closure.
+	"worker_job_measurement_basis":       "CON-1001: the cap-measurement basis the size-capable record_worker_job payloads declare",
+	"worker_job_measured_path":           "CON-1001: one classified measured inventory entry the worker_job_measurement_basis paths carry",
+	"worker_job_direct_caller_allowance": "CON-1001: the conditional direct-caller allowance the size-capable record_worker_job payloads declare",
+	// The size-capable packet closure the v2 catalog's dispatch_worker
+	// anchors: the packet4 identity with the size-bearing worker_job, whose
+	// checks repair and recorded size members ride the unchanged packet
+	// aggregate.
+	"worker_packet5":              "CON-1001: the size-capable packet identity the size-capable implementation v36 and break_fix v33 dispatch payloads declare",
+	"worker_packet5_worker_job":   "CON-1001: the size-bearing worker_job the worker_packet5 inputs carry, with the caller exclusions beside the checks repair and the recorded size members",
+	"worker_job_split":            "CON-1001: record_worker_job's closed split variant (CD-0225 D3)",
+	"worker_job_split2":           "CON-1001: split variant with overrun-attempt replacement evidence",
+	"worker_job_split_successor":  "CON-1001: one split successor's ordinary record_worker_job content",
+	"worker_job_split_allocation": "CON-1001: one evidenced allocation of predecessor paths to a split successor",
 }
 
 // TestHistoricalDecoderRetainsFrozenBaselineBytes pins the freeze at per-name

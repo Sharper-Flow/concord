@@ -266,6 +266,14 @@
    "check": "reviewed source: the payload_version reaches the local Event only from Scan of the stored row; its kind is the query's own kind filter; the event is only validated; the function inserts no row"
   },
   {
+   "id": "read_back:sampleWorkerDiff:aa52f9076b05:&event.PayloadVersion",
+   "class": "read_back",
+   "function": "github.com/sharper-flow/concord/internal/store.sampleWorkerDiff",
+   "expression": "&event.PayloadVersion",
+   "function_digest": "sha256:aa52f9076b059b38bf3a601b1f87edea5a0092efbb6075d0a78196fb9e28e5f9",
+   "check": "reviewed source: the payload_version reaches the local Event only from Scan of the stored row; its kind is the query's own kind filter; the event is only validated; the function inserts no row"
+  },
+  {
    "id": "read_back:validateWorkContextFindingRefs:4a009d5d4da6:&event.Kind",
    "class": "read_back",
    "function": "github.com/sharper-flow/concord/internal/store.validateWorkContextFindingRefs",
@@ -306,6 +314,8 @@
      "digest": "sha256:7617d93a56432c32fa942f4ba608da5b4e9c53a2a2d082b91ec99446410bda13"
     }
    ],
+   "registered_kind": "github.com/sharper-flow/concord/internal/store.registeredEventKind",
+   "registered_kind_digest": "sha256:b09e1e161eb2d2e64d9249c7201e610f5d60966492a1bb098d7c7be000fec67e",
    "check": "analyzer-checked confinement; reviewed dispatcher calls Upcaster values only inside its loop and returns an upcast result only after refusing any version that is not registration.CurrentVersion; reviewed callers pass registeredEventKind(event.Kind), a forwarder passes its own registration parameter, and nothing runs between the lookup and the dispatch; a confined site never assigns Kind"
   },
   {
@@ -324,6 +334,8 @@
      "digest": "sha256:7617d93a56432c32fa942f4ba608da5b4e9c53a2a2d082b91ec99446410bda13"
     }
    ],
+   "registered_kind": "github.com/sharper-flow/concord/internal/store.registeredEventKind",
+   "registered_kind_digest": "sha256:b09e1e161eb2d2e64d9249c7201e610f5d60966492a1bb098d7c7be000fec67e",
    "check": "analyzer-checked confinement; reviewed dispatcher calls Upcaster values only inside its loop and returns an upcast result only after refusing any version that is not registration.CurrentVersion; reviewed callers pass registeredEventKind(event.Kind), a forwarder passes its own registration parameter, and nothing runs between the lookup and the dispatch; a confined site never assigns Kind"
   },
   {
@@ -350,6 +362,8 @@
      "digest": "sha256:7617d93a56432c32fa942f4ba608da5b4e9c53a2a2d082b91ec99446410bda13"
     }
    ],
+   "registered_kind": "github.com/sharper-flow/concord/internal/store.registeredEventKind",
+   "registered_kind_digest": "sha256:b09e1e161eb2d2e64d9249c7201e610f5d60966492a1bb098d7c7be000fec67e",
    "check": "analyzer-checked confinement; reviewed dispatcher calls Upcaster values only inside its loop and returns an upcast result only after refusing any version that is not registration.CurrentVersion; reviewed callers pass registeredEventKind(event.Kind), a forwarder passes its own registration parameter, and only prepareRecordedEvent's recorded-schema adapt runs between the lookup and the dispatch; a confined site never assigns Kind; the reviewed adapt caller passes each adapt result only through prepareEventWithRegistration to the dispatcher or returns an error; every adapt function the registry names, and every function an adapt delegates its event to, is pinned by digest and reviewed never to change the kind.",
    "adapt_caller": "github.com/sharper-flow/concord/internal/store.prepareRecordedEvent",
    "adapt_caller_digest": "sha256:8317d4fb62164de2185ba70536579c5f504124a61a6642d460248de13b386745",
@@ -414,6 +428,8 @@
      "digest": "sha256:40bae4f9e02b42a2c0812941aa294012648ea00058807386f77413ba92602dae"
     }
    ],
+   "registered_kind": "github.com/sharper-flow/concord/internal/store.registeredEventKind",
+   "registered_kind_digest": "sha256:b09e1e161eb2d2e64d9249c7201e610f5d60966492a1bb098d7c7be000fec67e",
    "check": "analyzer-checked confinement; reviewed dispatcher calls Upcaster values only inside its loop and returns an upcast result only after refusing any version that is not registration.CurrentVersion; reviewed callers pass registeredEventKind(event.Kind), a forwarder passes its own registration parameter, and only prepareRecordedEvent's recorded-schema adapt runs between the lookup and the dispatch; a confined site never assigns Kind; the reviewed adapt caller passes each adapt result only through prepareEventWithRegistration to the dispatcher or returns an error; every adapt function the registry names, and every function an adapt delegates its event to, is pinned by digest and reviewed never to change the kind.",
    "adapt_caller": "github.com/sharper-flow/concord/internal/store.prepareRecordedEvent",
    "adapt_caller_digest": "sha256:8317d4fb62164de2185ba70536579c5f504124a61a6642d460248de13b386745",

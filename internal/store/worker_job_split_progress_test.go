@@ -165,7 +165,7 @@ func splitProgressRejectLeaf(t *testing.T, route workflowReturnRouteFixture, wor
 
 func splitProgressBasis(t *testing.T, fixture workflowReturnRouteFixture, workID string) WorkflowRetryConvergence {
 	t.Helper()
-	convergence, err := workflowRetryConvergence(context.Background(), workerJobSizeStore(fixture).db, workID, "repair")
+	convergence, err := workflowRetryConvergenceForRegistry(context.Background(), workerJobSizeStore(fixture).db, workID, "repair", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatalf("derive convergence: %v", err)
 	}
@@ -493,7 +493,7 @@ func TestWorkerJobSplitProgressFundsFirstSiblingDispatch(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerDispatched, leafB).Scan(&dispatched); err != nil || dispatched != 0 {
 		t.Fatalf("sibling dispatch materialization = %d, %v; want none", dispatched, err)
 	}
-	convergence, err := workflowRetryConvergence(context.Background(), s.db, workID, "repair")
+	convergence, err := workflowRetryConvergenceForRegistry(context.Background(), s.db, workID, "repair", BuiltinWorkflowRegistry())
 	if err != nil || convergence.Basis != "" {
 		t.Fatalf("basis after the funded dispatch = %+v, %v; want the acceptance consumed without worker materialization", convergence, err)
 	}

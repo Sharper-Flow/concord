@@ -507,7 +507,7 @@ func TestCheckpointFailedReviewCorrectionSecondCycleCountsPriorRequests(t *testi
 		t.Fatalf("fresh mismatch verdict refused: %v", err)
 	}
 	entry := attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix")
-	admission, missing, err := workflowCorrectionRequestAdmission(ctx, s.db, workID, entry.Definition, "verify", "correction_parity_test", 0)
+	admission, missing, err := workflowCorrectionRequestAdmissionForRegistry(ctx, s.db, workID, entry.Definition, "verify", "correction_parity_test", 0, BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -709,7 +709,7 @@ func TestCheckpointCorrectionDispatchCountsIncomparableOKVerdicts(t *testing.T) 
 		t.Fatalf("incomparable ok verdict refused: %v", err)
 	}
 	entry := attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix")
-	admission, missing, err := workflowCorrectionRequestAdmission(ctx, s.db, workID, entry.Definition, "verify", "incomparable_ok_test", 0)
+	admission, missing, err := workflowCorrectionRequestAdmissionForRegistry(ctx, s.db, workID, entry.Definition, "verify", "incomparable_ok_test", 0, BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -759,7 +759,7 @@ func TestCheckpointCorrectionDispatchCountsMixedPredicateWindows(t *testing.T) {
 		t.Fatalf("stale second-predicate verdict refused: %v", err)
 	}
 	entry := attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix")
-	admission, missing, err := workflowCorrectionRequestAdmission(ctx, s.db, workID, entry.Definition, "verify", "mixed_predicates_test", 0)
+	admission, missing, err := workflowCorrectionRequestAdmissionForRegistry(ctx, s.db, workID, entry.Definition, "verify", "mixed_predicates_test", 0, BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}

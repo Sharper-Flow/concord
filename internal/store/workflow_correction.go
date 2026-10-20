@@ -565,7 +565,7 @@ func workflowCorrectionWalkCore(ctx context.Context, q queryer, workID string, p
 			return nil, err
 		}
 		if qualifyProgress {
-			if err := history.observeProgress(ctx, q, workID, subject, row); err != nil {
+			if err := history.observeProgress(ctx, q, workID, row); err != nil {
 				return nil, err
 			}
 		}
@@ -1611,7 +1611,7 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 	}, workflowCorrectionMissingNone, nil
 }
 
-// workflowCorrectionRequestAdmission derives the correction request the
+// workflowCorrectionRequestAdmissionForRegistry derives the correction request the
 // current step admits and names the one missing prerequisite when it admits
 // none. It is the single derivation behind the availability check, the work
 // pin, the preflight, the fold, and the dispatch refusal, so every surface
@@ -1621,14 +1621,8 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 // checkpoint with a dispositioned failed review corrects through the
 // failed-review return; every other step corrects through the verification
 // verdict.
-func workflowCorrectionRequestAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64) (*WorkflowCorrectionContext, string, error) {
-	return workflowCorrectionRequestAdmissionForRegistry(ctx, q, workID, definition, currentStep, subject, excludeSeq, nil)
-}
-
-// workflowCorrectionRequestAdmissionForRegistry derives the same correction
-// request with the caller's authoritative registry resolving the folded
-// admission state's historical progress. A nil registry selects the builtin
-// registry.
+// The caller's registry resolves the folded state's historical progress;
+// a nil registry selects the builtin registry.
 func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64, registry DefinitionRegistry) (*WorkflowCorrectionContext, string, error) {
 	if workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
 		context, err := workflowDeliveryGateCorrectionContextForRegistry(ctx, q, workID, definition, currentStep, subject, registry)

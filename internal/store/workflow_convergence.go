@@ -51,17 +51,12 @@ func workflowRetryConvergenceFailure(definition WorkflowDefinition, state Workfl
 		"record shrinking open_finding_ids, supersede_contract with a changed approach, or stop the work; after a host execution failure, repair and restart the host, resume the item, and dispatch once from the restarted host (one host_changed retry per worker-satisfaction window)")
 }
 
-// workflowRetryConvergence derives a basis rather than trusting a caller's
+// workflowRetryConvergenceForRegistry derives a basis rather than trusting a caller's
 // assessment. The latest dispatch consumes its basis, including an authorized
 // dispatch whose host worker never materialized. A split_leaf_progress basis
 // is consumed by the one sibling dispatch the accepted leaf funds.
-func workflowRetryConvergence(ctx context.Context, q queryer, workID, stepID string) (WorkflowRetryConvergence, error) {
-	return workflowRetryConvergenceForRegistry(ctx, q, workID, stepID, nil)
-}
-
-// workflowRetryConvergenceForRegistry derives the same basis with the
-// caller's authoritative registry resolving the pinned definition the
-// split-progress gate reads. A nil registry selects the builtin registry.
+// The caller's registry resolves the split-progress gate's pinned definition;
+// a nil registry selects the builtin registry.
 func workflowRetryConvergenceForRegistry(ctx context.Context, q queryer, workID, stepID string, registry DefinitionRegistry) (WorkflowRetryConvergence, error) {
 	var lastDispatch, superseded int64
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker'`, string(SubjectWorkItem), workID, WorkflowActionCompleted).Scan(&lastDispatch); err != nil {

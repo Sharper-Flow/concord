@@ -10,7 +10,7 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
-// The CON-1260 boundary regressions. The progress fold's satisfactions own
+// The progress fold's satisfactions own
 // the nonprogress window alone (CD-0164 D2a): they must never move the
 // worker recovery boundary, the correction counting window, the exact
 // failed-worker retry approval binding, a consumed convergence basis, or the

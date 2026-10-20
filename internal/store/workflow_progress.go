@@ -135,7 +135,7 @@ func (p *workflowProgressHistory) declares(kind string) bool {
 // obligation; no new event or independently persisted authority is created.
 // Qualification reuses the shared semantic guards, which read the store, so
 // the walk buffers its prefix before folding.
-func (h *workflowCorrectionHistory) observeProgress(ctx context.Context, q queryer, workID, subject string, row workflowCorrectionHistoryRow) error {
+func (h *workflowCorrectionHistory) observeProgress(ctx context.Context, q queryer, workID string, row workflowCorrectionHistoryRow) error {
 	p := &h.progress
 	p.prefix = row.seq
 	if h.boundary > h.nonprogressBoundary {

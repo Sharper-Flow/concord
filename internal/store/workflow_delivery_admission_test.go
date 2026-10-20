@@ -39,7 +39,7 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 			}
 			pin := issue1013Pin(t, fixture.store, workID)
 			definition, state := loadedAdmissionForTest(t, fixture.store, workID, pin)
-			conformanceCheckpoint(t, fixture.store, workID, definition, admissionModelState{
+			conformanceCheckpoint(t, fixture.store, BuiltinWorkflowRegistry(), workID, definition, admissionModelState{
 				step: pin.Step, debt: ReviewDebtNone, contracts: 1,
 				started: stage != "before-start", proof: stage == "green-proof",
 			}, stage)

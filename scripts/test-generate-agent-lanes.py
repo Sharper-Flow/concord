@@ -43,6 +43,59 @@ def bound_worker_tools(capabilities):
     return granted
 
 
+class InvestigationGuidanceTests(unittest.TestCase):
+    def test_lookup_delegation_requires_investigation(self):
+        manifest, _ = generator.load_manifest()
+        lookup = next(item for item in manifest["utilities"] if item["id"] == "lookup")
+        self.assertIn("adaptive external investigation", lookup["purpose"])
+        normalized = " ".join(generator.utility_projection(lookup).split())
+        for fragment in (
+            "Use direct tools for targeted retrieval",
+            "discover and follow evidence paths",
+            "known URL",
+            "API detail",
+        ):
+            self.assertTrue(fragment in normalized, fragment)
+
+    def test_lookup_returns_an_answer_first_reusable_briefing(self):
+        manifest, _ = generator.load_manifest()
+        lookup = next(item for item in manifest["utilities"] if item["id"] == "lookup")
+        normalized = " ".join(generator.utility_projection(lookup).split())
+        for fragment in (
+            "Lead with the answer",
+            "retrieval handles",
+            "section, symbol, or search term",
+            "version or date",
+            "disagreements",
+            "gaps",
+            "not a search transcript",
+        ):
+            self.assertTrue(fragment in normalized, fragment)
+
+    def test_research_guidance_stays_inside_its_report_and_tool_boundary(self):
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            projection = lane_projection(lane)
+            if lane["id"] != "research":
+                self.assertNotIn("## Investigation method", projection)
+                continue
+            normalized = " ".join(projection.split())
+            for fragment in (
+                "## Investigation method",
+                "packet-bound source access",
+                "Lead with the answer in `summary`",
+                "retrieval handles",
+                "existing `evidence` entries",
+                "packet's `assigned_result`",
+                "Do not claim other obligations",
+                "source_citations",
+                "bounded_findings",
+                "uncertainties",
+                "no new fields or prose outside the report",
+            ):
+                self.assertTrue(fragment in normalized, fragment)
+
+
 class CapabilityToolProjectionTests(unittest.TestCase):
     def test_opaque_code_mode_is_denied_for_every_lane(self):
         manifest, _ = generator.load_manifest()

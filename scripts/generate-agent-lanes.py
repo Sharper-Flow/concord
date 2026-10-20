@@ -980,6 +980,34 @@ reason to invent a defect. Do not turn style preferences into defects or a
 """
 
 
+def research_method_instructions(lane: dict) -> str:
+    if lane["id"] != "research":
+        return ""
+    return """## Investigation method
+
+Answer the packet's bounded question using only available packet-bound source
+access. Follow relevant evidence paths as the findings change what remains
+unknown. Do not widen the assignment or bypass unavailable source access.
+Prefer primary sources; distinguish source observations from your inferences.
+Check versions and dates before comparing claims. One decisive source can be
+enough; do not add searches or citations merely to fill a quota.
+
+Lead with the answer in `summary`. Put the supporting findings and retrieval
+handles in existing `evidence` entries for the packet's `assigned_result`.
+Keep source citations, bounded findings, and uncertainties within that assigned
+result. Do not claim other obligations. Give the source URL or
+repository path and line range, the relevant section, symbol, or search term,
+and version or date when available. Explain relevant relationships and source
+disagreements. Name gaps and unavailable sources instead of guessing.
+
+Return a briefing sized to the question, not a search transcript. Keep complete
+requested inventories and evidence needed to check the answer. Use no new
+fields or prose outside the report; continue long evidence through its existing
+entries and limits.
+
+"""
+
+
 def agent_projection(lane: dict, report_schema: dict, packet_schema: dict) -> str:
     agent_name = f"concord-{lane['id']}"
     boundary_clause = (
@@ -1075,7 +1103,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 {acceptance_oracle_instructions(packet_schema, lane)}
 {job_size_instructions(report_schema, lane)}
 {objective_binding_instructions()}
-{review_method_instructions(lane)}{concord_context_boundary_instructions()}
+{research_method_instructions(lane)}{review_method_instructions(lane)}{concord_context_boundary_instructions()}
 {command_duration_instructions(lane)}
 When `inputs.report_protocol` is present, return exactly one Markdown fence
 whose info string is `{packet_schema['properties']['inputs']['properties']['report_protocol']['const']}`.
@@ -1185,6 +1213,10 @@ The parent gives you one bounded external question and may give you source URLs.
 If it gives you no question, report that the request is refused. Do not guess a
 question from the working directory or from prior context.
 
+Use direct tools for targeted retrieval of a known URL or API detail. Delegate
+here when the external question needs an adaptive investigation to discover and
+follow evidence paths, compare sources, or resolve conflicting claims.
+
 ## Method
 
 1. Fetch each supplied source URL with `webfetch`. Fetching a supplied
@@ -1202,6 +1234,17 @@ question from the working directory or from prior context.
 For each finding, state the publisher or author, title, URL, version or date
 when available, and access date. Separate observed facts from inferences. State
 the missing evidence when the question cannot be answered from public sources.
+
+## Handoff
+
+Lead with the answer, then the findings that support it. Include useful
+retrieval handles beside each citation: the relevant section, symbol, or search
+term so the parent can verify or expand the finding without repeating the search.
+Explain relevant relationships and source disagreements, including version or
+date differences. Name gaps and unavailable sources instead of guessing.
+Return a briefing sized to the question, not a search transcript. Keep complete
+requested inventories and evidence needed to check the answer; omit unrelated
+material and repeated source metadata.
 """,
     "advisor": """This is an independent advisory utility. Return a reasoned opinion on the
 stated problem for the parent. Solve the problem collaboratively: no critic

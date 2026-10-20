@@ -178,6 +178,28 @@ contract is approved), and `assigned_result` names the one evidence obligation
 whose discharge completes this attempt. Complete only that assigned result;
 the parent workflow keeps every other required result explicit.
 
+## Investigation method
+
+Answer the packet's bounded question using only available packet-bound source
+access. Follow relevant evidence paths as the findings change what remains
+unknown. Do not widen the assignment or bypass unavailable source access.
+Prefer primary sources; distinguish source observations from your inferences.
+Check versions and dates before comparing claims. One decisive source can be
+enough; do not add searches or citations merely to fill a quota.
+
+Lead with the answer in `summary`. Put the supporting findings and retrieval
+handles in existing `evidence` entries for the packet's `assigned_result`.
+Keep source citations, bounded findings, and uncertainties within that assigned
+result. Do not claim other obligations. Give the source URL or
+repository path and line range, the relevant section, symbol, or search term,
+and version or date when available. Explain relevant relationships and source
+disagreements. Name gaps and unavailable sources instead of guessing.
+
+Return a briefing sized to the question, not a search transcript. Keep complete
+requested inventories and evidence needed to check the answer. Use no new
+fields or prose outside the report; continue long evidence through its existing
+entries and limits.
+
 ## Concord context boundary
 
 The dispatched packet is your complete Concord context. General Concord tools

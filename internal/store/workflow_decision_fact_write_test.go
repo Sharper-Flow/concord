@@ -222,7 +222,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if withheld := approvalWorkPinWithheld(snapshot); withheld != nil {
 			t.Fatalf("the explicit-fact successor kept a withheld operator question: %+v", withheld)
 		}
-		projectedQuestion, projectedWithheld := approvalOperatorQuestionProjection(t, s, higher, higherRegistered.Digest, workID)
+		projectedQuestion, projectedWithheld := approvalOperatorQuestionProjection(t, s, registry, higher, higherRegistered.Digest, workID)
 		if projectedQuestion != nil || projectedWithheld != nil {
 			t.Fatalf("engineering recovery projects question %+v withheld %+v, want neither", projectedQuestion, projectedWithheld)
 		}
@@ -240,7 +240,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if err := runApprovalActionTx(t, s, registry, workID, "request_correction", owner, nil, "", "", `{"diagnosis":"the delivered subject does not satisfy the approved predicate","strategy":"repeat the implementation external effect","predicate_ids":["predicate:primary"],"evidence_refs":["evidence:operator-verdict"]}`); err != nil {
 			t.Fatalf("the owner's declared correction route refused: %v", err)
 		}
-		if state := foldedApprovalAdmission(t, s, higher, workID); !state.ArtifactStale {
+		if state := foldedApprovalAdmission(t, s, registry, higher, workID); !state.ArtifactStale {
 			t.Fatal("the artifact folded fresh after the correction, want stale until fresh production at execution")
 		}
 		redeliveryVersion := readWorkVersion(t, s, workID)
@@ -250,7 +250,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			},
 			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): redeliveryVersion},
 		})
-		if state := foldedApprovalAdmission(t, s, higher, workID); state.ArtifactStale {
+		if state := foldedApprovalAdmission(t, s, registry, higher, workID); state.ArtifactStale {
 			t.Fatal("the artifact folded stale after the fresh record_delivery at execution, want the production frontier past the stale cause")
 		}
 

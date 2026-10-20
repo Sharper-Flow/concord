@@ -681,7 +681,7 @@ func unique(values []string) bool {
 	return true
 }
 func validateRecovery(kind string) error {
-	allowed := map[string]bool{"none": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_declared_route": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
+	allowed := map[string]bool{"none": true, "correct_request": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_declared_route": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
 	if !allowed[kind] {
 		return fmt.Errorf("unknown recovery action %q", kind)
 	}
@@ -791,6 +791,9 @@ func validateError(err TypedError) error {
 	}
 	if x := validateRecoveryAction(err.RecoveryAction); x != nil {
 		return x
+	}
+	if err.RecoveryAction.Kind == "correct_request" && (err.Kind != "invalid_input" || err.EffectState != EffectNone || err.RetrySafe) {
+		return errors.New("correct_request requires pre-effect invalid_input with retry_safe=false")
 	}
 	if len(err.Message) > 1000 || len(err.Candidates) > 20 || len(err.Violations) > 20 || !boundedStrings(err.Candidates, 128) || !boundedStrings(err.Violations, 128) {
 		return errors.New("error scalar/list bound exceeded")

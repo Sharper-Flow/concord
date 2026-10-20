@@ -110,7 +110,7 @@ func approvalKindEvidenceCount(t *testing.T, s *Store, workID string) int {
 // foldedApprovalAdmission loads the tx-scoped admission state for one work
 // item through the shared loader, in one short read transaction so the pooled
 // connection is released before the next store call.
-func foldedApprovalAdmission(t *testing.T, s *Store, definition WorkflowDefinition, workID string) WorkflowAdmissionState {
+func foldedApprovalAdmission(t *testing.T, s *Store, registry DefinitionRegistry, definition WorkflowDefinition, workID string) WorkflowAdmissionState {
 	t.Helper()
 	ctx := context.Background()
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -122,7 +122,7 @@ func foldedApprovalAdmission(t *testing.T, s *Store, definition WorkflowDefiniti
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
-	state, _, _, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, step, "workflow_approval_terminal_test")
+	state, _, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, step, "workflow_approval_terminal_test", registry)
 	if err != nil {
 		t.Fatalf("fold admission state: %v", err)
 	}
@@ -134,7 +134,7 @@ func foldedApprovalAdmission(t *testing.T, s *Store, definition WorkflowDefiniti
 // shared admission state, and the contract phase seats the operator question
 // the pin projects. It returns the projected question and its withheld reason;
 // a projection that cannot resolve the pinned definition refuses.
-func approvalOperatorQuestionProjection(t *testing.T, s *Store, definition WorkflowDefinition, digest string, workID string) (*WorkflowOperatorQuestion, *WorkflowOperatorQuestionWithheld) {
+func approvalOperatorQuestionProjection(t *testing.T, s *Store, registry DefinitionRegistry, definition WorkflowDefinition, digest string, workID string) (*WorkflowOperatorQuestion, *WorkflowOperatorQuestionWithheld) {
 	t.Helper()
 	ctx := context.Background()
 	version := readWorkVersion(t, s, workID)
@@ -147,7 +147,7 @@ func approvalOperatorQuestionProjection(t *testing.T, s *Store, definition Workf
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,lifecycle FROM workflow_instances wi JOIN work_items w ON w.id=wi.work_id WHERE wi.work_id=?`, workID).Scan(&pin.Step, &pin.Lifecycle); err != nil {
 		t.Fatal(err)
 	}
-	state, err := workPinStepIntentsTx(ctx, tx, workID, &pin, definition)
+	state, err := workPinStepIntentsTx(ctx, tx, workID, &pin, definition, registry)
 	if err != nil {
 		t.Fatalf("work pin intents phase refused: %v", err)
 	}
@@ -514,7 +514,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 
 		// The projected operator question is absent for engineering work: no
 		// open question and no withheld reason.
-		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry), workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry), workID)
 		if question != nil || withheld != nil {
 			t.Fatalf("engineering work projects question %+v withheld %+v, want neither", question, withheld)
 		}
@@ -522,8 +522,8 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		// The model and the fold agree on the confirmation class: engineering
 		// holds no pending human question, and the coordinator confirmation is
 		// a real exit that does not stand behind one.
-		conformanceCheckpoint(t, s, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true, engineering: true}, "engineering at acceptance")
-		state := foldedApprovalAdmission(t, s, definition, workID)
+		conformanceCheckpoint(t, s, registry, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true, engineering: true}, "engineering at acceptance")
+		state := foldedApprovalAdmission(t, s, registry, definition, workID)
 		if decision := workflowAdmit(definition, state, "confirm_premise"); !decision.Admitted {
 			t.Fatalf("engineering confirm_premise refused at admission: %v", decision.Failure)
 		}
@@ -614,7 +614,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		}
 		// The folded admission carries the same prerequisite refusal: the
 		// confirmation gate folds it for engineering without any question.
-		state := foldedApprovalAdmission(t, s, definition, workID)
+		state := foldedApprovalAdmission(t, s, registry, definition, workID)
 		var foldedFailure *Failure
 		if state.AcceptanceDeliverablesMissing == nil || !failureAs(state.AcceptanceDeliverablesMissing, &foldedFailure) || foldedFailure.Kind != KindMissingEvidence {
 			t.Fatalf("the engineering fold carries %+v, want the folded investigation refusal", state.AcceptanceDeliverablesMissing)
@@ -805,7 +805,7 @@ func TestApprovalPolicyTerminalDecision(t *testing.T) {
 
 		// The model and the fold agree: the decision contract keeps the open
 		// human question the exact choice/digest/operator chain answers.
-		conformanceCheckpoint(t, s, workID, definition, admissionModelState{step: "acceptance", contracts: 1, artifact: true}, "decision at acceptance")
+		conformanceCheckpoint(t, s, registry, workID, definition, admissionModelState{step: "acceptance", contracts: 1, artifact: true}, "decision at acceptance")
 
 		// The independent evaluator's verdict exists before anything terminal;
 		// the acceptance deliverables stand, so the digest chain is reachable.
@@ -816,7 +816,7 @@ func TestApprovalPolicyTerminalDecision(t *testing.T) {
 		// The projected question is real: it carries the exact verified
 		// digest, and no withheld reason stands beside it.
 		digest := approvalDecisionDigest(t, s, workID)
-		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry), workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry), workID)
 		if question == nil || withheld != nil {
 			t.Fatalf("decision work projects question %+v withheld %+v, want the open question without a withheld reason", question, withheld)
 		}

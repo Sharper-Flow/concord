@@ -105,9 +105,7 @@ func TestDispatchIssueLinkRecordRefusesSecondAndForeignIdentity(t *testing.T) {
 		env.RequestID = "link-" + strings.ReplaceAll(tc.name, " ", "-")
 		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "issue_link_record", Input: json.RawMessage(tc.input)}, env)
 		if tc.name == "malformed key" {
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("%s: err=%v, want schema refusal %q", tc.name, err, tc.want)
-			}
+			assertInputCorrection(t, response, err, tc.want)
 			continue
 		}
 		if err != nil || response.Error == nil || !strings.Contains(response.Error.Message, tc.want) {

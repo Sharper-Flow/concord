@@ -67,7 +67,7 @@ func TestWorkflowCorrectionWalkConsumesSplitDischarge(t *testing.T) {
 	predecessor := latestSplitBinding(t, fixture, workID, splitPredecessorJobID)
 	key := workerJobKey(predecessor.JobID, predecessor.Revision)
 	splitStateAcceptLeaf(t, fixture, workID, "attempt:consumer-discharge-a", latestSplitBinding(t, fixture, workID, "job:successor-a"))
-	partial, err := workflowCorrectionWalk(context.Background(), s.db, workID, splitConsumerWatermark(t, s, workID), "test")
+	partial, err := workflowCorrectionWalkForRegistry(context.Background(), s.db, workID, splitConsumerWatermark(t, s, workID), "test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestWorkflowCorrectionWalkConsumesSplitDischarge(t *testing.T) {
 		t.Fatalf("partial-acceptance walk = debt %v boundary %d, want the predecessor debt with no boundary", partial.unresolved, partial.boundary)
 	}
 	splitStateAcceptLeaf(t, fixture, workID, "attempt:consumer-discharge-b", latestSplitBinding(t, fixture, workID, "job:successor-b"))
-	accepted, err := workflowCorrectionWalk(context.Background(), s.db, workID, splitConsumerWatermark(t, s, workID), "test")
+	accepted, err := workflowCorrectionWalkForRegistry(context.Background(), s.db, workID, splitConsumerWatermark(t, s, workID), "test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestWorkflowCorrectionWalkConsumesSplitDischarge(t *testing.T) {
 		t.Fatalf("fully accepted walk = debt %v boundary %d, want the predecessor debt still open", accepted.unresolved, accepted.boundary)
 	}
 	dischargeSeq := splitConsumerDischarge(t, fixture, workID, splitPredecessorJobID, "discharge-consumer-"+workID)
-	discharged, err := workflowCorrectionWalk(context.Background(), s.db, workID, splitConsumerWatermark(t, s, workID), "test")
+	discharged, err := workflowCorrectionWalkForRegistry(context.Background(), s.db, workID, splitConsumerWatermark(t, s, workID), "test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestWorkflowCorrectionWalkNestedDischargeKeepsOuterDebt(t *testing.T) {
 	outerKey := workerJobKey(splitPredecessorJobID, latestSplitBinding(t, fixture, workID, splitPredecessorJobID).Revision)
 	innerKey := workerJobKey(intermediate.JobID, intermediate.Revision)
 	innerSeq := splitConsumerDischarge(t, fixture, workID, intermediate.JobID, "discharge-consumer-nested-"+workID)
-	inner, err := workflowCorrectionWalk(context.Background(), s.db, workID, splitConsumerWatermark(t, s, workID), "test")
+	inner, err := workflowCorrectionWalkForRegistry(context.Background(), s.db, workID, splitConsumerWatermark(t, s, workID), "test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestWorkflowCorrectionWalkNestedDischargeKeepsOuterDebt(t *testing.T) {
 	if outerSeq <= innerSeq {
 		t.Fatalf("outer discharge seq %d did not follow the inner discharge %d", outerSeq, innerSeq)
 	}
-	outer, err := workflowCorrectionWalk(context.Background(), s.db, workID, splitConsumerWatermark(t, s, workID), "test")
+	outer, err := workflowCorrectionWalkForRegistry(context.Background(), s.db, workID, splitConsumerWatermark(t, s, workID), "test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestWorkflowCorrectionWalkDischargeKeepsUnrelatedDebt(t *testing.T) {
 		t.Fatalf("record the unrelated no_ship report: %v", err)
 	}
 	dischargeSeq := splitConsumerDischarge(t, fixture, workID, splitPredecessorJobID, "discharge-consumer-"+workID)
-	history, err := workflowCorrectionWalk(context.Background(), s.db, workID, splitConsumerWatermark(t, s, workID), "test")
+	history, err := workflowCorrectionWalkForRegistry(context.Background(), s.db, workID, splitConsumerWatermark(t, s, workID), "test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestWorkflowCorrectionWalkRefusesForeignDischargeJoin(t *testing.T) {
 		predecessor := latestSplitBinding(t, fixture, workID, splitPredecessorJobID)
 		insertSplitStateEvent(t, fixture, workID, "discharge-foreign-split", "worker.job_split_discharged",
 			splitStateDischargePayload(t, "split:unknown", predecessor))
-		_, err := workflowCorrectionWalk(context.Background(), workerJobSizeStore(fixture).db, workID, splitConsumerWatermark(t, workerJobSizeStore(fixture), workID), "test")
+		_, err := workflowCorrectionWalkForRegistry(context.Background(), workerJobSizeStore(fixture).db, workID, splitConsumerWatermark(t, workerJobSizeStore(fixture), workID), "test", BuiltinWorkflowRegistry())
 		if err == nil || !strings.Contains(err.Error(), "holds no record of") {
 			t.Fatalf("foreign-split discharge walk = %v, want the exact-split refusal", err)
 		}
@@ -204,7 +204,7 @@ func TestWorkflowCorrectionWalkRefusesForeignDischargeJoin(t *testing.T) {
 		stranger.Digest = "sha256:" + strings.Repeat("c", 64)
 		insertSplitStateEvent(t, fixture, workID, "discharge-foreign-predecessor", "worker.job_split_discharged",
 			splitStateDischargePayload(t, splitStateSplitEventID(t, fixture, workID), stranger))
-		_, err := workflowCorrectionWalk(context.Background(), workerJobSizeStore(fixture).db, workID, splitConsumerWatermark(t, workerJobSizeStore(fixture), workID), "test")
+		_, err := workflowCorrectionWalkForRegistry(context.Background(), workerJobSizeStore(fixture).db, workID, splitConsumerWatermark(t, workerJobSizeStore(fixture), workID), "test", BuiltinWorkflowRegistry())
 		if err == nil || !strings.Contains(err.Error(), "did not record") {
 			t.Fatalf("foreign-predecessor discharge walk = %v, want the exact-binding refusal", err)
 		}
@@ -226,11 +226,11 @@ func TestWorkflowCorrectionAttemptBudgetRenewsAfterFinalDischarge(t *testing.T) 
 	for index, jobID := range []string{"job:successor-a", "job:successor-b"} {
 		dischargeReplayAcceptLeaf(t, a.fixture, a.workID, fmt.Sprintf("attempt:consumer-budget-%d", index), latestSplitBinding(t, a.fixture, a.workID, jobID))
 	}
-	if count, err := workflowNonProgressAttemptCount(context.Background(), a.s.db, a.workID, "test"); err != nil || count != 1 {
+	if count, err := workflowNonProgressAttemptCountForRegistry(context.Background(), a.s.db, a.workID, "test", BuiltinWorkflowRegistry()); err != nil || count != 1 {
 		t.Fatalf("nonprogress before the discharge = %d, %v; want the replaced overrun counted once", count, err)
 	}
 	splitConsumerDischarge(t, a.fixture, a.workID, a.job.JobID, "discharge-consumer-"+a.workID)
-	if count, err := workflowNonProgressAttemptCount(context.Background(), a.s.db, a.workID, "test"); err != nil || count != 0 {
+	if count, err := workflowNonProgressAttemptCountForRegistry(context.Background(), a.s.db, a.workID, "test", BuiltinWorkflowRegistry()); err != nil || count != 0 {
 		t.Fatalf("nonprogress after the final discharge = %d, %v; want the renewed window", count, err)
 	}
 }
@@ -248,7 +248,7 @@ func TestWorkflowCorrectionHistoricalPrefixRetainsPreDischargeState(t *testing.T
 	key := workerJobKey(predecessor.JobID, predecessor.Revision)
 	dischargeReplayAcceptLeaf(t, fixture, workID, "attempt:consumer-history-a", latestSplitBinding(t, fixture, workID, "job:successor-a"))
 	prefix := splitConsumerWatermark(t, s, workID)
-	original, err := workflowCorrectionWalk(context.Background(), s.db, workID, prefix, "test")
+	original, err := workflowCorrectionWalkForRegistry(context.Background(), s.db, workID, prefix, "test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,14 +268,14 @@ func TestWorkflowCorrectionHistoricalPrefixRetainsPreDischargeState(t *testing.T
 	if err := s.db.QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkerJobSplitDischarged).Scan(&dischargeSeq); err != nil {
 		t.Fatal(err)
 	}
-	tip, err := workflowCorrectionWalk(context.Background(), s.db, workID, splitConsumerWatermark(t, s, workID), "test")
+	tip, err := workflowCorrectionWalkForRegistry(context.Background(), s.db, workID, splitConsumerWatermark(t, s, workID), "test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(tip.unresolved) != 0 || tip.boundary != dischargeSeq {
 		t.Fatalf("tip walk = debt %v boundary %d, want the consumed discharge at boundary %d", tip.unresolved, tip.boundary, dischargeSeq)
 	}
-	historical, err := workflowCorrectionWalk(context.Background(), s.db, workID, prefix, "test")
+	historical, err := workflowCorrectionWalkForRegistry(context.Background(), s.db, workID, prefix, "test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestWorkflowCorrectionHistoricalPrefixRetainsPreDischargeState(t *testing.T
 	if err := RebuildFromLog(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
-	rebuilt, err := workflowCorrectionWalk(context.Background(), s.db, workID, prefix, "test")
+	rebuilt, err := workflowCorrectionWalkForRegistry(context.Background(), s.db, workID, prefix, "test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}

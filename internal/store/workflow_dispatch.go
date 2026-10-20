@@ -109,7 +109,7 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 		decision := workflowAdmit(entry.Definition, WorkflowAdmissionState{OutsideRepairActive: true}, actionID)
 		return RegisteredDefinition{}, WorkflowActionDefinition{}, decision.Failure
 	}
-	action, found, err := workflowRouteActionDefinition(ctx, s, entry, workID, actionID)
+	action, found, err := workflowRouteActionDefinition(ctx, s, registry, entry, workID, actionID)
 	if err != nil {
 		return RegisteredDefinition{}, WorkflowActionDefinition{}, err
 	}
@@ -127,7 +127,7 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 // on the folded state rather than the pinned step: the late verdict, contract
 // supersession, worker failure recovery, and the correction routes. found is
 // false when the action falls through to its pinned declaration.
-func workflowRouteActionDefinition(ctx context.Context, s *Store, entry RegisteredDefinition, workID, actionID string) (WorkflowActionDefinition, bool, error) {
+func workflowRouteActionDefinition(ctx context.Context, s *Store, registry DefinitionRegistry, entry RegisteredDefinition, workID, actionID string) (WorkflowActionDefinition, bool, error) {
 	switch actionID {
 	case "record_verdict":
 		var currentStep, state string
@@ -143,7 +143,7 @@ func workflowRouteActionDefinition(ctx context.Context, s *Store, entry Register
 		}
 		return WorkflowActionDefinition{}, false, nil
 	case "supersede_contract":
-		action, err := workflowSupersedeContractDiscovery(ctx, s, entry, workID)
+		action, err := workflowSupersedeContractDiscovery(ctx, s, registry, entry, workID)
 		return action, err == nil, err
 	case "record_worker_failure":
 		if slices.Contains(entry.Definition.AvailableActions, actionID) {
@@ -179,7 +179,7 @@ func workflowRouteActionDefinition(ctx context.Context, s *Store, entry Register
 		if err != nil {
 			return WorkflowActionDefinition{}, false, err
 		}
-		available, missing, err := workflowCorrectionRequestAdmissionState(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action", 0)
+		available, missing, err := workflowCorrectionRequestAdmissionStateForRegistry(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action", 0, registry)
 		if err != nil {
 			return WorkflowActionDefinition{}, false, err
 		}
@@ -225,17 +225,17 @@ func workflowDeclaredActionDefinition(definition WorkflowDefinition, actionID st
 // its own: the shape refusal, the stale-law and duplicate classification, and
 // the complete-step gate are the fold's answer, so no surface can refuse a
 // recovery route another surface admits.
-func workflowSupersedeContractDiscovery(ctx context.Context, s *Store, entry RegisteredDefinition, workID string) (WorkflowActionDefinition, error) {
+func workflowSupersedeContractDiscovery(ctx context.Context, s *Store, registry DefinitionRegistry, entry RegisteredDefinition, workID string) (WorkflowActionDefinition, error) {
 	var action WorkflowActionDefinition
 	if err := s.readSnapshot(ctx, func(q queryer) error {
-		return workflowSupersedeContractDiscoveryTx(ctx, q, entry, workID, &action)
+		return workflowSupersedeContractDiscoveryTx(ctx, q, registry, entry, workID, &action)
 	}); err != nil {
 		return WorkflowActionDefinition{}, err
 	}
 	return action, nil
 }
 
-func workflowSupersedeContractDiscoveryTx(ctx context.Context, tx queryer, entry RegisteredDefinition, workID string, action *WorkflowActionDefinition) error {
+func workflowSupersedeContractDiscoveryTx(ctx context.Context, tx queryer, registry DefinitionRegistry, entry RegisteredDefinition, workID string, action *WorkflowActionDefinition) error {
 	var currentStep string
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
 		if err == sql.ErrNoRows {
@@ -243,7 +243,7 @@ func workflowSupersedeContractDiscoveryTx(ctx context.Context, tx queryer, entry
 		}
 		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow step", true, "retry once the workflow projection is readable", err)
 	}
-	state, _, _, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, entry.Definition, currentStep, "workflow_action")
+	state, _, _, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, currentStep, "workflow_action", registry)
 	if stateErr != nil {
 		return stateErr
 	}
@@ -295,7 +295,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if err != nil {
 		return result, err
 	}
-	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep, instanceState: state}
+	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep, instanceState: state, registry: registry}
 	if WorkflowActionRequiresSubjectFreshness(request.ActionID) {
 		if err := validateWorkflowAcceptanceFreshness(ctx, tx, request.WorkID); err != nil {
 			return result, err
@@ -312,7 +312,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	// unrelated cause can ride the review gate's acceptance route. The
 	// recovery guards and the step-legality check read the same folded
 	// state below.
-	admission, proofRuns, integrationRuns, admissionErr := loadWorkflowAdmissionStateTx(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action")
+	admission, proofRuns, integrationRuns, admissionErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action", registry)
 	if admissionErr != nil {
 		return result, admissionErr
 	}
@@ -361,6 +361,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		defaultVerdictEvidence: defaultVerdictEvidence, lateVerdictRecovery: guards.lateVerdictRecovery,
 		envelopeEvidenceRefs: envelopeEvidenceRefs,
 		admission:            guards.admissionState,
+		registry:             registry,
 	}
 	assembly, err := assembleWorkflowActionEventsTx(ctx, tx, assemblyInput)
 	if err != nil {

@@ -410,6 +410,38 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 				EvidenceSource: store.DeliveryEvidenceSourceCoordinatorAsserted, ApprovalRef: "approval-1", CorrectedAt: "2026-01-02T00:00:00Z",
 			},
 		},
+		RetryWindow: fullyPopulatedRetryWindow(),
+	}
+}
+
+// fullyPopulatedRetryWindow populates the CD-0164 D5 window the way the store
+// producer writes it: every population counted, every anchor present with its
+// exact identity, and the bounded obligation list carried with its count.
+func fullyPopulatedRetryWindow() *store.WorkflowRetryWindow {
+	// The store's unexported workflowCorrectionAttemptLimit: every
+	// population shares it (CD-0164).
+	limit := int64(3)
+	anchor := func(seq int64, qualification, obligation, action string) *store.WorkflowProgressAnchor {
+		return &store.WorkflowProgressAnchor{
+			EventID: "event:retry-anchor-" + strconv.FormatInt(seq, 10), Kind: "workflow.verdict_recorded", Seq: seq,
+			Qualification: qualification, ObligationID: obligation, ActionID: action,
+		}
+	}
+	return &store.WorkflowRetryWindow{
+		Population: "distinct_failed_rejected_no_ship", Policy: "obligation_satisfaction_v1",
+		Count: limit, Limit: limit, Prefix: 90,
+		DispatchCount: limit, DispatchLimit: limit,
+		VerificationCount: 1, VerificationLimit: limit,
+		NonprogressAnchor:         anchor(84, "comparable_predicate_satisfied", "predicate:"+repeatHex(), "record_verdict"),
+		WorkerSatisfactionAnchor:  anchor(60, "satisfying_worker_acceptance", "worker_result", "accept_worker_result"),
+		VerificationBaseline:      anchor(70, "comparable_healthy_verdict_baseline", "", ""),
+		Step:                      "execution",
+		CorrectionEscalated:       true,
+		BlockingPopulation:        "both",
+		ConvergenceBasis:          "findings_shrinking",
+		FundedConfirmingReviews:   1,
+		UnresolvedObligations:     []string{"evidence:verification", "premise_confirmation"},
+		UnresolvedObligationCount: 2,
 	}
 }
 

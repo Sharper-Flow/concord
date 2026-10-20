@@ -22,8 +22,14 @@ type WorkflowComposition struct {
 	CompositionRules      WorkflowCompositionRules
 	EvaluatorIndependence WorkflowEvaluatorIndependence
 	ApprovalPolicy        string
-	ActionCatalogVersion  int
-	Parts                 []WorkflowPartUse
+	// ProgressPolicy is the composition-level progress-policy discriminator
+	// (CD-0164 D2a). Absence compiles the released legacy definition shape;
+	// WorkflowProgressPolicyObligationSatisfactionV1 declares the
+	// obligation-satisfaction policy and compiles the canonical satisfaction
+	// taxonomy onto the resolved actions.
+	ProgressPolicy       string
+	ActionCatalogVersion int
+	Parts                []WorkflowPartUse
 }
 
 // CompileWorkflowComposition compiles a composition against the built-in
@@ -97,6 +103,9 @@ func CompileWorkflowComposition(composition WorkflowComposition) (WorkflowDefini
 	if composition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
 		actions = withConsequenceConfirmPremise(actions)
 	}
+	if composition.ProgressPolicy == WorkflowProgressPolicyObligationSatisfactionV1 {
+		actions = withObligationSatisfactionTaxonomy(actions)
+	}
 	changesProductTruth := workKindMayChangeProductTruth(composition.WorkKind)
 	definition := cloneWorkflowDefinition(WorkflowDefinition{
 		Ref: composition.Ref, Version: composition.Version, WorkKind: composition.WorkKind, ChangesProductTruth: &changesProductTruth,
@@ -104,7 +113,7 @@ func CompileWorkflowComposition(composition WorkflowComposition) (WorkflowDefini
 		AvailableActions: available, ActionDefinitions: actions,
 		RequiredEvidenceKinds: composition.RequiredEvidenceKinds, OutcomeSchema: composition.OutcomeSchema, RigorRules: composition.RigorRules,
 		StalenessRules: composition.StalenessRules, CompositionRules: composition.CompositionRules, EvaluatorIndependence: composition.EvaluatorIndependence,
-		RecoveryRoutes: routes, ApprovalPolicy: composition.ApprovalPolicy,
+		RecoveryRoutes: routes, ApprovalPolicy: composition.ApprovalPolicy, ProgressPolicy: composition.ProgressPolicy,
 	})
 	if err := ValidateWorkflowDefinition(definition); err != nil {
 		return WorkflowDefinition{}, err
@@ -127,7 +136,8 @@ func builtinWorkflowCompositions() []WorkflowComposition {
 	return []WorkflowComposition{
 		implementationCompositionV33(), implementationConsequenceV34(), implementationCompositionV35(), implementationCompositionV36(),
 		breakFixCompositionV30(), breakFixConsequenceV31(), breakFixCompositionV32(), breakFixCompositionV33(),
-		researchCompositionV20(), researchConsequenceV21(),
+		researchCompositionV20(), researchConsequenceV21(), researchObligationV22(),
+		implementationObligationV37(), breakFixObligationV34(),
 	}
 }
 
@@ -307,4 +317,44 @@ func breakFixCompositionV33() WorkflowComposition {
 	composition.Version = 33
 	composition.ActionCatalogVersion = 3
 	return composition
+}
+
+// withObligationSatisfactionTaxonomy declares each compiled action's
+// satisfaction kind from the canonical action mapping (CD-0164 D2a). The
+// copy leaves the shared catalog declarations unmutated; validation binds
+// the compiled result to the same mapping, so a compiled definition and its
+// declared taxonomy cannot disagree.
+func withObligationSatisfactionTaxonomy(actions []WorkflowActionDefinition) []WorkflowActionDefinition {
+	selected := slices.Clone(actions)
+	for index := range selected {
+		selected[index].SatisfactionKind = workflowActionSatisfactionKind(selected[index].ID)
+	}
+	return selected
+}
+
+// withObligationSatisfactionPolicy promotes a released composition to the
+// next version under the obligation-satisfaction progress policy (CD-0164
+// D2a). Parts, approval policy, and action catalog stay pinned; the compiled
+// definition declares the policy and the closed satisfaction taxonomy on the
+// fresh head alone.
+func withObligationSatisfactionPolicy(composition WorkflowComposition) WorkflowComposition {
+	composition.Version++
+	composition.ProgressPolicy = WorkflowProgressPolicyObligationSatisfactionV1
+	return composition
+}
+
+// The obligation-satisfaction heads retain their predecessors' consequence
+// policy, parts, and action catalog — the v3 catalog on the implementation
+// and break-fix heads; the compiled definition declares the progress policy
+// and its closed satisfaction taxonomy.
+func implementationObligationV37() WorkflowComposition {
+	return withObligationSatisfactionPolicy(implementationCompositionV36())
+}
+
+func breakFixObligationV34() WorkflowComposition {
+	return withObligationSatisfactionPolicy(breakFixCompositionV33())
+}
+
+func researchObligationV22() WorkflowComposition {
+	return withObligationSatisfactionPolicy(researchConsequenceV21())
 }

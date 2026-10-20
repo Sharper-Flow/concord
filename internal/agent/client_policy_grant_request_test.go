@@ -367,12 +367,10 @@ func TestGrantRequestRefusesBearerForbiddenCapabilities(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
 	env := grantRequestEnvelope(t, s, grant)
 	input := `{"capabilities":["worker_dispatch"],"product_scope":[],"project_scope":[],"agent_scope":[],"reason":"dispatch a nested worker","idempotency_key":"grant-request-worker"}`
-	_, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "client_policy_grant_request", Input: json.RawMessage(input)}, env)
+	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "client_policy_grant_request", Input: json.RawMessage(input)}, env)
 	// The published schema carries the closed bearer-safe vocabulary, so the
 	// core's own payload validation refuses before any derivation runs.
-	if err == nil || !strings.Contains(err.Error(), "enum mismatch") {
-		t.Fatalf("worker capability dispatch = %v, want the schema vocabulary refusal", err)
-	}
+	assertInputCorrection(t, response, err, "enum mismatch")
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`) != 0 {
 		t.Fatal("a refused request minted a challenge")
 	}

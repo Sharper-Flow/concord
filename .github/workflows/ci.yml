@@ -311,6 +311,19 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
+      - name: Restore pinned Lefthook binary
+        id: cache-lefthook
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/lefthook-bin
+          key: lefthook-${{ runner.os }}-${{ runner.arch }}-v2.1.14-${{ hashFiles('go.mod') }}
+      - name: Prepare pinned Lefthook on cache miss
+        if: steps.cache-lefthook.outputs.cache-hit != 'true'
+        env:
+          GOBIN: ${{ runner.temp }}/lefthook-bin
+        run: go install github.com/evilmartians/lefthook/v2@v2.1.14
+      - name: Make prepared Lefthook available to tests
+        run: echo "$RUNNER_TEMP/lefthook-bin" >> "$GITHUB_PATH"
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:

@@ -111,16 +111,16 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 // conformanceCheckpoint folds the work item's admission state through the
 // real tx-scoped loader and compares it with the model state lifted through
 // the same rules the liveness checks decide over.
-func conformanceCheckpoint(t *testing.T, s *Store, workID string, definition WorkflowDefinition, want admissionModelState, label string) {
+func conformanceCheckpoint(t *testing.T, s *Store, registry DefinitionRegistry, workID string, definition WorkflowDefinition, want admissionModelState, label string) {
 	t.Helper()
-	loaded := conformanceFold(t, s, workID, definition, label)
+	loaded := conformanceFold(t, s, registry, workID, definition, label)
 	got, model := admissionConformanceViewOf(loaded), admissionConformanceViewOf(admissionWorkflowState(definition, want))
 	if got != model {
 		t.Fatalf("%s: loaded fold %+v != abstract successor %s lifted to %+v", label, got, want, model)
 	}
 }
 
-func conformanceFold(t *testing.T, s *Store, workID string, definition WorkflowDefinition, label string) WorkflowAdmissionState {
+func conformanceFold(t *testing.T, s *Store, registry DefinitionRegistry, workID string, definition WorkflowDefinition, label string) WorkflowAdmissionState {
 	t.Helper()
 	ctx := context.Background()
 	tx, txErr := s.db.BeginTx(ctx, nil)
@@ -132,7 +132,7 @@ func conformanceFold(t *testing.T, s *Store, workID string, definition WorkflowD
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		t.Fatalf("%s: read step: %v", label, err)
 	}
-	loaded, _, _, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, step, "workflow_admission_conformance_test")
+	loaded, _, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, step, "workflow_admission_conformance_test", registry)
 	if err != nil {
 		t.Fatalf("%s: load: %v", label, err)
 	}
@@ -142,9 +142,9 @@ func conformanceFold(t *testing.T, s *Store, workID string, definition WorkflowD
 // The historical fence and dispatch hold survive re-entry until a fresh
 // start. Artifact truth must also match before that start, without masking
 // the loader's bit or changing those independently governed fence rules.
-func conformanceArtifactCheckpoint(t *testing.T, s *Store, workID string, definition WorkflowDefinition, want admissionModelState, label string) {
+func conformanceArtifactCheckpoint(t *testing.T, s *Store, registry DefinitionRegistry, workID string, definition WorkflowDefinition, want admissionModelState, label string) {
 	t.Helper()
-	got := conformanceFold(t, s, workID, definition, label)
+	got := conformanceFold(t, s, registry, workID, definition, label)
 	if got.Step != want.step || got.ArtifactStale != want.artifactStale {
 		t.Fatalf("%s: loaded step %s artifact stale %v, want step %s artifact stale %v", label, got.Step, got.ArtifactStale, want.step, want.artifactStale)
 	}
@@ -217,13 +217,13 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 
 	// The fixture parks the item at repair under one approved contract.
 	model := admissionModelState{step: "repair", debt: ReviewDebtNone, contracts: 1}
-	conformanceCheckpoint(t, s, workID, def, model, "seeded at repair")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "seeded at repair")
 
 	reentryEntry := conformanceStepEntryAction(t, def, "repair", "start_repair")
 	reentryDerives := conformanceStepDerives(t, s, workID, "repair")
 	reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
 	model = admissionDerivedCheckpointSuccessor(def, model, reentryEntry, reentryDerives)
-	conformanceCheckpoint(t, s, workID, def, model, "after start_repair")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after start_repair")
 
 	// The first repair pass records a worker-job revision, dispatches the
 	// attempt under that revision, completes it, and accepts it without
@@ -244,7 +244,7 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	}
 	model.jobsUnsatisfied = workerJobKey(views[0].Binding.JobID, views[0].Binding.Revision)
 	model.jobsScope = views[0].ProjectScope
-	conformanceCheckpoint(t, s, workID, def, model, "after record_worker_job")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after record_worker_job")
 
 	firstRepairAttempt := "attempt:" + workID + ":repair"
 	dispatchJobBoundAttempt(t, s, workID, "repair", firstRepairAttempt, nil, fixture.owner, 0, "conformance-initial-repair", job)
@@ -252,7 +252,7 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 		t.Fatal(err)
 	}
 	model = admissionSuccessor(def, model, "dispatch_worker")
-	conformanceCheckpoint(t, s, workID, def, model, "after job-bound repair completion")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after job-bound repair completion")
 
 	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": firstRepairAttempt, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor); err != nil {
 		t.Fatalf("local accept of the first repair: %v", err)
@@ -270,7 +270,7 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 		t.Fatalf("first repair accept successors = %v, want the held satisfied local acceptance", repairAccepts)
 	}
 	model = *firstRepairHeld
-	conformanceCheckpoint(t, s, workID, def, model, "after local repair accept")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after local repair accept")
 
 	// The held state's exit is the real delivery admission: record_delivery
 	// refuses without qualifying integration evidence, so we seed the run
@@ -278,34 +278,34 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	// covers the required Project for the integration facet.
 	workerJobIntegrationGreenRun(t, s, workID, "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
 	model.integration = true
-	conformanceCheckpoint(t, s, workID, def, model, "after integration evidence")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after integration evidence")
 	if err := runVerdictActionAs(t, s, workID, "record_delivery", mustJSONValue(map[string]any{"delivery_artifact": "artifact:conformance-initial-repair", "delivery_state": "asserted"}), 0, acceptor); err != nil {
 		t.Fatalf("record_delivery behind integration evidence: %v", err)
 	}
 	model = admissionSuccessor(def, model, "record_delivery")
-	conformanceCheckpoint(t, s, workID, def, model, "after repair delivery")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after repair delivery")
 
 	refineEntry := conformanceStepEntryAction(t, def, "refine", "start_refine")
 	refineDerives := conformanceStepDerives(t, s, workID, "refine")
 	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 	model = admissionDerivedCheckpointSuccessor(def, model, refineEntry, refineDerives)
-	conformanceCheckpoint(t, s, workID, def, model, "after start_refine")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after start_refine")
 
 	// The first review completes and the acceptor rejects it: the rejection
 	// opens the post-rejection review debt.
 	reviewOneEpoch := reviewGateRunAttempt(t, s, workID, "attempt:"+workID+":review-1", "refine", reviewGateLane(t, "review"), ownerRef, at)
 	at += 2
 	model = admissionSuccessor(def, model, "dispatch_worker")
-	conformanceCheckpoint(t, s, workID, def, model, "after review dispatch")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after review dispatch")
 	reviewGateRejectResult(t, s, workID, "attempt:"+workID+":review-1", reviewOneEpoch, acceptor)
 	model = admissionSuccessor(def, model, "reject_worker_result")
-	conformanceCheckpoint(t, s, workID, def, model, "after rejection")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after rejection")
 
 	// A fresh review of the repaired result completes with a ship verdict:
 	// the model's dispatch move names the settling review ready.
 	settlingEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, "attempt:"+workID+":review-2", reviewGateLane(t, "review"), ownerRef, "ship", at)
 	model = admissionSuccessor(def, model, "dispatch_worker")
-	conformanceCheckpoint(t, s, workID, def, model, "after settling review completion")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after settling review completion")
 
 	// The ready review's acceptance names the ready attempt and asserts
 	// delivery, so it settles the debt and advances to the delivery gate.
@@ -317,7 +317,7 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	// The held-job conformance the loader reads at delivery names the
 	// integration covered, so the model must reflect the same dimension.
 	model.integration = true
-	conformanceCheckpoint(t, s, workID, def, model, "after current-epoch verification")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after current-epoch verification")
 	if err := acceptRefineResult(t, s, workID, "attempt:"+workID+":review-2", settlingEpoch, acceptor); err != nil {
 		t.Fatalf("accept the settling review: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	// its accept is the advancing successor.
 	settlingAccepts := admissionSuccessors(def, model, "accept_worker_result")
 	model = settlingAccepts[len(settlingAccepts)-1]
-	conformanceCheckpoint(t, s, workID, def, model, "after settling accept")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after settling accept")
 	if model.debt != ReviewDebtNone || model.step != "delivery" {
 		t.Fatalf("settling accept left model step %q debt %q", model.step, model.debt)
 	}
@@ -343,7 +343,7 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 		t.Fatalf("record delivery at the gate: %v", err)
 	}
 	model = admissionSuccessor(def, model, "record_delivery")
-	conformanceCheckpoint(t, s, workID, def, model, "delivery recorded at the gate")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "delivery recorded at the gate")
 
 	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/conformance-reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
 	badVerdict := json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`)
@@ -358,7 +358,7 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	if !model.artifactStale {
 		t.Fatal("the model's bad-verdict successor did not stale the artifact")
 	}
-	conformanceCheckpoint(t, s, workID, def, model, "unhealthy verdict recorded")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "unhealthy verdict recorded")
 
 	correction := json.RawMessage(`{"diagnosis":"the verification verdict is not healthy","strategy":"return to the producer step and re-produce the artifact","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
 	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, fixture.owner, fixture.operator); err != nil {
@@ -368,7 +368,7 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	if model.step != "repair" || !model.artifactStale {
 		t.Fatalf("correction left model step %q stale %v, want repair still stale", model.step, model.artifactStale)
 	}
-	conformanceArtifactCheckpoint(t, s, workID, def, model, "returned producer remains stale")
+	conformanceArtifactCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "returned producer remains stale")
 	// Fence and hold state compare after the fresh start. The artifact
 	// snapshot above also checks the historical stale bit at the return.
 
@@ -378,10 +378,10 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	retryDerives := conformanceStepDerives(t, s, workID, "repair")
 	reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
 	model = admissionDerivedCheckpointSuccessor(def, model, retryEntry, retryDerives)
-	conformanceCheckpoint(t, s, workID, def, model, "producer restarted")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "producer restarted")
 	repairTwoEpoch := reviewGateRunAttempt(t, s, workID, "attempt:"+workID+":repair-2", "repair", reviewGateLane(t, "implementation"), ownerRef, at)
 	model = admissionSuccessor(def, model, "dispatch_worker")
-	conformanceCheckpoint(t, s, workID, def, model, "producer redispatched")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "producer redispatched")
 	if err := reviewGateAcceptResult(t, s, workID, "attempt:"+workID+":repair-2", repairTwoEpoch, acceptor); err != nil {
 		t.Fatalf("accept the fresh production: %v", err)
 	}
@@ -393,14 +393,14 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	if model.artifactStale {
 		t.Fatal("the model kept the artifact stale past fresh production at the route target")
 	}
-	conformanceArtifactCheckpoint(t, s, workID, def, model, "accepted fresh production")
+	conformanceArtifactCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "accepted fresh production")
 	// Acceptance refreshes the artifact before refine's fresh fence. The
 	// following full-state checkpoint also compares that fence and hold.
 	restartRefineEntry := conformanceStepEntryAction(t, def, "refine", "start_refine")
 	restartRefineDerives := conformanceStepDerives(t, s, workID, "refine")
 	refineEpoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 	model = admissionDerivedCheckpointSuccessor(def, model, restartRefineEntry, restartRefineDerives)
-	conformanceCheckpoint(t, s, workID, def, model, "refine restarted")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "refine restarted")
 	if refineEpoch == 0 {
 		t.Fatal("refine restart returned no epoch")
 	}
@@ -417,17 +417,17 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	// binding is in scope, so the model's fold-equivalent must reflect
 	// the same dimension.
 	model.integration = true
-	conformanceCheckpoint(t, s, workID, def, model, "second-epoch verification")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "second-epoch verification")
 	if err := reviewGateRecordDelivery(t, s, workID, acceptor); err != nil {
 		t.Fatalf("record delivery out of refine: %v", err)
 	}
 	model = admissionSuccessor(def, model, "record_delivery")
-	conformanceCheckpoint(t, s, workID, def, model, "refine delivery recorded")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "refine delivery recorded")
 	if err := reviewGateRecordDelivery(t, s, workID, acceptor); err != nil {
 		t.Fatalf("record delivery at the gate again: %v", err)
 	}
 	model = admissionSuccessor(def, model, "record_delivery")
-	conformanceCheckpoint(t, s, workID, def, model, "back at verify, artifact fresh")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "back at verify, artifact fresh")
 }
 
 // TestAdmissionConformanceLocalJobAcceptHolds replays the CD-0205 local
@@ -449,12 +449,12 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 	acceptor := reviewGateAcceptor(workID)
 
 	model := admissionModelState{step: "repair", debt: ReviewDebtNone, contracts: 1}
-	conformanceCheckpoint(t, s, workID, def, model, "seeded at repair")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "seeded at repair")
 	reentryEntry := conformanceStepEntryAction(t, def, "repair", "start_repair")
 	reentryDerives := conformanceStepDerives(t, s, workID, "repair")
 	reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
 	model = admissionDerivedCheckpointSuccessor(def, model, reentryEntry, reentryDerives)
-	conformanceCheckpoint(t, s, workID, def, model, "after start_repair")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after start_repair")
 
 	job := &WorkerJobBinding{JobID: "job:conformance-repair", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
@@ -470,7 +470,7 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 	}
 	model.jobsUnsatisfied = workerJobKey(views[0].Binding.JobID, views[0].Binding.Revision)
 	model.jobsScope = views[0].ProjectScope
-	conformanceCheckpoint(t, s, workID, def, model, "after record_worker_job")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after record_worker_job")
 
 	attempt := "attempt:" + workID + ":repair"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt, nil, fixture.owner, 0, "conformance-repair", job)
@@ -478,7 +478,7 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 		t.Fatal(err)
 	}
 	model = admissionSuccessor(def, model, "dispatch_worker")
-	conformanceCheckpoint(t, s, workID, def, model, "after job-bound repair completion")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after job-bound repair completion")
 
 	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attempt, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor); err != nil {
 		t.Fatalf("local accept: %v", err)
@@ -497,7 +497,7 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 		t.Fatalf("model accept successors = %v, want the unbound advance beside the holds", accepts)
 	}
 	model = *heldSatisfied
-	conformanceCheckpoint(t, s, workID, def, model, "after local job accept")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after local job accept")
 
 	// Re-recording the job onto the satisfied population reopens it
 	// (CD-0205 D1/D2): the fold reads each job's latest revision only, so
@@ -516,7 +516,7 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 	}
 	model.jobsUnsatisfied = workerJobKey(views[1].Binding.JobID, views[1].Binding.Revision)
 	model.jobsScope = views[1].ProjectScope
-	conformanceCheckpoint(t, s, workID, def, model, "after re-recorded worker job")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after re-recorded worker job")
 
 	// The reopened revision dispatches, completes, and is accepted locally
 	// again: the held state returns to the satisfied population with no
@@ -527,7 +527,7 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 		t.Fatal(err)
 	}
 	model = admissionSuccessor(def, model, "dispatch_worker")
-	conformanceCheckpoint(t, s, workID, def, model, "after reopened job-bound completion")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after reopened job-bound completion")
 	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": reAttempt, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor); err != nil {
 		t.Fatalf("local accept of the reopened revision: %v", err)
 	}
@@ -542,7 +542,7 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 		t.Fatalf("model accept successors = %v, want the held satisfied local acceptance of the reopened revision", accepts)
 	}
 	model = *heldSatisfied
-	conformanceCheckpoint(t, s, workID, def, model, "after local accept of the reopened revision")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after local accept of the reopened revision")
 
 	// The held state's exit is the real delivery admission, not the abstract
 	// successor: record_delivery refuses behind the satisfied population
@@ -559,7 +559,7 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 	// advances the step.
 	workerJobIntegrationGreenRun(t, s, workID, "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
 	model.integration = true
-	conformanceCheckpoint(t, s, workID, def, model, "after integration evidence")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after integration evidence")
 	before := issue1013Pin(t, s, workID).Step
 	if err := runVerdictActionAs(t, s, workID, "record_delivery", mustJSONValue(map[string]any{"delivery_artifact": "artifact:conformance-held", "delivery_state": "asserted"}), 0, acceptor); err != nil {
 		t.Fatalf("record_delivery behind integration evidence: %v", err)

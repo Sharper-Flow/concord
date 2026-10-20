@@ -131,7 +131,7 @@ func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path str
 		var claimID string
 		err := q.QueryRowContext(ctx, `SELECT e.project_id,e.branch,e.path,w.id,w.lifecycle,e.claim_op_id FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id JOIN work_items w ON w.id=c.work_id WHERE e.project_id=? AND e.path=? AND e.state='active'`, projectID, filepath.Clean(path)).Scan(&current.ProjectID, &current.Branch, &current.Path, &current.WorkID, &current.Lifecycle, &claimID)
 		if err == sql.ErrNoRows {
-			return current, claimID, newFailure(KindInvalidOperation, "work_bootstrap", "linked bootstrap origin is not an active Concord worktree", false, "run work_start from the active worktree")
+			return current, claimID, newFailure(KindInvalidOperation, "work_bootstrap", "linked bootstrap origin is not an active Concord worktree", false, "a caller with no active work item captures new work from the default checkout; a caller with an active work item resumes it by running work_start from that item's actual active worktree")
 		}
 		if err != nil {
 			return current, claimID, wrapFailure(KindUnavailable, "work_bootstrap", "cannot read the linked bootstrap origin", true, "retry once the database is readable", err)

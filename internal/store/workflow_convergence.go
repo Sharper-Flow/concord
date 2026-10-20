@@ -25,11 +25,11 @@ func (s WorkflowAdmissionState) retryEscalated() bool {
 func workflowRetryConvergenceFailure(state WorkflowAdmissionState) *Failure {
 	detail := "worker correction reached the three-attempt limit without a convergence basis"
 	if state.NonProgressAttempts >= workflowCorrectionAttemptLimit {
-		detail += fmt.Sprintf(": %d non-progress attempts since the last accepted productive result (step %s)", state.NonProgressAttempts, state.Step)
+		detail += fmt.Sprintf(": %d non-progress attempts since the last accepted productive result (step %s); corrections recorded before that acceptance are historical and do not count in this window", state.NonProgressAttempts, state.Step)
 	}
 	detail += ". Host recovery applies only to an eligible recorded host execution failure and an unused host basis in this nonprogress window: repair the fault, restart the host more than one minute after the failure, resume the item, then retry once"
 	return newFailure(KindMissingEvidence, "worker_dispatch", detail, false,
-		"record shrinking open_finding_ids, supersede_contract with a changed approach, or stop the work; after a host execution failure, repair and restart the host, resume the item, and dispatch once from the restarted host (one host_changed retry per nonprogress window)")
+		"record shrinking open_finding_ids, or supersede_contract with a changed approach after the latest dispatch (after productive acceptance, truthfully admitting the next stage is a changed approach; it admits one fresh fenced attempt and does not renew the three-attempt budget), or stop the work; after a host execution failure, repair and restart the host, resume the item, and dispatch once from the restarted host (one host_changed retry per nonprogress window)")
 }
 
 // workflowRetryConvergence derives a basis rather than trusting a caller's

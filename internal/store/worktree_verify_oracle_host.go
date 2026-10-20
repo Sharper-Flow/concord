@@ -204,7 +204,12 @@ func nativeTargetSelector(m nativeTargetOracleManifest, c OracleControl) ([]stri
 		return nil, oracleFailure(KindLimitExceeded, "rendered target selector exceeds the bounded verify command shape", "select fewer or shorter witnesses")
 	}
 	if !slices.Equal(logical, c.Argv) {
-		return nil, nativeUnavailable("control argv is not the exact closed " + m.Runner + " selector")
+		rendered, renderErr := json.Marshal(logical)
+		if renderErr != nil {
+			return nil, wrapFailure(KindUnavailable, "native_target", "cannot render the closed selector", false, "repair the pinned harness", renderErr)
+		}
+		return nil, oracleFailure(KindUnavailable, "control argv is not the exact closed "+m.Runner+" selector",
+			"set control argv to the exact closed selector "+string(rendered)+" (the "+m.Runner+" runner identity followed by the sorted distinct case witnesses), or record the corrected control revision through record_worker_job, then request explicit fresh native preparation")
 	}
 	return witnesses, nil
 }

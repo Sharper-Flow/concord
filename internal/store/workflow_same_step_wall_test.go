@@ -317,7 +317,7 @@ func TestCorrectionComparatorsKeepTheirPopulations(t *testing.T) {
 	if !errors.As(dispatchErr, &failure) || failure.Kind != KindMissingEvidence {
 		t.Fatalf("fourth correction dispatch failure=%v, want missing_evidence", dispatchErr)
 	}
-	if failure.Detail != "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step repair). Host recovery applies only to an eligible recorded host execution failure and an unused host basis in this nonprogress window: repair the fault, restart the host more than one minute after the failure, resume the item, then retry once" {
+	if failure.Detail != "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step repair); corrections recorded before that acceptance are historical and do not count in this window. Host recovery applies only to an eligible recorded host execution failure and an unused host basis in this nonprogress window: repair the fault, restart the host more than one minute after the failure, resume the item, then retry once" {
 		t.Fatalf("correction wall detail = %q, want the convergence refusal", failure.Detail)
 	}
 }

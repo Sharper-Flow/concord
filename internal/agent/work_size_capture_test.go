@@ -128,9 +128,7 @@ func TestCaptureSizeRefusalsLeaveNoWork(t *testing.T) {
 			response, err := dispatchDefectCapture(t, s, service, grant, scopeVersion, "size-refused", sizedCaptureInput("size-refused", tc.sizeInputs))
 			switch {
 			case tc.schema:
-				if err == nil {
-					t.Fatalf("response=%+v, want the closed input schema to refuse at dispatch", response.Error)
-				}
+				assertInputCorrection(t, response, err, "$.size_inputs.")
 			case err != nil:
 				t.Fatalf("dispatch err=%v, want a typed %s envelope", err, tc.kind)
 			case response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != tc.kind:

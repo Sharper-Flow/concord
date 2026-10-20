@@ -59,9 +59,7 @@ func TestInvokePreEffectInputCorrection(t *testing.T) {
 		return response
 	}
 	refused := invoke()
-	if refused.Error == nil || refused.Error.Kind != "invalid_input" || refused.Error.EffectState != EffectNone || refused.Error.RetrySafe || refused.Error.RecoveryAction.Kind != "correct_request" {
-		t.Fatalf("pre-effect correction refusal=%+v", refused.Error)
-	}
+	assertInputCorrection(t, refused, nil, "$.statement")
 	for _, fragment := range []string{"maxLength", "$.statement", "832", "512"} {
 		if !strings.Contains(refused.Error.Message, fragment) {
 			t.Errorf("missing %q in %q", fragment, refused.Error.Message)
@@ -78,6 +76,19 @@ func TestInvokePreEffectInputCorrection(t *testing.T) {
 	}
 	if replay := invoke(); replay.Outcome != OutcomeOK || !replay.Replayed {
 		t.Fatalf("committed correction must keep idempotency: %+v", replay)
+	}
+}
+
+func assertInputCorrection(t *testing.T, response Envelope, err error, diagnostic string) {
+	t.Helper()
+	if err != nil || response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" || response.Error.EffectState != EffectNone || response.Error.RetrySafe || response.Error.RecoveryAction.Kind != "correct_request" {
+		t.Fatalf("expected pre-effect input correction: response=%+v err=%v", response.Error, err)
+	}
+	if !strings.Contains(response.Error.Message, diagnostic) {
+		t.Fatalf("input refusal %q does not name %q", response.Error.Message, diagnostic)
+	}
+	if _, err := response.Encode(); err != nil {
+		t.Fatalf("input correction cannot serialize: %v", err)
 	}
 }
 

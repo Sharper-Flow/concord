@@ -129,6 +129,8 @@ read. An agent supplies only the inputs a tool cannot derive, and independent
 review checks each one. A wrong input is a review finding, and the corrected
 inputs run the model again. The model never reads a size an agent proposes.
 
+Source-free research may omit optional sizing inputs when its workflow does not require a size. Omission records no size: it is neither a zero production-line estimate nor a `small` classification. An agent must not invent production-line estimates or edit paths to obtain a size. This rule does not waive sizing required by a composition, change the admitted range of supplied estimates, or lower any proof obligation.
+
 The obligation bands of CD-0006 D4 and R2 still apply at every size. A size
 sets the steps, proof, and testing above that floor; it never removes an
 obligation a band requires.

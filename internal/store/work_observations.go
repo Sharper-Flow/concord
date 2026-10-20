@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"time"
+	"unicode/utf8"
 )
 
 // CD-0030: an observation is the durable form of "I noticed something" —
@@ -41,14 +42,14 @@ type workObservationRecordedPayload struct {
 // bounds. The Domain anchor carries them over unchanged, so both
 // folds read the same limits from here rather than restating them.
 func validateObservationBounds(statement string, refs, tags []string) error {
-	if len(statement) < 1 || len(statement) > 512 {
+	if n := utf8.RuneCountInString(statement); n < 1 || n > 512 {
 		return newFailure(KindInvalidPayload, "fold_event", "observation statement must be a bounded non-empty string", false, "supply a statement of at most 512 characters")
 	}
 	if len(refs) > 16 {
 		return newFailure(KindInvalidPayload, "fold_event", "observation carries too many refs", false, "supply at most sixteen refs")
 	}
 	for _, ref := range refs {
-		if len(ref) < 1 || len(ref) > 256 {
+		if n := utf8.RuneCountInString(ref); n < 1 || n > 256 {
 			return newFailure(KindInvalidPayload, "fold_event", "observation refs must be bounded", false, "supply bounded refs")
 		}
 	}
@@ -56,7 +57,7 @@ func validateObservationBounds(statement string, refs, tags []string) error {
 		return newFailure(KindInvalidPayload, "fold_event", "observation carries too many tags", false, "supply at most eight tags")
 	}
 	for _, tag := range tags {
-		if len(tag) < 1 || len(tag) > 32 {
+		if n := utf8.RuneCountInString(tag); n < 1 || n > 32 {
 			return newFailure(KindInvalidPayload, "fold_event", "observation tags must be bounded", false, "supply bounded tags")
 		}
 	}

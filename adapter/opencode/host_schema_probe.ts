@@ -37,6 +37,9 @@ const workStartDefinition = {
 await publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartDefinition)
 // The root is provider-compatible; its conditional branches retain the
 // generated capture/resume contract without losing requireds or exclusions.
+// Publication interns repeated field schemas into the root's local
+// definitions table, so closure is proven on the raw root and the branch
+// comparison reads the resolved view against the same generated branches.
 const workStartRoot = object(workStartDefinition.jsonSchema, "published work start schema")
 if (workStartRoot.type !== "object") fail("concord_work_start schema root is not an object")
 const registrationBytes: Record<string, number> = { concord_work_start: Buffer.byteLength(JSON.stringify(workStartRoot), "utf8") }
@@ -44,7 +47,9 @@ for (const keyword of ["oneOf", "anyOf", "allOf"]) {
   if (Object.hasOwn(workStartRoot, keyword)) fail(`concord_work_start carries provider-unsafe root ${keyword}`)
 }
 if (JSON.stringify(workStartRoot.if) !== JSON.stringify({ required: ["work_id"] })) fail("concord_work_start does not select resume by work_id presence")
-const publishedBranches = [workStartRoot.else, workStartRoot.then].map((branch) => object(branch, "published work start branch"))
+checkLocalRefs(workStartRoot, "concord_work_start")
+const expandedWorkStart: any = expandedPublishedRequestSchema(workStartRoot)
+const publishedBranches = [expandedWorkStart.else, expandedWorkStart.then].map((branch) => object(branch, "published work start branch"))
 for (const [index, branch] of publishedBranches.entries()) {
   if (JSON.stringify(branch) !== JSON.stringify(expectedWorkStartBranches[index])) fail(`published work start branch ${index} differs from its generated closed contract`)
 }

@@ -1,0 +1,14 @@
+{
+  "kind": "go_top_level_v1",
+  "package_cwd": "cmd/concord",
+  "test_files": [
+    "cmd/concord/bootstrap_remedy_acceptance_test.go"
+  ],
+  "fixture_files": [
+    "internal/store/knowledge_authority_defaults.v1.json"
+  ],
+  "cases": {
+    "case:capture-checkout-remedy": ["TestBootstrapRemedyNamesCaptureCheckout"],
+    "case:active-resume-remedy": ["TestBootstrapRemedyNamesActiveResumePath"]
+  }
+}

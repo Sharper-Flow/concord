@@ -53,10 +53,12 @@ MAIN_NOGRANT = '{{Canonical: "invoke", RequiredFields: requiredFields(nestedFiel
 CONTRACTS = 'const ManifestDigest = "{digest}"\n'
 # The work_relate registrations every real source carries, with and without the
 # v0.27.0 message operations and their required-input lists.
+CAPTURE_ENTRY = ('{ID: "concord_work_define.capture", Tool: "concord_work_define", Operation: "capture", '
+                 'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_define"), Approval: ApprovalClass("none"), Availability: Availability("always"), InputSchema: "work_define_capture_input", ResultSchema: "mutation_result"},\n')
 BASE_CONTRACTS = ('{ID: "concord_work_relate.set_memberships", Tool: "concord_work_relate", Operation: "set_memberships", '
                   'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("conditional"), Availability: Availability("always")},\n'
                   '{ID: "concord_work_relate.link", Tool: "concord_work_relate", Operation: "link", '
-                  'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("none"), Availability: Availability("always")},\n')
+                  'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("none"), Availability: Availability("always")},\n') + CAPTURE_ENTRY
 MESSAGE_SEND_ENTRY = ('{ID: "concord_work_relate.message_send", Tool: "concord_work_relate", Operation: "message_send", '
                       'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("none"), Availability: Availability("always"), InputSchema: "work_relate_message_send_input", ResultSchema: "mutation_result"},\n')
 MESSAGE_WITHDRAW_ENTRY = ('{ID: "concord_work_relate.message_withdraw", Tool: "concord_work_relate", Operation: "message_withdraw", '
@@ -64,6 +66,17 @@ MESSAGE_WITHDRAW_ENTRY = ('{ID: "concord_work_relate.message_withdraw", Tool: "c
 MESSAGE_INPUTS = ('"work_relate_message_send_input":             {Required: []string{"work_id", "body", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "recipient_work_id", "broadcast", "body", "expected_version", "idempotency_key"}},\n'
                   '"work_relate_message_withdraw_input":         {Required: []string{"work_id", "message_id", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "message_id", "expected_version", "idempotency_key"}},\n')
 MESSAGE_CONTRACTS = MESSAGE_SEND_ENTRY + MESSAGE_WITHDRAW_ENTRY + MESSAGE_INPUTS
+RESOURCE_CLAIM_ENTRY = ('{ID: "concord_work_relate.resource_claim", Tool: "concord_work_relate", Operation: "resource_claim", '
+                        'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("none"), Availability: Availability("always"), InputSchema: "work_relate_resource_claim_input", ResultSchema: "mutation_result"},\n')
+RESOURCE_RELEASE_ENTRY = ('{ID: "concord_work_relate.resource_release", Tool: "concord_work_relate", Operation: "resource_release", '
+                          'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("none"), Availability: Availability("always"), InputSchema: "work_relate_resource_release_input", ResultSchema: "mutation_result"},\n')
+RESOURCE_INPUTS = ('"work_relate_resource_claim_input":            {Required: []string{"work_id", "resource_key", "reason", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "resource_key", "reason", "expected_version", "idempotency_key"}},\n'
+                   '"work_relate_resource_release_input":          {Required: []string{"work_id", "resource_key", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "resource_key", "expected_version", "idempotency_key"}},\n')
+RESOURCE_CONTRACTS = RESOURCE_CLAIM_ENTRY + RESOURCE_RELEASE_ENTRY + RESOURCE_INPUTS
+OBSERVATION_ENTRY = ('{ID: "concord_work_define.observation_record", Tool: "concord_work_define", Operation: "observation_record", '
+                     'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_define"), Approval: ApprovalClass("none"), Availability: Availability("always"), InputSchema: "work_define_observation_record_input", ResultSchema: "mutation_result"},\n')
+OBSERVATION_INPUTS = ('"work_define_observation_record_input":         {Required: []string{"work_id", "statement", "idempotency_key"}, Properties: []string{"work_id", "observation_id", "statement", "idempotency_key", "refs", "tags"}},\n')
+OBSERVATION_CONTRACTS = OBSERVATION_ENTRY + OBSERVATION_INPUTS
 SEMVER = 'func NegotiateSurfaceVersion(supportedRange string) (string, error) {\n\tsupported := []SemVer{{{Major: 3, Minor: 8, Patch: 0}, {Major: 4, Minor: 0, Patch: 0}}}\n}\n'
 LOCATOR_PAIRS = "SELECT product_id,role FROM product_projects"
 LOCATOR_TRIPLES = "SELECT product_id,project_id,role FROM product_projects"
@@ -190,6 +203,9 @@ def fixture_repository(root: Path) -> Path:
                   "internal/store/project_locator.go": LOCATOR_PAIRS}, "v0.26.1")
     commit(repo, {"cmd/concord/main.go": MAIN_GRANT.format(token="grant_ref", agent=""),
                   "internal/agent/authority.go": FORM_A_AUTHORITY,
+                  "internal/agent/generated_contracts.go": contracts("sha256:" + "d" * 64, messages=False) + RESOURCE_CONTRACTS + OBSERVATION_CONTRACTS}, "v0.31.0")
+    commit(repo, {"cmd/concord/main.go": MAIN_GRANT.format(token="grant_ref", agent=""),
+                  "internal/agent/authority.go": FORM_A_AUTHORITY,
                   "internal/agent/generated_contracts.go": contracts("sha256:" + "a" * 64, messages=True)}, "v0.37.2")
     commit(repo, {"cmd/concord/main.go": MAIN_GRANT.format(token="grant_token", agent=""),
                   "internal/agent/authority.go": FORM_B_AUTHORITY,
@@ -233,9 +249,13 @@ class InvokeUnitTest(unittest.TestCase):
             oldest = invoke.tag_facts(repo, "v0.26.1")
             self.assertTrue(oldest["has_grant"])
             self.assertFalse(oldest["has_messages"])
+            self.assertFalse(oldest["has_resources"])
+            self.assertFalse(oldest["has_observation"])
             early = invoke.tag_facts(repo, "v0.37.2")
             self.assertTrue(early["has_grant"])
             self.assertTrue(early["has_messages"])
+            self.assertFalse(early["has_resources"])
+            self.assertFalse(early["has_observation"])
             self.assertIn("client_version", early["names"])
             self.assertEqual(early["surface"], "4.0.0")
             self.assertEqual(early["manifest_digest"], "sha256:" + "a" * 64)
@@ -244,15 +264,26 @@ class InvokeUnitTest(unittest.TestCase):
             middle = invoke.tag_facts(repo, "v0.40.0")
             self.assertTrue(middle["has_grant"])
             self.assertTrue(middle["has_messages"])
+            self.assertFalse(middle["has_resources"])
+            self.assertFalse(middle["has_observation"])
             self.assertNotIn("client_version", middle["names"])
             self.assertNotIn("surface", middle)
             self.assertEqual(middle["manifest_digest"], "sha256:" + "b" * 64)
             modern = invoke.tag_facts(repo, "v4.6.0")
             self.assertFalse(modern["has_grant"])
             self.assertTrue(modern["has_messages"])
+            self.assertFalse(modern["has_resources"])
+            self.assertFalse(modern["has_observation"])
             self.assertTrue(modern["agent_scope"])
             self.assertEqual(modern["scope_formula"], "triples")
             self.assertEqual(modern["manifest_digest"], "sha256:" + "c" * 64)
+
+    def test_tag_facts_flag_resources_and_observation_independent_of_messages(self) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            facts = invoke.tag_facts(fixture_repository(Path(name)), "v0.31.0")
+            self.assertFalse(facts["has_messages"])
+            self.assertTrue(facts["has_resources"])
+            self.assertTrue(facts["has_observation"])
 
     def mutate_contracts(self, repo: Path, base: str, tag: str, replacement: str, search: str | None = None) -> None:
         """Tag a variant of the v0.37.2 source whose contracts carry `replacement` instead of `search`."""
@@ -340,6 +371,134 @@ class InvokeUnitTest(unittest.TestCase):
             self.mutate_contracts(repo, "v0.37.2", "v0.37.3-traces", MESSAGE_INPUTS)
             error = self.assert_tag_facts_hold(repo, "v0.37.3-traces")
             self.assertIn("message_send", error.detail)
+
+    LEGACY_MESSAGE_ROWS = (
+        '{ID: "concord_work_relate.message_send", Tool: "concord_work_relate", Operation: "message_send", '
+        'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("none"), Availability: Availability("always")},\n'
+        '{ID: "concord_work_relate.message_withdraw", Tool: "concord_work_relate", Operation: "message_withdraw", '
+        'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("none"), Availability: Availability("always")},\n')
+    LEGACY_BINDINGS = ('var operationInputSchemas = map[string]string{\n'
+                       '\t"concord_work_relate.message_send": "work_relate_message_send_input",\n'
+                       '\t"concord_work_relate.message_withdraw": "work_relate_message_withdraw_input",\n'
+                       '}\n')
+    MESSAGE_SPECS = {
+        "message_send": ((frozenset({"work_id", "body", "expected_version", "idempotency_key"}),),
+                         "work_relate_message_send_input",
+                         frozenset({"work_id", "recipient_work_id", "broadcast", "body", "expected_version", "idempotency_key"})),
+        "message_withdraw": ((frozenset({"work_id", "message_id", "expected_version", "idempotency_key"}),),
+                             "work_relate_message_withdraw_input",
+                             frozenset({"work_id", "message_id", "expected_version", "idempotency_key"})),
+    }
+
+    def test_message_support_rejects_a_supplied_property_missing_from_properties(self) -> None:
+        contracts = MESSAGE_CONTRACTS.replace(
+            'Properties: []string{"work_id", "recipient_work_id", "broadcast", "body", "expected_version", "idempotency_key"}',
+            'Properties: []string{"work_id", "broadcast", "body", "expected_version", "idempotency_key"}')
+        with self.assertRaises(invoke.InvokeError) as raised:
+            invoke.message_support(contracts, "v0.37.3-properties")
+        self.assertIn("recipient_work_id", raised.exception.detail)
+
+    def test_message_support_rejects_identity_and_lifecycle_mutations(self) -> None:
+        cases = {
+            "wrong tool": MESSAGE_SEND_ENTRY.replace('Tool: "concord_work_relate"', 'Tool: "concord_work_define"'),
+            "wrong operation": MESSAGE_SEND_ENTRY.replace('Operation: "message_send"', 'Operation: "message_send_alt"'),
+            "changed availability": MESSAGE_SEND_ENTRY.replace('Availability: Availability("always")', 'Availability: Availability("never")'),
+            "duplicate registration": MESSAGE_SEND_ENTRY + MESSAGE_SEND_ENTRY,
+        }
+        for name, mutated in cases.items():
+            with self.subTest(case=name):
+                with self.assertRaises(invoke.InvokeError):
+                    invoke.message_support(MESSAGE_CONTRACTS.replace(MESSAGE_SEND_ENTRY, mutated), "v0.37.3-identity")
+
+    def test_message_support_rejects_bad_schema_rules(self) -> None:
+        send_rule = MESSAGE_INPUTS.splitlines()[0]
+        with self.subTest(case="duplicate schema rule"):
+            with self.assertRaises(invoke.InvokeError):
+                invoke.message_support(MESSAGE_CONTRACTS + send_rule, "v0.37.3-duplicate-rule")
+        with self.subTest(case="malformed properties rule"):
+            malformed = MESSAGE_INPUTS.replace('Properties: []string{"work_id", "message_id", "expected_version", "idempotency_key"}',
+                                               'Properties: []string{work_id, "message_id", "expected_version", "idempotency_key"}')
+            with self.assertRaises(invoke.InvokeError):
+                invoke.message_support(BASE_CONTRACTS + MESSAGE_SEND_ENTRY + MESSAGE_WITHDRAW_ENTRY + malformed, "v0.37.3-malformed")
+
+    def test_legacy_message_rows_require_the_raw_input_schema_map(self) -> None:
+        contracts = self.LEGACY_MESSAGE_ROWS + MESSAGE_INPUTS
+        with self.subTest(case="valid map passes"):
+            self.assertTrue(invoke.message_support(contracts, "v0.37.3-legacy", self.LEGACY_BINDINGS))
+        with self.subTest(case="missing map fails"):
+            with self.assertRaises(invoke.InvokeError):
+                invoke.message_support(contracts, "v0.37.3-legacy")
+        with self.subTest(case="duplicate key fails"):
+            duplicated = self.LEGACY_BINDINGS.replace(
+                '"concord_work_relate.message_withdraw": "work_relate_message_withdraw_input",\n',
+                '"concord_work_relate.message_send": "work_relate_message_send_input",\n')
+            with self.assertRaises(invoke.InvokeError):
+                invoke.message_support(contracts, "v0.37.3-legacy", duplicated)
+        with self.subTest(case="wrong schema name fails"):
+            wrong = self.LEGACY_BINDINGS.replace("work_relate_message_send_input", "work_relate_message_send_v2_input")
+            with self.assertRaises(invoke.InvokeError):
+                invoke.message_support(contracts, "v0.37.3-legacy", wrong)
+        with self.subTest(case="wrong map key fails"):
+            keyed = self.LEGACY_BINDINGS.replace('"concord_work_relate.message_send":', '"message_send":')
+            with self.assertRaises(invoke.InvokeError):
+                invoke.message_support(contracts, "v0.37.3-legacy", keyed)
+
+    def test_operation_family_support_verdicts(self) -> None:
+        tool = "concord_work_relate"
+        with self.subTest(case="full pair passes"):
+            self.assertTrue(invoke.operation_family_support(MESSAGE_CONTRACTS, "v0.37.3-family", tool, self.MESSAGE_SPECS))
+        with self.subTest(case="readable absence reports false"):
+            self.assertFalse(invoke.operation_family_support(BASE_CONTRACTS, "v0.37.3-family", tool, self.MESSAGE_SPECS))
+        with self.subTest(case="partial pair fails"):
+            partial = BASE_CONTRACTS + MESSAGE_SEND_ENTRY + MESSAGE_INPUTS.splitlines()[0] + "\n"
+            with self.assertRaises(invoke.InvokeError):
+                invoke.operation_family_support(partial, "v0.37.3-family", tool, self.MESSAGE_SPECS)
+        with self.subTest(case="legacy rows bind through the raw map"):
+            self.assertTrue(invoke.operation_family_support(
+                self.LEGACY_MESSAGE_ROWS + MESSAGE_INPUTS, "v0.37.3-family", tool, self.MESSAGE_SPECS, self.LEGACY_BINDINGS))
+
+    LEGACY_RESOURCE_ROWS = (
+        '{ID: "concord_work_relate.resource_claim", Tool: "concord_work_relate", Operation: "resource_claim", '
+        'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("none"), Availability: Availability("always")},\n'
+        '{ID: "concord_work_relate.resource_release", Tool: "concord_work_relate", Operation: "resource_release", '
+        'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("none"), Availability: Availability("always")},\n')
+    LEGACY_RESOURCE_BINDINGS = ('var operationInputSchemas = map[string]string{\n'
+                                '\t"concord_work_relate.resource_claim": "work_relate_resource_claim_input",\n'
+                                '\t"concord_work_relate.resource_release": "work_relate_resource_release_input",\n'
+                                '}\n')
+
+    def test_resource_and_observation_support_verdicts(self) -> None:
+        with self.subTest(case="readable absence reports false"):
+            self.assertFalse(invoke.resource_support(BASE_CONTRACTS, "v0.31.0-family"))
+            self.assertFalse(invoke.observation_support(BASE_CONTRACTS, "v0.31.0-family"))
+        with self.subTest(case="full pair and observation pass"):
+            self.assertTrue(invoke.resource_support(BASE_CONTRACTS + RESOURCE_CONTRACTS, "v0.31.0-family"))
+            self.assertTrue(invoke.observation_support(BASE_CONTRACTS + OBSERVATION_CONTRACTS, "v0.31.0-family"))
+        with self.subTest(case="later observation required set passes"):
+            later = OBSERVATION_INPUTS.replace('{Required: []string{"work_id", "statement", "idempotency_key"}',
+                                               '{Required: []string{"work_id", "idempotency_key"}')
+            self.assertTrue(invoke.observation_support(BASE_CONTRACTS + OBSERVATION_ENTRY + later, "v0.31.0-family"))
+        with self.subTest(case="a moved observation required set holds"):
+            moved = OBSERVATION_INPUTS.replace('{Required: []string{"work_id", "statement", "idempotency_key"}',
+                                               '{Required: []string{"work_id", "observation_id", "idempotency_key"}')
+            with self.assertRaises(invoke.InvokeError):
+                invoke.observation_support(BASE_CONTRACTS + OBSERVATION_CONTRACTS.replace(OBSERVATION_INPUTS, moved), "v0.31.0-family")
+        for missing in ("refs", "tags"):
+            with self.subTest(missing_property=missing):
+                stripped = OBSERVATION_INPUTS.replace(f', "{missing}"', '')
+                with self.assertRaises(invoke.InvokeError) as raised:
+                    invoke.observation_support(BASE_CONTRACTS + OBSERVATION_ENTRY + stripped, "v0.31.0-family")
+                self.assertIn(missing, raised.exception.detail)
+        with self.subTest(case="observation properties without the optional lists hold"):
+            stripped = OBSERVATION_INPUTS.replace(', "refs", "tags"', '')
+            with self.assertRaises(invoke.InvokeError):
+                invoke.observation_support(BASE_CONTRACTS + OBSERVATION_ENTRY + stripped, "v0.31.0-family")
+        with self.subTest(case="legacy resource rows bind through the raw map"):
+            self.assertTrue(invoke.resource_support(
+                BASE_CONTRACTS + self.LEGACY_RESOURCE_ROWS + RESOURCE_INPUTS, "v0.31.0-family", self.LEGACY_RESOURCE_BINDINGS))
+        with self.subTest(case="legacy rows without the raw map hold"):
+            with self.assertRaises(invoke.InvokeError):
+                invoke.resource_support(BASE_CONTRACTS + self.LEGACY_RESOURCE_ROWS + RESOURCE_INPUTS, "v0.31.0-family")
 
     def test_the_plan_lists_only_the_steps_the_source_prescribes(self) -> None:
         capture_only = invoke.invoke_plan({"has_grant": True, "has_messages": False})
@@ -894,13 +1053,15 @@ class LegacyProofTest(unittest.TestCase):
         drifted = [path for path in legacy.LEGACY_OWNERS if corrected["owners"][path] != predecessor["owners"][path]]
         self.assertEqual(drifted, ["internal/agent/mutations.go"])
 
-    def test_the_real_capture_and_message_controls_keep_their_plans(self) -> None:
+    def test_the_real_nonbootstrap_controls_include_supported_resource_steps(self) -> None:
         self.assertIsNone(legacy.select_variant(REPO, "v0.26.1", git_bytes(REPO, "rev-parse", "v0.26.1^{commit}").decode().strip()))
         self.assertEqual(invoke.invoke_plan(invoke.tag_facts(REPO, "v0.26.1")),
-                         ("client-register", "grant", "invoke:concord_work_define.capture"))
+                         ("client-register", "grant", "invoke:concord_work_define.capture",
+                          "invoke:concord_work_relate.resource_claim", "invoke:concord_work_relate.resource_release"))
         self.assertEqual(invoke.invoke_plan(invoke.tag_facts(REPO, "v0.27.0")),
                          ("client-register", "grant", "invoke:concord_work_define.capture", "invoke:concord_work_define.capture",
-                          "invoke:concord_work_relate.message_send", "invoke:concord_work_relate.message_withdraw"))
+                           "invoke:concord_work_relate.message_send", "invoke:concord_work_relate.message_withdraw",
+                           "invoke:concord_work_relate.resource_claim", "invoke:concord_work_relate.resource_release"))
 
     def test_a_bootstrap_plan_is_empty_and_runs_nothing(self) -> None:
         facts = {"has_grant": True, "has_messages": True, "bootstrap_only": True}
@@ -917,6 +1078,182 @@ class LegacyProofTest(unittest.TestCase):
             case.mkdir()
             record = invoke.run_invoke_phase(Forbidden().run, repo, "v0.37.2", case, Path(name) / "store.db", facts=dict(facts))
         self.assertEqual(record, {"outcome": "bootstrap-only", "plan": []})
+
+
+SENDER = "gate-work-1"
+FENCE = "fence:gate-release-restore"
+OBS_ID = "obs:0000000000000001"
+RECORD = {
+    "outcome": "ok",
+    "plan": ("invoke:concord_work_relate.resource_claim",
+             "invoke:concord_work_relate.resource_release",
+             "invoke:concord_work_define.observation_record"),
+    "resource": {"sender": SENDER, "key": FENCE, "input_version": 4, "claim_version": 5, "release_version": 6},
+    "observation": {"sender": SENDER, "id": OBS_ID, "statement": "gate release-restore observation"},
+}
+EVENTS = (
+    (10, "work.resource_claimed", {"work_id": SENDER, "resource_key": FENCE, "expected_version": 4, "resulting_version": 5}),
+    (11, "work.resource_claim_released", {"work_id": SENDER, "resource_key": FENCE, "expected_version": 5, "resulting_version": 6}),
+    (12, "work.observation_recorded", {"observation_id": OBS_ID, "statement": "gate release-restore observation"}),
+)
+
+
+class R1ProtocolTest(unittest.TestCase):
+    """Non-unit receipt jumps prove forwarding only, never witness admission."""
+
+    ORDER = ("capture", "capture", "message_send", "message_withdraw",
+             "resource_claim", "resource_release", "observation_record")
+
+    def facts(self, messages: bool) -> dict:
+        return {"has_grant": False, "agent_scope": False, "names": [], "has_messages": messages,
+                "has_resources": True, "has_observation": True}
+
+    def stub(self, claim_kind: str, override: tuple | None = None):
+        calls = []
+        claim_id = FENCE if claim_kind == "resource_claim" else SENDER
+
+        def ok(kind, ident, version):
+            return 0, json.dumps({"outcome": "ok", "changed_refs": [{"entity_kind": kind, "id": ident, "version": version}]}), ""
+
+        def run(verb, request):
+            if verb != "invoke":
+                return 0, "{}", ""
+            calls.append(request)
+            if override and request["operation"] == override[0]:
+                return override[1]
+            captures = sum(call["operation"] == "capture" for call in calls)
+            return {
+                "capture": ok("work_item", SENDER if captures == 1 else "gate-work-2", "11"),
+                "message_send": ok("work_item", SENDER, "17"),
+                "message_withdraw": ok("work_item", SENDER, "31"),
+                "resource_claim": ok(claim_kind, claim_id, "53"),
+                "resource_release": ok(claim_kind, claim_id, "79"),
+                "observation_record": ok("observation", OBS_ID, "1"),
+            }[request["operation"]]
+
+        return run, calls
+
+    def drive(self, run, messages):
+        with patch.object(invoke, "keypair", return_value=(Path("key"), "public")), \
+                patch.object(invoke, "synthetic_repository", return_value=Path("worktree")), \
+                patch.object(invoke, "invoke_envelope", side_effect=lambda *args: {"request_id": args[-1]}), \
+                patch.object(invoke, "sent_message_id", return_value="msg:" + "0" * 32):
+            return invoke.run_invoke_phase(run, Path("repo"), "v0.0-r1", Path("case"), Path("store"), facts=self.facts(messages))
+
+    def test_the_chain_forwards_each_receipt_version(self):
+        for messages in (True, False):
+            for kind in ("resource_claim", "work_item"):
+                with self.subTest(messages=messages, kind=kind):
+                    run, calls = self.stub(kind)
+                    record = self.drive(run, messages)
+                    self.assertEqual(record["plan"], list(invoke.invoke_plan(self.facts(messages))))
+                    order = self.ORDER if messages else (self.ORDER[0], *self.ORDER[4:])
+                    self.assertEqual([call["operation"] for call in calls], list(order))
+                    inputs = {call["operation"]: call["input"] for call in calls}
+                    if messages:
+                        self.assertEqual(inputs["message_send"]["expected_version"], 11)
+                        self.assertEqual(inputs["message_withdraw"]["expected_version"], 17)
+                    self.assertEqual(inputs["resource_claim"]["expected_version"], 31 if messages else 11)
+                    self.assertEqual(inputs["resource_release"]["expected_version"], 53)
+                    self.assertNotIn("expected_version", inputs["observation_record"])
+                    # The historical fold serializes omitted lists to JSON null against
+                    # array CHECKs, so the recipe must carry explicit empty lists.
+                    self.assertEqual(inputs["observation_record"]["refs"], [])
+                    self.assertEqual(inputs["observation_record"]["tags"], [])
+                    self.assertEqual(record["resource"]["claim_version"], 53)
+                    self.assertEqual(record["resource"]["release_version"], 79)
+                    self.assertEqual(len({call["input"]["idempotency_key"] for call in calls}), len(calls))
+                    self.assertEqual(len({call["call_envelope"]["request_id"] for call in calls}), len(calls))
+
+    def test_malformed_receipts_and_refusals_stop_the_chain(self):
+        self.drive(self.stub("resource_claim")[0], True)
+        normal = {"entity_kind": "resource_claim", "id": FENCE, "version": "53"}
+        malformed = [dict(normal, version=value) for value in (53, True, "053", "0", "-1", " 53")]
+        malformed += [dict(normal, id=FENCE + "-other"), dict(normal, entity_kind="other")]
+        cases = [("resource_claim", (0, json.dumps({"outcome": "ok", "changed_refs": [ref]}), "")) for ref in malformed]
+        cases.append(("resource_claim", (0, json.dumps({"outcome": "ok", "changed_refs": [normal, normal]}), "")))
+        cases += [("resource_claim", (0, body, "")) for body in ("{", "[]", "null")]
+        cases.append(("resource_release", (0, json.dumps({"outcome": "ok", "changed_refs": [dict(normal, entity_kind="work_item", id=SENDER)]}), "")))
+        cases.append(("observation_record", (0, json.dumps({"outcome": "ok", "changed_refs": [{"entity_kind": "observation", "id": OBS_ID, "version": "2"}]}), "")))
+        for operation in self.ORDER[4:]:
+            cases += [(operation, (1, "", "refused")), (operation, (0, '{"outcome":"refused"}', ""))]
+        for operation, response in cases:
+            with self.subTest(operation=operation, response=response):
+                run, calls = self.stub("resource_claim", (operation, response))
+                with self.assertRaises(invoke.InvokeError):
+                    self.drive(run, True)
+                self.assertEqual(calls[-1]["operation"], operation)
+                self.assertEqual(len(calls), self.ORDER.index(operation) + 1)
+
+
+class SnapshotTest(unittest.TestCase):
+    def fixture(self) -> sqlite3.Connection:
+        db = sqlite3.connect(":memory:")
+        self.addCleanup(db.close)
+        db.executescript(
+            "CREATE TABLE domain_events (seq INTEGER PRIMARY KEY, kind TEXT, subject_type TEXT, subject_id TEXT,"
+            " payload_version INTEGER, payload TEXT);"
+            "CREATE TABLE resource_claims (resource_key TEXT PRIMARY KEY, holder_work_id TEXT, holder_agent TEXT,"
+            " holder_session TEXT, reason TEXT, state TEXT);"
+            "CREATE TABLE work_items (id TEXT PRIMARY KEY, version INTEGER);"
+            "CREATE TABLE work_observations (observation_id TEXT PRIMARY KEY, work_id TEXT, statement TEXT);"
+        )
+        db.executemany("INSERT INTO domain_events VALUES (?,?,?,?,?,?)",
+                       [(seq, kind, "work_item", SENDER, 1, json.dumps(row)) for seq, kind, row in EVENTS])
+        db.execute("INSERT INTO resource_claims VALUES (?,?,?,?,?,?)",
+                   (FENCE, SENDER, invoke.INVOKE_AGENT, invoke.INVOKE_SESSION, "gate release-restore claim", "released"))
+        db.execute("INSERT INTO work_items VALUES (?,?)", (SENDER, 6))
+        db.execute("INSERT INTO work_observations VALUES (?,?,?)", (OBS_ID, SENDER, "gate release-restore observation"))
+        db.commit()
+        return db
+
+    def refused(self, sql: str, params: tuple, record=RECORD) -> None:
+        db = self.fixture()
+        db.execute(sql, params)
+        with self.assertRaises(invoke.InvokeError):
+            invoke.verify_invoke_snapshot(db, record)
+
+    def test_positive_projection_is_read_only(self) -> None:
+        db = self.fixture()
+        before = list(db.iterdump())
+        invoke.verify_invoke_snapshot(db, RECORD)
+        self.assertEqual(list(db.iterdump()), before)
+
+    def test_empty_record_on_blank_db_runs_no_queries(self) -> None:
+        db = sqlite3.connect(":memory:")
+        self.addCleanup(db.close)
+        invoke.verify_invoke_snapshot(db, {"outcome": "ok", "plan": ()})
+
+    def test_negative_mutations_hold(self) -> None:
+        invoke.verify_invoke_snapshot(self.fixture(), RECORD)
+
+        def body(index: int, **patch: object) -> str:
+            return json.dumps({**EVENTS[index][2], **patch})
+
+        cases = (
+            ("delete event", "DELETE FROM domain_events WHERE seq=?", (10,)),
+            ("wrong subject", "UPDATE domain_events SET subject_id='foreign' WHERE seq=?", (10,)),
+            ("bad key", "UPDATE domain_events SET payload=? WHERE seq=?", (body(0, resource_key="fence:other"), 10)),
+            ("version type", "UPDATE domain_events SET payload=? WHERE seq=?", (body(0, expected_version="4"), 10)),
+            ("discontinuity", "UPDATE domain_events SET seq=? WHERE seq=?", (13, 11)),
+            ("held state", "UPDATE resource_claims SET state='held'", ()),
+            ("wrong holder", "UPDATE resource_claims SET holder_work_id='foreign'", ()),
+            ("work version", "UPDATE work_items SET version=7", ()),
+            ("malformed json", "UPDATE domain_events SET payload='{' WHERE seq=?", (12,)),
+            ("observation statement", "UPDATE domain_events SET payload=? WHERE seq=?", (body(2, statement="tampered"), 12)),
+            ("missing projection", "DELETE FROM work_observations", ()),
+            ("duplicate event", "INSERT INTO domain_events SELECT 13, kind, subject_type, subject_id, payload_version, payload"
+                                " FROM domain_events WHERE seq=?", (10,)),
+        )
+        for name, sql, params in cases:
+            with self.subTest(case=name):
+                self.refused(sql, params)
+
+    def test_planned_proof_cannot_be_omitted(self) -> None:
+        for omitted in ("resource", "observation"):
+            record = {key: value for key, value in RECORD.items() if key != omitted}
+            with self.subTest(omitted=omitted), self.assertRaises(invoke.InvokeError):
+                invoke.verify_invoke_snapshot(self.fixture(), record)
 
 
 if __name__ == "__main__":

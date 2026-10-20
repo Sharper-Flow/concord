@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ea18554dd79ab31df866ca076aa1d8bbbe050b44dcf8b5c3a1454954fa8b901e",
+  "sha256": "sha256:2562b5933e60bf07fd5de64b01b878c80c4f8685d7b689b99aaa8e3b895a347b",
   "status": "accepted",
   "summary": "Observations are the durable form of noticing: a lightweight mid-life record on work items, visible at resume, carrying no authority; promotion to work stays the unchanged capture+raised_from path.",
   "tags": [

@@ -21,9 +21,8 @@ and having no cheap channel to say it.
 
 **D1. Observations are a first-class, non-authoritative record on the work item.**
 
-`work.observation_recorded` persists a bounded statement (1–512 Unicode code points), optional refs (≤16 entries, each 1–256 Unicode code points), and optional tags (≤8 entries, each 1–32 Unicode code points), any time the item is nonterminal, through `concord_work_define.observation_record`.
-
-Observations satisfy nothing: no evidence kind, no gate, no workflow action reads them as
+`work.observation_recorded` persists a bounded statement (1–512 Unicode code points), optional refs (≤16 entries, each 1–256 Unicode code points), and optional tags (≤8 entries, each 1–32 Unicode code points), any time the item is nonterminal, through `concord_work_define.observation_record`. Observations
+satisfy nothing: no evidence kind, no gate, no workflow action reads them as
 authority. They are the durable form of "I noticed something."
 
 **D2. Visibility is read-time, not enforced.** The continuity snapshot carries

@@ -70,7 +70,7 @@ const (
 // holds the steps of the three live families.
 func builtinWorkflowParts() []WorkflowPart {
 	unhealthy := []WorkflowPartRoute{{Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction"}}
-	return []WorkflowPart{
+	parts := []WorkflowPart{
 		{Ref: "part.proposal", Version: 1, Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"proposal"},
 			Actions:      []string{"record_proposal", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_work_context"},
 			Capabilities: workflowWorkerResultCapabilities},
@@ -120,6 +120,10 @@ func builtinWorkflowParts() []WorkflowPart {
 			Routes:                unhealthy,
 			DisprovedPremiseRoute: true},
 	}
+	closePart := parts[len(parts)-1]
+	closePart.Version = 2
+	closePart.Capabilities = workflowCapabilitySet(WorkflowCapabilitySizedTiming)
+	return append(parts, closePart)
 }
 
 // workflowPartCatalog validates a part list and indexes it by ref and

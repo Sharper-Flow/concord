@@ -85,7 +85,7 @@ func TestSupersessionInvalidatesPriorPremiseConfirmation(t *testing.T) {
 	err := func() error {
 		finalVersion := readWorkVersion(t, s, "cd31-work")
 		completion := workflowEventWithActor("cd31-terminal", WorkflowCompleted, "cd31-work", operator, map[string]any{"work_id": "cd31-work", "expected_version": finalVersion, "resulting_version": finalVersion + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": operator, "premise_confirmed": true, "evidence_count": 1, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking"})
-		completion.PayloadVersion = 2
+		completion.PayloadVersion = 3
 		return CompleteWorkflow(context.Background(), s, completion)
 	}()
 	if err == nil {

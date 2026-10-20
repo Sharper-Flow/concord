@@ -145,7 +145,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 		"final_verdict_kind": "ok", "verdict_actor_ref": reviewerRef, "premise_confirmed": true, "evidence_count": len(seen),
 		"changed_refs_digest": WorkflowChangedRefsDigest([]string{workID}), "impact_verdict": "non-breaking",
 	})
-	completion.PayloadVersion = 2
+	completion.PayloadVersion = 3
 	beforeHome := snapshotCloseGit(t, repository)
 	beforeWorktree := snapshotCloseGit(t, claimed.Entry.Path)
 	if beforeHome.Status != "" || beforeWorktree.Status != "" {

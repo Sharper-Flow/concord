@@ -163,6 +163,26 @@ func normalizePath(value string) (string, error) {
 
 var remoteURLFormPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*://`)
 
+var gitHubRepositoryPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,99}/[a-z0-9][a-z0-9._-]{0,99}$`)
+
+// GitHubRepositoryFromRemote classifies an already-normalized registered
+// remote. It does not resolve a host path or observe the remote repository.
+func GitHubRepositoryFromRemote(normalizedRemote string) (string, bool) {
+	parsed, err := url.Parse(normalizedRemote)
+	if err != nil {
+		return "", false
+	}
+	host := strings.ToLower(parsed.Host)
+	path := strings.TrimSuffix(strings.Trim(parsed.Path, "/"), ".git")
+	if host == "github.com" {
+		if !gitHubRepositoryPattern.MatchString(path) {
+			return "", false
+		}
+		return path, true
+	}
+	return "", false
+}
+
 func checkRemoteCredentials(value string) error {
 	value = strings.TrimSpace(value)
 	credentials := false

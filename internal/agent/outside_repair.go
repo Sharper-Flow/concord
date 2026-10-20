@@ -32,7 +32,6 @@ const (
 const boundedExternalEvidenceWait = 300 * time.Second
 
 var (
-	outsideRepairRepositoryPattern  = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,99}/[a-z0-9][a-z0-9._-]{0,99}$`)
 	outsideRepairReleaseTagPattern  = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 	outsideRepairSelectorPattern    = regexp.MustCompile(`^[1-9][0-9]{0,8}$`)
 	outsideRepairSHAPattern         = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
@@ -309,28 +308,12 @@ func (r runtime) outsideRepairRepositoryForProject(ctx context.Context, base Env
 		if locator.Kind != store.LocatorGitRemote {
 			continue
 		}
-		repository, ok := outsideRepairGitHubRepository(locator.NormalizedValue)
+		repository, ok := store.GitHubRepositoryFromRemote(locator.NormalizedValue)
 		if ok {
 			return repository, Envelope{}
 		}
 	}
 	return "", coreError(base, "invalid_input", "outside repair closes a Project whose registered git origin is not a GitHub repository", "reread_entities", false)
-}
-
-func outsideRepairGitHubRepository(normalizedRemote string) (string, bool) {
-	parsed, err := url.Parse(normalizedRemote)
-	if err != nil {
-		return "", false
-	}
-	host := strings.ToLower(parsed.Host)
-	path := strings.TrimSuffix(strings.Trim(parsed.Path, "/"), ".git")
-	if host == "github.com" {
-		if !outsideRepairRepositoryPattern.MatchString(path) {
-			return "", false
-		}
-		return path, true
-	}
-	return "", false
 }
 
 // outsideRepairEvidenceForPlan collects the completion proof outside any

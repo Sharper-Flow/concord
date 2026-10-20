@@ -128,6 +128,8 @@ func implementationVersionChain() []WorkflowDefinition {
 		mustCompileWorkflowComposition(implementationCompositionV35()),
 		mustCompileWorkflowComposition(implementationSmallV36()),
 		mustCompileWorkflowComposition(implementationCompositionV37()),
+		mustCompileWorkflowComposition(implementationTimedSmallV38()),
+		mustCompileWorkflowComposition(implementationTimedV39()),
 	}
 }
 
@@ -167,6 +169,7 @@ func breakFixVersionChain() []WorkflowDefinition {
 		mustCompileWorkflowComposition(breakFixCompositionV30()),
 		mustCompileWorkflowComposition(breakFixConsequenceV31()),
 		mustCompileWorkflowComposition(breakFixCompositionV32()),
+		mustCompileWorkflowComposition(breakFixTimedV33()),
 	}
 }
 
@@ -195,6 +198,7 @@ func researchVersionChain() []WorkflowDefinition {
 		researchResearchContextV19(),
 		mustCompileWorkflowComposition(researchCompositionV20()),
 		mustCompileWorkflowComposition(researchConsequenceV21()),
+		mustCompileWorkflowComposition(researchTimedV22()),
 	}
 }
 

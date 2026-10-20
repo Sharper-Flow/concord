@@ -266,9 +266,13 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "35"}:     "sha256:27517b4ae91181916323a1f92c63955eedcb9c58f3f4a6e351aceeba6235abb2",
 	{"workflow.implementation", "36"}:     "sha256:1255ab3449c142112015e95e58cfc72aa9d541f821dc0e903231166a16bebf41",
 	{"workflow.implementation", "37"}:     "sha256:b46b9a0c0a5218d06b8fa3b37adb8ed1f6b7d3a7cd1f8e1001ea65ab901d8d7b",
+	{"workflow.implementation", "38"}:     "sha256:6108be6e88bc6655dcf07074026783e03d00f34be7781b5de44d6c9c7d359685",
+	{"workflow.implementation", "39"}:     "sha256:88365901052e009bb2ceef22ad19b45a7e0836547b241f0a212eb0b1f2e0712f",
 	{"workflow.break_fix", "31"}:          "sha256:2a2baab65976d8994e0d70459438552e985402c4e6b924da25e59eb2d8fa770d",
 	{"workflow.break_fix", "32"}:          "sha256:84e2bb3699bf0d91e44dede7b3711b643048f9e4e4269176069372b6dac31301",
+	{"workflow.break_fix", "33"}:          "sha256:f88fbf9649ed7acc5844cb6e01f0a9cab8d1f3219e7cbcf27c20a2574777a670",
 	{"workflow.research", "21"}:           "sha256:a8c1173342a5b706c15511824470e60ebd7cdfb2ff49217e3a20c8e2c06b8ca0",
+	{"workflow.research", "22"}:           "sha256:0fbb32699f9e0156e5b1530c8c02f8cbb5e3751649e36709b40d2184084a47ee",
 	{"workflow.architecture_spike", "17"}: "sha256:3e9d434cba63d47aadea18399c3f950b89e93a5cc69317b8685fbbee2d245e55",
 	{"workflow.ops_runbook", "18"}:        "sha256:354390116b3faf7a73524ca4bfbbfe962650f8ed8eaf73a68845d812daade63a",
 	{"workflow.static_analysis", "15"}:    "sha256:5a561e9d53d26fc0ddec0f84aa72ca5cd2a0018e92dfa5dd0732efd0a8b32ade",
@@ -280,14 +284,21 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 // Run with: bin/oc-test targeted -- go test ./internal/store -run '^TestWorkflowDefinitionDraftVersionDigests$' -v -count=1 -timeout=180s
 func TestWorkflowDefinitionDraftVersionDigests(t *testing.T) {
 	for _, definition := range []WorkflowDefinition{
-		mustCompileWorkflowComposition(implementationCompositionV35()),
-		mustCompileWorkflowComposition(breakFixCompositionV32()),
+		mustCompileWorkflowComposition(implementationTimedSmallV38()),
+		mustCompileWorkflowComposition(implementationTimedV39()),
+		mustCompileWorkflowComposition(breakFixTimedV33()),
+		mustCompileWorkflowComposition(researchTimedV22()),
 	} {
 		digest, err := WorkflowDefinitionDigest(definition)
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Logf("%s v%d %s", definition.Ref, definition.Version, digest)
+	}
+	for _, part := range builtinWorkflowParts() {
+		if part.Ref == "part.close" && part.Version == 2 {
+			t.Logf("%s %s", workflowPartKey(part.Ref, part.Version), nativeDigest([]byte(workflowJSON(part))))
+		}
 	}
 }
 

@@ -749,7 +749,7 @@ func testWorkflowReturnRoute(t *testing.T, workID, definitionRef, verdictStep, p
 			"final_verdict_kind": "outcome_mismatch", "verdict_actor_ref": verdicts[0].VerdictActorRef, "premise_confirmed": true,
 			"evidence_count": 3, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking",
 		})
-		completion.PayloadVersion = 2
+		completion.PayloadVersion = 3
 		err = CompleteWorkflow(ctx, s, completion)
 		// Refused confirmation leaves no operator approval. Completion's
 		// premise clause must refuse before it reaches the outcome clause.
@@ -827,7 +827,7 @@ func testWorkflowReturnRoute(t *testing.T, workID, definitionRef, verdictStep, p
 		"final_verdict_kind": "outcome_mismatch", "verdict_actor_ref": verdicts[0].VerdictActorRef, "premise_confirmed": true,
 		"evidence_count": 3, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking",
 	})
-	completion.PayloadVersion = 2
+	completion.PayloadVersion = 3
 	err = CompleteWorkflow(ctx, s, completion)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindOutcomeMismatch {

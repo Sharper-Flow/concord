@@ -283,7 +283,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowBacklogAlignmentRecorded:          workflowRegistration[workflowBacklogAlignmentRecordedPayload](1, nil, foldWorkflowBacklogAlignmentRecorded),
 	WorkflowDiagnosisRecorded:                 workflowRegistration[workflowDiagnosisRecordedPayload](1, nil, foldWorkflowDiagnosisRecorded),
 	WorkflowDeliveryCorrected:                 workflowRegistration[workflowDeliveryCorrectedPayload](2, map[int]Upcaster{1: upcastWorkflowDeliveryCorrectedV1}, foldWorkflowDeliveryCorrected),
-	WorkflowCompleted:                         workflowScopedRegistration[workflowCompletedPayload](2, map[int]Upcaster{1: upcastWorkflowCompletedV1}, foldWorkflowCompleted),
+	WorkflowCompleted:                         workflowScopedRegistration[workflowCompletedPayload](3, map[int]Upcaster{1: upcastWorkflowCompletedV1, 2: upcastWorkflowCompletedV2}, foldWorkflowCompleted),
 	WorkflowOutsideRepairDispositionSet:       workflowRegistration[workflowOutsideRepairDispositionPayload](1, nil, foldOutsideRepairDispositionSet),
 	WorkflowOutsideRepairReconciled:           registerScopedEventKind[workflowOutsideRepairReconcilePayload](1, 1, nil, EventAppendAuthorityWorkflow, foldOutsideRepairReconciled, validateWorkflowPayload[workflowOutsideRepairReconcilePayload]),
 	WorkflowOutsideRepairResumed:              workflowRegistration[workflowOutsideRepairResumePayload](1, nil, foldOutsideRepairResumed),

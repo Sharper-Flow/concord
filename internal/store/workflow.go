@@ -697,14 +697,15 @@ type workflowConditionCancelledPayload struct {
 
 type workflowCompletedPayload struct {
 	WorkflowVersionFields
-	TerminalState     string   `json:"terminal_state"`
-	FinalVerdictKind  string   `json:"final_verdict_kind"`
-	VerdictActorRef   string   `json:"verdict_actor_ref"`
-	PremiseConfirmed  bool     `json:"premise_confirmed"`
-	EvidenceCount     int64    `json:"evidence_count"`
-	ChangedRefsDigest string   `json:"changed_refs_digest"`
-	ImpactVerdict     string   `json:"impact_verdict"`
-	Warnings          []string `json:"warnings,omitempty"`
+	TerminalState     string                    `json:"terminal_state"`
+	FinalVerdictKind  string                    `json:"final_verdict_kind"`
+	VerdictActorRef   string                    `json:"verdict_actor_ref"`
+	PremiseConfirmed  bool                      `json:"premise_confirmed"`
+	EvidenceCount     int64                     `json:"evidence_count"`
+	ChangedRefsDigest string                    `json:"changed_refs_digest"`
+	ImpactVerdict     string                    `json:"impact_verdict"`
+	Warnings          []string                  `json:"warnings,omitempty"`
+	Timing            *workflowCompletionTiming `json:"timing,omitempty"`
 }
 
 // Outside repair records operator authority independently of workflow gates.
@@ -2854,7 +2855,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if err := recordWorkflowTimingTx(ctx, tx, event, p, entry.Definition); err != nil {
+	if err := recordWorkflowDefineStartTx(ctx, tx, event); err != nil {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',last_checkpoint_at=? WHERE work_id=?`, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
@@ -4524,6 +4525,9 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 	if verdict == nil || verdict.VerdictActorRef != p.VerdictActorRef {
 		return newFailure(KindUnauthorized, "fold_event", "completed verdict actor is not the authenticated recorded evaluator", false, "use the persisted workflow verdict actor")
 	}
+	if err := foldWorkflowCompletionTiming(ctx, tx, event, entry.Definition, p.Timing); err != nil {
+		return err
+	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
@@ -4552,6 +4556,18 @@ func upcastWorkflowCompletedV1(event Event) (Event, error) {
 	}
 	event.Payload = payload
 	event.PayloadVersion = 2
+	return event, nil
+}
+
+func upcastWorkflowCompletedV2(event Event) (Event, error) {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(event.Payload, &fields) != nil || fields == nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.completed v2 is not an object", false, "preserve the recorded completion payload")
+	}
+	if _, present := fields["timing"]; present {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.completed v2 cannot carry timing", false, "use workflow.completed v3 for native timing")
+	}
+	event.PayloadVersion = 3
 	return event, nil
 }
 

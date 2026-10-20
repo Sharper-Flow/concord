@@ -12,13 +12,13 @@ func TestOutsideRepairUsesCorrectedRemoteIdentity(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, ok := outsideRepairGitHubRepository(normalized)
+		got, ok := store.GitHubRepositoryFromRemote(normalized)
 		if !ok || got != "owner/repo" {
 			t.Errorf("repository for %q = %q, %v", normalized, got, ok)
 		}
 	}
 	for _, raw := range []string{"ssh://https/github.com/owner/repo", "ssh://http/github.com/owner/repo", "ssh://ssh/git@github.com/owner/repo", "https://github.com/owner/repo/extra", "https://elsewhere.invalid/owner/repo"} {
-		if got, ok := outsideRepairGitHubRepository(raw); ok || got != "" {
+		if got, ok := store.GitHubRepositoryFromRemote(raw); ok || got != "" {
 			t.Errorf("invalid GitHub identity %q accepted as %q", raw, got)
 		}
 	}

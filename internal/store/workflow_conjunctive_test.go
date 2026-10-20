@@ -89,7 +89,7 @@ func seedConjunctiveCompletion(t *testing.T, verdicts []conjunctiveVerdict) (*St
 		"work_id": "conjunctive-work", "expected_version": finalVersion, "resulting_version": finalVersion + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": operator,
 		"premise_confirmed": true, "evidence_count": 2, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking",
 	})
-	completion.PayloadVersion = 2
+	completion.PayloadVersion = 3
 	return s, completion, nil
 }
 

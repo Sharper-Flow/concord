@@ -123,7 +123,7 @@ func TestWorkflowCompletionAcceptsEvidenceCountAbove32(t *testing.T) {
 		"premise_confirmed": true, "evidence_count": bound, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64),
 		"impact_verdict": "non-breaking",
 	})
-	completion.PayloadVersion = 2
+	completion.PayloadVersion = 3
 	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
 		t.Fatalf("completion with %d bound evidence events failed: %v", bound, err)
 	}

@@ -112,7 +112,7 @@ func cloneWorkflowAction(action WorkflowActionDefinition) WorkflowActionDefiniti
 
 // builtinWorkflowActionCatalogs lists every released action catalog version.
 func builtinWorkflowActionCatalogs() []workflowActionCatalog {
-	return []workflowActionCatalog{workflowActionCatalogV1(), workflowActionCatalogV2()}
+	return []workflowActionCatalog{workflowActionCatalogV1(), workflowActionCatalogV2(), workflowActionCatalogV3()}
 }
 
 func builtinWorkflowActionCatalog(version int) (workflowActionCatalog, bool) {
@@ -177,4 +177,14 @@ func workflowActionCatalogV2() workflowActionCatalog {
 	revisions["dispatch_worker"] = []workflowActionRevision{workerDispatchAction, withWorkerPacketRef(checksRepairPacketSchema)}
 	revisions["record_worker_job"] = []workflowActionRevision{workTransitionAction, acceptanceOracleRevision, checksRepairAuthoringRevision}
 	return workflowActionCatalog{Version: 2, revisions: revisions}
+}
+
+func workflowActionCatalogV3() workflowActionCatalog {
+	catalog := workflowActionCatalogV2()
+	catalog.Version = 3
+	catalog.revisions["complete"] = []workflowActionRevision{func(action WorkflowActionDefinition) WorkflowActionDefinition {
+		action.Payload.Fields = append(slices.Clone(action.Payload.Fields), actionRefField("delivery_artifact", false), actionEnumField("delivery_state", false, "asserted"))
+		return action
+	}}
+	return catalog
 }

@@ -728,7 +728,15 @@ func workflowLateVerdictRecoveryForActionPayload(ctx context.Context, q queryer,
 }
 
 func guardCompleteBoundary(g *workflowActionGuardContext) error {
-	return workflowCompletionBoundaryPreflight(g.request.Payload)
+	if err := workflowCompletionBoundaryPreflight(g.request.Payload); err != nil {
+		return err
+	}
+	fields, err := workflowActionObject(g.request.Payload)
+	if err != nil {
+		return err
+	}
+	_, err = workflowCompletionTimingForPayload(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, fields)
+	return err
 }
 
 // guardForwardLinkOnly rejects nested or non-forward workflow composition.

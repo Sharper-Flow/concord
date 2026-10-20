@@ -1017,6 +1017,7 @@ func TestWorkflowCompletedV2AllowsDistinctOwnerThroughOrderedGate(t *testing.T) 
 	t.Parallel()
 	workID := "authority-ordered-owner"
 	s, completion := seedV2CompletionReady(t, workID)
+	completion.PayloadVersion = 3
 	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
 		t.Fatalf("distinct owner completion rejected by ordered gate: %v", err)
 	}

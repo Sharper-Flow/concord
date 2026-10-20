@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -477,8 +478,8 @@ func TestWorkflowTimingShipClassificationAndFirstSubmission(t *testing.T) {
 	}
 	appendCompletion("timing-first-submission", "release", "asserted", "https://github.com/example/project/pull/1", time.Unix(12, 987).UTC())
 	want := timingSnapshot(t, s, workID)
-	if want.QueueEventID != "timing-first-submission" || want.QueueArtifact != "https://github.com/example/project/pull/1" || want.QueueEnteredAt != time.Unix(12, 987).UTC().Format(time.RFC3339Nano) {
-		t.Fatalf("ship source differs from the recorded assertion: %+v", want)
+	if want.QueueEventID != "" || want.QueueArtifact != "" || want.QueueEnteredAt != "" {
+		t.Fatalf("delivery action was mistaken for native completion submission: %+v", want)
 	}
 	appendCompletion("timing-later-submission", "release", "asserted", "https://github.com/example/project/pull/2", time.Unix(13, 0).UTC())
 	if got := timingSnapshot(t, s, workID); !reflect.DeepEqual(got, want) {
@@ -491,6 +492,176 @@ func TestWorkflowTimingShipClassificationAndFirstSubmission(t *testing.T) {
 	} {
 		if _, err := s.db.Exec(statement, workID); err == nil || !strings.Contains(err.Error(), "fold-only") {
 			t.Fatalf("unguarded timing mutation %s = %v", statement, err)
+		}
+	}
+}
+
+func TestWorkflowTimingUsesNewGenerations(t *testing.T) {
+	for ref, versions := range map[string][]int64{
+		"workflow.implementation": {38, 39}, "workflow.break_fix": {33}, "workflow.research": {22},
+	} {
+		for _, version := range versions {
+			entry, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+			if !ok {
+				t.Fatalf("timed generation %s v%d is missing", ref, version)
+			}
+			for _, action := range entry.Definition.ActionDefinitions {
+				if action.ID != "complete" {
+					continue
+				}
+				var pair int
+				for _, field := range action.Payload.Fields {
+					if field.Name == "delivery_artifact" || field.Name == "delivery_state" {
+						if field.Required {
+							t.Fatalf("%s v%d imposes submission on unsupported routes", ref, version)
+						}
+						pair++
+					}
+				}
+				if pair != 2 {
+					t.Fatalf("%s v%d completion has no optional submission pair", ref, version)
+				}
+			}
+		}
+	}
+}
+
+func timingRegisteredRepository(t *testing.T, s *Store, remote string) {
+	t.Helper()
+	var version int64
+	if err := s.db.QueryRow(`SELECT version FROM projects WHERE id='project'`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddProjectLocator(t.Context(), "project", ProjectLocator{ID: "timing-remote", Kind: LocatorGitRemote, Value: remote}, version); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// These cases isolate classification; the native journey below exercises the
+// verified pin, completion transaction and replay rather than a synthetic gate.
+func TestWorkflowTimingSubmissionClassification(t *testing.T) {
+	for _, test := range []struct {
+		name, remote, artifact, state, kind, reason string
+		sized                                       bool
+		composition                                 WorkflowComposition
+	}{
+		{"unsized", "https://github.com/example/project.git", "", "", "not_applicable", "unsized", false, implementationTimedV39()},
+		{"unregistered", "", "", "", "unavailable", "unregistered_merge_route", true, implementationTimedV39()},
+		{"other forge", "https://elsewhere.invalid/example/project", "", "", "unavailable", "unregistered_merge_route", true, breakFixTimedV33()},
+		{"research", "https://github.com/example/project", "", "", "not_applicable", "research_outcome", true, researchTimedV22()},
+		{"legacy pin", "https://github.com/example/project", "", "", "unavailable", "legacy_definition", true, implementationCompositionV37()},
+		{"full implementation", "git@github.com:Example/Project.git", "https://github.com/Example/Project/pull/7", "asserted", "merge_route", "", true, implementationTimedV39()},
+		{"break fix", "https://github.com/example/project", "https://github.com/example/project/pull/8", "asserted", "merge_route", "", true, breakFixTimedV33()},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			const workID = "timing-classification"
+			s, _ := footprintBindingItemWithChecks(t, workID, test.sized, nil)
+			if test.remote != "" {
+				timingRegisteredRepository(t, s, test.remote)
+			}
+			got, err := deriveWorkflowCompletionTiming(t.Context(), s.db, workID, mustCompileWorkflowComposition(test.composition), test.artifact, test.state, 0)
+			if err != nil || got.RootWorkID != workID || got.Submission.Kind != test.kind || got.Submission.Reason != test.reason {
+				t.Fatalf("classification = %+v, %v; want %s:%s", got, err, test.kind, test.reason)
+			}
+		})
+	}
+}
+
+func TestWorkflowTimingNativeSmallCompletionAndReplay(t *testing.T) {
+	j := smallReviewDispositionJourney(t, "timing-native-small")
+	if err := j.acceptEvidence(t, "small-review"); err != nil {
+		t.Fatal(err)
+	}
+	smallProofRecordVerdict(t, j)
+	smallProofRecordInvestigation(t, j)
+	smallProofConfirm(t, j)
+	timingRegisteredRepository(t, j.s, "https://github.com/example/project.git")
+	before := readWorkVersion(t, j.s, j.workID)
+	for _, fields := range []map[string]any{
+		{"impact_verdict": "non-breaking"},
+		{"impact_verdict": "non-breaking", "delivery_artifact": "https://github.com/another/project/pull/1", "delivery_state": "asserted"},
+	} {
+		request := WorkflowActionPreflightRequest{WorkID: j.workID, ExpectedVersion: before, ActionID: "complete", Actor: j.fixture.owner, Payload: mustJSONValue(fields)}
+		if err := WorkflowActionPreflightWithRegistry(t.Context(), j.s, BuiltinWorkflowRegistry(), request); err == nil || !strings.Contains(err.Error(), "merge-route submission") {
+			t.Fatalf("preflight admitted missing/foreign submission: %v", err)
+		}
+		if err := j.action(t, "complete", fields, j.fixture.owner); err == nil || !strings.Contains(err.Error(), "merge-route submission") {
+			t.Fatalf("direct completion admitted missing/foreign submission: %v", err)
+		}
+		if got := readWorkVersion(t, j.s, j.workID); got != before {
+			t.Fatalf("refused submission changed version %d to %d", before, got)
+		}
+	}
+	artifact := "https://github.com/example/project/pull/9"
+	if err := j.action(t, "complete", map[string]any{"impact_verdict": "non-breaking", "delivery_artifact": artifact, "delivery_state": "asserted"}, j.fixture.owner); err != nil {
+		t.Fatalf("complete native small submission: %v", err)
+	}
+	var id, occurredAt, raw string
+	var version int
+	var seq int64
+	if err := j.s.db.QueryRow(`SELECT event_id,occurred_at,payload,payload_version,seq FROM domain_events WHERE subject_id=? AND kind=?`, j.workID, WorkflowCompleted).Scan(&id, &occurredAt, &raw, &version, &seq); err != nil {
+		t.Fatal(err)
+	}
+	var completed workflowCompletedPayload
+	if err := json.Unmarshal([]byte(raw), &completed); err != nil {
+		t.Fatal(err)
+	}
+	if version != 3 || completed.Timing == nil || completed.Timing.RootWorkID != j.workID || completed.Timing.DefineStartEventID == nil || completed.Timing.Submission.Artifact != artifact {
+		t.Fatalf("native timing absent or unbound: v%d %s", version, raw)
+	}
+	want := timingSnapshot(t, j.s, j.workID)
+	if want.QueueEventID != id || want.QueueEnteredAt != occurredAt || want.QueueArtifact != artifact || want.DefineEventID != *completed.Timing.DefineStartEventID {
+		t.Fatalf("submission differs from native completion: %+v, %s", want, raw)
+	}
+	for name, corrupt := range map[string]func(*workflowCompletionTiming){
+		"valid":      func(*workflowCompletionTiming) {},
+		"root":       func(v *workflowCompletionTiming) { v.RootWorkID = "unrelated-work" },
+		"start":      func(v *workflowCompletionTiming) { v.DefineStartEventID = &id },
+		"repository": func(v *workflowCompletionTiming) { v.Submission.Artifact = "https://github.com/another/project/pull/9" },
+		"typed state": func(v *workflowCompletionTiming) {
+			v.Submission = workflowTimingSubmission{Kind: "not_applicable", Reason: "unsized"}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			forged := *completed.Timing
+			corrupt(&forged)
+			tx, err := j.s.db.BeginTx(t.Context(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			if _, err := tx.ExecContext(t.Context(), `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+				t.Fatal(err)
+			}
+			at, err := time.Parse(time.RFC3339Nano, occurredAt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			event := Event{SubjectID: j.workID, EventID: id, Seq: seq, PayloadVersion: version, OccurredAt: at}
+			err = foldWorkflowCompletionTiming(t.Context(), tx, event, mustCompileWorkflowComposition(implementationTimedSmallV38()), &forged)
+			if (name == "valid") != (err == nil) {
+				t.Fatalf("timing fold metadata verdict for %s: %v", name, err)
+			}
+		})
+	}
+	if err := RebuildFromLog(t.Context(), j.s); err != nil {
+		t.Fatal(err)
+	}
+	if got := timingSnapshot(t, j.s, j.workID); got != want {
+		t.Fatalf("replay retimed submission: %+v, want %+v", got, want)
+	}
+}
+
+func TestWorkflowTimingLegacyUpcastDoesNotInventMetadata(t *testing.T) {
+	for _, payload := range []string{`{"impact_verdict":"non-breaking"}`, `{"timing":null}`, `{"timing":{}}`} {
+		event := Event{PayloadVersion: 2, Payload: json.RawMessage(payload)}
+		got, err := upcastWorkflowCompletedV2(event)
+		if strings.Contains(payload, "timing") {
+			if err == nil {
+				t.Fatalf("v2 upcast admitted timing: %s", payload)
+			}
+		} else if err != nil || got.PayloadVersion != 3 || string(got.Payload) != payload {
+			t.Fatalf("legacy upcast changed completion content: %+v, %v", got, err)
 		}
 	}
 }

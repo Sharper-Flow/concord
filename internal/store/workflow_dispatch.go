@@ -1072,6 +1072,11 @@ func workflowCompletionEventForDefinition(ctx context.Context, tx *sql.Tx, regis
 		premiseConfirmed = true
 	}
 	payload := map[string]any{"terminal_state": "completed", "final_verdict_kind": finalVerdictKind, "verdict_actor_ref": verdictActor, "premise_confirmed": premiseConfirmed, "evidence_count": boundEvidence, "changed_refs_digest": WorkflowChangedRefsDigest([]string{request.WorkID}), "impact_verdict": impactVerdict}
+	timing, err := workflowCompletionTimingForPayload(ctx, tx, request.WorkID, definition, fields)
+	if err != nil {
+		return Event{}, err
+	}
+	payload["timing"] = timing
 	return workflowTypedEvent(request.OperationID+":completed", WorkflowCompleted, request.WorkID, actor, request.Now, request.ExpectedVersion, payload), nil
 }
 

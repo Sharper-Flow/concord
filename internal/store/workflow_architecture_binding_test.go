@@ -712,7 +712,7 @@ func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": operatorRef,
 		"premise_confirmed": true, "evidence_count": 3, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking",
 	})
-	completion.PayloadVersion = 2
+	completion.PayloadVersion = 3
 	if err := CompleteWorkflow(ctx, s, completion); err == nil {
 		t.Fatal("completion accepted unsatisfied verification obligation")
 	} else {

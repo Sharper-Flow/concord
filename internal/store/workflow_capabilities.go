@@ -15,6 +15,7 @@ const (
 	// WorkflowCapabilitySmallProof gates the small composition's proof: its
 	// footprint checks and one independent review (CD-0229 D5).
 	WorkflowCapabilitySmallProof
+	WorkflowCapabilitySizedTiming
 )
 
 type workflowCapabilitySet uint16

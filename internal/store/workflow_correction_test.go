@@ -1251,7 +1251,7 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 		"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": reviewerRef, "premise_confirmed": true,
 		"evidence_count": 3, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking",
 	})
-	completion.PayloadVersion = 2
+	completion.PayloadVersion = 3
 	if err := CompleteWorkflow(ctx, s, completion); err == nil {
 		t.Fatal("completion passed with only predecessor evidence")
 	} else if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence || failure.Clause != 1 {

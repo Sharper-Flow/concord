@@ -366,6 +366,15 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	}
 	// The selection core consumes the folded admission's confirmation
 	// answer: one classification, no second fact read.
+	if request.ActionID == "complete" {
+		fields, err := workflowActionObject(request.Payload)
+		if err != nil {
+			return RegisteredDefinition{}, err
+		}
+		if _, err := workflowCompletionTimingForPayload(ctx, tx, request.WorkID, entry.Definition, fields); err != nil {
+			return RegisteredDefinition{}, err
+		}
+	}
 	if err := validateWorkflowOperatorSelectionCoreTx(ctx, tx, entry, request, workflowConfirmationFold{authority: admission.ConfirmationAuthority, factFailure: admission.ConfirmationFactFailure}); err != nil {
 		return RegisteredDefinition{}, err
 	}

@@ -225,7 +225,7 @@ func TestWorkflowCompletionGateUsesFirstRefusalAndRollsBackAllTerminalWrites(t *
 		"work_id": "ordered-gate-work", "expected_version": completionVersion, "resulting_version": completionVersion + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": actor,
 		"premise_confirmed": true, "evidence_count": 1, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking",
 	})
-	completion.PayloadVersion = 2
+	completion.PayloadVersion = 3
 	err := CompleteWorkflow(context.Background(), s, completion)
 	assertFailureKind(t, err, KindMissingEvidence)
 	assertTableCount(t, s, "domain_events", eventsBefore)
@@ -274,7 +274,7 @@ func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testin
 	}
 	finalVersion := readWorkVersion(t, s, "complete-work")
 	completion := workflowEventWithActor("complete-terminal", WorkflowCompleted, "complete-work", operator, map[string]any{"work_id": "complete-work", "expected_version": finalVersion, "resulting_version": finalVersion + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": operator, "premise_confirmed": true, "evidence_count": 3, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking"})
-	completion.PayloadVersion = 2
+	completion.PayloadVersion = 3
 	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
 		t.Fatal(err)
 	}
@@ -797,7 +797,7 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 		}
 	}
 	completion := workflowEventWithActor("gate-completion-"+workID, WorkflowCompleted, workID, operator, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": operator, "premise_confirmed": testCase.includePremise, "evidence_count": 3, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking"})
-	completion.PayloadVersion = 2
+	completion.PayloadVersion = 3
 	return s, completion
 }
 

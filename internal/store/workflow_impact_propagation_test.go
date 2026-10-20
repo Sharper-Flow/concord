@@ -23,7 +23,7 @@ func TestWorkflowCompletedV1UpcastsToNonBreakingImpactVerdict(t *testing.T) {
 	if err := json.Unmarshal(upcasted.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if upcasted.PayloadVersion != 2 || payload["impact_verdict"] != "non-breaking" {
+	if upcasted.PayloadVersion != 3 || payload["impact_verdict"] != "non-breaking" || payload["timing"] != nil {
 		t.Fatalf("upcasted completion = version %d payload %#v", upcasted.PayloadVersion, payload)
 	}
 }
@@ -165,6 +165,6 @@ func withImpactVerdict(t *testing.T, event Event, verdict string) Event {
 	}
 	payload["impact_verdict"] = verdict
 	event.Payload, _ = json.Marshal(payload)
-	event.PayloadVersion = 2
+	event.PayloadVersion = 3
 	return event
 }

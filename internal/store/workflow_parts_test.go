@@ -201,6 +201,7 @@ var workflowPartVersionPins = map[string]string{
 	"part.delivery v1":    "sha256:476be87d5f80afe76b7d82a2415180df4f22c1f1a7849ad69c649d49172b9bf5",
 	"part.verdict v1":     "sha256:c0b74473625db971cfed009736efa7148f03c02a7f8e8d82a55ad343f2bec06d",
 	"part.close v1":       "sha256:d7fc2c1abcee2340642165713f8f93f28a965600b29386e69e7a68bc8a827585",
+	"part.close v2":       "sha256:6ce2f07328cb8fb96a3f34376ac0247c77074f5140e3a4d0212bca541f69d175",
 }
 
 func TestWorkflowPartVersionPinsHold(t *testing.T) {

@@ -139,9 +139,38 @@ func builtinWorkflowCompositions() []WorkflowComposition {
 	return []WorkflowComposition{
 		implementationCompositionV33(), implementationConsequenceV34(), implementationCompositionV35(),
 		implementationSmallV36(), implementationCompositionV37(),
+		implementationTimedSmallV38(), implementationTimedV39(),
 		breakFixCompositionV30(), breakFixConsequenceV31(), breakFixCompositionV32(),
+		breakFixTimedV33(),
 		researchCompositionV20(), researchConsequenceV21(),
+		researchTimedV22(),
 	}
+}
+
+func withSizedTiming(composition WorkflowComposition, version int64) WorkflowComposition {
+	composition.Version, composition.ActionCatalogVersion = version, 3
+	for index := range composition.Parts {
+		if composition.Parts[index].Ref == "part.close" {
+			composition.Parts[index].Version = 2
+		}
+	}
+	return composition
+}
+
+func implementationTimedSmallV38() WorkflowComposition {
+	return withSizedTiming(implementationSmallV36(), 38)
+}
+
+func implementationTimedV39() WorkflowComposition {
+	return withSizedTiming(implementationCompositionV37(), 39)
+}
+
+func breakFixTimedV33() WorkflowComposition {
+	return withSizedTiming(breakFixCompositionV32(), 33)
+}
+
+func researchTimedV22() WorkflowComposition {
+	return withSizedTiming(researchConsequenceV21(), 22)
 }
 
 // workflowCompositionCapabilities answers which capabilities a released

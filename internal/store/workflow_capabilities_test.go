@@ -104,6 +104,9 @@ func TestWorkflowRootCauseCapabilityMatchesReleasedGates(t *testing.T) {
 			if !ok {
 				t.Fatal("definition is not registered")
 			}
+			if workflowCompositionSize(definition.Ref, definition.Version) == WorkSizeSmall {
+				recordSmallWorkSizeForTest(t, s, cause)
+			}
 			if err := s.Transact(ctx, func(tx *Transaction) error {
 				return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: cause, Definition: entry, Actor: WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord", AgentRef: "agent/concord", SessionRef: "session/" + cause, ActorClass: ActorOperator}, Now: time.Unix(3, 0).UTC()})
 			}); err != nil {

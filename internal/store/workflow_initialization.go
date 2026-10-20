@@ -113,10 +113,15 @@ func repinWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowRepinRe
 	if existing == 0 {
 		return newFailure(KindProjectionNotFound, "workflow_repin", "work item has no workflow instance", false, "initialize the workflow before re-pinning it")
 	}
+	selection, err := workflowPinSelectionTx(ctx, tx, request.WorkID, request.Definition.Definition.Ref, request.Definition.Definition.Version, "workflow_repin")
+	if err != nil {
+		return err
+	}
 	definitionPayload, _ := json.Marshal(map[string]any{
 		"work_id": request.WorkID, "expected_version": version, "resulting_version": version + 1,
 		"ref": request.Definition.Definition.Ref, "version": request.Definition.Definition.Version,
 		"digest": request.Definition.Digest, "work_kind": request.Definition.Definition.WorkKind,
+		"size_selection": selection,
 	})
 	scope := newFoldScope(tx)
 	if err := scope.bindRegistry(tx, registry); err != nil {
@@ -124,7 +129,7 @@ func repinWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowRepinRe
 	}
 	_, err = applyWorkflowOperationTx(ctx, tx, Operation{
 		Events: []Event{
-			{EventID: request.EventID, Kind: WorkflowDefinitionSelected, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actorRef, OccurredAt: request.Now.UTC(), PayloadVersion: 1, Payload: definitionPayload},
+			{EventID: request.EventID, Kind: WorkflowDefinitionSelected, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actorRef, OccurredAt: request.Now.UTC(), PayloadVersion: workflowDefinitionSelectedPayloadVersion, Payload: definitionPayload},
 		},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): version},
 	}, scope)
@@ -180,10 +185,15 @@ func initializeWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowIn
 		"actor_ref": actorRef, "principal_ref": request.Actor.PrincipalRef, "client_ref": request.Actor.ClientRef,
 		"agent_ref": request.Actor.AgentRef, "session_ref": request.Actor.SessionRef, "actor_class": request.Actor.ActorClass,
 	})
+	selection, err := workflowPinSelectionTx(ctx, tx, request.WorkID, request.Definition.Definition.Ref, request.Definition.Definition.Version, "workflow_initialize")
+	if err != nil {
+		return err
+	}
 	definitionPayload, _ := json.Marshal(map[string]any{
 		"work_id": request.WorkID, "expected_version": version + 1, "resulting_version": version + 2,
 		"ref": request.Definition.Definition.Ref, "version": request.Definition.Definition.Version,
 		"digest": request.Definition.Digest, "work_kind": request.Definition.Definition.WorkKind,
+		"size_selection": selection,
 	})
 	scope := newFoldScope(tx)
 	if err := scope.bindRegistry(tx, registry); err != nil {
@@ -192,7 +202,7 @@ func initializeWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowIn
 	_, err = applyWorkflowOperationTx(ctx, tx, Operation{
 		Events: []Event{
 			{EventID: "workflow-init:" + request.WorkID + ":actor:" + actorRef, Kind: WorkflowActorRecorded, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actorRef, OccurredAt: request.Now.UTC(), PayloadVersion: 1, Payload: actorPayload},
-			{EventID: "workflow-init:" + request.WorkID + ":definition:" + request.Definition.Definition.Ref, Kind: WorkflowDefinitionSelected, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actorRef, OccurredAt: request.Now.UTC(), PayloadVersion: 1, Payload: definitionPayload},
+			{EventID: "workflow-init:" + request.WorkID + ":definition:" + request.Definition.Definition.Ref, Kind: WorkflowDefinitionSelected, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actorRef, OccurredAt: request.Now.UTC(), PayloadVersion: workflowDefinitionSelectedPayloadVersion, Payload: definitionPayload},
 		},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): version},
 	}, scope)

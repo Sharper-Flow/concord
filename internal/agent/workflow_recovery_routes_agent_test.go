@@ -8,6 +8,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -1321,9 +1322,7 @@ func runWorkflowRecoveryRouteJourney(t *testing.T, tuple workflowRecoveryRouteTu
 		t.Fatalf("lookup %s v%d is not registered", tuple.Ref, tuple.Version)
 	}
 	grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: grantActor, Now: fixedTime()})
-	}); err != nil {
+	if err := initializeRecoveryRouteWorkflow(ctx, t, s, definition, grantActor); err != nil {
 		t.Fatalf("initialize workflow %s v%d: %v", tuple.Ref, tuple.Version, err)
 	}
 	grant.Worktree = worktree
@@ -2314,9 +2313,7 @@ func runWorkflowRecoveryRouteSupersede(t *testing.T, tuple workflowRecoveryRoute
 		t.Fatalf("lookup %s v%d is not registered", tuple.Ref, tuple.Version)
 	}
 	grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: grantActor, Now: fixedTime()})
-	}); err != nil {
+	if err := initializeRecoveryRouteWorkflow(ctx, t, s, definition, grantActor); err != nil {
 		t.Fatalf("initialize workflow %s v%d: %v", tuple.Ref, tuple.Version, err)
 	}
 	grant.Worktree = worktree
@@ -2794,4 +2791,42 @@ func appendLaneCompletionWithVerdict(t *testing.T, s *store.Store, grant Authori
 		}
 	}
 	agentWorkerCompletedThroughSeam(t, s, attemptID, "regroute-completion-"+suffix+"-"+attemptID, completedPayload)
+}
+
+var errRecoveryRouteFullComposition = errors.New("the definition is a full composition")
+
+// initializeRecoveryRouteWorkflow pins definition on work-1. A small
+// composition rests on a recorded small size whose checks all execute, so
+// the size is kept only when the selector then picks definition itself.
+func initializeRecoveryRouteWorkflow(ctx context.Context, t *testing.T, s *store.Store, definition store.RegisteredDefinition, actor store.WorkflowActor) error {
+	t.Helper()
+	sized := conflictSizedWorkEvent(t, "work-1-size", "work-1")
+	var payload map[string]any
+	if err := json.Unmarshal(sized.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	footprint := payload["footprint"].(map[string]any)
+	footprint["checks_complete"], footprint["laws"], footprint["package_checks"] = true, []any{}, []any{}
+	sized.Payload, _ = json.Marshal(payload)
+	sized.PayloadVersion = 3
+	initialize := func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: actor, Now: fixedTime()})
+	}
+	err := s.Transact(ctx, func(tx *store.Transaction) error {
+		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{sized}}); err != nil {
+			return err
+		}
+		selected, err := store.SelectWorkflowDefinitionTx(ctx, tx, definition.Definition.Ref, "work-1")
+		if err != nil {
+			return err
+		}
+		if selected.Definition.Version != definition.Definition.Version || selected.Definition.Ref != definition.Definition.Ref {
+			return errRecoveryRouteFullComposition
+		}
+		return initialize(tx)
+	})
+	if errors.Is(err, errRecoveryRouteFullComposition) {
+		return s.Transact(ctx, initialize)
+	}
+	return err
 }

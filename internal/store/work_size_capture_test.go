@@ -23,10 +23,14 @@ func sizedBootstrapStore(t *testing.T, index bool) *Store {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not available")
 	}
+	return sizedBootstrapStoreWithHome(t, index, footprintFixtureRepo(t, true))
+}
+
+func sizedBootstrapStoreWithHome(t *testing.T, index bool, knowledgeRepo string) *Store {
+	t.Helper()
 	repo := initBootstrapStoreRepo(t)
 	s := openTemp(t)
 	seedBootstrapStoreAuthority(t, s, repo)
-	knowledgeRepo := footprintFixtureRepo(t, true)
 	home := KnowledgeHome{HomeProjectID: "foot-project", HomeLocatorID: "foot-locator", RepoPath: knowledgeRepo, HeadRef: "HEAD"}
 	authorizeKnowledgeProductHome(t, s, "product-bootstrap", home)
 	if index {
@@ -215,6 +219,36 @@ func TestRecordWorkSizeRefusesAMovedKnowledgeCommit(t *testing.T) {
 	assertWorkSizeRecovery(t, err, KindStaleContext, workSizeStaleRecovery)
 }
 
+// A path-only plan carries no behavior commit, so the shard declaration's
+// commit is the one the capture transaction compares: a move refuses
+// stale_context rather than recording shards read at another commit.
+func TestRecordWorkSizeRefusesAMovedCommitAfterTheShardRead(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, home, repo := footprintFixtureStore(t, true)
+	in := workSizeCaptureFixture()
+	in.Paths = []string{"internal/alpha/a.go"}
+	plan, err := s.PlanWorkSize(ctx, footprintProduct, *in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeKnowledgeFile(t, repo, workflowCIWorkflowPath, `        run: go test -run "$(python3 scripts/go-test-shard.py ./internal/alpha 1 2)" ./internal/alpha`+"\n")
+	writeKnowledgeFile(t, repo, knowledgeCoverageTreeDir+"CD-0002.json", footprintCoverage("CD-0002", `{"kind":"go_test","value":"internal/alpha.TestRoot"}`))
+	commitKnowledgeRepo(t, repo, "shard internal/alpha")
+	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
+		t.Fatal(err)
+	}
+	err = s.Transact(ctx, func(tx *Transaction) error {
+		_, err := RecordWorkSizeTx(ctx, tx, plan, "unborn", "sized-shard-stale", "operator", time.Unix(5, 0).UTC())
+		return err
+	})
+	assertWorkSizeRecovery(t, err, KindStaleContext, workSizeStaleRecovery)
+	var failure *Failure
+	if errors.As(err, &failure) && !strings.Contains(failure.Detail, "shard declaration") {
+		t.Fatalf("the refusal %q is not the shard read's commit check", failure.Detail)
+	}
+}
+
 // A first creation that carries size_inputs never records unsized work:
 // without a size plan it refuses, retryable, and writes nothing. The seeded
 // Product and Project let the creation succeed, so only the guard refuses.
@@ -267,5 +301,58 @@ func TestRecordWorkSizeKeepsTheCompleteFootprint(t *testing.T) {
 	}
 	if !record.Footprint.ChecksComplete || !reflect.DeepEqual(record.Footprint.Laws, read.Laws) || !reflect.DeepEqual(record.Footprint.PackageChecks, read.PackageChecks) {
 		t.Fatalf("recorded laws %+v and package checks %+v (complete=%v), want %+v and %+v", record.Footprint.Laws, record.Footprint.PackageChecks, record.Footprint.ChecksComplete, read.Laws, read.PackageChecks)
+	}
+}
+
+// A capture records which of its go_package checks the knowledge home's CI
+// runs only as shards, read at the footprint's commit, and the recorded
+// snapshot alone decides whether small work keeps the full composition
+// (CD-0229 D5). The fixture's footprint reaches two Domains, so the model
+// sizes it larger; the retention is read from the recorded footprint.
+func TestBootstrapCaptureRecordsTheShardsAtTheFootprintCommit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not available")
+	}
+	t.Parallel()
+	ctx := context.Background()
+	for _, sharded := range []bool{false, true} {
+		t.Run(map[bool]string{false: "unsharded", true: "sharded"}[sharded], func(t *testing.T) {
+			t.Parallel()
+			knowledgeRepo := footprintFixtureRepo(t, true)
+			if sharded {
+				writeKnowledgeFile(t, knowledgeRepo, workflowCIWorkflowPath, `        run: go test -run "$(python3 scripts/go-test-shard.py ./internal/alpha 1 2)" ./internal/alpha`+"\n")
+				commitKnowledgeRepo(t, knowledgeRepo, "shard internal/alpha")
+			}
+			s := sizedBootstrapStoreWithHome(t, true, knowledgeRepo)
+			req := bootstrapStoreRequest()
+			req.IdempotencyKey = "bootstrap-shards"
+			req.SizeInputs = workSizeCaptureFixture()
+			req.SizeInputs.Paths = []string{"internal/alpha/a.go"}
+			result, err := s.BootstrapWorktree(ctx, req, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			record, ok, err := readWorkSize(ctx, s.DatabaseForTesting(), result.WorkID)
+			if err != nil || !ok {
+				t.Fatalf("size: ok=%v, %v", ok, err)
+			}
+			if selection := recordedSizeSelection(t, s, result.WorkID); selection.Size != record.Size {
+				t.Fatalf("the pin read size %q, want the recorded %q: the size must precede the pin", selection.Size, record.Size)
+			}
+			retention := workflowFullRetentionFor(record.Footprint)
+			if !record.Footprint.ShardsRead {
+				t.Fatal("a capture recorded no shard read")
+			}
+			if !sharded {
+				if len(record.Footprint.ShardedPackages) != 0 || retention != nil {
+					t.Fatalf("unsharded capture: shards %v, retention %+v", record.Footprint.ShardedPackages, retention)
+				}
+				return
+			}
+			want := &workflowFullRetention{Reason: WorkflowRetainedUnexecutableChecks, Checks: []FootprintCheck{{Kind: "go_package", Value: "./internal/alpha"}}}
+			if !reflect.DeepEqual(record.Footprint.ShardedPackages, []string{"internal/alpha"}) || !reflect.DeepEqual(retention, want) {
+				t.Fatalf("sharded capture: shards %v, retention %+v", record.Footprint.ShardedPackages, retention)
+			}
+		})
 	}
 }

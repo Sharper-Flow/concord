@@ -46,7 +46,8 @@ var payloadVersionClasses = map[string]map[int]payloadVersionClass{
 	WorkflowSuccessorLinked:            {2: replayOnly, 3: replayOnly},
 	WorkflowImpactNoticeRecorded:       {2: replayOnly},
 	WorkflowCompleted:                  {2: replayOnly},
-	WorkSized:                          {2: replayOnly},
+	WorkSized:                          {2: replayOnly, 3: replayOnly},
+	WorkflowDefinitionSelected:         {2: replayOnly},
 	WorkflowPremiseConfirmed:           {2: replayOnly},
 	// Both bumps admit an empty approval_ref for unsigned routine writes.
 	// The previous release reads the correction approval_ref outside the

@@ -70,6 +70,9 @@ func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, r
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	seedIssue31DomainRegistry(t, s)
+	if workflowCompositionSize(registered.Definition.Ref, registered.Definition.Version) == WorkSizeSmall {
+		recordSmallWorkSizeForTest(t, s, workID)
+	}
 
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
@@ -93,7 +96,10 @@ func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, r
 		t.Fatal(err)
 	}
 
-	version := int64(4)
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
 	nextEvent := func(event Event) Event {
 		version++
 		return event

@@ -50,18 +50,3 @@ func readWorkflowShardedPackages(ctx context.Context, runner GitRunner, repoRoot
 	}
 	return workflowShardedPackages(raw), nil
 }
-
-// workflowShardedPackageChecks returns the go_package checks whose package
-// the Project's CI tests only as shards, in check order.
-func workflowShardedPackageChecks(checks []FootprintCheck, sharded map[string]bool) []FootprintCheck {
-	var out []FootprintCheck
-	for _, check := range checks {
-		if check.Kind != "go_package" {
-			continue
-		}
-		if pkg, ok := workflowPackageCheckPackage(check.Value); ok && sharded[pkg] {
-			out = append(out, check)
-		}
-	}
-	return out
-}

@@ -67,6 +67,12 @@ func TestCaptureWithSizeInputsRecordsTheModelSize(t *testing.T) {
 		t.Fatalf("size record = %s %+v", size, inputs)
 	}
 
+	// The size precedes the pin, so the pin records the size it selected from.
+	var pinnedSize string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT coalesce(json_extract(payload,'$.size_selection.size'),'') FROM domain_events WHERE subject_id=? AND kind=?`, changed.ID, store.WorkflowDefinitionSelected).Scan(&pinnedSize); err != nil || store.WorkSize(pinnedSize) != store.WorkSizeLarger {
+		t.Fatalf("the pin read size %q (%v), want larger", pinnedSize, err)
+	}
+
 	env := mutationEnvelope(grant, scopeVersion)
 	env.RequestID = "sized-capture-scope-read"
 	read, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_browse", Operation: "scope", Input: json.RawMessage(`{"product_id":"product-1","work_id":"` + changed.ID + `"}`)}, env)

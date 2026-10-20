@@ -91,20 +91,3 @@ func (g failingShardGit) Run(ctx context.Context, dir string, args ...string) ([
 	}
 	return ExecGitRunner{}.Run(ctx, dir, args...)
 }
-
-func TestWorkflowShardedPackageChecksSelectsOnlyShardedPackageChecks(t *testing.T) {
-	checks := []FootprintCheck{
-		{Kind: "go_package", Value: "./internal/store"},
-		{Kind: "go_test", Value: "internal/store.TestBody"},
-		{Kind: "go_package", Value: "./internal/agent"},
-		{Kind: "go_package", Value: "internal/store"},
-		{Kind: "scenario", Value: "./internal/store"},
-		{Kind: "validator", Value: "scripts/check-alpha.py"},
-		{Kind: "go_package", Value: "./cmd/concord"},
-	}
-	got := workflowShardedPackageChecks(checks, map[string]bool{"internal/store": true, "cmd/concord": true})
-	want := []FootprintCheck{{Kind: "go_package", Value: "./internal/store"}, {Kind: "go_package", Value: "./cmd/concord"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("sharded checks=%+v, want %+v", got, want)
-	}
-}

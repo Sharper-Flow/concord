@@ -33,6 +33,13 @@ type WorkSizeFootprint struct {
 	Laws                  []FootprintLaw          `json:"laws,omitempty"`
 	PackageChecks         []FootprintPackageCheck `json:"package_checks,omitempty"`
 	ChecksComplete        bool                    `json:"checks_complete,omitempty"`
+	// ShardsRead says every go_package check's shard state is known at
+	// KnowledgeCommit, and ShardedPackages are the go_package check packages
+	// the Project's CI tests only as shard jobs. A record before payload
+	// version 3 knows none, so nothing shows its go_package checks run
+	// unsharded.
+	ShardsRead      bool     `json:"shards_read,omitempty"`
+	ShardedPackages []string `json:"sharded_packages,omitempty"`
 }
 
 // workSizedPayloadMaxBytes bounds one size record. A complete footprint that
@@ -43,6 +50,15 @@ const workSizedPayloadMaxBytes = 256 * 1024
 // complete law and check set, and ChecksComplete stays false.
 func upcastWorkSizedV1(event Event) (Event, error) {
 	event.PayloadVersion = 2
+	return event, nil
+}
+
+// workSizedPayloadVersion is the version every size record writer appends.
+const workSizedPayloadVersion = 3
+
+// upcastWorkSizedV2 reads a record that predates sharded_packages unchanged.
+func upcastWorkSizedV2(event Event) (Event, error) {
+	event.PayloadVersion = 3
 	return event, nil
 }
 
@@ -153,8 +169,11 @@ func checkWorkSizeFootprint(in WorkSizeInputs, f WorkSizeFootprint) error {
 		}
 	}
 	packages, unmapped := footprintPathCounts(f.Paths)
-	if !f.ChecksComplete && (f.Laws != nil || f.PackageChecks != nil) {
-		return mismatch("a footprint snapshot without checks_complete lists laws or package checks")
+	if !f.ChecksComplete && (f.Laws != nil || f.PackageChecks != nil || f.ShardsRead) {
+		return mismatch("a footprint snapshot without checks_complete lists laws, package checks, or shards")
+	}
+	if !f.ShardsRead && f.ShardedPackages != nil {
+		return mismatch("a footprint snapshot that read no shard declaration lists sharded packages")
 	}
 	if f.ChecksComplete {
 		if err := checkWorkSizeFootprintChecks(f); err != nil {
@@ -196,6 +215,18 @@ func checkWorkSizeFootprintChecks(f WorkSizeFootprint) error {
 	for _, check := range f.PackageChecks {
 		if _, ok := named[check.Package]; !ok {
 			return mismatch("a footprint package check names a package no footprint path resolves to")
+		}
+	}
+	checks, _ := workflowFootprintChecks(f)
+	for i, pkg := range f.ShardedPackages {
+		if i > 0 && f.ShardedPackages[i-1] >= pkg {
+			return mismatch("the footprint's sharded packages are not sorted and distinct")
+		}
+		if !slices.ContainsFunc(checks, func(check FootprintCheck) bool {
+			named, ok := workflowPackageCheckPackage(check.Value)
+			return check.Kind == "go_package" && ok && named == pkg
+		}) {
+			return mismatch("a sharded package is not the package of a footprint go_package check")
 		}
 	}
 	return nil

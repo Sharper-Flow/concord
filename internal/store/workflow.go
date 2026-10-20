@@ -103,6 +103,19 @@ type workflowDefinitionSelectedPayload struct {
 	Version  int64  `json:"version"`
 	Digest   string `json:"digest"`
 	WorkKind string `json:"work_kind"`
+	// SizeSelection is the size selection the pin rests on (payload version
+	// 2). A version 1 pin carries none and is not re-derived.
+	SizeSelection *workflowSizeSelection `json:"size_selection,omitempty"`
+}
+
+// workflowDefinitionSelectedPayloadVersion is the version every pin writer appends.
+const workflowDefinitionSelectedPayloadVersion = 2
+
+// upcastWorkflowDefinitionSelectedV1 reads a pin that predates the size
+// selection unchanged.
+func upcastWorkflowDefinitionSelectedV1(event Event) (Event, error) {
+	event.PayloadVersion = 2
+	return event, nil
 }
 
 type workflowContractApprovedPayload struct {
@@ -1010,10 +1023,68 @@ func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event
 	if started > 0 && !carryForward {
 		return newFailure(KindInvalidOperation, "fold_event", "definition cannot change after execution starts", false, "supersede the workflow contract instead")
 	}
+	if err := checkWorkflowPinSelectionTx(ctx, tx, event.SubjectID, p); err != nil {
+		return err
+	}
 	if carryForward {
 		return pinWorkflowInstanceToStepTx(ctx, tx, event.SubjectID, registered, currentStep, event.Actor)
 	}
 	return pinWorkflowInstanceTx(ctx, tx, event.SubjectID, registered, event.Actor)
+}
+
+// checkWorkflowPinSelectionTx re-derives the size selection a pin rests on
+// before the instance moves. A sized composition always carries one. Live
+// folds require the exact derivation; replay checks only the selection's
+// shape, so a later binary that executes another check kind still replays
+// the log.
+func checkWorkflowPinSelectionTx(ctx context.Context, tx queryer, workID string, p workflowDefinitionSelectedPayload) error {
+	variant := workflowCompositionSize(p.Ref, p.Version)
+	if p.SizeSelection == nil {
+		if variant != "" {
+			return newFailure(KindInvalidPayload, "fold_event", "a sized composition pin carries no size selection", false, "pin the definition through the size selector")
+		}
+		return nil
+	}
+	if isWorkflowReplay(ctx) {
+		return checkReplayedWorkflowPinSelectionTx(ctx, tx, workID, variant, *p.SizeSelection)
+	}
+	derived, err := workflowPinSelectionTx(ctx, tx, workID, p.Ref, p.Version, "fold_event")
+	if err != nil {
+		return err
+	}
+	recorded, want := *p.SizeSelection, *derived
+	if recorded.Size != want.Size || (recorded.Retention == nil) != (want.Retention == nil) ||
+		recorded.Retention != nil && (recorded.Retention.Reason != want.Retention.Reason || !slices.Equal(recorded.Retention.Checks, want.Retention.Checks)) {
+		return newFailure(KindInvariantViolation, "fold_event", "the pin's size selection is not the one the recorded size derives", false, "record the size selection the store derives")
+	}
+	return nil
+}
+
+// checkReplayedWorkflowPinSelectionTx holds a replayed selection to its
+// shape: it read the recorded effective size, a small composition rests on
+// small work without a retention, and a retention keeps the full composition
+// of small work for a known reason and names only footprint checks.
+func checkReplayedWorkflowPinSelectionTx(ctx context.Context, tx queryer, workID string, variant WorkSize, recorded workflowSizeSelection) error {
+	decision, _, err := readEffectiveWorkSize(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	retention := recorded.Retention
+	reasons := []string{WorkflowRetainedUnexecutableChecks, WorkflowRetainedIncompleteInventory, WorkflowRetainedExistingFullInstance}
+	if recorded.Size != decision.Effective || variant != "" && (variant != recorded.Size || retention != nil) ||
+		retention != nil && (recorded.Size != WorkSizeSmall || !slices.Contains(reasons, retention.Reason)) {
+		return newFailure(KindInvariantViolation, "fold_event", "the pin's size selection does not fit the recorded size", false, "record the size selection the store derives")
+	}
+	if retention == nil {
+		return nil
+	}
+	checks, _ := workflowFootprintChecks(decision.Model.Footprint)
+	for _, check := range retention.Checks {
+		if !slices.Contains(checks, check) {
+			return newFailure(KindInvariantViolation, "fold_event", "the pin retains a check the size record does not name", false, "record the retention the store derives")
+		}
+	}
+	return nil
 }
 
 func workflowProjectionError(err error, message string) error {

@@ -1677,8 +1677,7 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 			return failureEnvelope(base, refErr), nil, true
 		}
 	}
-	registeredDefinition, definitionErr := store.LiveWorkflowDefinitionForRef(workflowRef)
-	if definitionErr != nil {
+	if _, definitionErr := store.LiveWorkflowDefinitionForRef(workflowRef); definitionErr != nil {
 		return failureEnvelope(base, definitionErr), nil, true
 	}
 	if in.Approval != nil {
@@ -1780,16 +1779,21 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 			return nil, nil, nil, err
 		}
 		actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-		if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registeredDefinition, Actor: actor, Now: now, Registry: r.Registry}); err != nil {
-			return nil, nil, nil, err
-		}
 		eventIDs := result.EventIDs
+		// The size is recorded first: the workflow pin is the composition it selects.
 		if sizePlan != nil {
 			sized, err := store.RecordWorkSizeTx(ctx, tx, sizePlan, workID, digest+":sized", grant.PrincipalRef, now)
 			if err != nil {
 				return nil, nil, nil, err
 			}
 			eventIDs = append(eventIDs, sized...)
+		}
+		registeredDefinition, err := store.SelectWorkflowDefinitionTx(ctx, tx, workflowRef, workID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registeredDefinition, Actor: actor, Now: now, Registry: r.Registry}); err != nil {
+			return nil, nil, nil, err
 		}
 		// work.sized does not change the work item's version.
 		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: "4"}}
@@ -1812,13 +1816,10 @@ func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte
 	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
-	var registeredDefinition store.RegisteredDefinition
 	if in.WorkflowTypeRef != "" {
-		var definitionErr error
 		// The live authoring selector refuses a retired family before the
 		// revision plans any effect, so a re-pin cannot reach archived authoring.
-		registeredDefinition, definitionErr = store.LiveWorkflowDefinitionForRef(in.WorkflowTypeRef)
-		if definitionErr != nil {
+		if _, definitionErr := store.LiveWorkflowDefinitionForRef(in.WorkflowTypeRef); definitionErr != nil {
 			return failureEnvelope(base, definitionErr), nil, true
 		}
 	}
@@ -1845,6 +1846,15 @@ func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte
 		definition, definitionFound, existingErr := store.WorkflowInstanceDefinitionTx(ctx, tx, in.WorkID)
 		if existingErr != nil {
 			return nil, nil, nil, existingErr
+		}
+		var registeredDefinition store.RegisteredDefinition
+		if in.WorkflowTypeRef != "" {
+			// The pin is the composition the recorded size selects; a
+			// same-family instance carries forward within its own.
+			var selectErr error
+			if registeredDefinition, selectErr = store.SelectWorkflowDefinitionTx(ctx, tx, in.WorkflowTypeRef, in.WorkID); selectErr != nil {
+				return nil, nil, nil, selectErr
+			}
 		}
 		switchingFamily := definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef != in.WorkflowTypeRef
 		// Naming the pinned family again carries the instance forward onto

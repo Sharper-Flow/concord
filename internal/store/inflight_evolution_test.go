@@ -43,6 +43,12 @@ func startWorkflowPinnedToContext(t *testing.T, ctx context.Context, s *Store, w
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	return startWorkflowProposal(t, ctx, s, workID, actor)
+}
+
+// startWorkflowProposal starts the proposal step of a pinned work item.
+func startWorkflowProposal(t *testing.T, ctx context.Context, s *Store, workID string, actor WorkflowActor) (WorkflowActor, int64) {
+	t.Helper()
 	var version int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)
@@ -274,7 +280,13 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actor, version := startWorkflowPinnedTo(t, s, workID, definition)
+	// The in-flight pin is the one the binary before the upgrade wrote.
+	seedWork(t, s, workID)
+	pinActor := WorkflowActor{PrincipalRef: "principal:evolution", ClientRef: "client:evolution", AgentRef: "agent:evolution", SessionRef: "session:evolution", ActorClass: ActorAgent}
+	if err := applyPinAsForTest(t, s, workID, definition, pinActor, nil); err != nil {
+		t.Fatal(err)
+	}
+	actor, version := startWorkflowProposal(t, ctx, s, workID, pinActor)
 	if err := Migrate(ctx, s.db); err != nil {
 		t.Fatal(err)
 	}

@@ -406,7 +406,7 @@ func resizeWorkTx(ctx context.Context, transaction *Transaction, request workRes
 	if model.Size, err = DecideWorkSize(model.ModelVersion, model.Inputs, model.ReviewBasis); err != nil {
 		return "", err
 	}
-	sizeEvents := []Event{resizeEvent(id("sized"), WorkSized, successor, actorRef, now, 2, model)}
+	sizeEvents := []Event{resizeEvent(id("sized"), WorkSized, successor, actorRef, now, workSizedPayloadVersion, model)}
 	if sourceOverride != "" {
 		var carried workSizeOverriddenPayload
 		if err := json.Unmarshal([]byte(sourceOverridePayload), &carried); err != nil {
@@ -424,7 +424,7 @@ func resizeWorkTx(ctx context.Context, transaction *Transaction, request workRes
 	if err := tx.QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&definitionRef); err != nil {
 		return "", wrapFailure(KindUnavailable, op, "cannot read the workflow pin", true, "retry once the database is readable", err)
 	}
-	definition, err := LiveWorkflowDefinitionForRef(definitionRef)
+	definition, err := selectWorkflowDefinitionTx(ctx, tx, definitionRef, successor)
 	if err != nil {
 		return "", err
 	}

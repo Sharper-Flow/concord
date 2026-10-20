@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -32,6 +33,10 @@ type WorkSizeCaptureInput struct {
 type WorkSizePlan struct {
 	declared  WorkSizeDeclared
 	footprint preparedDomainFootprint
+	// knowledgeCommit is the commit the shard declaration was read at;
+	// shardedPackages are the footprint's go_package packages it shards.
+	knowledgeCommit string
+	shardedPackages []string
 }
 
 const (
@@ -56,7 +61,43 @@ func (s *Store) PlanWorkSize(ctx context.Context, productID string, in WorkSizeC
 	if err != nil {
 		return nil, workSizeFootprintRefusal(err)
 	}
-	return &WorkSizePlan{declared: declared, footprint: prepared}, nil
+	read, err := prepared.completeTx(ctx, s.db)
+	if err != nil {
+		return nil, workSizeFootprintRefusal(err)
+	}
+	sharded, err := workSizeShardedPackages(ctx, prepared.home.RepoPath, read)
+	if err != nil {
+		return nil, err
+	}
+	return &WorkSizePlan{declared: declared, footprint: prepared, knowledgeCommit: read.KnowledgeCommit, shardedPackages: sharded}, nil
+}
+
+// workSizeShardedPackages reads which go_package checks of a footprint name a
+// package the Project's CI tests only as shard jobs, from the knowledge home
+// at the footprint's commit. It reads Git only when a go_package check exists.
+func workSizeShardedPackages(ctx context.Context, repo string, read DomainFootprintResult) ([]string, error) {
+	checks, _ := workflowFootprintChecks(WorkSizeFootprint{Laws: read.Laws, PackageChecks: read.PackageChecks})
+	var packages []string
+	for _, check := range checks {
+		if pkg, ok := workflowPackageCheckPackage(check.Value); ok && check.Kind == "go_package" && !slices.Contains(packages, pkg) {
+			packages = append(packages, pkg)
+		}
+	}
+	if len(packages) == 0 {
+		return nil, nil
+	}
+	declared, err := readWorkflowShardedPackages(ctx, ExecGitRunner{}, repo, read.KnowledgeCommit)
+	if err != nil {
+		return nil, err
+	}
+	var sharded []string
+	for _, pkg := range packages {
+		if declared[pkg] {
+			sharded = append(sharded, pkg)
+		}
+	}
+	slices.Sort(sharded)
+	return sharded, nil
 }
 
 // workSizeFootprintRefusal keeps the footprint read's kind and replaces its
@@ -99,7 +140,7 @@ func RecordWorkSizeTx(ctx context.Context, transaction *Transaction, plan *WorkS
 		return nil, newFailure(KindLimitExceeded, "work_size", fmt.Sprintf("the complete footprint makes the size record %d bytes; the limit is %d", len(encoded), workSizedPayloadMaxBytes), false, "name fewer paths or a narrower behavior")
 	}
 	result, err := ApplyOperationTx(ctx, transaction, Operation{Events: []Event{
-		{EventID: eventID, Kind: WorkSized, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor, OccurredAt: now, PayloadVersion: 2, Payload: encoded},
+		{EventID: eventID, Kind: WorkSized, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor, OccurredAt: now, PayloadVersion: workSizedPayloadVersion, Payload: encoded},
 	}})
 	if err != nil {
 		return nil, err
@@ -153,6 +194,9 @@ func workSizedPayloadTx(ctx context.Context, q queryer, plan *WorkSizePlan, work
 	if err != nil {
 		return out, workSizeFootprintRefusal(err)
 	}
+	if footprint.KnowledgeCommit != plan.knowledgeCommit {
+		return out, newFailure(KindStaleContext, "work_size", "the knowledge commit moved after the shard declaration was read", true, workSizeStaleRecovery)
+	}
 	inputs := WorkSizeInputs{Declared: plan.declared, PathCount: len(footprint.Paths), DomainCount: len(footprint.Domains)}
 	inputs.PackageCount, inputs.UnmappedPathCount = footprintPathCounts(footprint.Paths)
 	err = q.QueryRowContext(ctx, `SELECT w.kind,
@@ -194,5 +238,7 @@ func workSizedPayloadTx(ctx context.Context, q queryer, plan *WorkSizePlan, work
 		Laws:                  sliceOrEmpty(footprint.Laws),
 		PackageChecks:         sliceOrEmpty(footprint.PackageChecks),
 		ChecksComplete:        true,
+		ShardsRead:            true,
+		ShardedPackages:       plan.shardedPackages,
 	}}, nil
 }

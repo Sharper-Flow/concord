@@ -1317,20 +1317,18 @@ func createBootstrapWorkTx(ctx context.Context, transaction *Transaction, req Bo
 			return refErr
 		}
 	}
-	definition, definitionErr := LiveWorkflowDefinitionForRef(workflowRef)
-	if definitionErr != nil {
-		return definitionErr
-	}
-	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord", AgentRef: "agent/concord", SessionRef: "session/" + operationID, ActorClass: ActorOperator}
-	if err := InitializeWorkflowTx(ctx, transaction, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: now}); err != nil {
-		return err
-	}
+	// The size is recorded first: the workflow pin is the composition it selects.
 	if sizePlan != nil {
 		if _, err := RecordWorkSizeTx(ctx, transaction, sizePlan, workID, operationID+":work-sized", "operator", now); err != nil {
 			return err
 		}
 	}
-	return nil
+	definition, definitionErr := SelectWorkflowDefinitionTx(ctx, transaction, workflowRef, workID)
+	if definitionErr != nil {
+		return definitionErr
+	}
+	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord", AgentRef: "agent/concord", SessionRef: "session/" + operationID, ActorClass: ActorOperator}
+	return InitializeWorkflowTx(ctx, transaction, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: now})
 }
 
 func replayCompletedBootstrapTx(ctx context.Context, tx *sql.Tx, req BootstrapRequest, operationID, workID, state string, location WorktreeLocation) (bootstrapPrepared, error) {

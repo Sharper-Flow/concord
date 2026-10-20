@@ -350,14 +350,14 @@ test("bounds checker: the inventory follows references, keeps branch identity, a
   const siblingTable: SchemaTable = { base: { type: "object", properties: { inherited: { maxLength: 9 } } } }
   const siblings = {
     $ref: "#/$defs/base",
-    properties: { local: { maxLength: 4 } },
+    properties: { own: { maxLength: 4 } },
     allOf: [{ properties: { composed: { minLength: 2 } } }],
   }
   const siblingUses = usesOf(siblings, siblingTable)
   expect([...siblingUses].sort()).toEqual([
     "@w.allOf[0].composed#minLength=2(code points)",
     "@w.inherited#maxLength=9(code points)",
-    "@w.local#maxLength=4(code points)",
+    "@w.own#maxLength=4(code points)",
   ])
   const droppedSibling = JSON.parse(JSON.stringify(siblings))
   delete droppedSibling.allOf[0].properties.composed.minLength

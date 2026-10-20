@@ -604,7 +604,7 @@ class ProductionAdapterTransitionTupleTests(unittest.TestCase):
     def test_captured_diagnostics_name_the_argument_defect(self):
         observation = self.observed()
         self.assertEqual(observation["trans-reconcile-malformed"]["envelope"]["error"]["message"],
-                         "worker_reconcile input failed the generated contract: task_part_id: required field is missing")
+                         "worker_reconcile input failed the generated contract: work_id: required field is missing")
         # The generated-contract diagnostics pin exactly to production code:
         # the driver executes payloadFailureMessage from the production
         # module beside the served call, so each served message must equal

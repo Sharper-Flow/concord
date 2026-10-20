@@ -134,6 +134,7 @@ adapter_reason?      # required closed reason when origin=adapter
 
 ```text
 none
+correct_request
 retry_same_request
 refresh_context
 reread_entities
@@ -304,7 +305,7 @@ The schema admits these adapter-origin kinds:
 | `cancelled` | Cancellation completed with no authoritative effect. | `none` | `retry_same_request` |
 | `operation_conflict` | A failed operation needs reconciliation. | `none` or `possible` | `reconcile_operation`; an adapter `session_vacate` error with `unknown_effect` and `possible` uses the CD-0190 D3 replay or operator contact. |
 | `unauthorized` | The adapter refused lane tool authorization before dispatch. | `none` | `contact_operator` |
-| `invalid_input` | The host wrapper, tool arguments, or CLI input failed validation before dispatch. | `none`, with `retry_safe=false` | `restart_query` |
+| `invalid_input` | The host wrapper, tool arguments, or CLI input failed validation before dispatch. | `none`, with `retry_safe=false` | `correct_request` |
 
 If the wrapper refusal cannot resolve an accepted tool/operation pair, `operation` is
 the empty string and `query_id` is absent. Only this no-effect wrapper refusal may

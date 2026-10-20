@@ -140,6 +140,11 @@ type ContinuitySnapshot struct {
 	// dispatcher binds a selected revision verbatim and never authors job
 	// content itself. Empty when no revision is ready.
 	ReadyWorkerJobs []WorkerPacketJob `json:"ready_worker_jobs,omitempty"`
+	// ChecksRepairReviewJobs carries satisfied repairing revisions awaiting
+	// their one confirming review (CD-0205 D4), in packet shape. Only review
+	// capability selects them; the core admits funded reviews or requires
+	// ordinary authority for unfunded repeats. They are not ready_worker_jobs.
+	ChecksRepairReviewJobs []WorkerPacketJob `json:"checks_repair_review_jobs,omitempty"`
 	// LawContext resolves the approved contract's binding law and Domains
 	// against the law_subjects and domains projections at read time. Nil
 	// when the contract binds no law and no Domain.
@@ -536,6 +541,25 @@ func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work strin
 	for _, view := range views {
 		if view.Ready {
 			out.ReadyWorkerJobs = append(out.ReadyWorkerJobs, packetJobFromView(view))
+		}
+	}
+	// The awaiting confirming-review jobs (CD-0205 D4, CD-0148 amendment):
+	// every open accepted exact repairing revision whose one confirming
+	// review is still unconsumed — funded or an ordinary-authority repeat.
+	// They are never ready jobs — the one review dispatch each admits reads
+	// them here; the guard keeps an unfunded dispatch basis-gated.
+	// Candidates keep deterministic binding order, so a reader resolves the
+	// same job first on every read.
+	candidates, err := workerChecksRepairAwaitingReviewTx(ctx, tx, work)
+	if err != nil {
+		return err
+	}
+	for _, candidate := range candidates {
+		for _, view := range views {
+			if view.Binding == candidate.Repairing {
+				out.ChecksRepairReviewJobs = append(out.ChecksRepairReviewJobs, packetJobFromView(view))
+				break
+			}
 		}
 	}
 	return nil

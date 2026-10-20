@@ -46,47 +46,101 @@ func workerDiffRefusal(detail string) error {
 	return newFailure(KindUnauthorizedDispatch, "worker_diff", detail, false, "use a live review with its original packet, claimed worktree, scoped job, and complete first-editing subject history")
 }
 
-// firstWorkerEditingSubject never skips an editing authorization with a missing
-// subject. Later successes cannot repair the first attempt's historical gap.
-func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity string, contractVersion, reviewSeq int64) (string, error) {
-	var start int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND ((kind=? AND json_extract(payload,'$.contract_version')=?) OR (kind=? AND json_extract(payload,'$.new_contract_version')=?)) AND seq<?`, workID, WorkflowContractApproved, contractVersion, WorkflowContractSuperseded, contractVersion, reviewSeq).Scan(&start); err != nil {
+// firstWorkerEditingSubject never skips an editing authorization with a
+// missing subject. Later successes cannot repair the first attempt's
+// historical gap. The window starts at the newest contract boundary — an
+// approval or a supersession — that owns editing history: a supersession
+// starts a new editing history exactly when new editing work was dispatched
+// under it, and a correction supersession with no editing of its own falls
+// back to the predecessor boundary that holds the delivery the review reads.
+// Without the fallback, the correction machinery's own supersessions (which
+// it deliberately forces between an accepted implement delivery and its
+// review) would orphan every editing authorization and leave the review's
+// committed diff permanently unreadable.
+func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity string, reviewSeq int64) (string, error) {
+	boundaryRows, err := q.QueryContext(ctx, `SELECT seq FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND (kind=? OR kind=?) AND seq<? ORDER BY seq DESC`, workID, WorkflowContractApproved, WorkflowContractSuperseded, reviewSeq)
+	if err != nil {
 		return "", err
 	}
-	if start == 0 {
+	defer boundaryRows.Close()
+	boundaries := make([]int64, 0, 8)
+	for boundaryRows.Next() {
+		var seq int64
+		if err := boundaryRows.Scan(&seq); err != nil {
+			return "", err
+		}
+		boundaries = append(boundaries, seq)
+	}
+	if err := boundaryRows.Err(); err != nil {
+		return "", err
+	}
+	if len(boundaries) == 0 {
 		return "", workerDiffRefusal("review contract has no recorded approval history")
 	}
-	rows, err := q.QueryContext(ctx, `SELECT COALESCE(json_extract(e.payload,'$.worker_lane_id'),a.lane_id),COALESCE(json_extract(e.payload,'$.worker_lane_version'),a.lane_version),COALESCE(json_extract(e.payload,'$.worker_lane_digest'),a.lane_digest),COALESCE(json_extract(e.payload,'$.worker_subject_commit'),''),COALESCE(json_extract(e.payload,'$.worker_worktree_identity'),'') FROM domain_events e LEFT JOIN worker_attempts a ON a.work_id=e.subject_id AND a.attempt_id=json_extract(e.payload,'$.worker_attempt_id') WHERE e.subject_type='work_item' AND e.subject_id=? AND e.kind=? AND json_extract(e.payload,'$.action_id')='dispatch_worker' AND e.seq>? AND e.seq<? ORDER BY e.seq`, workID, WorkflowActionCompleted, start, reviewSeq)
+	// Editing authorizations once, ascending; each boundary is then matched to
+	// the newest one with an editing dispatch after it.
+	rows, err := q.QueryContext(ctx, `SELECT e.seq,COALESCE(json_extract(e.payload,'$.worker_lane_id'),a.lane_id),COALESCE(json_extract(e.payload,'$.worker_lane_version'),a.lane_version),COALESCE(json_extract(e.payload,'$.worker_lane_digest'),a.lane_digest),COALESCE(json_extract(e.payload,'$.worker_subject_commit'),''),COALESCE(json_extract(e.payload,'$.worker_worktree_identity'),'') FROM domain_events e LEFT JOIN worker_attempts a ON a.work_id=e.subject_id AND a.attempt_id=json_extract(e.payload,'$.worker_attempt_id') WHERE e.subject_type='work_item' AND e.subject_id=? AND e.kind=? AND json_extract(e.payload,'$.action_id')='dispatch_worker' AND e.seq>0 AND e.seq<? ORDER BY e.seq`, workID, WorkflowActionCompleted, reviewSeq)
 	if err != nil {
 		return "", err
 	}
 	defer rows.Close()
+	type editingDispatch struct {
+		seq           int64
+		id, digest    string
+		version       int64
+		subject, tree string
+		editing       bool
+	}
+	editors := make([]editingDispatch, 0, 8)
 	for rows.Next() {
-		var id, digest, subject, tree string
-		var version int64
-		if err := rows.Scan(&id, &version, &digest, &subject, &tree); err != nil {
+		var d editingDispatch
+		if err := rows.Scan(&d.seq, &d.id, &d.version, &d.digest, &d.subject, &d.tree); err != nil {
 			return "", err
 		}
-		lane, err := LookupLane(id, version, digest)
+		lane, err := LookupLane(d.id, d.version, d.digest)
 		if err != nil {
 			return "", err
 		}
-		if !slices.Contains(lane.Capabilities, "edit_scoped_files") {
-			continue
-		}
-		if tree == "" {
-			return "", workerDiffRefusal("editing authorization has no recorded worktree identity")
-		}
-		if tree != identity {
-			continue
-		}
-		if !worktreeSHAPattern.MatchString(subject) {
-			return "", workerDiffRefusal("first editing authorization has no recorded raw subject")
-		}
-		return subject, nil
+		d.editing = slices.Contains(lane.Capabilities, "edit_scoped_files")
+		editors = append(editors, d)
 	}
 	if err := rows.Err(); err != nil {
 		return "", err
+	}
+	// Boundaries descend; the first boundary with an EDITING dispatch after
+	// it is the window start. A boundary with no editing history of its own
+	// cannot reset the base, and non-editing dispatches — a failed review
+	// retry between two correction supersessions — never count as editing
+	// history, or the retry itself would re-orphan the window the fallback
+	// just repaired.
+	var start int64
+	for _, boundary := range boundaries {
+		hasEditor := false
+		for _, d := range editors {
+			if d.editing && d.seq > boundary {
+				hasEditor = true
+				break
+			}
+		}
+		if hasEditor {
+			start = boundary
+			break
+		}
+	}
+	for _, d := range editors {
+		if d.seq <= start || !d.editing {
+			continue
+		}
+		if d.tree == "" {
+			return "", workerDiffRefusal("editing authorization has no recorded worktree identity")
+		}
+		if d.tree != identity {
+			continue
+		}
+		if !worktreeSHAPattern.MatchString(d.subject) {
+			return "", workerDiffRefusal("first editing authorization has no recorded raw subject")
+		}
+		return d.subject, nil
 	}
 	return "", workerDiffRefusal("review contract has no first editing authorization on this worktree")
 }
@@ -154,7 +208,7 @@ func sampleWorkerDiff(ctx context.Context, q queryer, req WorkerDiffRequest, sna
 	if workerWorktreeIdentity(entry.Path) != req.WorktreeIdentity {
 		return workerDiffRefusal("review job belongs to another claimed worktree")
 	}
-	base, err := firstWorkerEditingSubject(ctx, q, req.WorkID, req.WorktreeIdentity, version, auth.Seq)
+	base, err := firstWorkerEditingSubject(ctx, q, req.WorkID, req.WorktreeIdentity, auth.Seq)
 	if err != nil {
 		return err
 	}

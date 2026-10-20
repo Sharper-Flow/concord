@@ -1577,6 +1577,50 @@ const GeneratedHistoricalSchemaDocument = `{
       ],
       "type": "object"
     },
+    "worker_checks_repair": {
+      "additionalProperties": false,
+      "description": "Core-recorded checks repair: the stated reason and each named revision's exact binding and old checks. The containing job's checks are the new checks. Present only on repair-capable recorded revisions, covered by their immutable digest.",
+      "properties": {
+        "reason": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "revisions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "checks": {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 64,
+                "minItems": 0,
+                "type": "array"
+              },
+              "worker_job": {
+                "$ref": "#/$defs/worker_failure_job_binding"
+              }
+            },
+            "required": [
+              "worker_job",
+              "checks"
+            ],
+            "type": "object"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "reason",
+        "revisions"
+      ],
+      "type": "object"
+    },
     "worker_failure_host_observation": {
       "additionalProperties": false,
       "description": "The typed host observation one host_event source carries: which host event was seen, for which session and message, and the typed terminal error fields when the host supplied them.",
@@ -1628,6 +1672,34 @@ const GeneratedHistoricalSchemaDocument = `{
       "required": [
         "tag",
         "event_type"
+      ],
+      "type": "object"
+    },
+    "worker_failure_job_binding": {
+      "additionalProperties": false,
+      "description": "One recorded worker-job revision reference: the job identity, the revision, and the content digest. That the revision is exactly the one the dispatch recorded is a store join, never a schema check.",
+      "properties": {
+        "digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "job_id": {
+          "maxLength": 128,
+          "minLength": 2,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "job_id",
+        "revision",
+        "digest"
       ],
       "type": "object"
     },
@@ -1773,6 +1845,12 @@ const GeneratedHistoricalSchemaDocument = `{
         "revision"
       ],
       "type": "object"
+    },
+    "worker_job_repair_revision": {
+      "description": "One named job revision an authored checks repair repairs (CD-0205 D4): a positive distinct revision integer of the same job, within the store's int64 revision bound. Authoring supplies repair_revisions beside repair_reason; the core records each satisfied repair's exact binding and old checks from the recorded events, never from these assertions.",
+      "maximum": 9223372036854775807,
+      "minimum": 1,
+      "type": "integer"
     },
     "worker_job_text": {
       "maxLength": 256,
@@ -2627,6 +2705,121 @@ const GeneratedHistoricalSchemaDocument = `{
       ],
       "type": "object"
     },
+    "worker_packet4": {
+      "additionalProperties": false,
+      "description": "The checks-repair packet identity the repair-capable definition heads record and replay (CD-0205 D4). It mirrors $defs/worker_packet3 shape for shape under a versioned name — the same 2.0 schema_version, with the inputs' worker_job member anchored at the repair-capable worker_packet_checks_repair_job — so the frozen decoder carries it beside the byte-exact packet3 closure, and the optional core-recorded checks repair metadata rides the job's immutable digest. The retained packet3 pins replay exactly the closure they recorded and refuse the repair-bearing packets the packet4 declaration admits.",
+      "properties": {
+        "attempt_id": {
+          "$ref": "#/$defs/id"
+        },
+        "inputs": {
+          "additionalProperties": false,
+          "properties": {
+            "binding": {
+              "$ref": "#/$defs/worker_packet_binding"
+            },
+            "checkpoint": {
+              "$ref": "#/$defs/continuity_checkpoint",
+              "description": "The latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
+            },
+            "constraints": {
+              "items": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 64,
+              "minItems": 0,
+              "type": "array"
+            },
+            "context": {
+              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it.",
+              "maxLength": 16384,
+              "minLength": 0,
+              "type": "string"
+            },
+            "correction": {
+              "$ref": "#/$defs/workflow_correction_context"
+            },
+            "design_record": {
+              "$ref": "#/$defs/workflow_design_record",
+              "description": "The current typed design record (CD-0128). The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "law_context": {
+              "$ref": "#/$defs/workflow_law_context",
+              "description": "The approved contract's binding law and Domains the pinned continuity resolved. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "outcome_predicates": {
+              "$ref": "#/$defs/worker_packet_outcome_predicates"
+            },
+            "proposal_record": {
+              "$ref": "#/$defs/workflow_proposal_record",
+              "description": "The recorded proposal's problem, user outcomes, and constraints. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "report_protocol": {
+              "const": "concord-worker-result-v1",
+              "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity.",
+              "type": "string"
+            },
+            "task": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "work_context": {
+              "$ref": "#/$defs/work_context_view3",
+              "description": "The current work-context view the work pin carried when the packet was built, including the selected research entries it resolved. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
+            },
+            "work_record": {
+              "$ref": "#/$defs/worker_packet_work_record"
+            },
+            "worker_job": {
+              "$ref": "#/$defs/worker_packet_checks_repair_job"
+            }
+          },
+          "required": [
+            "task",
+            "binding"
+          ],
+          "type": "object"
+        },
+        "lane_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "lane_id": {
+          "$ref": "#/$defs/id"
+        },
+        "lane_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "schema_version": {
+          "description": "The live dispatch_worker surface records only the current card-free packet revision. Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists. The checks-repair extension rides the workflow definition heads and the frozen schema closure, not a new packet version constant.",
+          "enum": [
+            "2.0"
+          ],
+          "type": "string"
+        },
+        "step_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "schema_version",
+        "attempt_id",
+        "lane_id",
+        "lane_version",
+        "lane_digest",
+        "work_id",
+        "step_id",
+        "inputs"
+      ],
+      "type": "object"
+    },
     "worker_packet_binding": {
       "additionalProperties": false,
       "allOf": [
@@ -2701,6 +2894,143 @@ const GeneratedHistoricalSchemaDocument = `{
         "work_version",
         "contract_version",
         "assigned_result"
+      ],
+      "type": "object"
+    },
+    "worker_packet_checks_repair_job": {
+      "additionalProperties": false,
+      "description": "The selected worker-job revision this attempt executes on a repair-capable pin (CD-0205 D4). It carries the same full job shape as $defs/worker_packet_worker_job, including the optional core-recorded checks_repair metadata, under a distinct name so the frozen decoder's packet3 closure keeps the byte-exact pre-repair job shape its pins replay. The core refuses a packet whose worker_job is not a ready or review-bound recorded revision with this exact content. inputs.task stays the complete parent contract premise; this object bounds the attempt's own objective.",
+      "properties": {
+        "acceptance_oracle": {
+          "$ref": "#/$defs/worker_acceptance_oracle",
+          "description": "The owner-level acceptance oracle of this immutable revision. Optional and omitted on every revision a pre-oracle definition recorded; required by oracle-capable definition versions. It enters the job digest and reaches every admitted lane through this same copy."
+        },
+        "checks": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
+        "checks_repair": {
+          "$ref": "#/$defs/worker_checks_repair"
+        },
+        "digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "job_id": {
+          "maxLength": 128,
+          "minLength": 2,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
+          "type": "string"
+        },
+        "objective": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "path_scope": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
+        "predicate_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 11,
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "prerequisites": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "job_id": {
+                "maxLength": 128,
+                "minLength": 2,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
+                "type": "string"
+              },
+              "result_ref": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "revision": {
+                "maximum": 2147483647,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "job_id",
+              "revision"
+            ],
+            "type": "object"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
+        "project_scope": {
+          "maxLength": 128,
+          "minLength": 0,
+          "type": "string"
+        },
+        "reserved_integration": {
+          "maxLength": 4096,
+          "minLength": 0,
+          "type": "string"
+        },
+        "revision": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "stopping_condition": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "unresolved_refs": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        }
+      },
+      "required": [
+        "job_id",
+        "revision",
+        "digest",
+        "objective",
+        "stopping_condition",
+        "project_scope",
+        "path_scope",
+        "predicate_ids",
+        "checks",
+        "prerequisites",
+        "unresolved_refs",
+        "reserved_integration"
       ],
       "type": "object"
     },

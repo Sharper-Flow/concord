@@ -17,6 +17,30 @@ import (
 // packet or envelope increase fails here instead of at the transport, and
 // any field without a boundable owner fails the derivation with its name.
 
+// workerPacketRequestCapacityOptions is the shared writer-bound inventory
+// every packet version's request-capacity derivation applies: the acceptance
+// oracle and the checks-repair metadata are writer-bounded members the
+// generated schema leaves unstated, the writer-stamped date-times carry the
+// core writer's RFC3339Nano UTC serialization, and the three context members
+// ride the context aggregate exactly once.
+func workerPacketRequestCapacityOptions(defs map[string]any, packet, jobShape string) schemawire.Options {
+	return schemawire.Options{
+		Defs: defs,
+		PathBounds: map[string]int{
+			packet + "/inputs/worker_job/" + jobShape + "/acceptance_oracle":        store.OracleCombinedMaxBytes,
+			packet + "/inputs/worker_job/" + jobShape + "/checks_repair":            store.WorkerJobChecksRepairMaxBytes,
+			packet + "/inputs/design_record/workflow_design_record/recorded_at":     32,
+			packet + "/inputs/proposal_record/workflow_proposal_record/recorded_at": 32,
+		},
+		Excludes: map[string]bool{
+			packet + "/inputs/work_context": true,
+			packet + "/inputs/checkpoint":   true,
+			packet + "/inputs/correction":   true,
+		},
+		FindingRefMax: 2 + len("finding:") + 19 + 1 + 2,
+	}
+}
+
 // TestRequestBudgetDerivesFromDeclaredMaxima pins the request transport
 // limit to the composed declared maxima of one dispatch invoke request.
 // Call-envelope field bounds cite their downstream owners: the four
@@ -34,43 +58,19 @@ func TestRequestBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 		t.Fatalf("WorkContextActionFindingsMax = %d, want 16; the finding-reference derivation rests on it", store.WorkContextActionFindingsMax)
 	}
 	// Quotes count: the reference serializes inside quotation marks.
-	findingRefMax := 2 + len("finding:") + 19 + 1 + 2
-	packetOpt := schemawire.Options{
-		Defs: defs,
-		PathBounds: map[string]int{
-			"worker_packet2/inputs/worker_job/worker_packet_worker_job/acceptance_oracle": store.OracleCombinedMaxBytes,
-			"worker_packet2/inputs/design_record/workflow_design_record/recorded_at":      32,
-			"worker_packet2/inputs/proposal_record/workflow_proposal_record/recorded_at":  32,
-		},
-		Excludes: map[string]bool{
-			"worker_packet2/inputs/work_context": true,
-			"worker_packet2/inputs/checkpoint":   true,
-			"worker_packet2/inputs/correction":   true,
-		},
-		FindingRefMax: findingRefMax,
-	}
+	packetOpt := workerPacketRequestCapacityOptions(defs, "worker_packet2", "worker_packet_worker_job")
 	packetParts, err := schemawire.Max(defs["worker_packet2"], "worker_packet2", packetOpt)
 	if err != nil {
 		t.Fatalf("the packet derivation hit an unbudgeted member: %v", err)
 	}
-	// The research-context packet3 identity rides the same
-	// composition: its research closure sits inside the excluded work_context
-	// member, so the promoted heads' dispatch identity derives identically
-	// and the request bound is unchanged. The packet2 evidence stays.
-	packet3Opt := schemawire.Options{
-		Defs: defs,
-		PathBounds: map[string]int{
-			"worker_packet3/inputs/worker_job/worker_packet_worker_job/acceptance_oracle": store.OracleCombinedMaxBytes,
-			"worker_packet3/inputs/design_record/workflow_design_record/recorded_at":      32,
-			"worker_packet3/inputs/proposal_record/workflow_proposal_record/recorded_at":  32,
-		},
-		Excludes: map[string]bool{
-			"worker_packet3/inputs/work_context": true,
-			"worker_packet3/inputs/checkpoint":   true,
-			"worker_packet3/inputs/correction":   true,
-		},
-		FindingRefMax: findingRefMax,
-	}
+	// The research-context packet3 and checks-repair packet4 identities
+	// ride the same composition: packet3's research closure sits inside the
+	// excluded work_context member, and packet4's one extra member — the
+	// core-recorded checks repair metadata — is writer-bounded by
+	// WorkerJobChecksRepairMaxBytes exactly as the acceptance oracle is, so
+	// the request bound is unchanged and every packet identity composes
+	// beside the retained packet2 evidence.
+	packet3Opt := workerPacketRequestCapacityOptions(defs, "worker_packet3", "worker_packet_worker_job")
 	packet3Parts, err := schemawire.Max(defs["worker_packet3"], "worker_packet3", packet3Opt)
 	if err != nil {
 		t.Fatalf("the packet3 derivation hit an unbudgeted member: %v", err)
@@ -78,14 +78,20 @@ func TestRequestBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	if packet3Parts != packetParts {
 		t.Fatalf("the packet3 derivation = %d bytes, want the packet2 derivation %d", packet3Parts, packetParts)
 	}
+	packet4Opt := workerPacketRequestCapacityOptions(defs, "worker_packet4", "worker_packet_checks_repair_job")
+	packet4Parts, err := schemawire.Max(defs["worker_packet4"], "worker_packet4", packet4Opt)
+	if err != nil {
+		t.Fatalf("the packet4 derivation hit an unbudgeted member: %v", err)
+	}
 	packetForRequest := packetParts + store.DispatchContextAggregateMaxBytes - 1
 	opt := schemawire.Options{
 		Defs: defs,
 		RefBounds: map[string]int{
 			"worker_packet2": packetForRequest,
 			"worker_packet3": packet3Parts + store.DispatchContextAggregateMaxBytes - 1,
+			"worker_packet4": packet4Parts + store.DispatchContextAggregateMaxBytes - 1,
 		},
-		FindingRefMax: findingRefMax,
+		FindingRefMax: packetOpt.FindingRefMax,
 	}
 	input, err := schemawire.Max(defs["work_transition_action_variant_dispatch_worker"], "work_transition_action_variant_dispatch_worker", opt)
 	if err != nil {

@@ -138,10 +138,23 @@ test("qualified preparation refs and metadata are mandatory before any probe or 
 })
 
 test("target preparations pass only the exact admitted materializer and runner pairs", async () => {
-  for (const pair of [{ materializer: "uv", runner: "pytest" }, { materializer: "none", runner: "check" }, { materializer: "uv", runner: "check" }]) {
+  for (const pair of [
+    { materializer: "uv", runner: "pytest" },
+    { materializer: "none", runner: "check" },
+    { materializer: "uv", runner: "check" },
+    { materializer: "bun", runner: "check" },
+  ]) {
     expect(await verifyPacketOracleReadiness(targetPacket(pair))).toBeNull()
   }
-  for (const pair of [{ materializer: "none", runner: "pytest" }, { materializer: "future", runner: "pytest" }, { materializer: "uv", runner: "future" }, { materializer: "", runner: "check" }]) {
+  for (const pair of [
+    { materializer: "none", runner: "pytest" },
+    { materializer: "bun", runner: "pytest" },
+    { materializer: "future", runner: "pytest" },
+    { materializer: "future", runner: "check" },
+    { materializer: "uv", runner: "future" },
+    { materializer: "bun", runner: "future" },
+    { materializer: "", runner: "check" },
+  ]) {
     const refusal = await verifyPacketOracleReadiness(targetPacket(pair))
     expect(refusal).not.toBeNull()
     expect(refusal!.message).toContain("preparation")

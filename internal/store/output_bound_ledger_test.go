@@ -35,7 +35,7 @@ package store
 //     utf8.RuneCountInString), never from the declared unit alone, and a
 //     guard mixing the measurements fails closed;
 //   - maxBound composes ALTERNATIVE writers, whose per-unit capacities may
-//     legitimately differ; pairedBound composes guards of the SAME value,
+//     legitimately differ; combinePaired composes guards of the SAME value,
 //     requires an inferred Go measurement, and takes their intersection;
 //   - SQLite length() over TEXT measures only the NUL-terminated prefix, so
 //     a character bound from it never stands as a full-string producer
@@ -59,7 +59,7 @@ package store
 // character and byte guards contributes their intersection; a bare Go
 // constant carries no guard implementation to infer from, so
 // goConstantBound trusts its declared unit and lets the producer/consumer
-// comparison catch misuse, and pairedBound refuses it outright; the census
+// comparison catch misuse, and combinePaired refuses it outright; the census
 // reads the published contract documents from the working tree, whose sync
 // with the generated Go schema is owned by the generator's own checks.
 
@@ -237,22 +237,9 @@ func sqliteBound(table, column string) outputBoundSource {
 // demanded between members. An unbounded member makes the composite
 // unbounded. Mixing items with string units is refused; string members carry
 // both their byte and character capacities so unit conversion stays sound.
-// Guards of the SAME value whose unit agreement matters belong in
-// pairedBound.
+// Guards of the SAME value whose unit agreement matters use combinePaired.
 func maxBound(sources ...outputBoundSource) outputBoundSource {
 	return outputBoundSource{kind: "max", members: sources}
-}
-
-// pairedBound composes guards of the SAME value whose unit agreement is
-// intended: a Go guard beside the SQLite CHECK that stores it. Every member's
-// constraints apply simultaneously and the composite returns their
-// intersection, never an alternative maximum. A bare Go constant is refused
-// as a member: its declared unit is not evidence of how the guard measures,
-// so a guard whose measurement changes could not fail the pair. Each Go
-// guard's unit must appear beside every SQLite member's CHECK units, or the
-// pair is refused.
-func pairedBound(sources ...outputBoundSource) outputBoundSource {
-	return outputBoundSource{kind: "paired", members: sources}
 }
 
 // sumBound composes an output assembled from parts: the parts' capacities
@@ -303,15 +290,10 @@ type outputBoundRegistration struct {
 	invalid string
 }
 
-var (
-	// ledgerRegistrations holds the family-file rows. Registration must be
-	// complete before the closure test runs: register from init() or a
-	// file-level var, never from another Test function body.
-	ledgerRegistrations []outputBoundRegistration
-	// ledgerOutputRoots holds explicitly registered host/internal output
-	// nodes that extend the manifest-owned census.
-	ledgerOutputRoots []censusRootRequest
-)
+// ledgerRegistrations holds the family-file rows. Registration must be
+// complete before the closure test runs: register from init() or a
+// file-level var, never from another Test function body.
+var ledgerRegistrations []outputBoundRegistration
 
 // registerOutputBound registers one census row. pattern is a JSON pointer to
 // a bound keyword (for example /$defs/workflow_read/properties/
@@ -353,14 +335,6 @@ func registerOutputBoundWithTwin(pattern string, source outputBoundSource) {
 func registerRetainedTwinBound(pattern string, retained outputBoundSource) {
 	registerOutputBound(pattern, inputBound(pattern))
 	registerOutputBound(retainedTwinPattern(pattern), retained)
-}
-
-// registerOutputRoot registers one host/internal output node that the census
-// must also cover, since not every published result is a manifest root.
-// Bounds under it are keyed "<file>#<pointer>" outside the payload document,
-// and their registration patterns must carry the same "<file>#/" prefix.
-func registerOutputRoot(file, pointer string) {
-	ledgerOutputRoots = append(ledgerOutputRoots, censusRootRequest{file: file, pointer: pointer})
 }
 
 // splitLedgerPatternFile splits a registration pattern into its schema
@@ -1959,7 +1933,7 @@ func combineComposite(kind string, members []evaluatedBound) (evaluatedBound, er
 	}, nil
 }
 
-// combinePaired reduces pairedBound members into one bound: guards of the
+// combinePaired reduces paired sources into one bound: guards of the
 // SAME value whose constraints all apply simultaneously, so the composite is
 // their intersection. A bare Go constant is refused as a member: its declared
 // unit is not evidence of how the guard measures, so a guard whose
@@ -2955,7 +2929,7 @@ func TestOutputBoundLedgerClosure(t *testing.T) {
 		t.Fatal(err)
 	}
 	rt.ddl = ddl
-	census, censusFailures := buildCensus(rt, ledgerOutputRoots, ledgerPayloadInputRoots())
+	census, censusFailures := buildCensus(rt, nil, ledgerPayloadInputRoots())
 	if len(censusFailures) > 0 {
 		details := make([]string, 0, len(censusFailures))
 		for _, failure := range censusFailures {
@@ -3438,7 +3412,7 @@ func TestLedgerUnitConversion(t *testing.T) {
 		t.Fatalf("alternative agreeing guards must compose: %v", err)
 	}
 
-	// pairedBound composes guards of the SAME value: every member's
+	// Paired sources compose guards of the SAME value: every member's
 	// constraints apply simultaneously and the pair is their intersection,
 	// never an alternative maximum. A bare constant is refused as a member,
 	// and the Go guard's unit must sit beside every SQLite member's units.

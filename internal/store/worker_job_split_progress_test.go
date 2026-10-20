@@ -233,10 +233,10 @@ func TestWorkerJobSplitProgressSkipsDispatchedSiblingForUntouchedTarget(t *testi
 	}
 	defer tx.Rollback()
 	convergence := WorkflowRetryConvergence{Basis: "split_leaf_progress", LatestRecordSeq: acceptanceSeq}
-	if guardErr := admitWorkerJobSplitProgressDispatchTx(context.Background(), tx, workID, convergence, &bindingC); guardErr != nil {
+	if guardErr := admitWorkerJobSplitProgressDispatchTx(context.Background(), tx, workID, convergence, &bindingC, BuiltinWorkflowRegistry()); guardErr != nil {
 		t.Fatalf("untouched sibling dispatch = %v, want admission", guardErr)
 	}
-	if guardErr := admitWorkerJobSplitProgressDispatchTx(context.Background(), tx, workID, convergence, &bindingB); guardErr == nil || !strings.Contains(guardErr.Error(), "job:successor-c") || strings.Contains(guardErr.Error(), "job:successor-b,") {
+	if guardErr := admitWorkerJobSplitProgressDispatchTx(context.Background(), tx, workID, convergence, &bindingB, BuiltinWorkflowRegistry()); guardErr == nil || !strings.Contains(guardErr.Error(), "job:successor-c") || strings.Contains(guardErr.Error(), "job:successor-b,") {
 		t.Fatalf("dispatched sibling dispatch = %v, want a refusal naming only the untouched sibling", guardErr)
 	}
 }
@@ -283,7 +283,7 @@ func TestWorkerJobSplitProgressFundsOuterSiblingAcrossNestedSplit(t *testing.T) 
 	}
 	defer tx.Rollback()
 	convergence := WorkflowRetryConvergence{Basis: "split_leaf_progress", LatestRecordSeq: acceptanceSeq}
-	if guardErr := admitWorkerJobSplitProgressDispatchTx(context.Background(), tx, workID, convergence, &bindingB); guardErr != nil {
+	if guardErr := admitWorkerJobSplitProgressDispatchTx(context.Background(), tx, workID, convergence, &bindingB, BuiltinWorkflowRegistry()); guardErr != nil {
 		t.Fatalf("outer sibling dispatch = %v, want admission", guardErr)
 	}
 }

@@ -588,6 +588,82 @@ func TestPredicateProgressRefusesUnhealthyAndMixedVerdicts(t *testing.T) {
 	}
 }
 
+// TestPredicateFamilySurvivesUnsatisfiedIntermediate proves the reviewer
+// chain: a satisfied obligation's family stays spent through unsatisfied
+// intermediate installs. A/X satisfied, superseded to A/Y with no verdict,
+// then to B/Y: the qualifying B/Y verdict earns no credit, while a genuinely
+// distinct required predicate still earns its own first credit.
+func TestPredicateFamilySurvivesUnsatisfiedIntermediate(t *testing.T) {
+	db, appendEvent, read := progressHistory(t, false)
+	evaluator := progressActorRecord(t, db, "evaluator", "agent")
+	progressQualifiedEvidence(t, db, appendEvent, "evidence:qualified")
+	first := appendEvent(WorkflowVerdictRecorded, progressVerdict(evaluator, []string{"evidence:qualified"}))
+	install := func(version int64, predicates ...workflowContractPredicatePayload) {
+		t.Helper()
+		contract := workflowContractApprovedPayload{ContractVersion: version, RequiredEvidence: []string{"artifact"}, OutcomePredicates: predicates, DecisionDomains: []string{}}
+		appendEvent(WorkflowContractSuperseded, workflowContractSupersededPayload{NewContractVersion: version, SuccessorContract: &contract})
+	}
+	verdict := func(version int64, predicateID string) workflowVerdictRecordedPayload {
+		recorded := progressVerdict(evaluator, []string{"evidence:qualified"})
+		recorded.ContractVersion, recorded.PredicateID = version, predicateID
+		return recorded
+	}
+	payloadY := mustJSONValue(map[string]any{"kind": "exists", "surface": "changed.go", "subjects": []string{"owner"}})
+	install(2, workflowContractPredicatePayload{PredicateID: "predicate:one", OutcomeKind: "exists", OutcomePayload: payloadY})
+	install(3, workflowContractPredicatePayload{PredicateID: "predicate:two", OutcomeKind: "exists", OutcomePayload: payloadY})
+	appendEvent(WorkflowVerdictRecorded, verdict(3, "predicate:two"))
+	if h := read(); h.nonprogressBoundary != first {
+		t.Fatalf("a qualifying verdict through unsatisfied intermediates renewed the spent lineage: anchor %d, want %d", h.nonprogressBoundary, first)
+	}
+	payloadZ := mustJSONValue(map[string]any{"kind": "exists", "surface": "fresh.go", "subjects": []string{"owner"}})
+	install(4,
+		workflowContractPredicatePayload{PredicateID: "predicate:two", OutcomeKind: "exists", OutcomePayload: payloadY},
+		workflowContractPredicatePayload{PredicateID: "predicate:three", OutcomeKind: "exists", OutcomePayload: payloadZ})
+	second := appendEvent(WorkflowVerdictRecorded, verdict(4, "predicate:three"))
+	if h := read(); h.nonprogressBoundary != second {
+		t.Fatalf("a genuinely distinct required predicate lost its first credit: anchor %d, want %d", h.nonprogressBoundary, second)
+	}
+}
+
+// TestPredicateFamilySpendsAllAliasesOnFirstSatisfaction proves the reverse
+// chain with no prior satisfaction: aliases carried across installs before
+// any verdict — A/X installed, A/Y installed, B/Y installed, none satisfied —
+// grant no progress themselves, make the family's first qualifying verdict
+// its only credit, and spend every member, so a later verdict for the
+// family's earlier member earns nothing.
+func TestPredicateFamilySpendsAllAliasesOnFirstSatisfaction(t *testing.T) {
+	db, appendEvent, read := progressHistory(t, false)
+	evaluator := progressActorRecord(t, db, "evaluator", "agent")
+	bound := progressQualifiedEvidence(t, db, appendEvent, "evidence:qualified")
+	payloadX := mustJSONValue(map[string]any{"kind": "exists", "surface": "source.go", "subjects": []string{"owner"}})
+	payloadY := mustJSONValue(map[string]any{"kind": "exists", "surface": "changed.go", "subjects": []string{"owner"}})
+	install := func(version int64, predicates ...workflowContractPredicatePayload) {
+		t.Helper()
+		contract := workflowContractApprovedPayload{ContractVersion: version, RequiredEvidence: []string{"artifact"}, OutcomePredicates: predicates, DecisionDomains: []string{}}
+		appendEvent(WorkflowContractSuperseded, workflowContractSupersededPayload{NewContractVersion: version, SuccessorContract: &contract})
+	}
+	install(2, workflowContractPredicatePayload{PredicateID: "predicate:one", OutcomeKind: "exists", OutcomePayload: payloadY})
+	install(3, workflowContractPredicatePayload{PredicateID: "predicate:two", OutcomeKind: "exists", OutcomePayload: payloadY})
+	if h := read(); h.nonprogressBoundary != bound {
+		t.Fatalf("a contract install granted progress: anchor %d, want the evidence binding at %d", h.nonprogressBoundary, bound)
+	}
+	verdictTwo := progressVerdict(evaluator, []string{"evidence:qualified"})
+	verdictTwo.ContractVersion, verdictTwo.PredicateID = 3, "predicate:two"
+	first := appendEvent(WorkflowVerdictRecorded, verdictTwo)
+	if h := read(); h.nonprogressBoundary != first {
+		t.Fatalf("the family's first qualifying verdict lost credit: anchor %d, want %d", h.nonprogressBoundary, first)
+	}
+	install(4,
+		workflowContractPredicatePayload{PredicateID: "predicate:one", OutcomeKind: "exists", OutcomePayload: payloadX},
+		workflowContractPredicatePayload{PredicateID: "predicate:two", OutcomeKind: "exists", OutcomePayload: payloadY})
+	verdictOne := progressVerdict(evaluator, []string{"evidence:qualified"})
+	verdictOne.ContractVersion, verdictOne.PredicateID = 4, "predicate:one"
+	appendEvent(WorkflowVerdictRecorded, verdictOne)
+	if h := read(); h.nonprogressBoundary != first {
+		t.Fatalf("a later verdict for the family's earlier member earned credit: anchor %d, want %d", h.nonprogressBoundary, first)
+	}
+}
+
 func workflowCorrectionWalkT(t *testing.T, db *sql.DB) *workflowCorrectionHistory {
 	t.Helper()
 	history, err := workflowCorrectionWalk(context.Background(), db, "work-history", 1<<62, "progress_test")

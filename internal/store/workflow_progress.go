@@ -41,6 +41,7 @@ type workflowProgressHistory struct {
 	definition    WorkflowDefinition
 	contract      workflowContractApprovedPayload
 	seen          map[string]bool
+	alias         map[string]string
 	bound         map[string]bool
 	executions    []workflowProgressExecution
 	cutoff        int64
@@ -51,7 +52,69 @@ type workflowProgressHistory struct {
 }
 
 func newWorkflowProgressHistory() workflowProgressHistory {
-	return workflowProgressHistory{seen: make(map[string]bool), bound: make(map[string]bool)}
+	return workflowProgressHistory{seen: make(map[string]bool), alias: make(map[string]string), bound: make(map[string]bool)}
+}
+
+// aliasFind returns one obligation identity's family representative. The
+// graph is derived wholly from the walked prefix, so repeated walks of one
+// immutable prefix rebuild it identically.
+func (p *workflowProgressHistory) aliasFind(identity string) string {
+	for {
+		parent, ok := p.alias[identity]
+		if !ok || parent == identity {
+			return identity
+		}
+		identity = parent
+	}
+}
+
+// aliasUnion joins two obligation identities into one equivalence family.
+func (p *workflowProgressHistory) aliasUnion(first, second string) {
+	firstRoot, secondRoot := p.aliasFind(first), p.aliasFind(second)
+	if firstRoot == secondRoot {
+		return
+	}
+	if secondRoot < firstRoot {
+		firstRoot, secondRoot = secondRoot, firstRoot
+	}
+	p.alias[secondRoot] = firstRoot
+}
+
+// aliasFamily returns every identity in the families of the given
+// identities, including the given identities themselves, in sorted order.
+func (p *workflowProgressHistory) aliasFamily(identities ...string) []string {
+	roots := make(map[string]bool, len(identities))
+	for _, identity := range identities {
+		roots[p.aliasFind(identity)] = true
+	}
+	family := make([]string, 0, len(identities))
+	for member := range p.alias {
+		if roots[p.aliasFind(member)] {
+			family = append(family, member)
+		}
+	}
+	for _, identity := range identities {
+		if !slices.Contains(family, identity) {
+			family = append(family, identity)
+		}
+	}
+	slices.Sort(family)
+	return family
+}
+
+// retainPredicateAliases carries obligation equivalence across a contract
+// installation: each recorded predicate's stable ID and its canonical
+// payload digest join one alias family, so a spent lineage stays spent
+// through unsatisfied intermediate contracts and a later satisfaction of any
+// member spends the whole family. An install itself grants no progress.
+func (p *workflowProgressHistory) retainPredicateAliases() {
+	for _, predicate := range p.contract.OutcomePredicates {
+		digest := workflowPredicatePayloadDigest(predicate)
+		if predicate.PredicateID == "" || digest == "" {
+			continue // a malformed recorded payload forms no stable identity
+		}
+		p.aliasUnion("predicate-id:"+predicate.PredicateID, "predicate-payload:"+digest)
+	}
 }
 
 func (p *workflowProgressHistory) declares(kind string) bool {
@@ -85,14 +148,23 @@ func (h *workflowCorrectionHistory) observeProgress(ctx context.Context, q query
 		if err := json.Unmarshal([]byte(row.payload), &selected); err != nil {
 			return err
 		}
-		entry, found := BuiltinWorkflowRegistry().Lookup(selected.Ref, selected.Version)
-		if found && entry.Digest == selected.Digest {
-			p.definition = entry.Definition
+		// The recorded selection verifies through the walk's authoritative
+		// registry, fail closed: no builtin retry, no silent legacy
+		// downgrade. A worker-satisfaction-only walk never resolves here.
+		registry := h.registry
+		if registry == nil {
+			registry = BuiltinWorkflowRegistry()
 		}
+		entry, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: selected.Ref, Version: selected.Version, Digest: selected.Digest})
+		if err != nil {
+			return err
+		}
+		p.definition = entry.Definition
 	case WorkflowContractApproved:
 		if err := json.Unmarshal([]byte(row.payload), &p.contract); err != nil {
 			return err
 		}
+		p.retainPredicateAliases()
 	case WorkflowContractSuperseded:
 		var successor workflowContractSupersededPayload
 		if err := json.Unmarshal([]byte(row.payload), &successor); err != nil {
@@ -110,6 +182,7 @@ func (h *workflowCorrectionHistory) observeProgress(ctx context.Context, q query
 		if slices.Contains(p.contract.RouteConventions, workflowCompleteStepCorrectionRoute) && row.seq > p.cutoff {
 			p.cutoff = row.seq
 		}
+		p.retainPredicateAliases()
 	case WorkflowActionStarted:
 		var started workflowActionStartedPayload
 		if err := json.Unmarshal([]byte(row.payload), &started); err != nil {
@@ -422,27 +495,32 @@ func progressActorClass(ctx context.Context, q queryer, actorRef, want string) (
 }
 
 // satisfyProgress records the first qualified satisfaction of one obligation
-// and its aliases, whether or not the budget can renew. A satisfaction
+// family, whether or not the budget can renew, and spends the whole family:
+// the alias graph carries every equivalence the walked prefix holds, so a
+// member satisfied under any recorded identity or payload spends them all,
+// and a family holding a spent member can never renew again. A satisfaction
 // recorded while failed-job debt or an open unconfirmed checks repair exists
 // is spent: it cannot rebind after the debt clears to mint credit. Only the
 // nonprogress window renews; the worker recovery boundary and the unresolved
 // set never move here.
 func (h *workflowCorrectionHistory) satisfyProgress(seq int64, qualification string, satisfaction workflowProgressSatisfaction, aliases ...string) {
 	p := &h.progress
-	seen := p.seen[satisfaction.Obligation]
 	for _, alias := range aliases {
-		if p.seen[alias] {
-			seen = true
+		p.aliasUnion(satisfaction.Obligation, alias)
+	}
+	identities := append([]string{satisfaction.Obligation}, aliases...)
+	family := p.aliasFamily(identities...)
+	spent := false
+	for _, member := range family {
+		if p.seen[member] {
+			spent = true
+			break
 		}
 	}
-	// The whole equivalence family is retained even when no credit is
-	// granted: a member refused once as another obligation's alias cannot
-	// reidentify with a changed payload or identity and renew later.
-	p.seen[satisfaction.Obligation] = true
-	for _, alias := range aliases {
-		p.seen[alias] = true
+	for _, member := range family {
+		p.seen[member] = true
 	}
-	if seen {
+	if spent {
 		return
 	}
 	if len(h.unresolved) != 0 {

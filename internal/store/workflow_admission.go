@@ -305,6 +305,15 @@ func workflowFailureOf(err error) *Failure {
 // single pooled connection forever. Ordered proof candidates are a separate
 // result for the guard's external tooling check, not part of the abstract state.
 func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (WorkflowAdmissionState, []workflowVerificationRun, []workflowVerificationRun, error) {
+	return loadWorkflowAdmissionStateTxForRegistry(ctx, q, workID, definition, currentStep, subject, nil)
+}
+
+// loadWorkflowAdmissionStateTxForRegistry folds the same admission state with
+// the caller's authoritative registry: the historical progress
+// qualification, the retry convergence, and the correction routes resolve
+// their pins through it, never through a builtin retry. A nil registry
+// selects the builtin registry.
+func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, registry DefinitionRegistry) (WorkflowAdmissionState, []workflowVerificationRun, []workflowVerificationRun, error) {
 	state := WorkflowAdmissionState{
 		Step:               currentStep,
 		RefinementWorkflow: workflowRefinementStepID(definition) != "",
@@ -331,7 +340,7 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	// folds below that resolve one active contract degrade instead of
 	// refusing, so the loader stays total over the projection the recovery
 	// owns and every action still reaches its typed route.
-	l := workflowAdmissionLoad{ctx: ctx, q: q, workID: workID, definition: definition, currentStep: currentStep, subject: subject, duplicated: state.ActiveContracts > 1}
+	l := workflowAdmissionLoad{ctx: ctx, q: q, workID: workID, definition: definition, currentStep: currentStep, subject: subject, duplicated: state.ActiveContracts > 1, registry: registry}
 	if err := l.staleness(&state); err != nil {
 		return WorkflowAdmissionState{}, nil, nil, err
 	}
@@ -384,6 +393,10 @@ type workflowAdmissionLoad struct {
 	currentStep string
 	subject     string
 	duplicated  bool
+	// registry is the authoritative resolver the fold's progress-sensitive
+	// derivations verify recorded selection pins through: nil selects the
+	// builtin registry.
+	registry DefinitionRegistry
 }
 
 // staleness folds the size rerun, law-pin staleness, breaking notices, open
@@ -500,7 +513,7 @@ func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) (bo
 			state.CorrectionRequestContext = gateContext
 		}
 	} else {
-		correctionRequestContext, correctionRequestMissing, correctionRequestErr := workflowCorrectionRequestAdmission(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, 0)
+		correctionRequestContext, correctionRequestMissing, correctionRequestErr := workflowCorrectionRequestAdmissionForRegistry(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, 0, l.registry)
 		if correctionRequestErr != nil && !(l.duplicated && workflowDuplicateContractProjection(correctionRequestErr)) {
 			return false, correctionRequestErr
 		}
@@ -524,7 +537,7 @@ func (l workflowAdmissionLoad) retryAndHolds(state *WorkflowAdmissionState) erro
 		}
 		state.UnconsumedUnboundRejection = rejectionHold
 	}
-	nonProgress, wallErr := workflowNonProgressAttemptCount(l.ctx, l.q, l.workID, l.subject)
+	nonProgress, wallErr := workflowNonProgressAttemptCountForRegistry(l.ctx, l.q, l.workID, l.subject, l.registry)
 	if wallErr != nil {
 		return wallErr
 	}
@@ -542,7 +555,7 @@ func (l workflowAdmissionLoad) retryAndHolds(state *WorkflowAdmissionState) erro
 	}
 	state.CorrectionEscalated = escalated
 	if state.retryEscalated() {
-		convergence, err := workflowRetryConvergence(l.ctx, l.q, l.workID, l.currentStep)
+		convergence, err := workflowRetryConvergenceForRegistry(l.ctx, l.q, l.workID, l.currentStep, l.registry)
 		if err != nil {
 			return err
 		}
@@ -1185,7 +1198,7 @@ func workflowUnconsumedUnboundRejection(ctx context.Context, q queryer, workID, 
 	if beforeSeq <= 0 {
 		prefix = int64(1) << 62
 	}
-	history, err := workflowCorrectionWalk(ctx, q, workID, prefix, subject)
+	history, err := workflowCorrectionWalkWorkerSatisfaction(ctx, q, workID, prefix, subject)
 	if err != nil {
 		return false, err
 	}

@@ -84,7 +84,14 @@ const WorkflowRetryWindowObligationLimit = 32
 // correction walk plus the admission wall's own derivations. The workflow
 // read projection calls it where no folded admission state exists.
 func workflowRetryWindowRead(ctx context.Context, q queryer, workID, step, subject string) (*WorkflowRetryWindow, error) {
-	h, err := workflowCorrectionWalk(ctx, q, workID, int64(1)<<62, subject)
+	return workflowRetryWindowForRegistry(ctx, q, workID, step, subject, nil)
+}
+
+// workflowRetryWindowForRegistry derives the same window with the caller's
+// authoritative registry resolving the recorded selections the progress
+// qualification verifies. A nil registry selects the builtin registry.
+func workflowRetryWindowForRegistry(ctx context.Context, q queryer, workID, step, subject string, registry DefinitionRegistry) (*WorkflowRetryWindow, error) {
+	h, err := workflowCorrectionWalkForRegistry(ctx, q, workID, int64(1)<<62, subject, registry)
 	if err != nil {
 		return nil, err
 	}
@@ -96,25 +103,25 @@ func workflowRetryWindowRead(ctx context.Context, q queryer, workID, step, subje
 	if err != nil {
 		return nil, err
 	}
-	return workflowRetryWindowCore(ctx, q, workID, step, subject, h, count, escalated, nil, nil)
+	return workflowRetryWindowCore(ctx, q, workID, step, subject, h, count, escalated, nil, nil, registry)
 }
 
 // workflowRetryWindowForState derives the same window from the caller's
 // already-folded admission state, so the work pin reuses the loader's wall
 // answer instead of re-entering the loader.
-func workflowRetryWindowForState(ctx context.Context, q queryer, workID, step, subject string, state WorkflowAdmissionState) (*WorkflowRetryWindow, error) {
-	h, err := workflowCorrectionWalk(ctx, q, workID, int64(1)<<62, subject)
+func workflowRetryWindowForState(ctx context.Context, q queryer, workID, step, subject string, state WorkflowAdmissionState, registry DefinitionRegistry) (*WorkflowRetryWindow, error) {
+	h, err := workflowCorrectionWalkForRegistry(ctx, q, workID, int64(1)<<62, subject, registry)
 	if err != nil {
 		return nil, err
 	}
 	convergence, funded := state.RetryConvergence, state.FundedChecksRepairReviews
-	return workflowRetryWindowCore(ctx, q, workID, step, subject, h, state.NonProgressAttempts, state.CorrectionEscalated, &convergence, &funded)
+	return workflowRetryWindowCore(ctx, q, workID, step, subject, h, state.NonProgressAttempts, state.CorrectionEscalated, &convergence, &funded, registry)
 }
 
 // workflowRetryWindowCore fills the window over one walked correction
 // history. A non-nil convergence or funded pointer carries the caller's
 // folded answer; a nil one derives it here, only while the wall stands.
-func workflowRetryWindowCore(ctx context.Context, q queryer, workID, step, subject string, h *workflowCorrectionHistory, count int64, escalated bool, convergence *WorkflowRetryConvergence, funded *int) (*WorkflowRetryWindow, error) {
+func workflowRetryWindowCore(ctx context.Context, q queryer, workID, step, subject string, h *workflowCorrectionHistory, count int64, escalated bool, convergence *WorkflowRetryConvergence, funded *int, registry DefinitionRegistry) (*WorkflowRetryWindow, error) {
 	out := &WorkflowRetryWindow{
 		Population: "distinct_failed_rejected_no_ship", Policy: h.progress.definition.ProgressPolicy,
 		Count: count, Limit: workflowCorrectionAttemptLimit, Prefix: h.progress.prefix,
@@ -187,7 +194,7 @@ func workflowRetryWindowCore(ctx context.Context, q queryer, workID, step, subje
 	out.CorrectionEscalated = escalated
 	if out.BlockingPopulation != "none" {
 		if convergence == nil {
-			basis, basisErr := workflowRetryConvergence(ctx, q, workID, step)
+			basis, basisErr := workflowRetryConvergenceForRegistry(ctx, q, workID, step, registry)
 			if basisErr != nil {
 				return nil, basisErr
 			}

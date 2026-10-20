@@ -147,7 +147,7 @@ func approvalOperatorQuestionProjection(t *testing.T, s *Store, definition Workf
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,lifecycle FROM workflow_instances wi JOIN work_items w ON w.id=wi.work_id WHERE wi.work_id=?`, workID).Scan(&pin.Step, &pin.Lifecycle); err != nil {
 		t.Fatal(err)
 	}
-	state, err := workPinStepIntentsTx(ctx, tx, workID, &pin, definition)
+	state, err := workPinStepIntentsTx(ctx, tx, workID, &pin, definition, BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatalf("work pin intents phase refused: %v", err)
 	}

@@ -155,7 +155,7 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, registry D
 	if err != nil {
 		return nil, err
 	}
-	state, _, _, err := loadWorkflowAdmissionStateTx(ctx, q, workID, definition, stepID, "workflow_correction")
+	state, _, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, q, workID, definition, stepID, "workflow_correction", registry)
 	if err != nil {
 		return nil, err
 	}
@@ -491,17 +491,37 @@ func workflowVerificationRequestCountSince(ctx context.Context, q queryer, workI
 // workflowCorrectionWindowBoundary excludes acceptance at seq: that result
 // cannot reset the window whose attempts its own admission must count.
 func workflowCorrectionWindowBoundary(ctx context.Context, q queryer, workID string, seq int64, subject string) (int64, error) {
-	history, err := workflowCorrectionWalk(ctx, q, workID, seq-1, subject)
+	history, err := workflowCorrectionWalkWorkerSatisfaction(ctx, q, workID, seq-1, subject)
 	if err != nil {
 		return 0, err
 	}
 	return history.boundary, nil
 }
 
-// workflowCorrectionWalk folds one inclusive event-log prefix. Both correction
-// projections use this history's obligation discharge rule (CD-0205 D4), not
-// the current attempt lifecycle, so historical reads keep replay parity.
+// workflowCorrectionWalk folds one inclusive event-log prefix with the
+// coordinator progress qualification resolved through the builtin registry:
+// the convenience for surfaces that select no caller registry.
 func workflowCorrectionWalk(ctx context.Context, q queryer, workID string, prefix int64, subject string) (*workflowCorrectionHistory, error) {
+	return workflowCorrectionWalkCore(ctx, q, workID, prefix, subject, nil, true)
+}
+
+// workflowCorrectionWalkForRegistry folds the same prefix with the caller's
+// authoritative registry: every recorded definition selection verifies
+// through it, fail closed, with no builtin retry or silent legacy fallback.
+func workflowCorrectionWalkForRegistry(ctx context.Context, q queryer, workID string, prefix int64, subject string, registry DefinitionRegistry) (*workflowCorrectionHistory, error) {
+	return workflowCorrectionWalkCore(ctx, q, workID, prefix, subject, registry, true)
+}
+
+// workflowCorrectionWalkWorkerSatisfaction folds the same prefix for the
+// callers that consume only the worker-satisfaction history — the acceptance
+// boundary, the correction records, the job debt, and the dispatch bindings.
+// These walks process no coordinator qualification, so a recorded selection
+// is neither resolved nor refused here: worker semantics never read it.
+func workflowCorrectionWalkWorkerSatisfaction(ctx context.Context, q queryer, workID string, prefix int64, subject string) (*workflowCorrectionHistory, error) {
+	return workflowCorrectionWalkCore(ctx, q, workID, prefix, subject, nil, false)
+}
+
+func workflowCorrectionWalkCore(ctx context.Context, q queryer, workID string, prefix int64, subject string, registry DefinitionRegistry, qualifyProgress bool) (*workflowCorrectionHistory, error) {
 	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.kind, COALESCE(json_extract(e.payload,'$.attempt_id'),''), COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''), COALESCE(json_extract(e.payload,'$.action_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.job_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.revision'),0), COALESCE(json_extract(e.payload,'$.worker_job.digest'),''), e.payload, e.event_id FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? ORDER BY e.seq`, string(SubjectWorkItem), workID, prefix)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot read the correction window history", true, "retry once the workflow event log is readable", err)
@@ -528,6 +548,7 @@ func workflowCorrectionWalk(ctx context.Context, q queryer, workID string, prefi
 	}
 	history := &workflowCorrectionHistory{
 		prefix:          prefix,
+		registry:        registry,
 		unresolved:      make(map[string]bool),
 		dispatchJob:     make(map[string]string),
 		dispatchBinding: make(map[string]WorkerJobBinding),
@@ -543,8 +564,10 @@ func workflowCorrectionWalk(ctx context.Context, q queryer, workID string, prefi
 		if err := history.observe(row, subject); err != nil {
 			return nil, err
 		}
-		if err := history.observeProgress(ctx, q, workID, subject, row); err != nil {
-			return nil, err
+		if qualifyProgress {
+			if err := history.observeProgress(ctx, q, workID, subject, row); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return history, nil
@@ -554,9 +577,13 @@ type workflowCorrectionHistory struct {
 	prefix              int64
 	boundary            int64
 	nonprogressBoundary int64
-	progress            workflowProgressHistory
-	unresolved          map[string]bool
-	dispatchJob         map[string]string
+	// registry is the authoritative resolver for the recorded definition
+	// selections this walk qualifies: nil selects the builtin registry. A
+	// worker-satisfaction-only walk resolves no selection at all.
+	registry    DefinitionRegistry
+	progress    workflowProgressHistory
+	unresolved  map[string]bool
+	dispatchJob map[string]string
 	// dispatchBinding retains the full dispatched job binding of each
 	// attempt, so oracle-side comparability can compare the exact
 	// revisions two correction records were dispatched under.
@@ -934,7 +961,14 @@ func workerJobObligationKey(payload WorkerJobRecordedPayload) string {
 // same attempt, so they consume one slot. Only productive acceptance that
 // discharges the correction window renews the budget.
 func workflowNonProgressAttemptCount(ctx context.Context, q queryer, workID, subject string) (int64, error) {
-	history, err := workflowCorrectionWalk(ctx, q, workID, int64(1)<<62, subject)
+	return workflowNonProgressAttemptCountForRegistry(ctx, q, workID, subject, nil)
+}
+
+// workflowNonProgressAttemptCountForRegistry counts the same whole-work
+// nonprogress population with the qualification resolved through the
+// caller's authoritative registry: nil selects the builtin registry.
+func workflowNonProgressAttemptCountForRegistry(ctx context.Context, q queryer, workID, subject string, registry DefinitionRegistry) (int64, error) {
+	history, err := workflowCorrectionWalkForRegistry(ctx, q, workID, int64(1)<<62, subject, registry)
 	if err != nil {
 		return 0, err
 	}
@@ -1341,6 +1375,13 @@ func workflowPostRejectionReviewMissing(ctx context.Context, q queryer, workID, 
 // correction: record_delivery stays the only route off an ordinary parked
 // gate.
 func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (*WorkflowCorrectionContext, error) {
+	return workflowDeliveryGateCorrectionContextForRegistry(ctx, q, workID, definition, currentStep, subject, nil)
+}
+
+// workflowDeliveryGateCorrectionContextForRegistry resolves the same gate
+// context with the caller's authoritative registry folding the admission
+// state's historical progress. A nil registry selects the builtin registry.
+func workflowDeliveryGateCorrectionContextForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, registry DefinitionRegistry) (*WorkflowCorrectionContext, error) {
 	if !workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
 		// The gate shape owns this route (CD-0166), not a work kind: the
 		// correction it admits is the post-rejection review return, and
@@ -1374,7 +1415,7 @@ func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workI
 	// the pool-backed queryer the continuation's queries would park behind
 	// the read transaction this wrapper holds (the store connection
 	// invariant).
-	state, _, _, err := loadWorkflowAdmissionStateTx(ctx, lawTx, workID, definition, currentStep, subject)
+	state, _, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, lawTx, workID, definition, currentStep, subject, registry)
 	if err != nil {
 		return nil, err
 	}
@@ -1581,8 +1622,16 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 // failed-review return; every other step corrects through the verification
 // verdict.
 func workflowCorrectionRequestAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64) (*WorkflowCorrectionContext, string, error) {
+	return workflowCorrectionRequestAdmissionForRegistry(ctx, q, workID, definition, currentStep, subject, excludeSeq, nil)
+}
+
+// workflowCorrectionRequestAdmissionForRegistry derives the same correction
+// request with the caller's authoritative registry resolving the folded
+// admission state's historical progress. A nil registry selects the builtin
+// registry.
+func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64, registry DefinitionRegistry) (*WorkflowCorrectionContext, string, error) {
 	if workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
-		context, err := workflowDeliveryGateCorrectionContext(ctx, q, workID, definition, currentStep, subject)
+		context, err := workflowDeliveryGateCorrectionContextForRegistry(ctx, q, workID, definition, currentStep, subject, registry)
 		if err != nil || context != nil {
 			return context, workflowCorrectionMissingNone, err
 		}
@@ -1617,7 +1666,14 @@ func workflowCorrectionRequestAdmission(ctx context.Context, q queryer, workID s
 // constructor reads. excludeSeq names the fold's own in-flight completion so
 // the anchor judges settled entries only; read surfaces pass zero.
 func workflowCorrectionRequestAdmissionState(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64) (bool, string, error) {
-	context, missing, err := workflowCorrectionRequestAdmission(ctx, q, workID, definition, currentStep, subject, excludeSeq)
+	return workflowCorrectionRequestAdmissionStateForRegistry(ctx, q, workID, definition, currentStep, subject, excludeSeq, nil)
+}
+
+// workflowCorrectionRequestAdmissionStateForRegistry resolves the same
+// admission with the caller's authoritative registry. A nil registry selects
+// the builtin registry.
+func workflowCorrectionRequestAdmissionStateForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64, registry DefinitionRegistry) (bool, string, error) {
+	context, missing, err := workflowCorrectionRequestAdmissionForRegistry(ctx, q, workID, definition, currentStep, subject, excludeSeq, registry)
 	return context != nil, missing, err
 }
 
@@ -1827,7 +1883,7 @@ func workflowCorrectionOpenRecord(ctx context.Context, q queryer, workID, dispat
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&watermark); err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot read the correction window watermark", true, "retry once the workflow event log is readable", err)
 	}
-	history, err := workflowCorrectionWalk(ctx, q, workID, watermark, subject)
+	history, err := workflowCorrectionWalkWorkerSatisfaction(ctx, q, workID, watermark, subject)
 	if err != nil {
 		return nil, err
 	}

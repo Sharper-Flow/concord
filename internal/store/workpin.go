@@ -267,7 +267,7 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 		// projection, and workflowAdmitSupersede classifies the recovery, so
 		// the pin, the preflight, and the fold answer identically for the
 		// same state.
-		state, _, _, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, registered.Definition, pin.Step, "work_pin")
+		state, _, _, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, registered.Definition, pin.Step, "work_pin", registry)
 		if stateErr != nil {
 			return pin, stateErr
 		}
@@ -280,7 +280,7 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 	if len(activeContractVersions) == 1 {
 		activeContractVersion = activeContractVersions[0]
 	}
-	state, err := workPinStepIntentsTx(ctx, tx, workID, &pin, registered.Definition)
+	state, err := workPinStepIntentsTx(ctx, tx, workID, &pin, registered.Definition, registry)
 	if err != nil {
 		return pin, err
 	}
@@ -295,7 +295,7 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 	}
 	// The CD-0164 D5 window reuses this pin's folded admission state, so the
 	// pin's wall answer is the loader's own, never a second derivation.
-	window, windowErr := workflowRetryWindowForState(ctx, tx, workID, pin.Step, "work_pin", state)
+	window, windowErr := workflowRetryWindowForState(ctx, tx, workID, pin.Step, "work_pin", state, registry)
 	if windowErr != nil {
 		return pin, windowErr
 	}
@@ -412,8 +412,8 @@ func verifyReadWorkflowDefinitionForRegistry(definition WorkflowReadDefinition, 
 // conditions per site. The pin never offers an advance the shared admission
 // refuses; an action standing only behind the operator's approval keeps its
 // intent, because the approval wall is the advertised escape.
-func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition) (WorkflowAdmissionState, error) {
-	state, _, _, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, pin.Step, "work_pin")
+func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, registry DefinitionRegistry) (WorkflowAdmissionState, error) {
+	state, _, _, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, pin.Step, "work_pin", registry)
 	if stateErr != nil {
 		return WorkflowAdmissionState{}, stateErr
 	}

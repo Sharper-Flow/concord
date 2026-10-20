@@ -34,6 +34,9 @@ type workflowActionGuardContext struct {
 	entry         RegisteredDefinition
 	currentStep   string
 	instanceState string
+	// registry is the authoritative definition source the dispatch verified
+	// the entry through: nil selects the builtin registry.
+	registry DefinitionRegistry
 
 	staleRecovery             bool
 	lateVerdictRecovery       bool
@@ -1282,7 +1285,7 @@ func (g *workflowActionGuardContext) foldedAdmissionState() (*WorkflowAdmissionS
 	if g.admissionState != nil {
 		return g.admissionState, nil
 	}
-	state, proofRuns, integrationRuns, err := loadWorkflowAdmissionStateTx(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
+	state, proofRuns, integrationRuns, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
 	if err != nil {
 		return nil, err
 	}
@@ -1428,6 +1431,9 @@ type workflowActionAssemblyInput struct {
 	defaultVerdictEvidence bool
 	lateVerdictRecovery    bool
 	envelopeEvidenceRefs   []string
+	// registry is the authoritative definition source the dispatch verified
+	// the entry through: nil selects the builtin registry.
+	registry DefinitionRegistry
 	// admission carries the fold's derived admission state, so the assembly's
 	// payload checks read the folded conditions instead of re-deriving them.
 	admission *WorkflowAdmissionState
@@ -1908,7 +1914,7 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 	// accepted leaf's lineage. The folded admission carries the basis; the
 	// guard binds the packet's job to the funding the log still supplies.
 	if in.admission != nil && in.admission.RetryConvergence.Basis == workflowSplitLeafProgressBasis {
-		if err := admitWorkerJobSplitProgressDispatchTx(in.ctx, in.tx, in.request.WorkID, in.admission.RetryConvergence, job); err != nil {
+		if err := admitWorkerJobSplitProgressDispatchTx(in.ctx, in.tx, in.request.WorkID, in.admission.RetryConvergence, job, in.registry); err != nil {
 			return err
 		}
 	}

@@ -1849,7 +1849,8 @@
             "",
             "findings_shrinking",
             "approach_changed",
-            "host_changed"
+            "host_changed",
+            "split_leaf_progress"
           ],
           "description": "The one-use basis a convergence-admitted retry consumed, or the empty string when no basis is currently available; a one-use basis is not a renewed window."
         },

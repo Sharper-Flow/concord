@@ -56,6 +56,13 @@ func workflowRetryConvergenceFailure(definition WorkflowDefinition, state Workfl
 // dispatch whose host worker never materialized. A split_leaf_progress basis
 // is consumed by the one sibling dispatch the accepted leaf funds.
 func workflowRetryConvergence(ctx context.Context, q queryer, workID, stepID string) (WorkflowRetryConvergence, error) {
+	return workflowRetryConvergenceForRegistry(ctx, q, workID, stepID, nil)
+}
+
+// workflowRetryConvergenceForRegistry derives the same basis with the
+// caller's authoritative registry resolving the pinned definition the
+// split-progress gate reads. A nil registry selects the builtin registry.
+func workflowRetryConvergenceForRegistry(ctx context.Context, q queryer, workID, stepID string, registry DefinitionRegistry) (WorkflowRetryConvergence, error) {
 	var lastDispatch, superseded int64
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker'`, string(SubjectWorkItem), workID, WorkflowActionCompleted).Scan(&lastDispatch); err != nil {
 		return WorkflowRetryConvergence{}, workflowProjectionError(err, "cannot read the latest dispatch for convergence")
@@ -66,11 +73,11 @@ func workflowRetryConvergence(ctx context.Context, q queryer, workID, stepID str
 	if superseded != 0 {
 		return WorkflowRetryConvergence{Basis: "approach_changed", SupersededSeq: superseded}, nil
 	}
-	progress, progressErr := workflowSplitLeafProgressConvergenceTx(ctx, q, workID, lastDispatch)
+	progress, progressErr := workflowSplitLeafProgressConvergenceTx(ctx, q, workID, lastDispatch, registry)
 	if progressErr != nil || progress.Basis != "" {
 		return progress, progressErr
 	}
-	history, err := workflowCorrectionWalk(ctx, q, workID, int64(1)<<62, "worker_convergence")
+	history, err := workflowCorrectionWalkWorkerSatisfaction(ctx, q, workID, int64(1)<<62, "worker_convergence")
 	if err != nil || len(history.records) == 0 {
 		return WorkflowRetryConvergence{}, err
 	}

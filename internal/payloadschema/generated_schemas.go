@@ -26029,7 +26029,8 @@ const GeneratedPayloadSchemaDocument = `{
             "",
             "findings_shrinking",
             "approach_changed",
-            "host_changed"
+            "host_changed",
+            "split_leaf_progress"
           ],
           "type": "string"
         },

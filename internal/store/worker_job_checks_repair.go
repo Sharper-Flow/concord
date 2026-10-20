@@ -124,7 +124,7 @@ func workerJobRepairContentEqual(a, b WorkerJobRecordedPayload) bool {
 // (the folding event's own sequence minus one) and is the current watermark
 // for live reads.
 func workerChecksRepairWalkTx(ctx context.Context, q queryer, workID string, prefix int64) (*workflowCorrectionHistory, error) {
-	return workflowCorrectionWalk(ctx, q, workID, prefix, "worker_job")
+	return workflowCorrectionWalkWorkerSatisfaction(ctx, q, workID, prefix, "worker_job")
 }
 
 func workerChecksRepairWatermarkTx(ctx context.Context, q queryer, workID string) (int64, error) {

@@ -119,7 +119,8 @@ if sys.argv[1] == "invoke":
     db.execute("CREATE TABLE IF NOT EXISTS work_items (id TEXT PRIMARY KEY, version INTEGER)")
     db.execute("CREATE TABLE IF NOT EXISTS work_messages (message_id TEXT PRIMARY KEY, sender_work_id TEXT, recipient_work_id TEXT, body TEXT, state TEXT)")
     db.execute("CREATE TABLE IF NOT EXISTS resource_claims (resource_key TEXT PRIMARY KEY, holder_work_id TEXT, holder_agent TEXT, holder_session TEXT, reason TEXT, state TEXT)")
-    db.execute("CREATE TABLE IF NOT EXISTS work_observations (observation_id TEXT PRIMARY KEY, work_id TEXT, statement TEXT)")
+    db.execute("CREATE TABLE IF NOT EXISTS work_observations (observation_id TEXT PRIMARY KEY, work_id TEXT, statement TEXT,"
+               " refs TEXT CHECK(json_type(refs)='array'), tags TEXT CHECK(json_type(tags)='array'))")
     if operation == "capture":
         n = db.execute("SELECT COUNT(*) FROM work_items").fetchone()[0] + 1
         work_id = "gate-work-" + str(n)
@@ -178,7 +179,11 @@ if sys.argv[1] == "invoke":
                     "expected_version": inp["expected_version"], "resulting_version": inp["expected_version"] + 1}} | refs[0]
     elif operation == "observation_record":
         inp = request["input"]
-        db.execute("INSERT INTO work_observations VALUES (?, ?, ?)", (inp["observation_id"], inp["work_id"], inp["statement"]))
+        # The v0.31.0 fold serialized omitted lists to JSON null against array
+        # CHECKs and reported the INSERT failure as a duplicate id: keep that
+        # contract so only a recipe sending explicit lists can pass.
+        db.execute("INSERT INTO work_observations VALUES (?, ?, ?, ?, ?)",
+                   (inp["observation_id"], inp["work_id"], inp["statement"], json.dumps(inp.get("refs")), json.dumps(inp.get("tags"))))
         kind, payload_version = "work.observation_recorded", 1
         refs = [{{"entity_kind": "observation", "id": inp["observation_id"], "version": "1"}}]
         payload = {{"operation": operation, "observation_id": inp["observation_id"], "statement": inp["statement"]}} | refs[0]

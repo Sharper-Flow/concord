@@ -85,7 +85,7 @@ RESOURCE_OPERATIONS = {
 OBSERVATION_OPERATIONS = {
     "observation_record": ((frozenset({"work_id", "statement", "idempotency_key"}), frozenset({"work_id", "idempotency_key"})),
                            "work_define_observation_record_input",
-                           frozenset({"work_id", "observation_id", "statement", "idempotency_key"})),
+                           frozenset({"work_id", "observation_id", "statement", "idempotency_key", "refs", "tags"})),
 }
 
 
@@ -640,7 +640,11 @@ def run_invoke_phase(run, repo: Path, tag: str, case: Path, store: Path, facts: 
         record["resource"] = {"sender": sender, "key": INVOKE_RESOURCE_KEY, "input_version": input_version,
                               "claim_version": claim_version, "release_version": release_version}
     if facts.get("has_observation", False):
-        observation = {"work_id": sender, "observation_id": INVOKE_OBSERVATION_ID, "statement": INVOKE_OBSERVATION_STATEMENT}
+        # The earliest observation writers fold omitted refs/tags to JSON null
+        # against array CHECK constraints, so the recipe carries explicit empty
+        # lists; the supplied-property check below holds when a source lacks them.
+        observation = {"work_id": sender, "observation_id": INVOKE_OBSERVATION_ID, "statement": INVOKE_OBSERVATION_STATEMENT,
+                       "refs": [], "tags": []}
         _, observation_version = receipt_ref(invoke("concord_work_define", "observation_record", observation, "gate-invoke-request-7",
                                                     "gate-invoke-idempotency-7", "observation-record"),
                                              "observation-record", {"observation": INVOKE_OBSERVATION_ID})

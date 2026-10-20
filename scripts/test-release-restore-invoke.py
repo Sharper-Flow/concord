@@ -75,7 +75,7 @@ RESOURCE_INPUTS = ('"work_relate_resource_claim_input":            {Required: []
 RESOURCE_CONTRACTS = RESOURCE_CLAIM_ENTRY + RESOURCE_RELEASE_ENTRY + RESOURCE_INPUTS
 OBSERVATION_ENTRY = ('{ID: "concord_work_define.observation_record", Tool: "concord_work_define", Operation: "observation_record", '
                      'Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_define"), Approval: ApprovalClass("none"), Availability: Availability("always"), InputSchema: "work_define_observation_record_input", ResultSchema: "mutation_result"},\n')
-OBSERVATION_INPUTS = ('"work_define_observation_record_input":         {Required: []string{"work_id", "statement", "idempotency_key"}, Properties: []string{"work_id", "observation_id", "statement", "idempotency_key"}},\n')
+OBSERVATION_INPUTS = ('"work_define_observation_record_input":         {Required: []string{"work_id", "statement", "idempotency_key"}, Properties: []string{"work_id", "observation_id", "statement", "idempotency_key", "refs", "tags"}},\n')
 OBSERVATION_CONTRACTS = OBSERVATION_ENTRY + OBSERVATION_INPUTS
 SEMVER = 'func NegotiateSurfaceVersion(supportedRange string) (string, error) {\n\tsupported := []SemVer{{{Major: 3, Minor: 8, Patch: 0}, {Major: 4, Minor: 0, Patch: 0}}}\n}\n'
 LOCATOR_PAIRS = "SELECT product_id,role FROM product_projects"
@@ -483,6 +483,10 @@ class InvokeUnitTest(unittest.TestCase):
                                                '{Required: []string{"work_id", "observation_id", "idempotency_key"}')
             with self.assertRaises(invoke.InvokeError):
                 invoke.observation_support(BASE_CONTRACTS + OBSERVATION_CONTRACTS.replace(OBSERVATION_INPUTS, moved), "v0.31.0-family")
+        with self.subTest(case="observation properties without the optional lists hold"):
+            stripped = OBSERVATION_INPUTS.replace(', "refs", "tags"', '')
+            with self.assertRaises(invoke.InvokeError):
+                invoke.observation_support(BASE_CONTRACTS + OBSERVATION_ENTRY + stripped, "v0.31.0-family")
         with self.subTest(case="legacy resource rows bind through the raw map"):
             self.assertTrue(invoke.resource_support(
                 BASE_CONTRACTS + self.LEGACY_RESOURCE_ROWS + RESOURCE_INPUTS, "v0.31.0-family", self.LEGACY_RESOURCE_BINDINGS))
@@ -1146,6 +1150,10 @@ class R1ProtocolTest(unittest.TestCase):
                     self.assertEqual(inputs["resource_claim"]["expected_version"], 31 if messages else 11)
                     self.assertEqual(inputs["resource_release"]["expected_version"], 53)
                     self.assertNotIn("expected_version", inputs["observation_record"])
+                    # The historical fold serializes omitted lists to JSON null against
+                    # array CHECKs, so the recipe must carry explicit empty lists.
+                    self.assertEqual(inputs["observation_record"]["refs"], [])
+                    self.assertEqual(inputs["observation_record"]["tags"], [])
                     self.assertEqual(record["resource"]["claim_version"], 53)
                     self.assertEqual(record["resource"]["release_version"], 79)
                     self.assertEqual(len({call["input"]["idempotency_key"] for call in calls}), len(calls))

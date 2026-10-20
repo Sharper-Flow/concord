@@ -245,10 +245,10 @@ func smallReviewDispositionJourney(t *testing.T, workID string) *candidateJourne
 
 func smallReviewDispositionJourneyAtRoot(t *testing.T, workID, root string) *candidateJourney {
 	t.Helper()
-	return smallReviewDispositionJourneyWithChecks(t, workID, root, nil)
+	return smallReviewDispositionJourneyWithChecks(t, workID, root, nil, nil)
 }
 
-func smallReviewDispositionJourneyWithChecks(t *testing.T, workID, root string, checks []FootprintPackageCheck) *candidateJourney {
+func smallReviewDispositionJourneyWithChecks(t *testing.T, workID, root string, checks []FootprintPackageCheck, files map[string]string) *candidateJourney {
 	t.Helper()
 	s, definition := footprintBindingItemWithChecks(t, workID, true, checks)
 	owner := WorkflowActor{PrincipalRef: "principal/agent", ClientRef: "client/concord", AgentRef: "agent/size", SessionRef: "session/" + workID, ActorClass: ActorAgent}
@@ -278,11 +278,12 @@ func smallReviewDispositionJourneyWithChecks(t *testing.T, workID, root string, 
 	if err := os.WriteFile(filepath.Join(dir, "internal/store/value.txt"), []byte("bounded candidate\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if checks != nil {
-		if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o700); err != nil {
+	for name, contents := range files {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, "scripts/check-small.py"), []byte("raise SystemExit(0)\n"), 0o600); err != nil {
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -428,20 +429,25 @@ func smallProofRecordVerdict(t *testing.T, j *candidateJourney) {
 	}
 }
 
-func TestSmallProofNativeReviewAndCurrentOutcomesPermitConfirmation(t *testing.T) {
-	j := smallReviewDispositionJourney(t, "small-proof-current")
-	if err := j.acceptEvidence(t, "small-review"); err != nil {
-		t.Fatal(err)
-	}
-	smallProofRecordVerdict(t, j)
-	ctx := context.Background()
-	if err := ApplyOperation(ctx, j.s, Operation{Events: []Event{{
+func smallProofRecordInvestigation(t *testing.T, j *candidateJourney) {
+	t.Helper()
+	if err := ApplyOperation(context.Background(), j.s, Operation{Events: []Event{{
 		EventID: "small-proof-investigation", Kind: WorkObservationRecorded, SubjectType: SubjectWorkItem, SubjectID: j.workID,
 		Actor: "actor:test", OccurredAt: time.Unix(8, 0).UTC(), PayloadVersion: 1,
 		Payload: mustJSONValue(map[string]any{"observation_id": "obs:" + strings.Repeat("a", 16), "statement": "technical investigation", "refs": []string{"root"}, "tags": []string{}}),
 	}}}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestSmallProofNativeReviewAndCurrentOutcomesPermitConfirmation(t *testing.T) {
+	j := smallReviewDispositionJourney(t, "small-proof-current")
+	if err := j.acceptEvidence(t, "small-review"); err != nil {
+		t.Fatal(err)
+	}
+	smallProofRecordVerdict(t, j)
+	smallProofRecordInvestigation(t, j)
+	ctx := context.Background()
 	small, err := builtinWorkflowDefinitionForSize("workflow.implementation", WorkSizeSmall)
 	if err != nil {
 		t.Fatal(err)
@@ -453,6 +459,16 @@ func TestSmallProofNativeReviewAndCurrentOutcomesPermitConfirmation(t *testing.T
 	if err != nil || !workPinContainsAction(pin.NextValidIntents, "confirm_premise") {
 		t.Fatalf("complete small proof did not open confirmation: %+v, %v", pin.NextValidIntents, err)
 	}
+	smallProofConfirm(t, j)
+	if err := RebuildFromLog(ctx, j.s); err != nil {
+		t.Fatalf("rebuild native small proof: %v", err)
+	}
+	reviewGateRequireStep(t, j.s, j.workID, "release")
+}
+
+func smallProofConfirm(t *testing.T, j *candidateJourney) {
+	t.Helper()
+	ctx := context.Background()
 	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo})
 	if err != nil {
 		t.Fatal(err)
@@ -470,14 +486,10 @@ func TestSmallProofNativeReviewAndCurrentOutcomesPermitConfirmation(t *testing.T
 		t.Fatalf("confirm complete native small proof: %v", err)
 	}
 	reviewGateRequireStep(t, j.s, j.workID, "release")
-	if err := RebuildFromLog(ctx, j.s); err != nil {
-		t.Fatalf("rebuild native small proof: %v", err)
-	}
-	reviewGateRequireStep(t, j.s, j.workID, "release")
 }
 
 func TestSmallProofExactFootprintReceiptAndPrefix(t *testing.T) {
-	j := smallReviewDispositionJourneyWithChecks(t, "small-proof-check", t.TempDir(), []FootprintPackageCheck{{Package: workSizeFootprintFixture().Paths[0].Package, Kind: "validator", Value: "scripts/check-small.py"}})
+	j := smallReviewDispositionJourneyWithChecks(t, "small-proof-check", t.TempDir(), []FootprintPackageCheck{{Package: workSizeFootprintFixture().Paths[0].Package, Kind: "validator", Value: "scripts/check-small.py"}}, map[string]string{"scripts/check-small.py": "raise SystemExit(0)\n"})
 	if err := j.acceptEvidence(t, "small-review"); err != nil {
 		t.Fatal(err)
 	}
@@ -577,4 +589,77 @@ func TestSmallProofExactFootprintReceiptAndPrefix(t *testing.T) {
 		t.Fatalf("rebuild exact native footprint proof: %v", err)
 	}
 	assertProof(0, true)
+}
+
+func TestSmallProofRealGoReceiptsPermitConfirmationAndRebuild(t *testing.T) {
+	checks := []FootprintPackageCheck{
+		{Package: workSizeFootprintFixture().Paths[0].Package, Kind: "go_test", Value: "pkg.TestValue"},
+		{Package: workSizeFootprintFixture().Paths[0].Package, Kind: "go_package", Value: "./pkg"},
+	}
+	j := smallReviewDispositionJourneyWithChecks(t, "small-proof-real-go", t.TempDir(), checks, map[string]string{
+		"go.mod":            "module example.invalid/small\n\ngo 1.26.0\n",
+		"pkg/value.go":      "package oracle\nfunc Value() int { return 7 }\n",
+		"pkg/value_test.go": candidateJourneyHarness,
+	})
+	if err := j.acceptEvidence(t, "small-review"); err != nil {
+		t.Fatal(err)
+	}
+	smallProofRecordVerdict(t, j)
+	ctx := t.Context()
+	small, err := builtinWorkflowDefinitionForSize("workflow.implementation", WorkSizeSmall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := readWorkVersion(t, j.s, j.workID)
+	actor := footprintBindingActorRef(t, j.workID)
+	event := workflowEventWithActor("small-go-raw-confirm", WorkflowPremiseConfirmed, j.workID, actor, map[string]any{
+		"work_id": j.workID, "expected_version": version, "resulting_version": version + 1,
+		"contract_version": 1, "confirming_actor_ref": actor, "confirmation_authority": "coordinator",
+	})
+	event.PayloadVersion = eventKindRegistry[WorkflowPremiseConfirmed].CurrentVersion
+	if err := appendFootprintBindingEvents(j.s, j.workID, version, []Event{event}); err == nil || !strings.Contains(err.Error(), "exact bound receipt") {
+		t.Fatalf("raw confirmation bypassed the unexecuted Go footprint: %v", err)
+	}
+	if got := readWorkVersion(t, j.s, j.workID); got != version {
+		t.Fatalf("refused Go proof changed version %d to %d", version, got)
+	}
+	for index, check := range checks {
+		if err := requireWorkflowSmallProofBefore(ctx, j.s.db, j.workID, small.Definition, 0); err == nil {
+			t.Fatalf("unexecuted Go check %s already qualified", check.Value)
+		}
+		request := j.request(check.Kind, nil)
+		request.Command, _ = workflowFootprintCheckCommand(FootprintCheck{Kind: check.Kind, Value: check.Value})
+		run, err := j.s.VerifyWorktree(ctx, request)
+		if err != nil || run.ExitCode != 0 || run.GoSuite == nil || !run.GoSuite.Complete {
+			t.Fatalf("real Go footprint %s: %+v, %v", check.Value, run, err)
+		}
+		if err := requireWorkflowSmallProofBefore(ctx, j.s.db, j.workID, small.Definition, 0); err == nil {
+			t.Fatalf("unbound Go run %s already qualified", check.Value)
+		}
+		if err := j.action(t, "bind_evidence", map[string]string{
+			"evidence_kind": "verification", "evidence_ref": run.OperationRef, "immutable_subject_ref": run.OperationRef,
+			"producer_id": request.PrincipalRef, "producer_run_ref": run.OperationRef, "producer_watermark": request.RequestID,
+		}, j.fixture.owner); err != nil {
+			t.Fatalf("bind exact Go footprint %s: %v", check.Value, err)
+		}
+		var bindingSeq int64
+		if err := j.s.db.QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.producer_run_ref')=?`, j.workID, WorkflowEvidenceBound, run.OperationRef).Scan(&bindingSeq); err != nil {
+			t.Fatal(err)
+		}
+		if err := requireWorkflowSmallProofBefore(ctx, j.s.db, j.workID, small.Definition, bindingSeq); err == nil {
+			t.Fatalf("future binding of %s leaked into its prefix", check.Value)
+		}
+		if err := requireWorkflowSmallProofBefore(ctx, j.s.db, j.workID, small.Definition, bindingSeq+1); (err == nil) != (index == len(checks)-1) {
+			t.Fatalf("proof after Go check %s: %v", check.Value, err)
+		}
+	}
+	smallProofRecordInvestigation(t, j)
+	smallProofConfirm(t, j)
+	if err := RebuildFromLog(ctx, j.s); err != nil {
+		t.Fatalf("rebuild real-Go small proof: %v", err)
+	}
+	reviewGateRequireStep(t, j.s, j.workID, "release")
+	if err := requireWorkflowSmallProofBefore(ctx, j.s.db, j.workID, small.Definition, 0); err != nil {
+		t.Fatalf("rebuild lost real-Go small proof: %v", err)
+	}
 }

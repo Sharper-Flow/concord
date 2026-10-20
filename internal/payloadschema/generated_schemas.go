@@ -566,31 +566,25 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "active_unit": {
-          "description": "Bounds: 2..256 code points inclusive",
           "maxLength": 256,
           "minLength": 2,
           "type": "string"
         },
         "attempt_epoch": {
-          "description": "Bounds: >=1 value inclusive",
           "minimum": 1,
           "type": "integer"
         },
         "checkpoint_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "diagnosis": {
-          "description": "Bounds: 2..4096 code points inclusive",
           "maxLength": 4096,
           "minLength": 2,
           "type": "string"
         },
         "evidence_refs": {
-          "description": "Bounds: 1..64 items inclusive",
           "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+            "$ref": "#/$defs/reference"
           },
           "maxItems": 64,
           "minItems": 1,
@@ -598,51 +592,41 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "hypothesis": {
-          "description": "Bounds: 2..4096 code points inclusive",
           "maxLength": 4096,
           "minLength": 2,
           "type": "string"
         },
         "pending_decisions": {
-          "description": "Bounds: <=16 items inclusive",
           "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+            "$ref": "#/$defs/reference"
           },
           "maxItems": 16,
           "type": "array",
           "uniqueItems": true
         },
         "pending_questions": {
-          "description": "Bounds: <=16 items inclusive",
           "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+            "$ref": "#/$defs/reference"
           },
           "maxItems": 16,
           "type": "array",
           "uniqueItems": true
         },
         "sequence": {
-          "description": "Bounds: >=1 value inclusive",
           "minimum": 1,
           "type": "integer"
         },
         "step_id": {
-          "$ref": "#/$defs/short",
-          "description": "Bounds: 1..256 code points inclusive"
+          "$ref": "#/$defs/short"
         },
         "strategy": {
-          "description": "Bounds: 2..4096 code points inclusive",
           "maxLength": 4096,
           "minLength": 2,
           "type": "string"
         },
         "touched_refs": {
-          "description": "Bounds: 1..64 items inclusive",
           "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+            "$ref": "#/$defs/reference"
           },
           "maxItems": 64,
           "minItems": 1,
@@ -650,8 +634,7 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "work_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
+          "$ref": "#/$defs/version"
         }
       },
       "required": [
@@ -3240,20 +3223,17 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "blob_oid": {
-          "description": "Bounds: 40..64 code points inclusive",
           "maxLength": 64,
           "minLength": 40,
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
           "type": "string"
         },
         "path": {
-          "description": "Bounds: 1..512 code points inclusive",
           "maxLength": 512,
           "minLength": 1,
           "type": "string"
         },
         "sha256": {
-          "description": "Bounds: 71..71 code points inclusive",
           "maxLength": 71,
           "minLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$",
@@ -3404,14 +3384,12 @@ const GeneratedPayloadSchemaDocument = `{
           },
           "properties": {
             "build_environment_digest": {
-              "description": "Bounds: 71..71 code points inclusive",
               "maxLength": 71,
               "minLength": 71,
               "pattern": "^sha256:[0-9a-f]{64}$",
               "type": "string"
             },
             "bundle_digest": {
-              "description": "Bounds: 71..71 code points inclusive",
               "maxLength": 71,
               "minLength": 71,
               "pattern": "^sha256:[0-9a-f]{64}$",
@@ -3419,15 +3397,12 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "case_to_test_map": {
               "additionalProperties": false,
-              "description": "Bounds: 1..64 properties inclusive",
               "maxProperties": 64,
               "minProperties": 1,
               "patternProperties": {
                 "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
-                  "description": "Bounds: 1..8 items inclusive",
                   "items": {
-                    "$ref": "#/$defs/native_oracle_test_name",
-                    "description": "Bounds: 5..64 code points inclusive"
+                    "$ref": "#/$defs/native_oracle_test_name"
                   },
                   "maxItems": 8,
                   "minItems": 1,
@@ -3438,13 +3413,11 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "object"
             },
             "contract_version": {
-              "description": "Bounds: 1..9223372036854775807 value inclusive",
               "maximum": 9223372036854775807,
               "minimum": 1,
               "type": "integer"
             },
             "files": {
-              "description": "Bounds: 1..32 items inclusive",
               "items": {
                 "$ref": "#/$defs/native_oracle_file"
               },
@@ -3453,34 +3426,29 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "array"
             },
             "logical_argv_digest": {
-              "description": "Bounds: 71..71 code points inclusive",
               "maxLength": 71,
               "minLength": 71,
               "pattern": "^sha256:[0-9a-f]{64}$",
               "type": "string"
             },
             "logical_cwd": {
-              "description": "Bounds: 1..512 code points inclusive",
               "maxLength": 512,
               "minLength": 1,
               "type": "string"
             },
             "manifest_blob": {
-              "description": "Bounds: 40..64 code points inclusive",
               "maxLength": 64,
               "minLength": 40,
               "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
               "type": "string"
             },
             "manifest_digest": {
-              "description": "Bounds: 71..71 code points inclusive",
               "maxLength": 71,
               "minLength": 71,
               "pattern": "^sha256:[0-9a-f]{64}$",
               "type": "string"
             },
             "native_plan_sha256": {
-              "description": "Bounds: 71..71 code points inclusive",
               "maxLength": 71,
               "minLength": 71,
               "pattern": "^sha256:[0-9a-f]{64}$",
@@ -3491,7 +3459,6 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string"
             },
             "project_id": {
-              "description": "Bounds: 1..128 code points inclusive",
               "maxLength": 128,
               "minLength": 1,
               "type": "string"
@@ -3511,22 +3478,18 @@ const GeneratedPayloadSchemaDocument = `{
               "$ref": "#/$defs/work_context_reading_source_repository_file"
             },
             "run_ref": {
-              "description": "Bounds: 1..512 code points inclusive",
               "maxLength": 512,
               "minLength": 1,
               "type": "string"
             },
             "selected_distinct_count": {
-              "description": "Bounds: 1..40 value inclusive",
               "maximum": 40,
               "minimum": 1,
               "type": "integer"
             },
             "selected_test_names": {
-              "description": "Bounds: 1..40 items inclusive",
               "items": {
-                "$ref": "#/$defs/native_oracle_test_name",
-                "description": "Bounds: 5..64 code points inclusive"
+                "$ref": "#/$defs/native_oracle_test_name"
               },
               "maxItems": 40,
               "minItems": 1,
@@ -3543,20 +3506,17 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "boolean"
             },
             "subject_commit": {
-              "description": "Bounds: 40..64 code points inclusive",
               "maxLength": 64,
               "minLength": 40,
               "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
               "type": "string"
             },
             "toolchain_identity": {
-              "description": "Bounds: 1..512 code points inclusive",
               "maxLength": 512,
               "minLength": 1,
               "type": "string"
             },
             "work_id": {
-              "description": "Bounds: 1..128 code points inclusive",
               "maxLength": 128,
               "minLength": 1,
               "type": "string"
@@ -3596,7 +3556,6 @@ const GeneratedPayloadSchemaDocument = `{
                     "const": true
                   },
                   "ref": {
-                    "description": "Bounds: >=1 code points inclusive",
                     "minLength": 1
                   },
                   "stream": {
@@ -3610,7 +3569,6 @@ const GeneratedPayloadSchemaDocument = `{
                     "const": true
                   },
                   "ref": {
-                    "description": "Bounds: >=1 code points inclusive",
                     "minLength": 1
                   },
                   "stream": {
@@ -3700,14 +3658,12 @@ const GeneratedPayloadSchemaDocument = `{
           ],
           "properties": {
             "build_environment_digest": {
-              "description": "Bounds: 71..71 code points inclusive",
               "maxLength": 71,
               "minLength": 71,
               "pattern": "^sha256:[0-9a-f]{64}$",
               "type": "string"
             },
             "bundle_digest": {
-              "description": "Bounds: 71..71 code points inclusive",
               "maxLength": 71,
               "minLength": 71,
               "pattern": "^sha256:[0-9a-f]{64}$",
@@ -3715,14 +3671,11 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "case_to_witness_map": {
               "additionalProperties": false,
-              "description": "Bounds: 1..64 properties inclusive",
               "maxProperties": 64,
               "minProperties": 1,
               "patternProperties": {
                 "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
-                  "description": "Bounds: 1..8 items inclusive",
                   "items": {
-                    "description": "Bounds: 1..256 code points inclusive",
                     "maxLength": 256,
                     "minLength": 1,
                     "pattern": "^[^\\x00-\\x1f\\x7f]*$",
@@ -3737,13 +3690,11 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "object"
             },
             "contract_version": {
-              "description": "Bounds: 1..9223372036854775807 value inclusive",
               "maximum": 9223372036854775807,
               "minimum": 1,
               "type": "integer"
             },
             "files": {
-              "description": "Bounds: 1..32 items inclusive",
               "items": {
                 "$ref": "#/$defs/native_oracle_file"
               },
@@ -3752,34 +3703,29 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "array"
             },
             "logical_argv_digest": {
-              "description": "Bounds: 71..71 code points inclusive",
               "maxLength": 71,
               "minLength": 71,
               "pattern": "^sha256:[0-9a-f]{64}$",
               "type": "string"
             },
             "logical_cwd": {
-              "description": "Bounds: 1..512 code points inclusive",
               "maxLength": 512,
               "minLength": 1,
               "type": "string"
             },
             "manifest_blob": {
-              "description": "Bounds: 40..64 code points inclusive",
               "maxLength": 64,
               "minLength": 40,
               "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
               "type": "string"
             },
             "manifest_digest": {
-              "description": "Bounds: 71..71 code points inclusive",
               "maxLength": 71,
               "minLength": 71,
               "pattern": "^sha256:[0-9a-f]{64}$",
               "type": "string"
             },
             "native_plan_sha256": {
-              "description": "Bounds: 71..71 code points inclusive",
               "maxLength": 71,
               "minLength": 71,
               "pattern": "^sha256:[0-9a-f]{64}$",
@@ -3790,7 +3736,6 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string"
             },
             "project_id": {
-              "description": "Bounds: 1..128 code points inclusive",
               "maxLength": 128,
               "minLength": 1,
               "type": "string"
@@ -3814,21 +3759,17 @@ const GeneratedPayloadSchemaDocument = `{
               "$ref": "#/$defs/work_context_reading_source_repository_file"
             },
             "run_ref": {
-              "description": "Bounds: 1..512 code points inclusive",
               "maxLength": 512,
               "minLength": 1,
               "type": "string"
             },
             "selected_distinct_count": {
-              "description": "Bounds: 1..40 value inclusive",
               "maximum": 40,
               "minimum": 1,
               "type": "integer"
             },
             "selected_witness_ids": {
-              "description": "Bounds: 1..40 items inclusive",
               "items": {
-                "description": "Bounds: 1..256 code points inclusive",
                 "maxLength": 256,
                 "minLength": 1,
                 "pattern": "^[^\\x00-\\x1f\\x7f]*$",
@@ -3849,7 +3790,6 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "boolean"
             },
             "subject_commit": {
-              "description": "Bounds: 40..64 code points inclusive",
               "maxLength": 64,
               "minLength": 40,
               "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
@@ -3871,13 +3811,11 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string"
             },
             "toolchain_identity": {
-              "description": "Bounds: 1..512 code points inclusive",
               "maxLength": 512,
               "minLength": 1,
               "type": "string"
             },
             "work_id": {
-              "description": "Bounds: 1..128 code points inclusive",
               "maxLength": 128,
               "minLength": 1,
               "type": "string"
@@ -3920,7 +3858,6 @@ const GeneratedPayloadSchemaDocument = `{
                     "const": true
                   },
                   "ref": {
-                    "description": "Bounds: >=1 code points inclusive",
                     "minLength": 1
                   },
                   "stream": {
@@ -3934,7 +3871,6 @@ const GeneratedPayloadSchemaDocument = `{
                     "const": true
                   },
                   "ref": {
-                    "description": "Bounds: >=1 code points inclusive",
                     "minLength": 1
                   },
                   "stream": {
@@ -3952,14 +3888,12 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "properties": {
         "build_environment_digest": {
-          "description": "Bounds: 71..71 code points inclusive",
           "maxLength": 71,
           "minLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$",
           "type": "string"
         },
         "bundle_digest": {
-          "description": "Bounds: 71..71 code points inclusive",
           "maxLength": 71,
           "minLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$",
@@ -3967,15 +3901,12 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "case_to_test_map": {
           "additionalProperties": false,
-          "description": "Bounds: 1..64 properties inclusive",
           "maxProperties": 64,
           "minProperties": 1,
           "patternProperties": {
             "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
-              "description": "Bounds: 1..8 items inclusive",
               "items": {
-                "$ref": "#/$defs/native_oracle_test_name",
-                "description": "Bounds: 5..64 code points inclusive"
+                "$ref": "#/$defs/native_oracle_test_name"
               },
               "maxItems": 8,
               "minItems": 1,
@@ -3987,14 +3918,12 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "case_to_witness_map": {
           "additionalProperties": false,
-          "description": "Each control case maps to 1 to 8 selected witness IDs; the map covers exactly the control's cases, and the union of its values is exactly selected_witness_ids. Bounds: 1..64 properties inclusive",
+          "description": "Each control case maps to 1 to 8 selected witness IDs; the map covers exactly the control's cases, and the union of its values is exactly selected_witness_ids.",
           "maxProperties": 64,
           "minProperties": 1,
           "patternProperties": {
             "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
-              "description": "Bounds: 1..8 items inclusive",
               "items": {
-                "description": "Bounds: 1..256 code points inclusive",
                 "maxLength": 256,
                 "minLength": 1,
                 "pattern": "^[^\\x00-\\x1f\\x7f]*$",
@@ -4009,13 +3938,11 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "object"
         },
         "contract_version": {
-          "description": "Bounds: 1..9223372036854775807 value inclusive",
           "maximum": 9223372036854775807,
           "minimum": 1,
           "type": "integer"
         },
         "files": {
-          "description": "Bounds: 1..32 items inclusive",
           "items": {
             "$ref": "#/$defs/native_oracle_file"
           },
@@ -4024,34 +3951,29 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "logical_argv_digest": {
-          "description": "Bounds: 71..71 code points inclusive",
           "maxLength": 71,
           "minLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$",
           "type": "string"
         },
         "logical_cwd": {
-          "description": "Bounds: 1..512 code points inclusive",
           "maxLength": 512,
           "minLength": 1,
           "type": "string"
         },
         "manifest_blob": {
-          "description": "Bounds: 40..64 code points inclusive",
           "maxLength": 64,
           "minLength": 40,
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
           "type": "string"
         },
         "manifest_digest": {
-          "description": "Bounds: 71..71 code points inclusive",
           "maxLength": 71,
           "minLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$",
           "type": "string"
         },
         "native_plan_sha256": {
-          "description": "Bounds: 71..71 code points inclusive",
           "maxLength": 71,
           "minLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$",
@@ -4062,7 +3984,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "project_id": {
-          "description": "Bounds: 1..128 code points inclusive",
           "maxLength": 128,
           "minLength": 1,
           "type": "string"
@@ -4087,22 +4008,19 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/work_context_reading_source_repository_file"
         },
         "run_ref": {
-          "description": "Bounds: 1..512 code points inclusive",
           "maxLength": 512,
           "minLength": 1,
           "type": "string"
         },
         "selected_distinct_count": {
-          "description": "Bounds: 1..40 value inclusive",
           "maximum": 40,
           "minimum": 1,
           "type": "integer"
         },
         "selected_test_names": {
-          "description": "The nominal maximum derives from floor((256-13)/6), not an independent test allowance. Every rendered selector still obeys sum(name bytes)+N+13 <= 256. No truncation or omitted witness. Bounds: 1..40 items inclusive",
+          "description": "The nominal maximum derives from floor((256-13)/6), not an independent test allowance. Every rendered selector still obeys sum(name bytes)+N+13 <= 256. No truncation or omitted witness.",
           "items": {
-            "$ref": "#/$defs/native_oracle_test_name",
-            "description": "Bounds: 5..64 code points inclusive"
+            "$ref": "#/$defs/native_oracle_test_name"
           },
           "maxItems": 40,
           "minItems": 1,
@@ -4110,9 +4028,8 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "selected_witness_ids": {
-          "description": "The runner-defined exact witness identities the qualified preparation selected: unique bounded visible strings of at most 256 bytes. The rendered selector still obeys the bounded verify command shape, so the nominal maximum derives from the shared witness allowance, not an independent one. No truncation or omitted witness. Bounds: 1..40 items inclusive",
+          "description": "The runner-defined exact witness identities the qualified preparation selected: unique bounded visible strings of at most 256 bytes. The rendered selector still obeys the bounded verify command shape, so the nominal maximum derives from the shared witness allowance, not an independent one. No truncation or omitted witness.",
           "items": {
-            "description": "Bounds: 1..256 code points inclusive",
             "maxLength": 256,
             "minLength": 1,
             "pattern": "^[^\\x00-\\x1f\\x7f]*$",
@@ -4133,7 +4050,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "boolean"
         },
         "subject_commit": {
-          "description": "Bounds: 40..64 code points inclusive",
           "maxLength": 64,
           "minLength": 40,
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
@@ -4157,13 +4073,11 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "toolchain_identity": {
-          "description": "Bounds: 1..512 code points inclusive",
           "maxLength": 512,
           "minLength": 1,
           "type": "string"
         },
         "work_id": {
-          "description": "Bounds: 1..128 code points inclusive",
           "maxLength": 128,
           "minLength": 1,
           "type": "string"
@@ -6514,19 +6428,16 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "boolean"
         },
         "length": {
-          "description": "Bounds: 0..2097152 value inclusive",
           "maximum": 2097152,
           "minimum": 0,
           "type": "integer"
         },
         "ref": {
-          "description": "Bounds: 0..512 code points inclusive",
           "maxLength": 512,
           "minLength": 0,
           "type": "string"
         },
         "sha256": {
-          "description": "Bounds: 71..71 code points inclusive",
           "maxLength": 71,
           "minLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$",
@@ -6550,7 +6461,6 @@ const GeneratedPayloadSchemaDocument = `{
       "then": {
         "properties": {
           "ref": {
-            "description": "Bounds: >=1 code points inclusive",
             "minLength": 1
           }
         }
@@ -6558,7 +6468,6 @@ const GeneratedPayloadSchemaDocument = `{
       "type": "object"
     },
     "native_oracle_test_name": {
-      "description": "Bounds: 5..64 code points inclusive",
       "maxLength": 64,
       "minLength": 5,
       "pattern": "^Test[A-Z][A-Za-z0-9_]*$",
@@ -8287,10 +8196,8 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "domain_ids": {
-          "description": "Bounds: <=32 items inclusive",
           "items": {
-            "$ref": "#/$defs/id",
-            "description": "Bounds: 1..128 code points inclusive"
+            "$ref": "#/$defs/id"
           },
           "maxItems": 32,
           "type": "array"
@@ -8303,28 +8210,22 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "product_ids": {
-          "description": "Bounds: <=32 items inclusive",
           "items": {
-            "$ref": "#/$defs/id",
-            "description": "Bounds: 1..128 code points inclusive"
+            "$ref": "#/$defs/id"
           },
           "maxItems": 32,
           "type": "array"
         },
         "project_ids": {
-          "description": "Bounds: <=32 items inclusive",
           "items": {
-            "$ref": "#/$defs/id",
-            "description": "Bounds: 1..128 code points inclusive"
+            "$ref": "#/$defs/id"
           },
           "maxItems": 32,
           "type": "array"
         },
         "tag_ids": {
-          "description": "Bounds: <=32 items inclusive",
           "items": {
-            "$ref": "#/$defs/id",
-            "description": "Bounds: 1..128 code points inclusive"
+            "$ref": "#/$defs/id"
           },
           "maxItems": 32,
           "type": "array"
@@ -8391,7 +8292,6 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "accessed_at": {
-          "description": "Bounds: 1..40 code points inclusive",
           "maxLength": 40,
           "minLength": 1,
           "type": "string"
@@ -8408,38 +8308,31 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "locator": {
-          "description": "Bounds: 1..2048 code points inclusive",
           "maxLength": 2048,
           "minLength": 1,
           "type": "string"
         },
         "pack_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "published_at": {
-          "description": "Bounds: 1..40 code points inclusive",
           "maxLength": 40,
           "minLength": 1,
           "type": "string"
         },
         "publisher_or_author": {
-          "description": "Bounds: 1..256 code points inclusive",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
         },
         "revision": {
-          "description": "Bounds: >=1 value inclusive",
           "minimum": 1,
           "type": "integer"
         },
         "source_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "title": {
-          "description": "Bounds: 1..512 code points inclusive",
           "maxLength": 512,
           "minLength": 1,
           "type": "string"
@@ -11135,13 +11028,11 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "domain_id": {
-          "description": "Bounds: 1..256 code points inclusive",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
         },
         "finding_ids": {
-          "description": "Bounds: 0..32 items inclusive",
           "items": {
             "description": "The closed view-id namespace: generic finding ids and selected research view ids share the group's ordered id list.",
             "pattern": "^(finding|research):[0-9]+:[0-9]+$",
@@ -11152,9 +11043,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "required_reading_ordinals": {
-          "description": "Bounds: 0..32 items inclusive",
           "items": {
-            "description": "Bounds: >=0 value inclusive",
             "minimum": 0,
             "type": "integer"
           },
@@ -11234,15 +11123,13 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "domain_id": {
-          "description": "Bounds: 1..256 code points inclusive",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
         },
         "evidence_refs": {
-          "description": "The evidence that supports the finding. A ranked finding without an oracle tie projects null; the core reader owns that wire shape. Bounds: 0..8 items inclusive",
+          "description": "The evidence that supports the finding. A ranked finding without an oracle tie projects null; the core reader owns that wire shape.",
           "items": {
-            "description": "Bounds: 1..256 code points inclusive",
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
@@ -11278,7 +11165,6 @@ const GeneratedPayloadSchemaDocument = `{
           "description": "The typed oracle tie of a ranked review finding: classification plus the owner, predicate/law, case, and control references that bind it."
         },
         "ordinal": {
-          "description": "Bounds: >=0 value inclusive",
           "minimum": 0,
           "type": "integer"
         },
@@ -11290,18 +11176,15 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "product_wide_rationale": {
-          "description": "Bounds: <=512 code points inclusive",
           "maxLength": 512,
           "type": "string"
         },
         "source_event_id": {
-          "description": "Bounds: 1..128 code points inclusive",
           "maxLength": 128,
           "minLength": 1,
           "type": "string"
         },
         "source_event_seq": {
-          "description": "Bounds: >=1 value inclusive",
           "minimum": 1,
           "type": "integer"
         },
@@ -11313,7 +11196,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "statement": {
-          "description": "Bounds: 1..1024 code points inclusive",
           "maxLength": 1024,
           "minLength": 1,
           "type": "string"
@@ -11327,7 +11209,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "subject_ref": {
-          "description": "Bounds: 1..128 code points inclusive",
           "maxLength": 128,
           "minLength": 1,
           "type": "string"
@@ -11463,7 +11344,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "finding_id": {
-          "description": "Bounds: 1..128 code points inclusive",
           "maxLength": 128,
           "minLength": 1,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
@@ -11488,14 +11368,12 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "pack_id": {
-          "description": "Bounds: 1..128 code points inclusive",
           "maxLength": 128,
           "minLength": 1,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
           "type": "string"
         },
         "revision": {
-          "description": "Bounds: >=1 value inclusive",
           "minimum": 1,
           "type": "integer"
         },
@@ -11504,9 +11382,7 @@ const GeneratedPayloadSchemaDocument = `{
           "description": "The finding's own applicability scopes, carried unchanged from the research authority. The Go reader always serializes this member, so the context projection requires it."
         },
         "source_ids": {
-          "description": "Bounds: 0..32 items inclusive",
           "items": {
-            "description": "Bounds: 1..128 code points inclusive",
             "maxLength": 128,
             "minLength": 1,
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
@@ -11517,7 +11393,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "statement": {
-          "description": "Bounds: 1..8192 code points inclusive",
           "maxLength": 8192,
           "minLength": 1,
           "type": "string"
@@ -11554,7 +11429,6 @@ const GeneratedPayloadSchemaDocument = `{
               "$ref": "#/$defs/work_context_research_finding"
             },
             "ordinal": {
-              "description": "Bounds: >=0 value inclusive",
               "minimum": 0,
               "type": "integer"
             },
@@ -11566,18 +11440,17 @@ const GeneratedPayloadSchemaDocument = `{
               "$ref": "#/$defs/work_context_research_selection"
             },
             "selection_event_id": {
-              "description": "The event that authored the reference, never a claim that the research body came from that event. Bounds: 1..128 code points inclusive",
+              "description": "The event that authored the reference, never a claim that the research body came from that event.",
               "maxLength": 128,
               "minLength": 1,
               "type": "string"
             },
             "selection_event_seq": {
-              "description": "Bounds: >=1 value inclusive",
               "minimum": 1,
               "type": "integer"
             },
             "sources": {
-              "description": "Every linked source descriptor once, sorted by source id, and no unrelated source. An unsourced finding stays an empty array. Bounds: 0..32 items inclusive",
+              "description": "Every linked source descriptor once, sorted by source id, and no unrelated source. An unsourced finding stays an empty array.",
               "items": {
                 "$ref": "#/$defs/research_source"
               },
@@ -11590,7 +11463,7 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string"
             },
             "view_id": {
-              "description": "Core-derived from the selection event sequence and ordinal; a separate namespace from the generic finding ids, never authored. Bounds: 11..64 code points inclusive",
+              "description": "Core-derived from the selection event sequence and ordinal; a separate namespace from the generic finding ids, never authored.",
               "maxLength": 64,
               "minLength": 11,
               "pattern": "^research:[0-9]+:[0-9]+$",
@@ -11614,7 +11487,6 @@ const GeneratedPayloadSchemaDocument = `{
           "additionalProperties": false,
           "properties": {
             "ordinal": {
-              "description": "Bounds: >=0 value inclusive",
               "minimum": 0,
               "type": "integer"
             },
@@ -11626,13 +11498,12 @@ const GeneratedPayloadSchemaDocument = `{
               "$ref": "#/$defs/work_context_research_selection"
             },
             "selection_event_id": {
-              "description": "The event that authored the reference, never a claim that the research body came from that event. Bounds: 1..128 code points inclusive",
+              "description": "The event that authored the reference, never a claim that the research body came from that event.",
               "maxLength": 128,
               "minLength": 1,
               "type": "string"
             },
             "selection_event_seq": {
-              "description": "Bounds: >=1 value inclusive",
               "minimum": 1,
               "type": "integer"
             },
@@ -11647,7 +11518,7 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string"
             },
             "view_id": {
-              "description": "Core-derived from the selection event sequence and ordinal; a separate namespace from the generic finding ids, never authored. Bounds: 11..64 code points inclusive",
+              "description": "Core-derived from the selection event sequence and ordinal; a separate namespace from the generic finding ids, never authored.",
               "maxLength": 64,
               "minLength": 11,
               "pattern": "^research:[0-9]+:[0-9]+$",
@@ -11869,7 +11740,6 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "domain_groups": {
-          "description": "Bounds: 0..64 items inclusive",
           "items": {
             "$ref": "#/$defs/work_context_domain_group3"
           },
@@ -11878,7 +11748,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "findings": {
-          "description": "Bounds: 0..32 items inclusive",
           "items": {
             "$ref": "#/$defs/work_context_finding_view"
           },
@@ -11887,7 +11756,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "oracle_preparations": {
-          "description": "Only native preparation records selected by the immutable job's readiness refs. No raw output or alternative readiness authority. Bounds: 0..512 items inclusive",
+          "description": "Only native preparation records selected by the immutable job's readiness refs. No raw output or alternative readiness authority.",
           "items": {
             "$ref": "#/$defs/native_oracle_preparation"
           },
@@ -11896,7 +11765,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "oracle_receipts": {
-          "description": "The prior typed control-execution receipts this work retained, in log order: reported regression baselines with their exact identities, never current-subject acceptance. Bounds: 0..64 items inclusive",
+          "description": "The prior typed control-execution receipts this work retained, in log order: reported regression baselines with their exact identities, never current-subject acceptance.",
           "items": {
             "$ref": "#/$defs/worker_oracle_receipt"
           },
@@ -11905,7 +11774,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "required_reading": {
-          "description": "Bounds: 0..32 items inclusive",
           "items": {
             "$ref": "#/$defs/work_context_reading"
           },
@@ -11914,7 +11782,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "research_findings": {
-          "description": "The selected research entries the latest declaration anchor resolved, in authored order, beside the generic findings under the shared 32-finding bound. Omitted when the declaration selects nothing. Bounds: 0..32 items inclusive",
+          "description": "The selected research entries the latest declaration anchor resolved, in authored order, beside the generic findings under the shared 32-finding bound. Omitted when the declaration selects nothing.",
           "items": {
             "$ref": "#/$defs/work_context_research_finding_view"
           },
@@ -11923,12 +11791,12 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "source_event_frontier": {
-          "description": "The work item's maximum event sequence at read time, so a packet built from this view can be compared against current state before spawn. Bounds: >=0 value inclusive",
+          "description": "The work item's maximum event sequence at read time, so a packet built from this view can be compared against current state before spawn.",
           "minimum": 0,
           "type": "integer"
         },
         "subject_commit": {
-          "description": "The sole core-derived current subject, as a raw commit OID. Native receipt subject_ref remains commit:OID and the store normalizes that reference once. Bounds: 40..64 code points inclusive",
+          "description": "The sole core-derived current subject, as a raw commit OID. Native receipt subject_ref remains commit:OID and the store normalizes that reference once.",
           "maxLength": 64,
           "minLength": 40,
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
@@ -14828,18 +14696,15 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "properties": {
         "action_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "approval": {
           "$ref": "#/$defs/approval"
         },
         "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
+          "$ref": "#/$defs/digest"
         },
         "evidence": {
-          "description": "Bounds: <=32 items inclusive",
           "items": {
             "$ref": "#/$defs/evidence"
           },
@@ -14847,32 +14712,26 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
+          "$ref": "#/$defs/version"
         },
         "fields": {},
         "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "research_bindings": {
-          "description": "Bounds: 1..16 items inclusive",
           "items": {
             "additionalProperties": false,
             "properties": {
               "pack_id": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
+                "$ref": "#/$defs/id"
               },
               "required": {
                 "type": "boolean"
               },
               "revision": {
-                "description": "Bounds: >=1 value inclusive",
                 "minimum": 1,
                 "type": "integer"
               },
@@ -14907,8 +14766,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         }
       },
       "required": [
@@ -18647,11 +18505,9 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/approval"
         },
         "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
+          "$ref": "#/$defs/digest"
         },
         "evidence": {
-          "description": "Bounds: <=32 items inclusive",
           "items": {
             "$ref": "#/$defs/evidence"
           },
@@ -18659,18 +18515,16 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
+          "$ref": "#/$defs/version"
         },
         "fields": {
           "oneOf": [
             {
               "additionalProperties": false,
-              "description": "Bounds: <=32 properties inclusive",
               "maxProperties": 32,
               "properties": {
                 "attempt_id": {
-                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive",
+                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
                   "maxLength": 128,
                   "minLength": 1,
                   "pattern": "^[^\\x09-\\x0d    -     　]+$",
@@ -18690,15 +18544,13 @@ const GeneratedPayloadSchemaDocument = `{
             },
             {
               "additionalProperties": false,
-              "description": "Bounds: <=32 properties inclusive",
               "maxProperties": 32,
               "not": {
-                "$ref": "#/$defs/work_transition_action_variant_dispatch_worker_fields_member_0",
-                "description": "Bounds: <=32 properties inclusive"
+                "$ref": "#/$defs/work_transition_action_variant_dispatch_worker_fields_member_0"
               },
               "properties": {
                 "attempt_id": {
-                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive",
+                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
                   "maxLength": 128,
                   "minLength": 1,
                   "pattern": "^[^\\x09-\\x0d    -     　]+$",
@@ -18719,27 +18571,22 @@ const GeneratedPayloadSchemaDocument = `{
           ]
         },
         "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "research_bindings": {
-          "description": "Bounds: 1..16 items inclusive",
           "items": {
             "additionalProperties": false,
             "properties": {
               "pack_id": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
+                "$ref": "#/$defs/id"
               },
               "required": {
                 "type": "boolean"
               },
               "revision": {
-                "description": "Bounds: >=1 value inclusive",
                 "minimum": 1,
                 "type": "integer"
               },
@@ -18774,8 +18621,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         }
       },
       "required": [
@@ -18789,11 +18635,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_dispatch_worker_fields_member_0": {
       "additionalProperties": false,
-      "description": "Bounds: <=32 properties inclusive",
       "maxProperties": 32,
       "properties": {
         "attempt_id": {
-          "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive",
+          "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
           "maxLength": 128,
           "minLength": 1,
           "pattern": "^[^\\x09-\\x0d    -     　]+$",
@@ -24351,20 +24196,16 @@ const GeneratedPayloadSchemaDocument = `{
       "description": "Core-recorded checks repair: the stated reason and each named revision's exact binding and old checks. The containing job's checks are the new checks. Present only on repair-capable recorded revisions, covered by their immutable digest.",
       "properties": {
         "reason": {
-          "description": "Bounds: 1..4096 code points inclusive",
           "maxLength": 4096,
           "minLength": 1,
           "type": "string"
         },
         "revisions": {
-          "description": "Bounds: 1..64 items inclusive",
           "items": {
             "additionalProperties": false,
             "properties": {
               "checks": {
-                "description": "Bounds: 0..64 items inclusive",
                 "items": {
-                  "description": "Bounds: 1..256 code points inclusive",
                   "maxLength": 256,
                   "minLength": 1,
                   "type": "string"
@@ -24815,21 +24656,18 @@ const GeneratedPayloadSchemaDocument = `{
       "description": "One recorded worker-job revision reference: the job identity, the revision, and the content digest. That the revision is exactly the one the dispatch recorded is a store join, never a schema check.",
       "properties": {
         "digest": {
-          "description": "Bounds: 71..71 code points inclusive",
           "maxLength": 71,
           "minLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$",
           "type": "string"
         },
         "job_id": {
-          "description": "Bounds: 2..128 code points inclusive",
           "maxLength": 128,
           "minLength": 2,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
           "type": "string"
         },
         "revision": {
-          "description": "Bounds: >=1 value inclusive",
           "minimum": 1,
           "type": "integer"
         }
@@ -25630,9 +25468,7 @@ const GeneratedPayloadSchemaDocument = `{
       "description": "The typed oracle tie of one review finding: a closed classification plus the owner, predicate/law, case, and control references that bind it. Classification and severity are different dimensions; the tie records no acceptance.",
       "properties": {
         "case_ids": {
-          "description": "Bounds: 0..8 items inclusive",
           "items": {
-            "description": "Bounds: 6..128 code points inclusive",
             "maxLength": 128,
             "minLength": 6,
             "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
@@ -25654,16 +25490,14 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "continues_finding_id": {
-          "description": "The earlier ranked finding of this work that this finding continues. Same failure, same canonical open identity; an uncertain join becomes a new finding and earns no shrink credit. Bounds: 11..64 code points inclusive",
+          "description": "The earlier ranked finding of this work that this finding continues. Same failure, same canonical open identity; an uncertain join becomes a new finding and earns no shrink credit.",
           "maxLength": 64,
           "minLength": 11,
           "pattern": "^finding:[0-9]+:[0-9]+$",
           "type": "string"
         },
         "control_ids": {
-          "description": "Bounds: 0..8 items inclusive",
           "items": {
-            "description": "Bounds: 9..128 code points inclusive",
             "maxLength": 128,
             "minLength": 9,
             "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
@@ -25675,15 +25509,14 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "entry_point": {
-          "description": "For an uncovered_case: the explicit new entry path or transition the inventory omitted. Bounds: 1..512 code points inclusive",
+          "description": "For an uncovered_case: the explicit new entry path or transition the inventory omitted.",
           "maxLength": 512,
           "minLength": 1,
           "type": "string"
         },
         "evidence_refs": {
-          "description": "The reproducible evidence that supports the finding. A known control failure names that control's receipt. Bounds: 0..8 items inclusive",
+          "description": "The reproducible evidence that supports the finding. A known control failure names that control's receipt.",
           "items": {
-            "description": "Bounds: 1..256 code points inclusive",
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
@@ -25693,13 +25526,11 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "failure_family": {
-          "description": "Bounds: 1..128 code points inclusive",
           "maxLength": 128,
           "minLength": 1,
           "type": "string"
         },
         "law_bindings": {
-          "description": "Bounds: 0..8 items inclusive",
           "items": {
             "$ref": "#/$defs/worker_oracle_law_binding"
           },
@@ -25708,16 +25539,13 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "owner_id": {
-          "description": "Bounds: 7..128 code points inclusive",
           "maxLength": 128,
           "minLength": 7,
           "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
           "type": "string"
         },
         "predicate_ids": {
-          "description": "Bounds: 0..8 items inclusive",
           "items": {
-            "description": "Bounds: 11..128 code points inclusive",
             "maxLength": 128,
             "minLength": 11,
             "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
@@ -25729,7 +25557,7 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "variant_of": {
-          "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding. Bounds: 11..64 code points inclusive",
+          "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding.",
           "maxLength": 64,
           "minLength": 11,
           "pattern": "^finding:[0-9]+:[0-9]+$",
@@ -25870,7 +25698,6 @@ const GeneratedPayloadSchemaDocument = `{
           "then": {
             "properties": {
               "run_ref": {
-                "description": "Bounds: >=1 code points inclusive",
                 "minLength": 1
               }
             },
@@ -25883,9 +25710,7 @@ const GeneratedPayloadSchemaDocument = `{
       "description": "One typed control-execution receipt, mirroring contracts/agent-lane-report.schema.json $defs/oracle_receipt exactly: reported evidence, never native-run authority. A retained receipt is a prior-subject regression baseline; subject_commit is the host-derived raw OID, filled only from the packet's core work context. A timeout is unavailable evidence, not a measured failure.",
       "properties": {
         "case_ids": {
-          "description": "Bounds: 1..64 items inclusive",
           "items": {
-            "description": "Bounds: 6..128 code points inclusive",
             "maxLength": 128,
             "minLength": 6,
             "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
@@ -25897,9 +25722,7 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "control_ids": {
-          "description": "Bounds: 1..8 items inclusive",
           "items": {
-            "description": "Bounds: 9..128 code points inclusive",
             "maxLength": 128,
             "minLength": 9,
             "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
@@ -25911,9 +25734,7 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "evidence_refs": {
-          "description": "Bounds: 0..8 items inclusive",
           "items": {
-            "description": "Bounds: 1..256 code points inclusive",
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
@@ -25923,7 +25744,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "exit_code": {
-          "description": "Required exactly when result is pass or fail: the control's exit status. Bounds: 0..255 value inclusive",
+          "description": "Required exactly when result is pass or fail: the control's exit status.",
           "maximum": 255,
           "minimum": 0,
           "type": "integer"
@@ -25942,13 +25763,13 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "run_ref": {
-          "description": "The immutable native-run or artifact locator of the execution. Nonempty exactly when result is pass or fail; a not_run or unavailable result carries the empty string and names its explanation in evidence_refs. Bounds: 0..512 code points inclusive",
+          "description": "The immutable native-run or artifact locator of the execution. Nonempty exactly when result is pass or fail; a not_run or unavailable result carries the empty string and names its explanation in evidence_refs.",
           "maxLength": 512,
           "minLength": 0,
           "type": "string"
         },
         "subject_commit": {
-          "description": "Host-derived raw commit OID. Dispatch-owned: a worker-authored value is stripped before the canonical report; only the core work-context subject supplies it. Bounds: 40..64 code points inclusive",
+          "description": "Host-derived raw commit OID. Dispatch-owned: a worker-authored value is stripped before the canonical report; only the core work-context subject supplies it.",
           "maxLength": 64,
           "minLength": 40,
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
@@ -26225,8 +26046,7 @@ const GeneratedPayloadSchemaDocument = `{
       "description": "The research-context packet identity the promoted definitions record and replay. It mirrors $defs/worker_packet2 shape for shape under a versioned name — the same 2.0 schema_version, with the inputs' work_context member anchored at the research-enabled work_context_view3 — so the frozen decoder carries it beside the byte-exact packet2 closure, and the research entries ride the unchanged context aggregate the budgets already measure. The retained packet2 pins replay exactly the closure they recorded and refuse the research-bearing packets the packet3 declaration admits.",
       "properties": {
         "attempt_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "inputs": {
           "additionalProperties": false,
@@ -26239,9 +26059,7 @@ const GeneratedPayloadSchemaDocument = `{
               "description": "The latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
             },
             "constraints": {
-              "description": "Bounds: 0..64 items inclusive",
               "items": {
-                "description": "Bounds: 1..512 code points inclusive",
                 "maxLength": 512,
                 "minLength": 1,
                 "type": "string"
@@ -26251,7 +26069,7 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "array"
             },
             "context": {
-              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it. Bounds: 0..16384 code points inclusive",
+              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it.",
               "maxLength": 16384,
               "minLength": 0,
               "type": "string"
@@ -26268,8 +26086,7 @@ const GeneratedPayloadSchemaDocument = `{
               "description": "The approved contract's binding law and Domains the pinned continuity resolved. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
             },
             "outcome_predicates": {
-              "$ref": "#/$defs/worker_packet_outcome_predicates",
-              "description": "Bounds: 1..8 items inclusive"
+              "$ref": "#/$defs/worker_packet_outcome_predicates"
             },
             "proposal_record": {
               "$ref": "#/$defs/workflow_proposal_record",
@@ -26281,7 +26098,6 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string"
             },
             "task": {
-              "description": "Bounds: 1..4096 code points inclusive",
               "maxLength": 4096,
               "minLength": 1,
               "type": "string"
@@ -26304,15 +26120,12 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "object"
         },
         "lane_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
+          "$ref": "#/$defs/digest"
         },
         "lane_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "lane_version": {
-          "description": "Bounds: 1..2147483647 value inclusive",
           "maximum": 2147483647,
           "minimum": 1,
           "type": "integer"
@@ -26325,12 +26138,10 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "step_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         }
       },
       "required": [
@@ -26465,8 +26276,7 @@ const GeneratedPayloadSchemaDocument = `{
       "description": "The size-capable packet identity the size-capable definition heads record and replay. It mirrors $defs/worker_packet4 shape for shape under a versioned name — the same 2.0 schema_version, with the inputs' worker_job member anchored at worker_packet5_worker_job, which adds the recorded production-size members and the dispatch-time caller exclusions beside the repair-capable checks_repair metadata — so the frozen decoder carries it beside the byte-exact packet2, packet3, and packet4 closures, and the size content rides the unchanged packet aggregate. The retained packet2, packet3, and packet4 pins replay exactly the closures they recorded and refuse the size-bearing packets the packet5 declaration admits.",
       "properties": {
         "attempt_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "inputs": {
           "additionalProperties": false,
@@ -26479,9 +26289,7 @@ const GeneratedPayloadSchemaDocument = `{
               "description": "The latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
             },
             "constraints": {
-              "description": "Bounds: 0..64 items inclusive",
               "items": {
-                "description": "Bounds: 1..512 code points inclusive",
                 "maxLength": 512,
                 "minLength": 1,
                 "type": "string"
@@ -26491,7 +26299,7 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "array"
             },
             "context": {
-              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it. Bounds: 0..16384 code points inclusive",
+              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it.",
               "maxLength": 16384,
               "minLength": 0,
               "type": "string"
@@ -26508,8 +26316,7 @@ const GeneratedPayloadSchemaDocument = `{
               "description": "The approved contract's binding law and Domains the pinned continuity resolved. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
             },
             "outcome_predicates": {
-              "$ref": "#/$defs/worker_packet_outcome_predicates",
-              "description": "Bounds: 1..8 items inclusive"
+              "$ref": "#/$defs/worker_packet_outcome_predicates"
             },
             "proposal_record": {
               "$ref": "#/$defs/workflow_proposal_record",
@@ -26521,7 +26328,6 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string"
             },
             "task": {
-              "description": "Bounds: 1..4096 code points inclusive",
               "maxLength": 4096,
               "minLength": 1,
               "type": "string"
@@ -26544,15 +26350,12 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "object"
         },
         "lane_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
+          "$ref": "#/$defs/digest"
         },
         "lane_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "lane_version": {
-          "description": "Bounds: 1..2147483647 value inclusive",
           "maximum": 2147483647,
           "minimum": 1,
           "type": "integer"
@@ -26565,12 +26368,10 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "step_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         }
       },
       "required": [
@@ -26594,9 +26395,8 @@ const GeneratedPayloadSchemaDocument = `{
           "description": "The owner-level acceptance oracle of this immutable revision. Optional and omitted on every revision a pre-oracle definition recorded; required by oracle-capable definition versions. It enters the job digest and reaches every admitted lane through this same copy."
         },
         "caller_exclusions": {
-          "description": "The measured paths of the work's other jobs currently in correction. The core computes this set at dispatch admission and refuses a packet whose exclusions differ; the member binds the packet, never the job digest, and only the implementation capability class carries it. Bounds: 0..64 items inclusive",
+          "description": "The measured paths of the work's other jobs currently in correction. The core computes this set at dispatch admission and refuses a packet whose exclusions differ; the member binds the packet, never the job digest, and only the implementation capability class carries it.",
           "items": {
-            "description": "Bounds: 1..512 code points inclusive",
             "maxLength": 512,
             "minLength": 1,
             "type": "string"
@@ -26607,9 +26407,7 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "checks": {
-          "description": "Bounds: 0..64 items inclusive",
           "items": {
-            "description": "Bounds: 1..256 code points inclusive",
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
@@ -26622,7 +26420,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/worker_checks_repair"
         },
         "digest": {
-          "description": "Bounds: 71..71 code points inclusive",
           "maxLength": 71,
           "minLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$",
@@ -26633,7 +26430,6 @@ const GeneratedPayloadSchemaDocument = `{
           "description": "The recorded conditional direct-caller scope of this revision (CD-0227 D1). Optional and omitted on every read-only revision."
         },
         "job_id": {
-          "description": "Bounds: 2..128 code points inclusive",
           "maxLength": 128,
           "minLength": 2,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
@@ -26644,15 +26440,12 @@ const GeneratedPayloadSchemaDocument = `{
           "description": "The recorded measurement basis of this revision: the immutable base commit and the classified path inventory. Optional and omitted on every read-only revision."
         },
         "objective": {
-          "description": "Bounds: 1..4096 code points inclusive",
           "maxLength": 4096,
           "minLength": 1,
           "type": "string"
         },
         "path_scope": {
-          "description": "Bounds: 0..64 items inclusive",
           "items": {
-            "description": "Bounds: 1..512 code points inclusive",
             "maxLength": 512,
             "minLength": 1,
             "type": "string"
@@ -26662,9 +26455,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "predicate_ids": {
-          "description": "Bounds: 0..8 items inclusive",
           "items": {
-            "description": "Bounds: 11..128 code points inclusive",
             "maxLength": 128,
             "minLength": 11,
             "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
@@ -26675,25 +26466,21 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "prerequisites": {
-          "description": "Bounds: 0..64 items inclusive",
           "items": {
             "additionalProperties": false,
             "properties": {
               "job_id": {
-                "description": "Bounds: 2..128 code points inclusive",
                 "maxLength": 128,
                 "minLength": 2,
                 "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
                 "type": "string"
               },
               "result_ref": {
-                "description": "Bounds: 1..512 code points inclusive",
                 "maxLength": 512,
                 "minLength": 1,
                 "type": "string"
               },
               "revision": {
-                "description": "Bounds: 1..2147483647 value inclusive",
                 "maximum": 2147483647,
                 "minimum": 1,
                 "type": "integer"
@@ -26710,39 +26497,33 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "production_size_max": {
-          "description": "The recorded production-size cap (CD-0225 D1). Optional and omitted on every read-only revision; carried beside the measurement basis by every editing revision. Bounds: 1..2147483647 value inclusive",
+          "description": "The recorded production-size cap (CD-0225 D1). Optional and omitted on every read-only revision; carried beside the measurement basis by every editing revision.",
           "maximum": 2147483647,
           "minimum": 1,
           "type": "integer"
         },
         "project_scope": {
-          "description": "Bounds: 0..128 code points inclusive",
           "maxLength": 128,
           "minLength": 0,
           "type": "string"
         },
         "reserved_integration": {
-          "description": "Bounds: 0..4096 code points inclusive",
           "maxLength": 4096,
           "minLength": 0,
           "type": "string"
         },
         "revision": {
-          "description": "Bounds: 1..2147483647 value inclusive",
           "maximum": 2147483647,
           "minimum": 1,
           "type": "integer"
         },
         "stopping_condition": {
-          "description": "Bounds: 1..2048 code points inclusive",
           "maxLength": 2048,
           "minLength": 1,
           "type": "string"
         },
         "unresolved_refs": {
-          "description": "Bounds: 0..64 items inclusive",
           "items": {
-            "description": "Bounds: 1..512 code points inclusive",
             "maxLength": 512,
             "minLength": 1,
             "type": "string"
@@ -26813,14 +26594,12 @@ const GeneratedPayloadSchemaDocument = `{
       "description": "Typed binding of the packet objective to the recorded state it projected. Mirrors contracts/agent-lane-packet.schema.json $defs/lane_packet_binding exactly.",
       "properties": {
         "assigned_result": {
-          "description": "Bounds: 1..64 code points inclusive",
           "maxLength": 64,
           "minLength": 1,
           "pattern": "^[a-z][a-z0-9_]*$",
           "type": "string"
         },
         "contract_version": {
-          "description": "Bounds: >=1 value inclusive",
           "minimum": 1,
           "type": [
             "integer",
@@ -26835,7 +26614,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "work_version": {
-          "description": "Bounds: >=1 value inclusive",
           "minimum": 1,
           "type": "integer"
         }
@@ -26986,7 +26764,6 @@ const GeneratedPayloadSchemaDocument = `{
       "type": "object"
     },
     "worker_packet_outcome_predicates": {
-      "description": "Bounds: 1..8 items inclusive",
       "items": {
         "additionalProperties": false,
         "allOf": [
@@ -27069,7 +26846,6 @@ const GeneratedPayloadSchemaDocument = `{
         ],
         "properties": {
           "ordinal": {
-            "description": "Bounds: 0..7 value inclusive",
             "maximum": 7,
             "minimum": 0,
             "type": "integer"
@@ -27088,7 +26864,7 @@ const GeneratedPayloadSchemaDocument = `{
           },
           "predicate_id": {
             "$ref": "#/$defs/id",
-            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Bounds: 1..128 code points inclusive"
+            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
           }
         },
         "required": [
@@ -27108,19 +26884,16 @@ const GeneratedPayloadSchemaDocument = `{
       "description": "The work item's recorded value statement, task, and narrative, each verbatim and present exactly when the recorded text is not blank. The core refuses a dispatch whose packet member differs from the recorded work item.",
       "properties": {
         "narrative": {
-          "description": "Bounds: 1..16384 code points inclusive",
           "maxLength": 16384,
           "minLength": 1,
           "type": "string"
         },
         "task": {
-          "description": "Bounds: 1..8192 code points inclusive",
           "maxLength": 8192,
           "minLength": 1,
           "type": "string"
         },
         "value_statement": {
-          "description": "Bounds: 1..256 code points inclusive",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -27138,9 +26911,7 @@ const GeneratedPayloadSchemaDocument = `{
           "description": "The owner-level acceptance oracle of this immutable revision. Optional and omitted on every revision a pre-oracle definition recorded; required by oracle-capable definition versions. It enters the job digest and reaches every admitted lane through this same copy."
         },
         "checks": {
-          "description": "Bounds: 0..64 items inclusive",
           "items": {
-            "description": "Bounds: 1..256 code points inclusive",
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
@@ -27150,29 +26921,24 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "digest": {
-          "description": "Bounds: 71..71 code points inclusive",
           "maxLength": 71,
           "minLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$",
           "type": "string"
         },
         "job_id": {
-          "description": "Bounds: 2..128 code points inclusive",
           "maxLength": 128,
           "minLength": 2,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
           "type": "string"
         },
         "objective": {
-          "description": "Bounds: 1..4096 code points inclusive",
           "maxLength": 4096,
           "minLength": 1,
           "type": "string"
         },
         "path_scope": {
-          "description": "Bounds: 0..64 items inclusive",
           "items": {
-            "description": "Bounds: 1..512 code points inclusive",
             "maxLength": 512,
             "minLength": 1,
             "type": "string"
@@ -27182,9 +26948,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "predicate_ids": {
-          "description": "Bounds: 0..8 items inclusive",
           "items": {
-            "description": "Bounds: 11..128 code points inclusive",
             "maxLength": 128,
             "minLength": 11,
             "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
@@ -27195,25 +26959,21 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "prerequisites": {
-          "description": "Bounds: 0..64 items inclusive",
           "items": {
             "additionalProperties": false,
             "properties": {
               "job_id": {
-                "description": "Bounds: 2..128 code points inclusive",
                 "maxLength": 128,
                 "minLength": 2,
                 "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
                 "type": "string"
               },
               "result_ref": {
-                "description": "Bounds: 1..512 code points inclusive",
                 "maxLength": 512,
                 "minLength": 1,
                 "type": "string"
               },
               "revision": {
-                "description": "Bounds: 1..2147483647 value inclusive",
                 "maximum": 2147483647,
                 "minimum": 1,
                 "type": "integer"
@@ -27230,33 +26990,27 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "project_scope": {
-          "description": "Bounds: 0..128 code points inclusive",
           "maxLength": 128,
           "minLength": 0,
           "type": "string"
         },
         "reserved_integration": {
-          "description": "Bounds: 0..4096 code points inclusive",
           "maxLength": 4096,
           "minLength": 0,
           "type": "string"
         },
         "revision": {
-          "description": "Bounds: 1..2147483647 value inclusive",
           "maximum": 2147483647,
           "minimum": 1,
           "type": "integer"
         },
         "stopping_condition": {
-          "description": "Bounds: 1..2048 code points inclusive",
           "maxLength": 2048,
           "minLength": 1,
           "type": "string"
         },
         "unresolved_refs": {
-          "description": "Bounds: 0..64 items inclusive",
           "items": {
-            "description": "Bounds: 1..512 code points inclusive",
             "maxLength": 512,
             "minLength": 1,
             "type": "string"
@@ -27976,17 +27730,14 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "attempt_count": {
-          "description": "Bounds: 0..2147483647 value inclusive",
           "maximum": 2147483647,
           "minimum": 0,
           "type": "integer"
         },
         "attempt_limit": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
+          "$ref": "#/$defs/version"
         },
         "diagnosis": {
-          "description": "Bounds: <=4096 code points inclusive",
           "maxLength": 4096,
           "type": "string"
         },
@@ -28002,38 +27753,30 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "boolean"
         },
         "evidence_refs": {
-          "description": "Bounds: <=32 items inclusive",
           "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+            "$ref": "#/$defs/reference"
           },
           "maxItems": 32,
           "type": "array",
           "uniqueItems": true
         },
         "failed_attempt_epoch": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
+          "$ref": "#/$defs/version"
         },
         "failed_attempt_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "failure_detail": {
-          "description": "Bounds: <=4096 code points inclusive",
           "maxLength": 4096,
           "type": "string"
         },
         "failure_kind": {
-          "description": "Bounds: <=64 code points inclusive",
           "maxLength": 64,
           "type": "string"
         },
         "predicate_ids": {
-          "description": "Bounds: <=8 items inclusive",
           "items": {
-            "$ref": "#/$defs/id",
-            "description": "Bounds: 1..128 code points inclusive"
+            "$ref": "#/$defs/id"
           },
           "maxItems": 8,
           "type": "array",
@@ -28041,16 +27784,14 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "source_event_id": {
           "$ref": "#/$defs/id",
-          "description": "The durable failure, rejection, or correction-request event that opened this correction; its diagnosis and strategy are that event's directions. Bounds: 1..128 code points inclusive"
+          "description": "The durable failure, rejection, or correction-request event that opened this correction; its diagnosis and strategy are that event's directions."
         },
         "source_event_seq": {
-          "description": "Bounds: 1..9007199254740991 value inclusive",
           "maximum": 9007199254740991,
           "minimum": 1,
           "type": "integer"
         },
         "strategy": {
-          "description": "Bounds: <=4096 code points inclusive",
           "maxLength": 4096,
           "type": "string"
         }
@@ -28322,13 +28063,11 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "approach": {
-          "description": "Bounds: 2..4096 code points inclusive",
           "maxLength": 4096,
           "minLength": 2,
           "type": "string"
         },
         "decisions": {
-          "description": "Bounds: 1..16 items inclusive",
           "items": {
             "$ref": "#/$defs/workflow_design_decision"
           },
@@ -28341,10 +28080,8 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "touched_refs": {
-          "description": "Bounds: 1..64 items inclusive",
           "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+            "$ref": "#/$defs/reference"
           },
           "maxItems": 64,
           "minItems": 1,
@@ -28352,8 +28089,7 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "work_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
+          "$ref": "#/$defs/version"
         }
       },
       "required": [
@@ -28398,7 +28134,6 @@ const GeneratedPayloadSchemaDocument = `{
       "description": "The approved contract's binding law and Domains, resolved at continuity read time from the law_subjects and domains projections. Absent when the contract binds no law and no Domain.",
       "properties": {
         "domains": {
-          "description": "Bounds: <=65 items inclusive",
           "items": {
             "$ref": "#/$defs/workflow_law_context_domain"
           },
@@ -28406,7 +28141,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "laws": {
-          "description": "Bounds: <=128 items inclusive",
           "items": {
             "$ref": "#/$defs/workflow_law_context_law"
           },
@@ -28414,7 +28148,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "registry_path": {
-          "description": "The repository path of the Domain registry shard. Present when the context binds at least one Domain, so a dispatched lane reads Domain structure from the file instead of a Concord tool. Bounds: 1..1024 code points inclusive",
+          "description": "The repository path of the Domain registry shard. Present when the context binds at least one Domain, so a dispatched lane reads Domain structure from the file instead of a Concord tool.",
           "maxLength": 1024,
           "minLength": 1,
           "type": "string"
@@ -28430,13 +28164,11 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "criterion": {
-          "description": "Bounds: 1..2147483647 value inclusive",
           "maximum": 2147483647,
           "minimum": 1,
           "type": "integer"
         },
         "predicate_id": {
-          "description": "Bounds: 1..128 code points inclusive",
           "maxLength": 128,
           "minLength": 1,
           "type": "string"
@@ -28452,16 +28184,13 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "domain_id": {
-          "$ref": "#/$defs/domain_id",
-          "description": "Bounds: 1..256 code points inclusive"
+          "$ref": "#/$defs/domain_id"
         },
         "name": {
-          "description": "Bounds: <=256 code points inclusive",
           "maxLength": 256,
           "type": "string"
         },
         "purpose": {
-          "description": "Bounds: <=4096 code points inclusive",
           "maxLength": 4096,
           "type": "string"
         }
@@ -28477,7 +28206,7 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "criteria": {
-          "description": "The law's acceptance criteria bound to the reading work item's own outcome predicates (CD-0180). Present only when at least one criterion binds this work item. Bounds: 1..128 items inclusive",
+          "description": "The law's acceptance criteria bound to the reading work item's own outcome predicates (CD-0180). Present only when at least one criterion binds this work item.",
           "items": {
             "$ref": "#/$defs/workflow_law_context_criterion"
           },
@@ -28495,14 +28224,12 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "law_id": {
-          "$ref": "#/$defs/law_id",
-          "description": "Bounds: 2..256 code points inclusive"
+          "$ref": "#/$defs/law_id"
         },
         "obligation_ids": {
-          "description": "The contract's verification obligations that name the law, sorted and deduplicated. Present only when roles carries obligation. Bounds: 1..64 items inclusive",
+          "description": "The contract's verification obligations that name the law, sorted and deduplicated. Present only when roles carries obligation.",
           "items": {
-            "$ref": "#/$defs/obligation_id",
-            "description": "Bounds: 1..256 code points inclusive"
+            "$ref": "#/$defs/obligation_id"
           },
           "maxItems": 64,
           "minItems": 1,
@@ -28510,13 +28237,12 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "path": {
-          "description": "Bounds: 1..1024 code points inclusive",
           "maxLength": 1024,
           "minLength": 1,
           "type": "string"
         },
         "roles": {
-          "description": "Every binding role the approved contract gives the law, sorted and deduplicated. Bounds: 1..4 items inclusive",
+          "description": "Every binding role the approved contract gives the law, sorted and deduplicated.",
           "items": {
             "enum": [
               "mandated",
@@ -28539,7 +28265,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "title": {
-          "description": "Bounds: 1..512 code points inclusive",
           "maxLength": 512,
           "minLength": 1,
           "type": "string"
@@ -28589,7 +28314,6 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "distinguish_from": {
-          "description": "Bounds: 1..4 items inclusive",
           "items": {
             "enum": [
               "archived",
@@ -28608,10 +28332,8 @@ const GeneratedPayloadSchemaDocument = `{
           "const": "absent"
         },
         "subjects": {
-          "description": "Bounds: 1..100 items inclusive",
           "items": {
-            "$ref": "#/$defs/workflow_outcome_subject",
-            "description": "Bounds: 2..128 code points inclusive"
+            "$ref": "#/$defs/workflow_outcome_subject"
           },
           "maxItems": 100,
           "minItems": 1,
@@ -28619,8 +28341,7 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "surface": {
-          "$ref": "#/$defs/workflow_outcome_surface",
-          "description": "Bounds: 2..128 code points inclusive"
+          "$ref": "#/$defs/workflow_outcome_surface"
         }
       },
       "required": [
@@ -28635,7 +28356,6 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "check_ref": {
-          "description": "Bounds: 7..134 code points inclusive",
           "maxLength": 134,
           "minLength": 7,
           "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
@@ -28657,7 +28377,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "immutable_subject_ref": {
-          "description": "Bounds: 2..256 code points inclusive",
           "maxLength": 256,
           "minLength": 2,
           "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
@@ -28682,10 +28401,8 @@ const GeneratedPayloadSchemaDocument = `{
           "const": "exists"
         },
         "subjects": {
-          "description": "Bounds: 1..100 items inclusive",
           "items": {
-            "$ref": "#/$defs/workflow_outcome_subject",
-            "description": "Bounds: 2..128 code points inclusive"
+            "$ref": "#/$defs/workflow_outcome_subject"
           },
           "maxItems": 100,
           "minItems": 1,
@@ -28693,8 +28410,7 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "surface": {
-          "$ref": "#/$defs/workflow_outcome_surface",
-          "description": "Bounds: 2..128 code points inclusive"
+          "$ref": "#/$defs/workflow_outcome_surface"
         }
       },
       "required": [
@@ -28708,7 +28424,7 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "allowed": {
-          "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation admit no outcome tokens (only exists, absent and check predicate kinds). Bounds: 1..3 items inclusive",
+          "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation admit no outcome tokens (only exists, absent and check predicate kinds).",
           "items": {
             "enum": [
               "no_change",
@@ -28820,9 +28536,7 @@ const GeneratedPayloadSchemaDocument = `{
       "description": "The recorded proposal fields the dispatched lane packet renders. Absent when no proposal is recorded.",
       "properties": {
         "constraints": {
-          "description": "Bounds: <=16 items inclusive",
           "items": {
-            "description": "Bounds: 1..512 code points inclusive",
             "maxLength": 512,
             "minLength": 1,
             "type": "string"
@@ -28832,15 +28546,12 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "problem": {
-          "description": "Bounds: 1..4096 code points inclusive",
           "maxLength": 4096,
           "minLength": 1,
           "type": "string"
         },
         "user_outcomes": {
-          "description": "Bounds: <=16 items inclusive",
           "items": {
-            "description": "Bounds: 1..512 code points inclusive",
             "maxLength": 512,
             "minLength": 1,
             "type": "string"

@@ -2656,7 +2656,10 @@ def main() -> int:
         validate_historical_decoder(schema_refs, payload.get("$defs", {}))
         projected_payload, public_variants = project_workflow_action_schema(payload, actions, workflows, teaching)
         project_worker_packet_inputs(projected_payload, json.loads(LANE_PACKET.read_text()))
-        input_names = [operation["input_schema"].rsplit("/", 1)[-1] for operation in manifest["operations"]]
+        # The adapter publishes public action variants, never the core-owned
+        # dispatch packet in the internal workflow_action input union.
+        input_names = [operation["input_schema"].rsplit("/", 1)[-1] for operation in manifest["operations"]
+                       if operation["id"] != "concord_work_transition.workflow_action"]
         input_names.extend(variant["schema"] for variant in public_variants)
         projected_payload = project_schema_guidance(projected_payload, input_names, bounds_only=True)
         if payload != projected_payload:

@@ -612,12 +612,10 @@
         "attempt_count": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 2147483647,
-          "description": "Bounds: 0..2147483647 value inclusive"
+          "maximum": 2147483647
         },
         "attempt_limit": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
+          "$ref": "#/$defs/version"
         },
         "escalated": {
           "type": "boolean"
@@ -627,58 +625,47 @@
           "maxItems": 8,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/id",
-            "description": "Bounds: 1..128 code points inclusive"
-          },
-          "description": "Bounds: <=8 items inclusive"
+            "$ref": "#/$defs/id"
+          }
         },
         "evidence_refs": {
           "type": "array",
           "maxItems": 32,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-          },
-          "description": "Bounds: <=32 items inclusive"
+            "$ref": "#/$defs/reference"
+          }
         },
         "diagnosis": {
           "type": "string",
-          "maxLength": 4096,
-          "description": "Bounds: <=4096 code points inclusive"
+          "maxLength": 4096
         },
         "strategy": {
           "type": "string",
-          "maxLength": 4096,
-          "description": "Bounds: <=4096 code points inclusive"
+          "maxLength": 4096
         },
         "failure_kind": {
           "type": "string",
-          "maxLength": 64,
-          "description": "Bounds: <=64 code points inclusive"
+          "maxLength": 64
         },
         "failure_detail": {
           "type": "string",
-          "maxLength": 4096,
-          "description": "Bounds: <=4096 code points inclusive"
+          "maxLength": 4096
         },
         "failed_attempt_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "failed_attempt_epoch": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
+          "$ref": "#/$defs/version"
         },
         "source_event_id": {
           "$ref": "#/$defs/id",
-          "description": "The durable failure, rejection, or correction-request event that opened this correction; its diagnosis and strategy are that event's directions. Bounds: 1..128 code points inclusive"
+          "description": "The durable failure, rejection, or correction-request event that opened this correction; its diagnosis and strategy are that event's directions."
         },
         "source_event_seq": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 9007199254740991,
-          "description": "Bounds: 1..9007199254740991 value inclusive"
+          "maximum": 9007199254740991
         }
       }
     },
@@ -2804,50 +2791,41 @@
       ],
       "properties": {
         "checkpoint_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "work_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
+          "$ref": "#/$defs/version"
         },
         "sequence": {
           "type": "integer",
-          "minimum": 1,
-          "description": "Bounds: >=1 value inclusive"
+          "minimum": 1
         },
         "step_id": {
-          "$ref": "#/$defs/short",
-          "description": "Bounds: 1..256 code points inclusive"
+          "$ref": "#/$defs/short"
         },
         "attempt_epoch": {
           "type": "integer",
-          "minimum": 1,
-          "description": "Bounds: >=1 value inclusive"
+          "minimum": 1
         },
         "active_unit": {
           "type": "string",
           "minLength": 2,
-          "maxLength": 256,
-          "description": "Bounds: 2..256 code points inclusive"
+          "maxLength": 256
         },
         "hypothesis": {
           "type": "string",
           "minLength": 2,
-          "maxLength": 4096,
-          "description": "Bounds: 2..4096 code points inclusive"
+          "maxLength": 4096
         },
         "diagnosis": {
           "type": "string",
           "minLength": 2,
-          "maxLength": 4096,
-          "description": "Bounds: 2..4096 code points inclusive"
+          "maxLength": 4096
         },
         "strategy": {
           "type": "string",
           "minLength": 2,
-          "maxLength": 4096,
-          "description": "Bounds: 2..4096 code points inclusive"
+          "maxLength": 4096
         },
         "touched_refs": {
           "type": "array",
@@ -2855,10 +2833,8 @@
           "maxItems": 64,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-          },
-          "description": "Bounds: 1..64 items inclusive"
+            "$ref": "#/$defs/reference"
+          }
         },
         "evidence_refs": {
           "type": "array",
@@ -2866,30 +2842,24 @@
           "maxItems": 64,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-          },
-          "description": "Bounds: 1..64 items inclusive"
+            "$ref": "#/$defs/reference"
+          }
         },
         "pending_questions": {
           "type": "array",
           "maxItems": 16,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-          },
-          "description": "Bounds: <=16 items inclusive"
+            "$ref": "#/$defs/reference"
+          }
         },
         "pending_decisions": {
           "type": "array",
           "maxItems": 16,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-          },
-          "description": "Bounds: <=16 items inclusive"
+            "$ref": "#/$defs/reference"
+          }
         }
       }
     },
@@ -3316,14 +3286,12 @@
       ],
       "properties": {
         "work_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
+          "$ref": "#/$defs/version"
         },
         "approach": {
           "type": "string",
           "minLength": 2,
-          "maxLength": 4096,
-          "description": "Bounds: 2..4096 code points inclusive"
+          "maxLength": 4096
         },
         "decisions": {
           "type": "array",
@@ -3331,8 +3299,7 @@
           "maxItems": 16,
           "items": {
             "$ref": "#/$defs/workflow_design_decision"
-          },
-          "description": "Bounds: 1..16 items inclusive"
+          }
         },
         "touched_refs": {
           "type": "array",
@@ -3340,10 +3307,8 @@
           "maxItems": 64,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-          },
-          "description": "Bounds: 1..64 items inclusive"
+            "$ref": "#/$defs/reference"
+          }
         },
         "recorded_at": {
           "type": "string",
@@ -3365,19 +3330,17 @@
           "maxItems": 128,
           "items": {
             "$ref": "#/$defs/workflow_law_context_law"
-          },
-          "description": "Bounds: <=128 items inclusive"
+          }
         },
         "domains": {
           "type": "array",
           "maxItems": 65,
           "items": {
             "$ref": "#/$defs/workflow_law_context_domain"
-          },
-          "description": "Bounds: <=65 items inclusive"
+          }
         },
         "registry_path": {
-          "description": "The repository path of the Domain registry shard. Present when the context binds at least one Domain, so a dispatched lane reads Domain structure from the file instead of a Concord tool. Bounds: 1..1024 code points inclusive",
+          "description": "The repository path of the Domain registry shard. Present when the context binds at least one Domain, so a dispatched lane reads Domain structure from the file instead of a Concord tool.",
           "type": "string",
           "minLength": 1,
           "maxLength": 1024
@@ -3393,7 +3356,7 @@
       ],
       "properties": {
         "roles": {
-          "description": "Every binding role the approved contract gives the law, sorted and deduplicated. Bounds: 1..4 items inclusive",
+          "description": "Every binding role the approved contract gives the law, sorted and deduplicated.",
           "type": "array",
           "minItems": 1,
           "maxItems": 4,
@@ -3409,18 +3372,16 @@
           }
         },
         "law_id": {
-          "$ref": "#/$defs/law_id",
-          "description": "Bounds: 2..256 code points inclusive"
+          "$ref": "#/$defs/law_id"
         },
         "obligation_ids": {
-          "description": "The contract's verification obligations that name the law, sorted and deduplicated. Present only when roles carries obligation. Bounds: 1..64 items inclusive",
+          "description": "The contract's verification obligations that name the law, sorted and deduplicated. Present only when roles carries obligation.",
           "type": "array",
           "minItems": 1,
           "maxItems": 64,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/obligation_id",
-            "description": "Bounds: 1..256 code points inclusive"
+            "$ref": "#/$defs/obligation_id"
           }
         },
         "kind": {
@@ -3442,17 +3403,15 @@
         "title": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 512,
-          "description": "Bounds: 1..512 code points inclusive"
+          "maxLength": 512
         },
         "path": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 1024,
-          "description": "Bounds: 1..1024 code points inclusive"
+          "maxLength": 1024
         },
         "criteria": {
-          "description": "The law's acceptance criteria bound to the reading work item's own outcome predicates (CD-0180). Present only when at least one criterion binds this work item. Bounds: 1..128 items inclusive",
+          "description": "The law's acceptance criteria bound to the reading work item's own outcome predicates (CD-0180). Present only when at least one criterion binds this work item.",
           "type": "array",
           "minItems": 1,
           "maxItems": 128,
@@ -3472,18 +3431,15 @@
       ],
       "properties": {
         "domain_id": {
-          "$ref": "#/$defs/domain_id",
-          "description": "Bounds: 1..256 code points inclusive"
+          "$ref": "#/$defs/domain_id"
         },
         "name": {
           "type": "string",
-          "maxLength": 256,
-          "description": "Bounds: <=256 code points inclusive"
+          "maxLength": 256
         },
         "purpose": {
           "type": "string",
-          "maxLength": 4096,
-          "description": "Bounds: <=4096 code points inclusive"
+          "maxLength": 4096
         }
       }
     },
@@ -3500,8 +3456,7 @@
         "problem": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 4096,
-          "description": "Bounds: 1..4096 code points inclusive"
+          "maxLength": 4096
         },
         "user_outcomes": {
           "type": "array",
@@ -3510,10 +3465,8 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 512,
-            "description": "Bounds: 1..512 code points inclusive"
-          },
-          "description": "Bounds: <=16 items inclusive"
+            "maxLength": 512
+          }
         },
         "constraints": {
           "type": "array",
@@ -3522,10 +3475,8 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 512,
-            "description": "Bounds: 1..512 code points inclusive"
-          },
-          "description": "Bounds: <=16 items inclusive"
+            "maxLength": 512
+          }
         }
       }
     },
@@ -3730,14 +3681,12 @@
         "statement": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 1024,
-          "description": "Bounds: 1..1024 code points inclusive"
+          "maxLength": 1024
         },
         "subject_ref": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128,
-          "description": "Bounds: 1..128 code points inclusive"
+          "maxLength": 128
         },
         "evidence_refs": {
           "type": [
@@ -3749,21 +3698,18 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 256,
-            "description": "Bounds: 1..256 code points inclusive"
+            "maxLength": 256
           },
-          "description": "The evidence that supports the finding. A ranked finding without an oracle tie projects null; the core reader owns that wire shape. Bounds: 0..8 items inclusive"
+          "description": "The evidence that supports the finding. A ranked finding without an oracle tie projects null; the core reader owns that wire shape."
         },
         "domain_id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 256,
-          "description": "Bounds: 1..256 code points inclusive"
+          "maxLength": 256
         },
         "product_wide_rationale": {
           "type": "string",
-          "maxLength": 512,
-          "description": "Bounds: <=512 code points inclusive"
+          "maxLength": 512
         },
         "origin": {
           "type": "string",
@@ -3783,18 +3729,15 @@
         "source_event_id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128,
-          "description": "Bounds: 1..128 code points inclusive"
+          "maxLength": 128
         },
         "source_event_seq": {
           "type": "integer",
-          "minimum": 1,
-          "description": "Bounds: >=1 value inclusive"
+          "minimum": 1
         },
         "ordinal": {
           "type": "integer",
-          "minimum": 0,
-          "description": "Bounds: >=0 value inclusive"
+          "minimum": 0
         },
         "source_kind": {
           "type": "string",
@@ -6829,20 +6772,17 @@
           "type": "string",
           "minLength": 2,
           "maxLength": 128,
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
-          "description": "Bounds: 2..128 code points inclusive"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$"
         },
         "revision": {
           "type": "integer",
-          "minimum": 1,
-          "description": "Bounds: >=1 value inclusive"
+          "minimum": 1
         },
         "digest": {
           "type": "string",
           "minLength": 71,
           "maxLength": 71,
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "description": "Bounds: 71..71 code points inclusive"
+          "pattern": "^sha256:[0-9a-f]{64}$"
         }
       },
       "description": "One recorded worker-job revision reference: the job identity, the revision, and the content digest. That the revision is exactly the one the dispatch recorded is a store join, never a schema check."
@@ -7282,28 +7222,23 @@
       ],
       "properties": {
         "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
+          "$ref": "#/$defs/version"
         },
         "action_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "evidence": {
           "type": "array",
           "maxItems": 32,
           "items": {
             "$ref": "#/$defs/evidence"
-          },
-          "description": "Bounds: <=32 items inclusive"
+          }
         },
         "approval": {
           "$ref": "#/$defs/approval"
@@ -7323,13 +7258,11 @@
             ],
             "properties": {
               "pack_id": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
+                "$ref": "#/$defs/id"
               },
               "revision": {
                 "type": "integer",
-                "minimum": 1,
-                "description": "Bounds: >=1 value inclusive"
+                "minimum": 1
               },
               "use_role": {
                 "type": "string",
@@ -7344,12 +7277,10 @@
                 "type": "boolean"
               }
             }
-          },
-          "description": "Bounds: 1..16 items inclusive"
+          }
         },
         "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "selected_choice": {
           "type": "string",
@@ -7360,8 +7291,7 @@
           ]
         },
         "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
+          "$ref": "#/$defs/digest"
         },
         "fields": {}
       },
@@ -9183,37 +9113,29 @@
           "type": "array",
           "maxItems": 32,
           "items": {
-            "$ref": "#/$defs/id",
-            "description": "Bounds: 1..128 code points inclusive"
-          },
-          "description": "Bounds: <=32 items inclusive"
+            "$ref": "#/$defs/id"
+          }
         },
         "project_ids": {
           "type": "array",
           "maxItems": 32,
           "items": {
-            "$ref": "#/$defs/id",
-            "description": "Bounds: 1..128 code points inclusive"
-          },
-          "description": "Bounds: <=32 items inclusive"
+            "$ref": "#/$defs/id"
+          }
         },
         "domain_ids": {
           "type": "array",
           "maxItems": 32,
           "items": {
-            "$ref": "#/$defs/id",
-            "description": "Bounds: 1..128 code points inclusive"
-          },
-          "description": "Bounds: <=32 items inclusive"
+            "$ref": "#/$defs/id"
+          }
         },
         "tag_ids": {
           "type": "array",
           "maxItems": 32,
           "items": {
-            "$ref": "#/$defs/id",
-            "description": "Bounds: 1..128 code points inclusive"
-          },
-          "description": "Bounds: <=32 items inclusive"
+            "$ref": "#/$defs/id"
+          }
         }
       }
     },
@@ -9310,17 +9232,14 @@
       ],
       "properties": {
         "pack_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "revision": {
           "type": "integer",
-          "minimum": 1,
-          "description": "Bounds: >=1 value inclusive"
+          "minimum": 1
         },
         "source_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "kind": {
           "type": "string",
@@ -9336,32 +9255,27 @@
         "locator": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 2048,
-          "description": "Bounds: 1..2048 code points inclusive"
+          "maxLength": 2048
         },
         "title": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 512,
-          "description": "Bounds: 1..512 code points inclusive"
+          "maxLength": 512
         },
         "publisher_or_author": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 256,
-          "description": "Bounds: 1..256 code points inclusive"
+          "maxLength": 256
         },
         "published_at": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 40,
-          "description": "Bounds: 1..40 code points inclusive"
+          "maxLength": 40
         },
         "accessed_at": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 40,
-          "description": "Bounds: 1..40 code points inclusive"
+          "maxLength": 40
         }
       }
     },
@@ -11597,23 +11511,20 @@
         },
         "work_version": {
           "type": "integer",
-          "minimum": 1,
-          "description": "Bounds: >=1 value inclusive"
+          "minimum": 1
         },
         "contract_version": {
           "type": [
             "integer",
             "null"
           ],
-          "minimum": 1,
-          "description": "Bounds: >=1 value inclusive"
+          "minimum": 1
         },
         "assigned_result": {
           "type": "string",
           "minLength": 1,
           "maxLength": 64,
-          "pattern": "^[a-z][a-z0-9_]*$",
-          "description": "Bounds: 1..64 code points inclusive"
+          "pattern": "^[a-z][a-z0-9_]*$"
         }
       },
       "allOf": [
@@ -11680,39 +11591,33 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
           "minLength": 2,
-          "maxLength": 128,
-          "description": "Bounds: 2..128 code points inclusive"
+          "maxLength": 128
         },
         "revision": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 2147483647,
-          "description": "Bounds: 1..2147483647 value inclusive"
+          "maximum": 2147483647
         },
         "digest": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$",
           "minLength": 71,
-          "maxLength": 71,
-          "description": "Bounds: 71..71 code points inclusive"
+          "maxLength": 71
         },
         "objective": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 4096,
-          "description": "Bounds: 1..4096 code points inclusive"
+          "maxLength": 4096
         },
         "stopping_condition": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 2048,
-          "description": "Bounds: 1..2048 code points inclusive"
+          "maxLength": 2048
         },
         "project_scope": {
           "type": "string",
           "maxLength": 128,
-          "minLength": 0,
-          "description": "Bounds: 0..128 code points inclusive"
+          "minLength": 0
         },
         "path_scope": {
           "type": "array",
@@ -11720,11 +11625,9 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 512,
-            "description": "Bounds: 1..512 code points inclusive"
+            "maxLength": 512
           },
-          "minItems": 0,
-          "description": "Bounds: 0..64 items inclusive"
+          "minItems": 0
         },
         "predicate_ids": {
           "type": "array",
@@ -11733,11 +11636,9 @@
             "type": "string",
             "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
             "minLength": 11,
-            "maxLength": 128,
-            "description": "Bounds: 11..128 code points inclusive"
+            "maxLength": 128
           },
-          "minItems": 0,
-          "description": "Bounds: 0..8 items inclusive"
+          "minItems": 0
         },
         "checks": {
           "type": "array",
@@ -11745,11 +11646,9 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 256,
-            "description": "Bounds: 1..256 code points inclusive"
+            "maxLength": 256
           },
-          "minItems": 0,
-          "description": "Bounds: 0..64 items inclusive"
+          "minItems": 0
         },
         "prerequisites": {
           "type": "array",
@@ -11766,25 +11665,21 @@
                 "type": "string",
                 "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
                 "minLength": 2,
-                "maxLength": 128,
-                "description": "Bounds: 2..128 code points inclusive"
+                "maxLength": 128
               },
               "revision": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 2147483647,
-                "description": "Bounds: 1..2147483647 value inclusive"
+                "maximum": 2147483647
               },
               "result_ref": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 512,
-                "description": "Bounds: 1..512 code points inclusive"
+                "maxLength": 512
               }
             }
           },
-          "minItems": 0,
-          "description": "Bounds: 0..64 items inclusive"
+          "minItems": 0
         },
         "unresolved_refs": {
           "type": "array",
@@ -11792,17 +11687,14 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 512,
-            "description": "Bounds: 1..512 code points inclusive"
+            "maxLength": 512
           },
-          "minItems": 0,
-          "description": "Bounds: 0..64 items inclusive"
+          "minItems": 0
         },
         "reserved_integration": {
           "type": "string",
           "maxLength": 4096,
-          "minLength": 0,
-          "description": "Bounds: 0..4096 code points inclusive"
+          "minLength": 0
         },
         "acceptance_oracle": {
           "$ref": "#/$defs/worker_acceptance_oracle",
@@ -11822,8 +11714,7 @@
         "reason": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 4096,
-          "description": "Bounds: 1..4096 code points inclusive"
+          "maxLength": 4096
         },
         "revisions": {
           "type": "array",
@@ -11847,14 +11738,11 @@
                 "items": {
                   "type": "string",
                   "minLength": 1,
-                  "maxLength": 256,
-                  "description": "Bounds: 1..256 code points inclusive"
-                },
-                "description": "Bounds: 0..64 items inclusive"
+                  "maxLength": 256
+                }
               }
             }
-          },
-          "description": "Bounds: 1..64 items inclusive"
+          }
         }
       }
     },
@@ -12018,39 +11906,33 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
           "minLength": 2,
-          "maxLength": 128,
-          "description": "Bounds: 2..128 code points inclusive"
+          "maxLength": 128
         },
         "revision": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 2147483647,
-          "description": "Bounds: 1..2147483647 value inclusive"
+          "maximum": 2147483647
         },
         "digest": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$",
           "minLength": 71,
-          "maxLength": 71,
-          "description": "Bounds: 71..71 code points inclusive"
+          "maxLength": 71
         },
         "objective": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 4096,
-          "description": "Bounds: 1..4096 code points inclusive"
+          "maxLength": 4096
         },
         "stopping_condition": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 2048,
-          "description": "Bounds: 1..2048 code points inclusive"
+          "maxLength": 2048
         },
         "project_scope": {
           "type": "string",
           "maxLength": 128,
-          "minLength": 0,
-          "description": "Bounds: 0..128 code points inclusive"
+          "minLength": 0
         },
         "path_scope": {
           "type": "array",
@@ -12058,11 +11940,9 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 512,
-            "description": "Bounds: 1..512 code points inclusive"
+            "maxLength": 512
           },
-          "minItems": 0,
-          "description": "Bounds: 0..64 items inclusive"
+          "minItems": 0
         },
         "predicate_ids": {
           "type": "array",
@@ -12071,11 +11951,9 @@
             "type": "string",
             "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
             "minLength": 11,
-            "maxLength": 128,
-            "description": "Bounds: 11..128 code points inclusive"
+            "maxLength": 128
           },
-          "minItems": 0,
-          "description": "Bounds: 0..8 items inclusive"
+          "minItems": 0
         },
         "checks": {
           "type": "array",
@@ -12083,11 +11961,9 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 256,
-            "description": "Bounds: 1..256 code points inclusive"
+            "maxLength": 256
           },
-          "minItems": 0,
-          "description": "Bounds: 0..64 items inclusive"
+          "minItems": 0
         },
         "prerequisites": {
           "type": "array",
@@ -12104,25 +11980,21 @@
                 "type": "string",
                 "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
                 "minLength": 2,
-                "maxLength": 128,
-                "description": "Bounds: 2..128 code points inclusive"
+                "maxLength": 128
               },
               "revision": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 2147483647,
-                "description": "Bounds: 1..2147483647 value inclusive"
+                "maximum": 2147483647
               },
               "result_ref": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 512,
-                "description": "Bounds: 1..512 code points inclusive"
+                "maxLength": 512
               }
             }
           },
-          "minItems": 0,
-          "description": "Bounds: 0..64 items inclusive"
+          "minItems": 0
         },
         "unresolved_refs": {
           "type": "array",
@@ -12130,17 +12002,14 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 512,
-            "description": "Bounds: 1..512 code points inclusive"
+            "maxLength": 512
           },
-          "minItems": 0,
-          "description": "Bounds: 0..64 items inclusive"
+          "minItems": 0
         },
         "reserved_integration": {
           "type": "string",
           "maxLength": 4096,
-          "minLength": 0,
-          "description": "Bounds: 0..4096 code points inclusive"
+          "minLength": 0
         },
         "acceptance_oracle": {
           "$ref": "#/$defs/worker_acceptance_oracle",
@@ -12153,7 +12022,7 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 2147483647,
-          "description": "The recorded production-size cap (CD-0225 D1). Optional and omitted on every read-only revision; carried beside the measurement basis by every editing revision. Bounds: 1..2147483647 value inclusive"
+          "description": "The recorded production-size cap (CD-0225 D1). Optional and omitted on every read-only revision; carried beside the measurement basis by every editing revision."
         },
         "measurement_basis": {
           "$ref": "#/$defs/worker_job_measurement_basis",
@@ -12171,10 +12040,9 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 512,
-            "description": "Bounds: 1..512 code points inclusive"
+            "maxLength": 512
           },
-          "description": "The measured paths of the work's other jobs currently in correction. The core computes this set at dispatch admission and refuses a packet whose exclusions differ; the member binds the packet, never the job digest, and only the implementation capability class carries it. Bounds: 0..64 items inclusive"
+          "description": "The measured paths of the work's other jobs currently in correction. The core computes this set at dispatch admission and refuses a packet whose exclusions differ; the member binds the packet, never the job digest, and only the implementation capability class carries it."
         }
       }
     },
@@ -12821,8 +12689,7 @@
           "const": "exists"
         },
         "surface": {
-          "$ref": "#/$defs/workflow_outcome_surface",
-          "description": "Bounds: 2..128 code points inclusive"
+          "$ref": "#/$defs/workflow_outcome_surface"
         },
         "subjects": {
           "type": "array",
@@ -12830,10 +12697,8 @@
           "maxItems": 100,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/workflow_outcome_subject",
-            "description": "Bounds: 2..128 code points inclusive"
-          },
-          "description": "Bounds: 1..100 items inclusive"
+            "$ref": "#/$defs/workflow_outcome_subject"
+          }
         }
       }
     },
@@ -12851,8 +12716,7 @@
           "const": "absent"
         },
         "surface": {
-          "$ref": "#/$defs/workflow_outcome_surface",
-          "description": "Bounds: 2..128 code points inclusive"
+          "$ref": "#/$defs/workflow_outcome_surface"
         },
         "subjects": {
           "type": "array",
@@ -12860,10 +12724,8 @@
           "maxItems": 100,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/workflow_outcome_subject",
-            "description": "Bounds: 2..128 code points inclusive"
-          },
-          "description": "Bounds: 1..100 items inclusive"
+            "$ref": "#/$defs/workflow_outcome_subject"
+          }
         },
         "distinguish_from": {
           "type": "array",
@@ -12878,8 +12740,7 @@
               "renamed",
               "disabled"
             ]
-          },
-          "description": "Bounds: 1..4 items inclusive"
+          }
         }
       }
     },
@@ -12907,7 +12768,7 @@
               "resolved"
             ]
           },
-          "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation admit no outcome tokens (only exists, absent and check predicate kinds). Bounds: 1..3 items inclusive"
+          "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation admit no outcome tokens (only exists, absent and check predicate kinds)."
         }
       }
     },
@@ -12928,15 +12789,13 @@
           "type": "string",
           "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
           "minLength": 7,
-          "maxLength": 134,
-          "description": "Bounds: 7..134 code points inclusive"
+          "maxLength": 134
         },
         "immutable_subject_ref": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
           "minLength": 2,
-          "maxLength": 256,
-          "description": "Bounds: 2..256 code points inclusive"
+          "maxLength": 256
         },
         "expected_result": {
           "type": "string",
@@ -14042,13 +13901,12 @@
         "properties": {
           "predicate_id": {
             "$ref": "#/$defs/id",
-            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Bounds: 1..128 code points inclusive"
+            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
           },
           "ordinal": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 7,
-            "description": "Bounds: 0..7 value inclusive"
+            "maximum": 7
           },
           "outcome_kind": {
             "type": "string",
@@ -14141,8 +13999,7 @@
             }
           }
         ]
-      },
-      "description": "Bounds: 1..8 items inclusive"
+      }
     },
     "vacate_target": {
       "type": "object",
@@ -15187,10 +15044,8 @@
             "type": "string",
             "minLength": 9,
             "maxLength": 128,
-            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
-            "description": "Bounds: 9..128 code points inclusive"
-          },
-          "description": "Bounds: 1..8 items inclusive"
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+          }
         },
         "case_ids": {
           "type": "array",
@@ -15201,10 +15056,8 @@
             "type": "string",
             "minLength": 6,
             "maxLength": 128,
-            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
-            "description": "Bounds: 6..128 code points inclusive"
-          },
-          "description": "Bounds: 1..64 items inclusive"
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+          }
         },
         "recipe_source": {
           "$ref": "#/$defs/work_context_reading_source_repository_file",
@@ -15223,13 +15076,13 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 255,
-          "description": "Required exactly when result is pass or fail: the control's exit status. Bounds: 0..255 value inclusive"
+          "description": "Required exactly when result is pass or fail: the control's exit status."
         },
         "run_ref": {
           "type": "string",
           "minLength": 0,
           "maxLength": 512,
-          "description": "The immutable native-run or artifact locator of the execution. Nonempty exactly when result is pass or fail; a not_run or unavailable result carries the empty string and names its explanation in evidence_refs. Bounds: 0..512 code points inclusive"
+          "description": "The immutable native-run or artifact locator of the execution. Nonempty exactly when result is pass or fail; a not_run or unavailable result carries the empty string and names its explanation in evidence_refs."
         },
         "evidence_refs": {
           "type": "array",
@@ -15238,17 +15091,15 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 256,
-            "description": "Bounds: 1..256 code points inclusive"
-          },
-          "description": "Bounds: 0..8 items inclusive"
+            "maxLength": 256
+          }
         },
         "subject_commit": {
           "type": "string",
           "minLength": 40,
           "maxLength": 64,
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
-          "description": "Host-derived raw commit OID. Dispatch-owned: a worker-authored value is stripped before the canonical report; only the core work-context subject supplies it. Bounds: 40..64 code points inclusive"
+          "description": "Host-derived raw commit OID. Dispatch-owned: a worker-authored value is stripped before the canonical report; only the core work-context subject supplies it."
         }
       },
       "allOf": [
@@ -15273,8 +15124,7 @@
             ],
             "properties": {
               "run_ref": {
-                "minLength": 1,
-                "description": "Bounds: >=1 code points inclusive"
+                "minLength": 1
               }
             }
           }
@@ -15303,14 +15153,12 @@
           "type": "string",
           "minLength": 7,
           "maxLength": 128,
-          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
-          "description": "Bounds: 7..128 code points inclusive"
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
         },
         "failure_family": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128,
-          "description": "Bounds: 1..128 code points inclusive"
+          "maxLength": 128
         },
         "predicate_ids": {
           "type": "array",
@@ -15321,10 +15169,8 @@
             "type": "string",
             "minLength": 11,
             "maxLength": 128,
-            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
-            "description": "Bounds: 11..128 code points inclusive"
-          },
-          "description": "Bounds: 0..8 items inclusive"
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          }
         },
         "law_bindings": {
           "type": "array",
@@ -15332,8 +15178,7 @@
           "maxItems": 8,
           "items": {
             "$ref": "#/$defs/worker_oracle_law_binding"
-          },
-          "description": "Bounds: 0..8 items inclusive"
+          }
         },
         "case_ids": {
           "type": "array",
@@ -15344,10 +15189,8 @@
             "type": "string",
             "minLength": 6,
             "maxLength": 128,
-            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
-            "description": "Bounds: 6..128 code points inclusive"
-          },
-          "description": "Bounds: 0..8 items inclusive"
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+          }
         },
         "control_ids": {
           "type": "array",
@@ -15358,10 +15201,8 @@
             "type": "string",
             "minLength": 9,
             "maxLength": 128,
-            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
-            "description": "Bounds: 9..128 code points inclusive"
-          },
-          "description": "Bounds: 0..8 items inclusive"
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+          }
         },
         "evidence_refs": {
           "type": "array",
@@ -15370,30 +15211,29 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 256,
-            "description": "Bounds: 1..256 code points inclusive"
+            "maxLength": 256
           },
-          "description": "The reproducible evidence that supports the finding. A known control failure names that control's receipt. Bounds: 0..8 items inclusive"
+          "description": "The reproducible evidence that supports the finding. A known control failure names that control's receipt."
         },
         "entry_point": {
           "type": "string",
           "minLength": 1,
           "maxLength": 512,
-          "description": "For an uncovered_case: the explicit new entry path or transition the inventory omitted. Bounds: 1..512 code points inclusive"
+          "description": "For an uncovered_case: the explicit new entry path or transition the inventory omitted."
         },
         "continues_finding_id": {
           "type": "string",
           "minLength": 11,
           "maxLength": 64,
           "pattern": "^finding:[0-9]+:[0-9]+$",
-          "description": "The earlier ranked finding of this work that this finding continues. Same failure, same canonical open identity; an uncertain join becomes a new finding and earns no shrink credit. Bounds: 11..64 code points inclusive"
+          "description": "The earlier ranked finding of this work that this finding continues. Same failure, same canonical open identity; an uncertain join becomes a new finding and earns no shrink credit."
         },
         "variant_of": {
           "type": "string",
           "minLength": 11,
           "maxLength": 64,
           "pattern": "^finding:[0-9]+:[0-9]+$",
-          "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding. Bounds: 11..64 code points inclusive"
+          "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding."
         }
       }
     },
@@ -18803,28 +18643,24 @@
       ],
       "properties": {
         "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
+          "$ref": "#/$defs/version"
         },
         "action_id": {
           "type": "string",
           "const": "dispatch_worker"
         },
         "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "evidence": {
           "type": "array",
           "maxItems": 32,
           "items": {
             "$ref": "#/$defs/evidence"
-          },
-          "description": "Bounds: <=32 items inclusive"
+          }
         },
         "approval": {
           "$ref": "#/$defs/approval"
@@ -18844,13 +18680,11 @@
             ],
             "properties": {
               "pack_id": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
+                "$ref": "#/$defs/id"
               },
               "revision": {
                 "type": "integer",
-                "minimum": 1,
-                "description": "Bounds: >=1 value inclusive"
+                "minimum": 1
               },
               "use_role": {
                 "type": "string",
@@ -18865,12 +18699,10 @@
                 "type": "boolean"
               }
             }
-          },
-          "description": "Bounds: 1..16 items inclusive"
+          }
         },
         "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "selected_choice": {
           "type": "string",
@@ -18881,8 +18713,7 @@
           ]
         },
         "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
+          "$ref": "#/$defs/digest"
         },
         "fields": {
           "oneOf": [
@@ -18898,7 +18729,7 @@
                   "x-minBytes": 2,
                   "x-maxBytes": 128,
                   "pattern": "^[^\\x09-\\x0d    -     　]+$",
-                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
                 },
                 "worker_packet": {
                   "$ref": "#/$defs/worker_packet5"
@@ -18907,8 +18738,7 @@
               "required": [
                 "attempt_id",
                 "worker_packet"
-              ],
-              "description": "Bounds: <=32 properties inclusive"
+              ]
             },
             {
               "type": "object",
@@ -18922,7 +18752,7 @@
                   "x-minBytes": 2,
                   "x-maxBytes": 128,
                   "pattern": "^[^\\x09-\\x0d    -     　]+$",
-                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
                 },
                 "worker_packet": {
                   "$ref": "#/$defs/worker_packet3"
@@ -18933,10 +18763,8 @@
                 "worker_packet"
               ],
               "not": {
-                "$ref": "#/$defs/work_transition_action_variant_dispatch_worker_fields_member_0",
-                "description": "Bounds: <=32 properties inclusive"
-              },
-              "description": "Bounds: <=32 properties inclusive"
+                "$ref": "#/$defs/work_transition_action_variant_dispatch_worker_fields_member_0"
+              }
             }
           ]
         }
@@ -23518,14 +23346,12 @@
         "criterion": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 2147483647,
-          "description": "Bounds: 1..2147483647 value inclusive"
+          "maximum": 2147483647
         },
         "predicate_id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128,
-          "description": "Bounds: 1..128 code points inclusive"
+          "maxLength": 128
         }
       }
     },
@@ -23538,20 +23364,17 @@
         "value_statement": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 256,
-          "description": "Bounds: 1..256 code points inclusive"
+          "maxLength": 256
         },
         "task": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 8192,
-          "description": "Bounds: 1..8192 code points inclusive"
+          "maxLength": 8192
         },
         "narrative": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 16384,
-          "description": "Bounds: 1..16384 code points inclusive"
+          "maxLength": 16384
         }
       }
     },
@@ -23930,15 +23753,13 @@
         "length": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 2097152,
-          "description": "Bounds: 0..2097152 value inclusive"
+          "maximum": 2097152
         },
         "sha256": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$",
           "minLength": 71,
-          "maxLength": 71,
-          "description": "Bounds: 71..71 code points inclusive"
+          "maxLength": 71
         },
         "complete": {
           "type": "boolean"
@@ -23946,8 +23767,7 @@
         "ref": {
           "type": "string",
           "minLength": 0,
-          "maxLength": 512,
-          "description": "Bounds: 0..512 code points inclusive"
+          "maxLength": 512
         }
       },
       "description": "Native producer descriptor only. One raw BLOB per stream stays on the existing verify lease. A complete ref requires atomic full capture; incomplete and abandoned output cannot supply full-output acceptance. Preview truncation does not imply stream truncation.",
@@ -23964,8 +23784,7 @@
       "then": {
         "properties": {
           "ref": {
-            "minLength": 1,
-            "description": "Bounds: >=1 code points inclusive"
+            "minLength": 1
           }
         }
       },
@@ -23989,22 +23808,19 @@
         "path": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 512,
-          "description": "Bounds: 1..512 code points inclusive"
+          "maxLength": 512
         },
         "blob_oid": {
           "type": "string",
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
           "minLength": 40,
-          "maxLength": 64,
-          "description": "Bounds: 40..64 code points inclusive"
+          "maxLength": 64
         },
         "sha256": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$",
           "minLength": 71,
-          "maxLength": 71,
-          "description": "Bounds: 71..71 code points inclusive"
+          "maxLength": 71
         }
       }
     },
@@ -24012,8 +23828,7 @@
       "type": "string",
       "pattern": "^Test[A-Z][A-Za-z0-9_]*$",
       "minLength": 5,
-      "maxLength": 64,
-      "description": "Bounds: 5..64 code points inclusive"
+      "maxLength": 64
     },
     "native_oracle_preparation": {
       "type": "object",
@@ -24061,53 +23876,45 @@
         "run_ref": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 512,
-          "description": "Bounds: 1..512 code points inclusive"
+          "maxLength": 512
         },
         "work_id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128,
-          "description": "Bounds: 1..128 code points inclusive"
+          "maxLength": 128
         },
         "project_id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128,
-          "description": "Bounds: 1..128 code points inclusive"
+          "maxLength": 128
         },
         "contract_version": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 9223372036854775807,
-          "description": "Bounds: 1..9223372036854775807 value inclusive"
+          "maximum": 9223372036854775807
         },
         "subject_commit": {
           "type": "string",
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
           "minLength": 40,
-          "maxLength": 64,
-          "description": "Bounds: 40..64 code points inclusive"
+          "maxLength": 64
         },
         "bundle_digest": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$",
           "minLength": 71,
-          "maxLength": 71,
-          "description": "Bounds: 71..71 code points inclusive"
+          "maxLength": 71
         },
         "logical_argv_digest": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$",
           "minLength": 71,
-          "maxLength": 71,
-          "description": "Bounds: 71..71 code points inclusive"
+          "maxLength": 71
         },
         "logical_cwd": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 512,
-          "description": "Bounds: 1..512 code points inclusive"
+          "maxLength": 512
         },
         "recipe_source": {
           "$ref": "#/$defs/work_context_reading_source_repository_file"
@@ -24116,15 +23923,13 @@
           "type": "string",
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
           "minLength": 40,
-          "maxLength": 64,
-          "description": "Bounds: 40..64 code points inclusive"
+          "maxLength": 64
         },
         "manifest_digest": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$",
           "minLength": 71,
-          "maxLength": 71,
-          "description": "Bounds: 71..71 code points inclusive"
+          "maxLength": 71
         },
         "files": {
           "type": "array",
@@ -24132,21 +23937,18 @@
           "maxItems": 32,
           "items": {
             "$ref": "#/$defs/native_oracle_file"
-          },
-          "description": "Bounds: 1..32 items inclusive"
+          }
         },
         "toolchain_identity": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 512,
-          "description": "Bounds: 1..512 code points inclusive"
+          "maxLength": 512
         },
         "build_environment_digest": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$",
           "minLength": 71,
-          "maxLength": 71,
-          "description": "Bounds: 71..71 code points inclusive"
+          "maxLength": 71
         },
         "recipe_kind": {
           "type": "string",
@@ -24179,10 +23981,9 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 256,
-            "pattern": "^[^\\x00-\\x1f\\x7f]*$",
-            "description": "Bounds: 1..256 code points inclusive"
+            "pattern": "^[^\\x00-\\x1f\\x7f]*$"
           },
-          "description": "The runner-defined exact witness identities the qualified preparation selected: unique bounded visible strings of at most 256 bytes. The rendered selector still obeys the bounded verify command shape, so the nominal maximum derives from the shared witness allowance, not an independent one. No truncation or omitted witness. Bounds: 1..40 items inclusive"
+          "description": "The runner-defined exact witness identities the qualified preparation selected: unique bounded visible strings of at most 256 bytes. The rendered selector still obeys the bounded verify command shape, so the nominal maximum derives from the shared witness allowance, not an independent one. No truncation or omitted witness."
         },
         "case_to_witness_map": {
           "type": "object",
@@ -24199,13 +24000,11 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 256,
-                "pattern": "^[^\\x00-\\x1f\\x7f]*$",
-                "description": "Bounds: 1..256 code points inclusive"
-              },
-              "description": "Bounds: 1..8 items inclusive"
+                "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+              }
             }
           },
-          "description": "Each control case maps to 1 to 8 selected witness IDs; the map covers exactly the control's cases, and the union of its values is exactly selected_witness_ids. Bounds: 1..64 properties inclusive"
+          "description": "Each control case maps to 1 to 8 selected witness IDs; the map covers exactly the control's cases, and the union of its values is exactly selected_witness_ids."
         },
         "selected_test_names": {
           "type": "array",
@@ -24213,10 +24012,9 @@
           "maxItems": 40,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/native_oracle_test_name",
-            "description": "Bounds: 5..64 code points inclusive"
+            "$ref": "#/$defs/native_oracle_test_name"
           },
-          "description": "The nominal maximum derives from floor((256-13)/6), not an independent test allowance. Every rendered selector still obeys sum(name bytes)+N+13 <= 256. No truncation or omitted witness. Bounds: 1..40 items inclusive"
+          "description": "The nominal maximum derives from floor((256-13)/6), not an independent test allowance. Every rendered selector still obeys sum(name bytes)+N+13 <= 256. No truncation or omitted witness."
         },
         "case_to_test_map": {
           "type": "object",
@@ -24230,26 +24028,21 @@
               "maxItems": 8,
               "uniqueItems": true,
               "items": {
-                "$ref": "#/$defs/native_oracle_test_name",
-                "description": "Bounds: 5..64 code points inclusive"
-              },
-              "description": "Bounds: 1..8 items inclusive"
+                "$ref": "#/$defs/native_oracle_test_name"
+              }
             }
-          },
-          "description": "Bounds: 1..64 properties inclusive"
+          }
         },
         "selected_distinct_count": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 40,
-          "description": "Bounds: 1..40 value inclusive"
+          "maximum": 40
         },
         "native_plan_sha256": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$",
           "minLength": 71,
-          "maxLength": 71,
-          "description": "Bounds: 71..71 code points inclusive"
+          "maxLength": 71
         },
         "stdout": {
           "$ref": "#/$defs/native_oracle_stream"
@@ -24311,53 +24104,45 @@
             "run_ref": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 512,
-              "description": "Bounds: 1..512 code points inclusive"
+              "maxLength": 512
             },
             "work_id": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128,
-              "description": "Bounds: 1..128 code points inclusive"
+              "maxLength": 128
             },
             "project_id": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128,
-              "description": "Bounds: 1..128 code points inclusive"
+              "maxLength": 128
             },
             "contract_version": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 9223372036854775807,
-              "description": "Bounds: 1..9223372036854775807 value inclusive"
+              "maximum": 9223372036854775807
             },
             "subject_commit": {
               "type": "string",
               "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
               "minLength": 40,
-              "maxLength": 64,
-              "description": "Bounds: 40..64 code points inclusive"
+              "maxLength": 64
             },
             "bundle_digest": {
               "type": "string",
               "pattern": "^sha256:[0-9a-f]{64}$",
               "minLength": 71,
-              "maxLength": 71,
-              "description": "Bounds: 71..71 code points inclusive"
+              "maxLength": 71
             },
             "logical_argv_digest": {
               "type": "string",
               "pattern": "^sha256:[0-9a-f]{64}$",
               "minLength": 71,
-              "maxLength": 71,
-              "description": "Bounds: 71..71 code points inclusive"
+              "maxLength": 71
             },
             "logical_cwd": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 512,
-              "description": "Bounds: 1..512 code points inclusive"
+              "maxLength": 512
             },
             "recipe_source": {
               "$ref": "#/$defs/work_context_reading_source_repository_file"
@@ -24366,15 +24151,13 @@
               "type": "string",
               "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
               "minLength": 40,
-              "maxLength": 64,
-              "description": "Bounds: 40..64 code points inclusive"
+              "maxLength": 64
             },
             "manifest_digest": {
               "type": "string",
               "pattern": "^sha256:[0-9a-f]{64}$",
               "minLength": 71,
-              "maxLength": 71,
-              "description": "Bounds: 71..71 code points inclusive"
+              "maxLength": 71
             },
             "files": {
               "type": "array",
@@ -24382,21 +24165,18 @@
               "maxItems": 32,
               "items": {
                 "$ref": "#/$defs/native_oracle_file"
-              },
-              "description": "Bounds: 1..32 items inclusive"
+              }
             },
             "toolchain_identity": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 512,
-              "description": "Bounds: 1..512 code points inclusive"
+              "maxLength": 512
             },
             "build_environment_digest": {
               "type": "string",
               "pattern": "^sha256:[0-9a-f]{64}$",
               "minLength": 71,
-              "maxLength": 71,
-              "description": "Bounds: 71..71 code points inclusive"
+              "maxLength": 71
             },
             "selected_test_names": {
               "type": "array",
@@ -24404,10 +24184,8 @@
               "maxItems": 40,
               "uniqueItems": true,
               "items": {
-                "$ref": "#/$defs/native_oracle_test_name",
-                "description": "Bounds: 5..64 code points inclusive"
-              },
-              "description": "Bounds: 1..40 items inclusive"
+                "$ref": "#/$defs/native_oracle_test_name"
+              }
             },
             "case_to_test_map": {
               "type": "object",
@@ -24421,26 +24199,21 @@
                   "maxItems": 8,
                   "uniqueItems": true,
                   "items": {
-                    "$ref": "#/$defs/native_oracle_test_name",
-                    "description": "Bounds: 5..64 code points inclusive"
-                  },
-                  "description": "Bounds: 1..8 items inclusive"
+                    "$ref": "#/$defs/native_oracle_test_name"
+                  }
                 }
-              },
-              "description": "Bounds: 1..64 properties inclusive"
+              }
             },
             "selected_distinct_count": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 40,
-              "description": "Bounds: 1..40 value inclusive"
+              "maximum": 40
             },
             "native_plan_sha256": {
               "type": "string",
               "pattern": "^sha256:[0-9a-f]{64}$",
               "minLength": 71,
-              "maxLength": 71,
-              "description": "Bounds: 71..71 code points inclusive"
+              "maxLength": 71
             },
             "stdout": {
               "$ref": "#/$defs/native_oracle_stream"
@@ -24476,8 +24249,7 @@
                     "const": true
                   },
                   "ref": {
-                    "minLength": 1,
-                    "description": "Bounds: >=1 code points inclusive"
+                    "minLength": 1
                   }
                 }
               },
@@ -24490,8 +24262,7 @@
                     "const": true
                   },
                   "ref": {
-                    "minLength": 1,
-                    "description": "Bounds: >=1 code points inclusive"
+                    "minLength": 1
                   }
                 }
               }
@@ -24579,53 +24350,45 @@
             "run_ref": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 512,
-              "description": "Bounds: 1..512 code points inclusive"
+              "maxLength": 512
             },
             "work_id": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128,
-              "description": "Bounds: 1..128 code points inclusive"
+              "maxLength": 128
             },
             "project_id": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128,
-              "description": "Bounds: 1..128 code points inclusive"
+              "maxLength": 128
             },
             "contract_version": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 9223372036854775807,
-              "description": "Bounds: 1..9223372036854775807 value inclusive"
+              "maximum": 9223372036854775807
             },
             "subject_commit": {
               "type": "string",
               "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
               "minLength": 40,
-              "maxLength": 64,
-              "description": "Bounds: 40..64 code points inclusive"
+              "maxLength": 64
             },
             "bundle_digest": {
               "type": "string",
               "pattern": "^sha256:[0-9a-f]{64}$",
               "minLength": 71,
-              "maxLength": 71,
-              "description": "Bounds: 71..71 code points inclusive"
+              "maxLength": 71
             },
             "logical_argv_digest": {
               "type": "string",
               "pattern": "^sha256:[0-9a-f]{64}$",
               "minLength": 71,
-              "maxLength": 71,
-              "description": "Bounds: 71..71 code points inclusive"
+              "maxLength": 71
             },
             "logical_cwd": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 512,
-              "description": "Bounds: 1..512 code points inclusive"
+              "maxLength": 512
             },
             "recipe_source": {
               "$ref": "#/$defs/work_context_reading_source_repository_file"
@@ -24634,15 +24397,13 @@
               "type": "string",
               "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
               "minLength": 40,
-              "maxLength": 64,
-              "description": "Bounds: 40..64 code points inclusive"
+              "maxLength": 64
             },
             "manifest_digest": {
               "type": "string",
               "pattern": "^sha256:[0-9a-f]{64}$",
               "minLength": 71,
-              "maxLength": 71,
-              "description": "Bounds: 71..71 code points inclusive"
+              "maxLength": 71
             },
             "files": {
               "type": "array",
@@ -24650,21 +24411,18 @@
               "maxItems": 32,
               "items": {
                 "$ref": "#/$defs/native_oracle_file"
-              },
-              "description": "Bounds: 1..32 items inclusive"
+              }
             },
             "toolchain_identity": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 512,
-              "description": "Bounds: 1..512 code points inclusive"
+              "maxLength": 512
             },
             "build_environment_digest": {
               "type": "string",
               "pattern": "^sha256:[0-9a-f]{64}$",
               "minLength": 71,
-              "maxLength": 71,
-              "description": "Bounds: 71..71 code points inclusive"
+              "maxLength": 71
             },
             "recipe_kind": {
               "type": "string",
@@ -24694,10 +24452,8 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 256,
-                "pattern": "^[^\\x00-\\x1f\\x7f]*$",
-                "description": "Bounds: 1..256 code points inclusive"
-              },
-              "description": "Bounds: 1..40 items inclusive"
+                "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+              }
             },
             "case_to_witness_map": {
               "type": "object",
@@ -24714,26 +24470,21 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f]*$",
-                    "description": "Bounds: 1..256 code points inclusive"
-                  },
-                  "description": "Bounds: 1..8 items inclusive"
+                    "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+                  }
                 }
-              },
-              "description": "Bounds: 1..64 properties inclusive"
+              }
             },
             "selected_distinct_count": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 40,
-              "description": "Bounds: 1..40 value inclusive"
+              "maximum": 40
             },
             "native_plan_sha256": {
               "type": "string",
               "pattern": "^sha256:[0-9a-f]{64}$",
               "minLength": 71,
-              "maxLength": 71,
-              "description": "Bounds: 71..71 code points inclusive"
+              "maxLength": 71
             },
             "stdout": {
               "$ref": "#/$defs/native_oracle_stream"
@@ -24769,8 +24520,7 @@
                     "const": true
                   },
                   "ref": {
-                    "minLength": 1,
-                    "description": "Bounds: >=1 code points inclusive"
+                    "minLength": 1
                   }
                 }
               },
@@ -24783,8 +24533,7 @@
                     "const": true
                   },
                   "ref": {
-                    "minLength": 1,
-                    "description": "Bounds: >=1 code points inclusive"
+                    "minLength": 1
                   }
                 }
               }
@@ -27417,8 +27166,7 @@
         "domain_id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 256,
-          "description": "Bounds: 1..256 code points inclusive"
+          "maxLength": 256
         },
         "required_reading_ordinals": {
           "type": "array",
@@ -27426,10 +27174,8 @@
           "maxItems": 32,
           "items": {
             "type": "integer",
-            "minimum": 0,
-            "description": "Bounds: >=0 value inclusive"
-          },
-          "description": "Bounds: 0..32 items inclusive"
+            "minimum": 0
+          }
         },
         "finding_ids": {
           "type": "array",
@@ -27439,8 +27185,7 @@
             "type": "string",
             "pattern": "^(finding|research):[0-9]+:[0-9]+$",
             "description": "The closed view-id namespace: generic finding ids and selected research view ids share the group's ordered id list."
-          },
-          "description": "Bounds: 0..32 items inclusive"
+          }
         }
       }
     },
@@ -27457,7 +27202,7 @@
         "source_event_frontier": {
           "type": "integer",
           "minimum": 0,
-          "description": "The work item's maximum event sequence at read time, so a packet built from this view can be compared against current state before spawn. Bounds: >=0 value inclusive"
+          "description": "The work item's maximum event sequence at read time, so a packet built from this view can be compared against current state before spawn."
         },
         "required_reading": {
           "type": "array",
@@ -27465,8 +27210,7 @@
           "maxItems": 32,
           "items": {
             "$ref": "#/$defs/work_context_reading"
-          },
-          "description": "Bounds: 0..32 items inclusive"
+          }
         },
         "findings": {
           "type": "array",
@@ -27474,8 +27218,7 @@
           "maxItems": 32,
           "items": {
             "$ref": "#/$defs/work_context_finding_view"
-          },
-          "description": "Bounds: 0..32 items inclusive"
+          }
         },
         "research_findings": {
           "type": "array",
@@ -27484,7 +27227,7 @@
           "items": {
             "$ref": "#/$defs/work_context_research_finding_view"
           },
-          "description": "The selected research entries the latest declaration anchor resolved, in authored order, beside the generic findings under the shared 32-finding bound. Omitted when the declaration selects nothing. Bounds: 0..32 items inclusive"
+          "description": "The selected research entries the latest declaration anchor resolved, in authored order, beside the generic findings under the shared 32-finding bound. Omitted when the declaration selects nothing."
         },
         "domain_groups": {
           "type": "array",
@@ -27492,8 +27235,7 @@
           "maxItems": 64,
           "items": {
             "$ref": "#/$defs/work_context_domain_group3"
-          },
-          "description": "Bounds: 0..64 items inclusive"
+          }
         },
         "oracle_receipts": {
           "type": "array",
@@ -27502,14 +27244,14 @@
           "items": {
             "$ref": "#/$defs/worker_oracle_receipt"
           },
-          "description": "The prior typed control-execution receipts this work retained, in log order: reported regression baselines with their exact identities, never current-subject acceptance. Bounds: 0..64 items inclusive"
+          "description": "The prior typed control-execution receipts this work retained, in log order: reported regression baselines with their exact identities, never current-subject acceptance."
         },
         "subject_commit": {
           "type": "string",
           "minLength": 40,
           "maxLength": 64,
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
-          "description": "The sole core-derived current subject, as a raw commit OID. Native receipt subject_ref remains commit:OID and the store normalizes that reference once. Bounds: 40..64 code points inclusive"
+          "description": "The sole core-derived current subject, as a raw commit OID. Native receipt subject_ref remains commit:OID and the store normalizes that reference once."
         },
         "oracle_preparations": {
           "type": "array",
@@ -27518,7 +27260,7 @@
           "items": {
             "$ref": "#/$defs/native_oracle_preparation"
           },
-          "description": "Only native preparation records selected by the immutable job's readiness refs. No raw output or alternative readiness authority. Bounds: 0..512 items inclusive"
+          "description": "Only native preparation records selected by the immutable job's readiness refs. No raw output or alternative readiness authority."
         }
       }
     },
@@ -27545,30 +27287,24 @@
           ]
         },
         "attempt_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "lane_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "lane_version": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 2147483647,
-          "description": "Bounds: 1..2147483647 value inclusive"
+          "maximum": 2147483647
         },
         "lane_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
+          "$ref": "#/$defs/digest"
         },
         "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "step_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "inputs": {
           "type": "object",
@@ -27577,8 +27313,7 @@
             "task": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 4096,
-              "description": "Bounds: 1..4096 code points inclusive"
+              "maxLength": 4096
             },
             "binding": {
               "$ref": "#/$defs/worker_packet_binding"
@@ -27595,7 +27330,7 @@
               "type": "string",
               "minLength": 0,
               "maxLength": 16384,
-              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it. Bounds: 0..16384 code points inclusive"
+              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it."
             },
             "law_context": {
               "$ref": "#/$defs/workflow_law_context",
@@ -27630,14 +27365,11 @@
               "items": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 512,
-                "description": "Bounds: 1..512 code points inclusive"
-              },
-              "description": "Bounds: 0..64 items inclusive"
+                "maxLength": 512
+              }
             },
             "outcome_predicates": {
-              "$ref": "#/$defs/worker_packet_outcome_predicates",
-              "description": "Bounds: 1..8 items inclusive"
+              "$ref": "#/$defs/worker_packet_outcome_predicates"
             }
           },
           "required": [
@@ -27785,30 +27517,24 @@
           ]
         },
         "attempt_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "lane_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "lane_version": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 2147483647,
-          "description": "Bounds: 1..2147483647 value inclusive"
+          "maximum": 2147483647
         },
         "lane_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
+          "$ref": "#/$defs/digest"
         },
         "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "step_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
+          "$ref": "#/$defs/id"
         },
         "inputs": {
           "type": "object",
@@ -27817,8 +27543,7 @@
             "task": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 4096,
-              "description": "Bounds: 1..4096 code points inclusive"
+              "maxLength": 4096
             },
             "binding": {
               "$ref": "#/$defs/worker_packet_binding"
@@ -27835,7 +27560,7 @@
               "type": "string",
               "minLength": 0,
               "maxLength": 16384,
-              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it. Bounds: 0..16384 code points inclusive"
+              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it."
             },
             "law_context": {
               "$ref": "#/$defs/workflow_law_context",
@@ -27870,14 +27595,11 @@
               "items": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 512,
-                "description": "Bounds: 1..512 code points inclusive"
-              },
-              "description": "Bounds: 0..64 items inclusive"
+                "maxLength": 512
+              }
             },
             "outcome_predicates": {
-              "$ref": "#/$defs/worker_packet_outcome_predicates",
-              "description": "Bounds: 1..8 items inclusive"
+              "$ref": "#/$defs/worker_packet_outcome_predicates"
             }
           },
           "required": [
@@ -27950,20 +27672,17 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
-          "description": "Bounds: 1..128 code points inclusive"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
         },
         "revision": {
           "type": "integer",
-          "minimum": 1,
-          "description": "Bounds: >=1 value inclusive"
+          "minimum": 1
         },
         "finding_id": {
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
-          "description": "Bounds: 1..128 code points inclusive"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
         },
         "kind": {
           "type": "string",
@@ -27978,8 +27697,7 @@
         "statement": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 8192,
-          "description": "Bounds: 1..8192 code points inclusive"
+          "maxLength": 8192
         },
         "confidence": {
           "type": "string",
@@ -28013,10 +27731,8 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
-            "description": "Bounds: 1..128 code points inclusive"
-          },
-          "description": "Bounds: 0..32 items inclusive"
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          }
         },
         "scopes": {
           "$ref": "#/$defs/research_scopes",
@@ -28050,23 +27766,21 @@
               "minLength": 11,
               "maxLength": 64,
               "pattern": "^research:[0-9]+:[0-9]+$",
-              "description": "Core-derived from the selection event sequence and ordinal; a separate namespace from the generic finding ids, never authored. Bounds: 11..64 code points inclusive"
+              "description": "Core-derived from the selection event sequence and ordinal; a separate namespace from the generic finding ids, never authored."
             },
             "selection_event_id": {
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "description": "The event that authored the reference, never a claim that the research body came from that event. Bounds: 1..128 code points inclusive"
+              "description": "The event that authored the reference, never a claim that the research body came from that event."
             },
             "selection_event_seq": {
               "type": "integer",
-              "minimum": 1,
-              "description": "Bounds: >=1 value inclusive"
+              "minimum": 1
             },
             "ordinal": {
               "type": "integer",
-              "minimum": 0,
-              "description": "Bounds: >=0 value inclusive"
+              "minimum": 0
             },
             "required": {
               "type": "boolean",
@@ -28086,7 +27800,7 @@
               "items": {
                 "$ref": "#/$defs/research_source"
               },
-              "description": "Every linked source descriptor once, sorted by source id, and no unrelated source. An unsourced finding stays an empty array. Bounds: 0..32 items inclusive"
+              "description": "Every linked source descriptor once, sorted by source id, and no unrelated source. An unsourced finding stays an empty array."
             }
           }
         },
@@ -28111,23 +27825,21 @@
               "minLength": 11,
               "maxLength": 64,
               "pattern": "^research:[0-9]+:[0-9]+$",
-              "description": "Core-derived from the selection event sequence and ordinal; a separate namespace from the generic finding ids, never authored. Bounds: 11..64 code points inclusive"
+              "description": "Core-derived from the selection event sequence and ordinal; a separate namespace from the generic finding ids, never authored."
             },
             "selection_event_id": {
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "description": "The event that authored the reference, never a claim that the research body came from that event. Bounds: 1..128 code points inclusive"
+              "description": "The event that authored the reference, never a claim that the research body came from that event."
             },
             "selection_event_seq": {
               "type": "integer",
-              "minimum": 1,
-              "description": "Bounds: >=1 value inclusive"
+              "minimum": 1
             },
             "ordinal": {
               "type": "integer",
-              "minimum": 0,
-              "description": "Bounds: >=0 value inclusive"
+              "minimum": 0
             },
             "required": {
               "type": "boolean",
@@ -28656,7 +28368,7 @@
           "x-minBytes": 2,
           "x-maxBytes": 128,
           "pattern": "^[^\\x09-\\x0d    -     　]+$",
-          "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+          "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
         },
         "worker_packet": {
           "$ref": "#/$defs/worker_packet5"
@@ -28665,8 +28377,7 @@
       "required": [
         "attempt_id",
         "worker_packet"
-      ],
-      "description": "Bounds: <=32 properties inclusive"
+      ]
     },
     "retained_workflow_correction_context": {
       "type": "object",

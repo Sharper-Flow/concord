@@ -120,7 +120,7 @@ func TestUpcastConfinementHoldsCurrentVersions(t *testing.T) {
 	inv := findingInventory(analysis())
 	inv.Groups["g"] = append(inv.Groups["g"], registration{Kind: "thing.b", CurrentVersion: 1, MinSupported: 1, Type: "t"}, registration{Kind: "thing.c", CurrentVersion: 3, MinSupported: 3, Upcasters: []int{2}, RecordedSchemas: []int{3}, Type: "t"})
 	f := writerFindings(inv, table)[0]
-	if !reflect.DeepEqual(f.Exempted, []exemptedSite{{inv.Analyses["g"].Open[1], "upcast", "upcast_confinement"}}) || !reflect.DeepEqual(f.UpcastHeld, []string{"* v3", "thing.a v2", "thing.c v3"}) {
+	if !reflect.DeepEqual(f.Exempted, []exemptedSite{{inv.Analyses["g"].Open[1], "upcast", "upcast_confinement"}}) || !reflect.DeepEqual(f.UpcastHeld, []string{"thing.a v2", "thing.c v3"}) {
 		t.Fatalf("exempted %+v upcast held %v", f.Exempted, f.UpcastHeld)
 	}
 	for name, drift := range map[string]func(*writerAnalysis){
@@ -131,6 +131,9 @@ func TestUpcastConfinementHoldsCurrentVersions(t *testing.T) {
 		"caller added": func(a *writerAnalysis) {
 			a.Dispatcher.Callers = append(a.Dispatcher.Callers, namedHash{"store.other", "sha256:4444"})
 		},
+		"adapt appeared": func(a *writerAnalysis) {
+			a.Adapt = &adaptRoute{Function: "store.adaptCaller", FunctionDigest: "sha256:8888"}
+		},
 		"no dispatcher":    func(a *writerAnalysis) { a.Dispatcher = nil },
 		"confinement lost": func(a *writerAnalysis) { a.Open[1].Confinement = "" },
 	} {
@@ -139,6 +142,64 @@ func TestUpcastConfinementHoldsCurrentVersions(t *testing.T) {
 		if f := finding(t, a, table); len(f.Exempted) != 0 || f.UpcastHeld != nil || len(f.Held) != 2 {
 			t.Errorf("%s: held %+v exempted %+v upcast held %v", name, f.Held, f.Exempted, f.UpcastHeld)
 		}
+	}
+}
+
+// An adapt-keyed entry matches only the proven route: the same release
+// exempts through it, and any drift of the adapt caller or forwarders leaves
+// the site held.
+func TestAdaptKeyedUpcastEntryMatchesOnlyTheProvenRoute(t *testing.T) {
+	analysis := func() writerAnalysis {
+		a := findingAnalysis()
+		a.Open = slices.Clone(a.Open)
+		a.Open[1].Confinement = "upcaster"
+		a.Dispatcher = &upcastDispatcher{Function: "store.dispatch", FunctionDigest: "sha256:2222", Guards: []string{"event.PayloadVersion != registration.CurrentVersion"}, Callers: []namedHash{{"store.prepare", "sha256:3333"}}}
+		a.Adapt = &adaptRoute{Function: "store.adaptCaller", FunctionDigest: "sha256:8888", Forwarders: []namedHash{{"store.forward", "sha256:7777"}}, Values: []namedHash{{"store.adaptValue", "sha256:5555"}}}
+		return a
+	}
+	entry := func(adapt bool) exemptionTable {
+		e := exemption{ID: "upcast", Class: "upcast_confinement", Dispatcher: "store.dispatch", DispatcherDigest: "sha256:2222",
+			Guard: "event.PayloadVersion != registration.CurrentVersion", Callers: []namedHash{{"store.prepare", "sha256:3333"}}, Check: "test"}
+		if adapt {
+			e.ID, e.AdaptCaller, e.AdaptCallerDigest = "upcast:adapt", "store.adaptCaller", "sha256:8888"
+			e.Forwarders = []namedHash{{"store.forward", "sha256:7777"}}
+			e.AdaptValues = []namedHash{{"store.adaptValue", "sha256:5555"}}
+		}
+		data, err := json.Marshal(exemptionTable{Schema: exemptionsSchema, Entries: []exemption{e}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		table, err := parseExemptions(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return table
+	}
+	if f := finding(t, analysis(), entry(true)); len(f.Exempted) != 1 {
+		t.Fatalf("adapt entry must cover the proven route: %+v", f)
+	}
+	for name, drift := range map[string]func(*writerAnalysis){
+		"route gone":        func(a *writerAnalysis) { a.Adapt = nil },
+		"caller drifted":    func(a *writerAnalysis) { a.Adapt.FunctionDigest = "sha256:9999" },
+		"forwarder changed": func(a *writerAnalysis) { a.Adapt.Forwarders = []namedHash{{"store.forward", "sha256:9999"}} },
+		"forwarder added": func(a *writerAnalysis) {
+			a.Adapt.Forwarders = append(a.Adapt.Forwarders, namedHash{"store.other", "sha256:6666"})
+		},
+		"adapt value drifted": func(a *writerAnalysis) {
+			a.Adapt.Values = []namedHash{{"store.adaptValue", "sha256:9999"}}
+		},
+		"adapt value added": func(a *writerAnalysis) {
+			a.Adapt.Values = append(a.Adapt.Values, namedHash{"store.otherValue", "sha256:4444"})
+		},
+	} {
+		a := analysis()
+		drift(&a)
+		if f := finding(t, a, entry(true)); len(f.Exempted) != 0 || len(f.Held) != 2 {
+			t.Errorf("%s: held %+v exempted %+v", name, f.Held, f.Exempted)
+		}
+	}
+	if f := finding(t, analysis(), entry(false)); len(f.Exempted) != 0 || len(f.Held) != 2 {
+		t.Fatalf("a route-free entry must not cover a release with an adapt route: %+v", f)
 	}
 }
 
@@ -184,6 +245,8 @@ func TestExemptionTableRefusesMalformedEntries(t *testing.T) {
 		"data after":                   `{"schema":"concord.release-writer-exemptions.v1","entries":[]} {}`,
 		"closing after":                `{"schema":"concord.release-writer-exemptions.v1","entries":[]}}`,
 		"repeated key":                 `{"schema":"concord.release-writer-exemptions.v1","entries":[` + entry + `,` + strings.Replace(entry, `"x"`, `"y"`, 1) + `]}`,
+		"adapt caller without digest":  `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","adapt_caller":"c","check":"c"}]}`,
+		"forwarders without a caller":  `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","forwarders":[{"function":"c","digest":"h"}],"check":"c"}]}`,
 		"upcast without guard":         `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","check":"c"}]}`,
 		"upcast with a site key":       `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","callers":[{"function":"c","digest":"h"}],"function":"f","check":"c"}]}`,
 		"read-back with a dispatcher":  `{"schema":"concord.release-writer-exemptions.v1","entries":[` + strings.Replace(entry, `"check":"c"`, `"dispatcher":"d","check":"c"`, 1) + `]}`,

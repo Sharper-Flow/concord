@@ -30,11 +30,15 @@ import (
 //     a named kind stays held at that release.
 //   - upcast_confinement: a site the analysis confines to an upcaster
 //     (writerSite.Confinement), keyed by the dispatcher's name and digest,
-//     one exact guard it holds, and its callers' names and digests. The
-//     reviewed dispatcher refuses any result whose version is not the current
-//     version of the registration it is passed, and the reviewed callers pass
-//     the registry registration of the event's kind; a recorded-schema adapt
-//     between them may change the kind. So a covered site can still produce
+//     one exact guard it holds, its callers' names and digests, and, when the
+//     release has a recorded-schema adapt path, the proven adapt route: the
+//     adapt caller's name and digest and its forwarders'. An entry without
+//     adapt keys matches only a release whose analysis found no adapt route;
+//     an adapt-keyed entry matches only the exact route. The reviewed
+//     dispatcher refuses any result whose version is not the current version
+//     of the registration it is passed, the reviewed callers pass the
+//     registry registration of the event's kind, and a recorded-schema adapt
+//     between them may change the kind, so a covered site can still produce
 //     the current version of a kind with an older supported version or an
 //     upcaster, and of any kind at that version when the kind also has
 //     recorded schemas: the finding names those pairs as upcast_held_pairs.
@@ -60,6 +64,13 @@ type exemption struct {
 	DispatcherDigest string      `json:"dispatcher_digest,omitempty"`
 	Guard            string      `json:"guard,omitempty"`
 	Callers          []namedHash `json:"callers,omitempty"`
+	// AdaptCaller, AdaptCallerDigest, Forwarders, and AdaptValues key an
+	// upcast_confinement entry's adapt route, all or none together; an entry
+	// without them demands a route-free release.
+	AdaptCaller       string      `json:"adapt_caller,omitempty"`
+	AdaptCallerDigest string      `json:"adapt_caller_digest,omitempty"`
+	Forwarders        []namedHash `json:"forwarders,omitempty"`
+	AdaptValues       []namedHash `json:"adapt_values,omitempty"`
 	// CheckSubjectDigest is the reviewed checkSubject a replay_decoder's
 	// fold refusals rely on; no other class has one.
 	CheckSubjectDigest string `json:"check_subject_digest,omitempty"`
@@ -98,7 +109,25 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 			}
 			callers = string(data)
 		}
+		route := ""
+		if (e.AdaptCaller == "") != (e.AdaptCallerDigest == "") || (e.AdaptCaller == "") != (len(e.Forwarders) == 0) || (e.AdaptCaller == "") != (len(e.AdaptValues) == 0) {
+			return table, fmt.Errorf("exemption %q names only part of an adapt route", e.ID)
+		}
+		if e.AdaptCaller != "" {
+			forwarders, err := json.Marshal(e.Forwarders)
+			if err != nil {
+				return table, err
+			}
+			values, err := json.Marshal(e.AdaptValues)
+			if err != nil {
+				return table, err
+			}
+			route = e.AdaptCaller + "\x00" + e.AdaptCallerDigest + "\x00" + string(forwarders) + "\x00" + string(values)
+		}
 		upcast := []string{e.Dispatcher, e.DispatcherDigest, e.Guard, callers}
+		if route != "" {
+			upcast = append(upcast, route)
+		}
 		check := []string{e.CheckSubjectDigest}
 		keys, absent := site, slices.Concat(upcast, check)
 		switch e.Class {
@@ -126,8 +155,12 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 // covers reports whether an entry covers one open site of an analysis.
 func (e exemption) covers(site writerSite, analysis writerAnalysis) bool {
 	if e.Class == "upcast_confinement" {
-		d := analysis.Dispatcher
-		return site.Confinement == "upcaster" && d != nil && d.Function == e.Dispatcher && d.FunctionDigest == e.DispatcherDigest && slices.Contains(d.Guards, e.Guard) && slices.Equal(d.Callers, e.Callers)
+		d, route := analysis.Dispatcher, analysis.Adapt
+		common := site.Confinement == "upcaster" && d != nil && d.Function == e.Dispatcher && d.FunctionDigest == e.DispatcherDigest && slices.Contains(d.Guards, e.Guard) && slices.Equal(d.Callers, e.Callers)
+		if e.AdaptCaller == "" {
+			return common && route == nil
+		}
+		return common && route != nil && route.Function == e.AdaptCaller && route.FunctionDigest == e.AdaptCallerDigest && slices.Equal(route.Forwarders, e.Forwarders) && slices.Equal(route.Values, e.AdaptValues)
 	}
 	return site.Function == e.Function && site.Expression == e.Expression && site.FunctionDigest == e.FunctionDigest
 }
@@ -202,9 +235,6 @@ func writerFindings(inv inventory, table exemptionTable) []writerFinding {
 					for _, r := range inv.Groups[result.Group] {
 						if r.MinSupported < r.CurrentVersion || len(r.Upcasters) > 0 {
 							finding.UpcastHeld = append(finding.UpcastHeld, r.Kind+" v"+strconv.Itoa(r.CurrentVersion))
-							if len(r.RecordedSchemas) > 0 {
-								finding.UpcastHeld = append(finding.UpcastHeld, "* v"+strconv.Itoa(r.CurrentVersion))
-							}
 						}
 					}
 					finding.UpcastHeld = slices.Compact(slices.Sorted(slices.Values(finding.UpcastHeld)))

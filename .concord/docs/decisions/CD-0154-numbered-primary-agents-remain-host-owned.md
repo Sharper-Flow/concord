@@ -5,6 +5,9 @@
 - **Scope:** Ownership and distribution of the `concord-0`, `concord-1`, and
   `concord-2` OpenCode definitions, and portable named primary profiles
 - **Approval:** The operator approved host ownership with repository examples.
+  The operator approved retirement of the shaping and driving examples as exact
+  text on 2026-10-20 for
+  [Concord (CON) issue 1274](https://linear.app/sharper-flow/issue/CON-1274).
   The operator approved the coordinator-routing amendment as exact text on
   2026-10-19 for
   [Concord (CON) issue 1212](https://linear.app/sharper-flow/issue/CON-1212).
@@ -52,10 +55,10 @@ repair, and remove worker definitions.
 
 ### D2. Concord distributes portable named primary profiles
 
-Portable examples live under `examples/opencode/agents/`. This directory is not
-an OpenCode discovery path and is not an installer or release-package input.
+The intake example lives under `examples/opencode/agents/`. This directory is
+not an OpenCode discovery path and is not an installer or release-package input.
 
-A host can copy and adapt an example manually. Concord does not track or adopt
+A host can copy and adapt the example manually. Concord does not track or adopt
 the resulting host file.
 
 Concord generates and installs three named primary profiles from
@@ -125,14 +128,6 @@ The shared conduct corpus owns the source-appropriate evidence rule. A technical
 unknown requires suitable evidence, and an unavailable or inconclusive lookup
 must remain explicit.
 
-The shaping example recommends the driving posture once when an approved
-executable contract leaves implementation or verification work. The driving
-example recommends the shaping posture once only for substantial
-reconsideration.
-
-Both recommendations are advisory. A declined recommendation does not repeat,
-and no otherwise permitted work pauses.
-
 Concord shapes and drives its item without a mandatory posture switch or RTE
 session. Both primary agents may use subagents for bounded investigation and advice.
 Utility results never become managed review or verification evidence.
@@ -146,10 +141,10 @@ Utility results never become managed review or verification evidence.
 
 ## Verification
 
-- `python3 scripts/check-primary-prompts.py` validates the named profiles and the inert examples and
-  their portable boundaries.
+- `python3 scripts/check-primary-prompts.py` validates the named profiles and the
+  inert intake example and their portable boundaries.
 - `python3 scripts/test-primary-prompts.py` proves the validator rejects broken
-  examples.
+  profiles and intake examples.
 - `python3 scripts/test-installer.py` proves all numbered primary-agent bytes
   survive install, upgrade, repair, and uninstall while worker agents remain
   managed.

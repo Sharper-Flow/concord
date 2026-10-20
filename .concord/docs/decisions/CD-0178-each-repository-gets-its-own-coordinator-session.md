@@ -11,6 +11,9 @@
 - **Approval:** The operator directed on 2026-09-24 that lane workers stay
   native subagents started by the host `task` tool. The operator accepted
   this decision on 2026-09-25 in the Concord (CON) work item CON-450.
+  The operator approved replacement of the numbered-example guidance with the
+  current profile as exact text on 2026-10-20 for
+  [Concord (CON) issue 1274](https://linear.app/sharper-flow/issue/CON-1274).
 - **Related:** CD-0092, CD-0098, CD-0102, CD-0103, CD-0111, CD-0151, CD-0152,
   CD-0154, CD-0176, CD-0213
 - **Amendment reason:** Concord needs no release train engineer; a user may
@@ -192,11 +195,9 @@ one session, so each session can dispatch a lane in its own repository. The
 workflow step stays shared: a transition by one session changes the step for
 both.
 
-The coordinator instructions change. Under CD-0154 the numbered coordinator
-definitions belong to the host, so no generator writes them. The examples in
-`examples/opencode/agents/` gain the route of D2. Each host edits its own
-`concord-1.md` and `concord-2.md` by hand and removes any text that tells a
-coordinator to claim a second worktree and move into it.
+The generated `Concord` profile carries the route of D2. Under CD-0154,
+numbered coordinator definitions remain host-owned; Concord does not modify
+those host files.
 
 A move within one repository still lands on the next turn. This record does
 not remove that cost.
@@ -251,8 +252,8 @@ removes a live one.
 - The removal operations accept no `observed_session_directories` input.
   `bun test adapter/opencode/concord.test.ts` proves no removal input
   carries the field and no removal makes a host session-list round-trip.
-- The coordinator examples that carry the Projects guidance state the
-  cross-repository boundary. `python3 scripts/check-primary-prompts.py`
-  proves the boundary statement is present in each of them. A repository
+- The generated `Concord` profile states the cross-repository boundary.
+  `python3 scripts/check-primary-prompts.py` proves the boundary statement is
+  present. A repository
   check cannot prove the absence of every paraphrased move instruction
-  (CD-0055 D4); the examples' own boundary wording governs that.
+  (CD-0055 D4); the profile's own boundary wording governs that.

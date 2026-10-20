@@ -157,11 +157,29 @@ class SubagentMethodProjectionTests(unittest.TestCase):
         utility = next(item for item in manifest["utilities"] if item["id"] == "explore")
         text = " ".join(generator.utility_projection(utility).split())
         self.assertIn("Answer the bounded question first", text)
-        self.assertIn("complete requested inventory or report, not a summary of it", text)
+        self.assertIn("When an inventory is requested, return the complete requested set", text)
         self.assertIn("smallest caller -> owner -> consumer map", text)
         self.assertIn("`path:line` for each observed connection", text)
         self.assertIn("Mark unverified connections as unknown", text)
         self.assertIn("Do not infer a root cause", text)
+
+    def test_explore_distinguishes_adaptive_investigation_from_targeted_retrieval(self):
+        manifest, _ = generator.load_manifest()
+        utility = next(item for item in manifest["utilities"] if item["id"] == "explore")
+        text = " ".join(generator.utility_projection(utility).split())
+        self.assertIn("discovering and following evidence paths", utility["purpose"])
+        self.assertIn("direct tools for targeted retrieval", utility["purpose"])
+        self.assertIn("bounded question limits the investigation; it need not name the files", text)
+        self.assertIn("Choose each next search from the evidence already found", text)
+
+    def test_explore_handoff_is_a_source_backed_briefing_with_retrieval_handles(self):
+        manifest, _ = generator.load_manifest()
+        utility = next(item for item in manifest["utilities"] if item["id"] == "explore")
+        text = " ".join(generator.utility_projection(utility).split())
+        self.assertIn("right-sized briefing, not a search transcript", text)
+        self.assertIn("exact symbols, search strings, test names, or commands", text)
+        self.assertIn("confirm or expand each finding without repeating the investigation", text)
+        self.assertIn("Do not repeat the same fact in several sections", text)
 
     def test_explore_marks_an_incomplete_inventory_and_names_its_coverage(self):
         manifest, _ = generator.load_manifest()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the named primary profiles and the inert numbered examples.
+"""Validate the named primary profiles and the inert intake example.
 
 The generated named profiles `Concord-RTE`, `Concord`, and `Concord-Planner` ship
 as managed agents. scripts/generate-agent-lanes.py --check owns their byte
@@ -20,24 +20,16 @@ boundaries:
                      duplicated conduct obligation, and no routing by
                      generated agent id in the body
 
-The numbered definitions are portable examples. Concord does not package or
-install them. This check proves the example contract in CD-0154:
+The intake definition is a portable example. Concord does not package or
+install it. This check proves the example contract in CD-0154:
 
   portable surface   no host-specific research tool names appear in any
                      frontmatter; host tool configuration stays outside the
-                     examples
-  shared authority   every section outside the posture is byte-identical
-                     between the shaping and driving definitions
-  advisory handoffs  each coordinator carries its advisory switch rule, with
-                     no mandatory switch and no repeat-after-decline
-  delegation anchor  both coordinators bind lane delegation to the core's
-                     per-step dispatch admission, not to a phase
+                     example
   conduct ownership  technical-unknown evidence stays in the installed
-                     conduct corpus, not in the portable examples
+                     conduct corpus, not in the portable example
   intake restriction the intake definition keeps its write and workflow
                      denials
-  repository         each coordinator that carries the Projects guidance
-                     states the cross-repository boundary (CD-0178 D2)
 """
 from __future__ import annotations
 
@@ -154,32 +146,11 @@ PLANNER_TASK_PROBES = (
 PROMPT_DIR = Path("examples/opencode/agents")
 PRIMARY_PROMPT_FILES = (
     "concord-0.md",
-    "concord-1.md",
-    "concord-2.md",
 )
+RETIRED_PRIMARY_EXAMPLES = ("concord-1.md", "concord-2.md")
 # Host-provided research providers. These arrive from the host configuration;
 # a shipped prompt that names one has stopped being portable.
 HOST_TOOL_FRAGMENTS = ("lgrep_", "context7_", "exa_", "github_")
-POSTURE_HEADING = "## Posture"
-SECTION_HEADING = "## "
-ADVISORY_HANDOFF_MARKERS = {
-    # Each coordinator carries the advisory rule for the switch it may
-    # propose. Both directions forbid a mandatory switch, a repeated
-    # unchanged recommendation after decline, and a pause of permitted work.
-    "concord-1.md": (
-        "Advisory handoff",
-        "advisory",
-        "No phase requires it",
-        "do not repeat the unchanged offer",
-        "do not pause work the contract still permits",
-    ),
-    "concord-2.md": (
-        "Advisory reconsideration",
-        "advisory",
-        "do not repeat the unchanged recommendation",
-        "do not pause work the contract still permits",
-    ),
-}
 LOOKUP_OBLIGATION_MARKERS = (
     "Recall is not evidence",
     "source to fit the surface",
@@ -194,21 +165,6 @@ DELEGATION_ANCHOR_MARKERS = (
 # example that names one routes per agent in prose; the registry descriptions
 # own that routing.
 GENERATED_AGENT_ID = re.compile(r"concord-(?:explore|lookup|advisor|research|implement|design|review|verify)\b")
-# CD-0178 D2 and its Verification entry 7: the coordinators that carry the
-# Projects guidance must state the cross-repository boundary. The rule is a
-# deterministic presence check over the required phrases. CD-0055 D4 forbids
-# a repository check from blocking on a semantic judgment, so this checker
-# proves the statement is present and claims nothing about the absence of
-# paraphrased move instructions; the examples' own boundary wording governs
-# that. The phrases bind only the examples that carry the Projects guidance;
-# concord-0.md carries none and holds no worktree or session-move authority.
-BOUNDARY_SCOPE_FILES = ("concord-1.md", "concord-2.md")
-REQUIRED_BOUNDARY_PHRASES = (
-    "One coordinator session per repository",
-    "a second Project in another git repository",
-    "never claim or move across the boundary",
-    "this session stops driving the other repository",
-)
 
 
 def read_prompt(root: Path, name: str) -> str:
@@ -228,50 +184,11 @@ def split_frontmatter(text: str) -> str:
     return text[4:end]
 
 
-def frontmatter_field(frontmatter: str, name: str) -> str:
-    """Return one top-level YAML field without parsing host-specific YAML."""
-    lines = frontmatter.splitlines()
-    start = next((index for index, line in enumerate(lines) if line.startswith(f"{name}:")), None)
-    if start is None:
-        return ""
-    end = len(lines)
-    for index in range(start + 1, len(lines)):
-        if lines[index] and not lines[index][0].isspace() and ":" in lines[index]:
-            end = index
-            break
-    return "\n".join(lines[start:end])
-
-
 def body(text: str) -> str:
     parts = text.split("\n---\n", 1)
     if len(parts) != 2:
         raise ValueError("primary prompt has no body after frontmatter")
     return parts[1]
-
-
-def sections(text: str) -> dict[str, str]:
-    """Map each level-2 heading to its text, preserving order."""
-    result: dict[str, str] = {}
-    current: str | None = None
-    for line in body(text).splitlines():
-        if line.startswith(SECTION_HEADING) and not line.startswith("### "):
-            current = line[len(SECTION_HEADING):].strip()
-            result[current] = ""
-        elif current is not None:
-            result[current] += line + "\n"
-    return result
-
-
-def shared_sections(text: str) -> str:
-    """Everything outside the posture, with the header line normalized.
-
-    The shaping and driving definitions differ only in name, description,
-    and posture, so this text must stay byte-identical between them.
-    """
-    content = body(text)
-    shared = content[:content.index(POSTURE_HEADING)] + content[content.index("## Scope"):]
-    lines = ["# Concord — N" if line.startswith("# Concord — ") else line for line in shared.splitlines()]
-    return "\n".join(lines)
 
 
 def flatten(text: str) -> str:
@@ -428,6 +345,9 @@ def check_named_profiles(root: Path) -> list[str]:
 
 def check_primary_prompts(root: Path) -> list[str]:
     findings: list[str] = check_named_profiles(root)
+    for retired in RETIRED_PRIMARY_EXAMPLES:
+        if (root / PROMPT_DIR / retired).exists():
+            findings.append(f"retired primary agent example {retired} is present")
     texts: dict[str, str] = {}
     for name in PRIMARY_PROMPT_FILES:
         try:
@@ -446,42 +366,15 @@ def check_primary_prompts(root: Path) -> list[str]:
                 for fragment in HOST_TOOL_FRAGMENTS
                 if fragment in frontmatter
             )
-            if name in {"concord-1.md", "concord-2.md"} and "morph_edit" in frontmatter:
-                findings.append(f"{name} frontmatter names host tool fragment 'morph_edit'")
             if "mode: primary" not in frontmatter:
                 findings.append(f"{name} frontmatter does not declare mode: primary")
             if any(marker in flat for marker in LOOKUP_OBLIGATION_MARKERS):
                 findings.append(f"{name} duplicates the technical-unknown conduct obligation")
-            if name in ADVISORY_HANDOFF_MARKERS:
-                findings.extend(
-                    f"{name} is missing its advisory handoff marker {marker!r}"
-                    for marker in ADVISORY_HANDOFF_MARKERS[name]
-                    if marker not in flat
-                )
-            if name in {"concord-1.md", "concord-2.md"}:
-                findings.extend(
-                    f"{name} lost the delegation anchor marker {marker!r}"
-                    for marker in DELEGATION_ANCHOR_MARKERS
-                    if marker not in flat
-                )
-            if name in BOUNDARY_SCOPE_FILES:
-                findings.extend(
-                    f"{name} lost the cross-repository boundary phrase {phrase!r}"
-                    for phrase in REQUIRED_BOUNDARY_PHRASES
-                    if phrase not in flat
-                )
         except ValueError as error:
             findings.append(f"{name} is malformed: {error}")
 
     if any(" is malformed: " in finding for finding in findings):
         return findings
-
-    shaping = texts["concord-1.md"]
-    driving = texts["concord-2.md"]
-    if shared_sections(shaping) != shared_sections(driving):
-        findings.append("concord-1.md and concord-2.md differ outside the posture section")
-    if frontmatter_field(split_frontmatter(shaping), "permission") != frontmatter_field(split_frontmatter(driving), "permission"):
-        findings.append("concord-1.md and concord-2.md have different permission frontmatter")
 
     evidence = (root / ".concord/instructions" / "evidence.md").read_text(encoding="utf-8")
     findings.extend(
@@ -506,9 +399,6 @@ def check_primary_prompts(root: Path) -> list[str]:
     intake_permission = intake_frontmatter.split("task:", 1)[0]
     if '"*": deny' not in intake_permission:
         findings.append("concord-0.md frontmatter does not deny bash by default")
-    coordinator_frontmatter = split_frontmatter(shaping)
-    if 'task:\n    "*": deny\n    "concord-*": allow' not in coordinator_frontmatter:
-        findings.append("concord-1.md frontmatter lost the Concord-lane-only task boundary")
     # Registry routing: the registry descriptions state what and when, so the
     # portable examples route by need and never hard-code a generated agent id.
     # An id here would fork the registry's routing authority into prose.

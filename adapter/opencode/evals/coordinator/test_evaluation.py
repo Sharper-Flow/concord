@@ -936,59 +936,42 @@ class TypeSensitiveGateTests(unittest.TestCase):
 
 
 class RelocationGuidanceFixtureTests(unittest.TestCase):
-    """Both postures' shared guidance must state that input
+    """The current coordinator's guidance must state that input
     correction authority comes from the served production triple —
     invalid_input kind, effect_state none, recovery_action correct_request —
     and the six relocation boundaries stay named. These are deterministic
-    fixtures over the shipped example text, not model-behavior proof."""
+    fixtures over the shipped profile text, not model-behavior proof."""
 
-    EXAMPLES = Path(__file__).resolve().parents[4] / "examples" / "opencode" / "agents"
+    ROOT = Path(__file__).resolve().parents[4]
 
-    def guidance(self, name):
-        return (self.EXAMPLES / name).read_text()
+    def guidance(self):
+        return (self.ROOT / ".opencode" / "agents" / "Concord.md").read_text()
 
-    def test_both_postures_bind_correction_to_the_served_triple(self):
-        for name in ("concord-1.md", "concord-2.md"):
-            with self.subTest(posture=name):
-                text = self.guidance(name)
-                self.assertIn("recovery_action", text)
-                self.assertIn("`correct_request`", text)
-                self.assertIn("`invalid_input`", text)
-                # A no-effect invalid_input alone is not correction authority:
-                # the served recovery, not the kind or the effect, grants it.
-                self.assertRegex(text, r"recovery_action[^.]*`correct_request`")
-                # The other pre-effect recovery keeps its own route.
-                self.assertIn("`restart_query`", text)
+    def test_coordinator_binds_correction_to_the_served_recovery(self):
+        text = self.guidance()
+        self.assertIn("recovery_action", text)
+        self.assertIn("`correct_request`", text)
+        self.assertIn("`invalid_input`", text)
+        self.assertRegex(text, r"recovery_action[^.]*`correct_request`")
+        self.assertIn("any other served recovery keeps its declared route", text)
 
-    def test_both_postures_keep_the_six_relocation_boundaries(self):
+    def test_coordinator_keeps_the_six_relocation_boundaries(self):
         fixtures = {
-            "default-checkout resume": "with its\n`work_id` from the default checkout",
+            "default-checkout resume": "with only `work_id` from the default checkout",
             "same-repository second Project": "`concord_work_transition.worktree_claim`",
-            "cross-repository second session": "session the operator starts there",
+            "cross-repository second session": "host start a session at the target",
             "turn-move boundary recovery": "turn-move boundary",
             "unconfirmed landing": "unconfirmed",
             "dirty-origin refusal stays with the operator": "replay the tool's declared recovery",
         }
-        for name in ("concord-1.md", "concord-2.md"):
-            text = self.guidance(name)
-            for concern, marker in fixtures.items():
-                with self.subTest(posture=name, concern=concern):
-                    self.assertIn(marker, text)
+        text = " ".join(self.guidance().split())
+        for concern, marker in fixtures.items():
+            with self.subTest(concern=concern):
+                self.assertIn(marker, text)
 
-    def test_shared_authority_stays_identical_outside_posture(self):
-        # The owning split: shared authority is the body before the posture
-        # heading plus everything from the shared "## Scope" section on, with
-        # the numbered title normalized — the same region
-        # scripts/check-primary-prompts.py compares byte for byte.
-        first = self.guidance("concord-1.md")
-        second = self.guidance("concord-2.md")
-
-        def shared(text):
-            content = text.split("\n---\n", 1)[1]
-            region = content[:content.index("## Posture")] + content[content.index("## Scope"):]
-            return "\n".join("# Concord — N" if line.startswith("# Concord — ") else line
-                             for line in region.splitlines())
-        self.assertEqual(shared(first), shared(second))
+    def test_shipped_guidance_matches_its_owned_source(self):
+        source = (self.ROOT / ".concord" / "roles" / "concord.md").read_text()
+        self.assertEqual(self.guidance().split("\n---\n", 1)[1].strip(), source.strip())
 
 
 if __name__ == "__main__":

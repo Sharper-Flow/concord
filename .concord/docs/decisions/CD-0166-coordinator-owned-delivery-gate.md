@@ -74,12 +74,22 @@ resolves, and no timer, poller, or background process exists.
 
 ### D5. No session waits on a merge queue
 
-A session that does not yet hold the merge fact ends the turn with the item
-parked at the gate. The parked surface is the return route: a later
-coordinator reads the Product row, resumes the item by work id, and records
-delivery once the change reached the default branch. The gate relocates the
-hang from the pull request into Concord, and the surface makes what relocated
-findable.
+A session that does not yet hold the required merge fact ends the turn with the
+item parked at the gate. A later coordinator resumes the item and uses the
+existing `record_delivery` action when its pinned acceptance and admission
+requirements permit.
+
+For eligible changes in a declared rapid phase, CD-0241 D1–D2 define phase-local
+integration evidence. Otherwise, delivery evidence requires the change to reach
+the default branch. Phase-local integration does not prove main-branch delivery,
+release publication, or installation. It does not by itself complete a workflow
+item.
+
+Existing independent-review obligations, acceptance predicates, verdicts, and
+delivery admission remain required. Historical pins retain their recorded
+requirements; no pinned definition or recorded event is rewritten. The installed
+release governs workflow admission throughout the phase. This rule creates no
+new completion action or admission bypass.
 
 ### D6. A rejected review holds delivery, and a parked gate can return
 

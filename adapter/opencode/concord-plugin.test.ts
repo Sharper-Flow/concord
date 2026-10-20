@@ -11,6 +11,7 @@ import { directoryIdentity, dispatchWindows, DispatchWindowError, TASK_TOOL_ID }
 import { hostControlPlane, MOVE_SESSION_ROUTE, MoveSessionUnavailable } from "./move-session"
 import { enqueueWorkNotice } from "./concord"
 import { contractOperations, hostToolSchemas, manifestDigest } from "./generated-contracts"
+import { expandedPublishedRequestSchema } from "./generated-contract-tests"
 import { bindCiWatchClient, ciWatchSettled, configureCiWatch, drainQueuedCiReports, type CiWatchPeerRead, type VerbSpawner } from "./ci-watch"
 import { configureCoreBinary } from "./dispatch"
 import { armTurnMoveBoundary, questionRequiresNormalChat, resetTurnMoveBoundaries } from "./turn-move-boundary"
@@ -46,8 +47,12 @@ test("work start publishes the closed capture and resume contract through the ho
   expect(published.type).toBe("object")
   expect(published.oneOf).toBeUndefined()
   expect(published.if).toEqual({ required: ["work_id"] })
-  expect(published.else).toEqual(hostToolSchemas.concord_work_start.oneOf[0])
-  expect(published.then).toEqual(hostToolSchemas.concord_work_start.oneOf[1])
+  // Publication interns repeated field schemas into the root's local
+  // definitions table, so the branch comparison reads the resolved view
+  // against the unchanged generated contracts.
+  const resolved = expandedPublishedRequestSchema(published) as any
+  expect(resolved.else).toEqual(hostToolSchemas.concord_work_start.oneOf[0])
+  expect(resolved.then).toEqual(hostToolSchemas.concord_work_start.oneOf[1])
   expect(published.else.properties.work_id).toBeUndefined()
   expect(published.then.properties.title).toBeUndefined()
   expect(output.parameters).toBe(parameters)

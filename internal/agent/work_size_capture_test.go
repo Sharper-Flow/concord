@@ -42,9 +42,8 @@ func TestSourceFreeResearchSuppliedSizingStillRefusesMalformedEstimates(t *testi
 		t.Run(estimate, func(t *testing.T) {
 			s, service, grant, scopeVersion := captureTaskFixture(t)
 			input := fmt.Sprintf(`{"title":"Research","value_statement":"No source changes","kind":"research","project_ids":["project-1"],"idempotency_key":"invalid-research-size","size_inputs":{"behavior":"investigate","security":false,"user_visible":false,"blast_radius":"contained"%s}}`, estimate)
-			if _, err := dispatchDefectCapture(t, s, service, grant, scopeVersion, "invalid-research-size", input); err == nil {
-				t.Fatal("malformed supplied sizing must refuse")
-			}
+			response, err := dispatchDefectCapture(t, s, service, grant, scopeVersion, "invalid-research-size", input)
+			assertInputCorrection(t, response, err, "$.size_inputs.estimated_production_lines")
 			if n := workItemCount(t, s); n != 0 {
 				t.Fatalf("refusal left %d work items", n)
 			}

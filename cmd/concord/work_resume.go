@@ -113,7 +113,7 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		var ref string
 		if !resolution.MainWorktree {
 			if _, err := s.ValidateBootstrapOrigin(ctx, input.ProjectID, resolution.Repository.WorktreePath, store.ExecGitRunner{}); err != nil {
-				writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
+				writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(unclaimedOriginHint(err, "work "+input.WorkID+" has no active worktree; run work-resume from the default checkout "+resolution.Repository.CanonicalPath+" to create it")))
 				return storeFailureExit(err)
 			}
 			ref, err = store.DefaultBranchRef(ctx, resolution.Repository.CanonicalPath)
@@ -137,7 +137,7 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	// to a resume that leaves a different worktree.
 	if !resolution.MainWorktree && !samePath(cwd, entry.Path) {
 		if _, err := s.ValidateBootstrapOrigin(ctx, input.ProjectID, resolution.Repository.WorktreePath, store.ExecGitRunner{}); err != nil {
-			writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
+			writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(unclaimedOriginHint(err, "resume work "+input.WorkID+" by running work_start from its active worktree "+entry.Path)))
 			return storeFailureExit(err)
 		}
 	}

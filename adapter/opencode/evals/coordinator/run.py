@@ -98,6 +98,10 @@ const coreInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input
 // values never reach this classifier: the tool schema layer types every
 // field before it.
 const payloadFieldRules = PAYLOADRULES;
+const withFieldGuidance = (message, field) => {
+  const marker = typeof field.description === "string" ? field.description.indexOf("Accepted shape:") : -1;
+  return marker < 0 ? message : message + "; " + field.description.slice(marker).trim();
+};
 for (const operation of Object.values(payloadFieldRules))
   for (const field of Object.values(operation.fields))
     if (field.pattern !== undefined) field.patternRegex = new RegExp(field.pattern);
@@ -115,11 +119,11 @@ const coreInputDetail = (operation, data) => {
     if (field === undefined || value === undefined) continue;
     if (typeof value === "string") {
       const length = [...value].length;
-      if (field.minLength !== undefined && length < field.minLength) return "minLength at $." + name + ": carries " + length + " Unicode code points against a minimum of " + field.minLength;
-      if (field.maxLength !== undefined && length > field.maxLength) return "maxLength at $." + name + ": carries " + length + " Unicode code points against a limit of " + field.maxLength;
-      if (field.patternRegex !== undefined && !field.patternRegex.test(value)) return "pattern at $." + name;
+      if (field.minLength !== undefined && length < field.minLength) return withFieldGuidance("minLength at $." + name + ": carries " + length + " Unicode code points against a minimum of " + field.minLength, field);
+      if (field.maxLength !== undefined && length > field.maxLength) return withFieldGuidance("maxLength at $." + name + ": carries " + length + " Unicode code points against a limit of " + field.maxLength, field);
+      if (field.patternRegex !== undefined && !field.patternRegex.test(value)) return withFieldGuidance("pattern at $." + name, field);
     } else if (typeof value === "number" && field.minimum !== undefined && value < field.minimum) {
-      return "minimum at $." + name;
+      return withFieldGuidance("minimum at $." + name, field);
     }
   }
   return null;
@@ -317,6 +321,8 @@ def core_payload_field_rules(repo):
             prop = resolve_payload_property(schema["properties"][name], defs)
             rule = {key: prop[key] for key in SCALAR_CONSTRAINT_KEYS if key in prop}
             if rule:
+                if "description" in prop:
+                    rule["description"] = prop["description"]
                 fields[name] = rule
         table[operation] = {"required": list(schema["required"]), "fields": fields}
     return table

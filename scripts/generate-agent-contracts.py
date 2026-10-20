@@ -205,7 +205,7 @@ def require_delivery_rule_teaching(defs: dict) -> None:
     if stale:
         fail(f"retired published action add_condition remains projected: {', '.join(stale)} (CD-0218 D1)")
 
-SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "type", "properties", "patternProperties", "propertyNames", "required", "additionalProperties", "unevaluatedProperties", "items", "contains", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "enum", "const", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "default", "minProperties", "maxProperties", "x-maxBytes", "x-minBytes"}
+SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "examples", "type", "properties", "patternProperties", "propertyNames", "required", "additionalProperties", "unevaluatedProperties", "items", "contains", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "enum", "const", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "default", "minProperties", "maxProperties", "x-maxBytes", "x-minBytes"}
 
 # The store counts workflow string bounds in UTF-8 bytes
 # (validateWorkflowPayloadValue); JSON Schema minLength/maxLength count
@@ -1518,8 +1518,61 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
         defs["worktree_inspect_result"]["properties"][name].pop("minLength", None)
 
 
+def remove_generated_guidance(node: object) -> None:
+    """Rebuild teaching after constraints change, rather than retaining stale examples."""
+    if isinstance(node, dict):
+        description = node.get("description")
+        if isinstance(description, str) and "Accepted shape:" in description:
+            original = description.split("Accepted shape:", 1)[0].rstrip()
+            if original:
+                node["description"] = original
+            else:
+                node.pop("description")
+            node.pop("examples", None)
+        for key, child in node.items():
+            if key != "examples":
+                remove_generated_guidance(child)
+    elif isinstance(node, list):
+        for child in node:
+            remove_generated_guidance(child)
+
+
+def project_schema_guidance(document: dict, names: list[str]) -> dict:
+    """One Go owner generates and validates the teaching consumed by both clients."""
+    result = subprocess.run(
+        ["go", "run", "./scripts/schema-guidance", *sorted(set(names))],
+        input=json.dumps(document), cwd=ROOT, text=True, capture_output=True, timeout=120,
+    )
+    if result.returncode:
+        fail(f"schema guidance generation failed: {result.stderr.strip()}")
+    projected = json.loads(result.stdout)
+    def preserve_order(original: object, annotated: object) -> object:
+        if isinstance(original, dict) and isinstance(annotated, dict):
+            ordered = {key: preserve_order(value, annotated[key]) for key, value in original.items()}
+            ordered.update((key, value) for key, value in annotated.items() if key not in ordered)
+            return ordered
+        if isinstance(original, list) and isinstance(annotated, list):
+            return [preserve_order(left, right) for left, right in zip(original, annotated, strict=True)]
+        return annotated
+    projected = preserve_order(document, projected)
+    def prune_replaced_count_text(node: object) -> None:
+        if isinstance(node, dict):
+            description = node.get("description")
+            if isinstance(description, str) and description.startswith(BYTE_LIMIT_GUIDANCE + " Accepted shape:"):
+                node["description"] = description[len(BYTE_LIMIT_GUIDANCE) + 1:]
+            for key, child in node.items():
+                if key != "examples":
+                    prune_replaced_count_text(child)
+        elif isinstance(node, list):
+            for child in node:
+                prune_replaced_count_text(child)
+    prune_replaced_count_text(projected)
+    return projected
+
+
 def project_workflow_action_schema(document: dict, actions: list[dict], workflows: list[dict], teaching: dict) -> tuple[dict, list[dict]]:
     projected = copy.deepcopy(document)
+    remove_generated_guidance(projected)
     defs = projected["$defs"]
     # Continuity and work pins expose the same card references as dispatch.
     # The authored packet schema owns the source shape, not a second union.
@@ -1746,6 +1799,10 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     defs["work_transition_action_public_input"] = copy.deepcopy(variant_wrapper) | {"anyOf": [{"$ref": f"#/$defs/{variant['schema']}"} for variant in public_variants]}
     require_delivery_rule_teaching(defs)
     install_retained_output_twins(defs)
+    contracts = {"approve_contract", "supersede_contract"}
+    guidance_names = [f"work_transition_action_variant_{action}" for action in sorted(contracts)]
+    guidance_names.extend(variant["schema"] for variant in public_variants if variant["action_id"] in contracts)
+    projected = project_schema_guidance(projected, guidance_names)
     return projected, public_variants
 
 
@@ -1841,6 +1898,8 @@ def check_schema_keywords(node, path="schema"):
     # explicit type ("type is not defined"), so an enum must always name one.
     if "enum" in node and "type" not in node: fail(f"enum without type at {path}")
     for key,value in node.items():
+        if key in {"examples", "const", "enum", "default"}:
+            continue
         if key in {"properties", "patternProperties", "$defs"} and isinstance(value, dict):
             for name, child in value.items(): check_schema_keywords(child, f"{path}.{key}.{name}")
         elif isinstance(value, dict): check_schema_keywords(value, f"{path}.{key}")
@@ -2155,8 +2214,8 @@ def validate_worker_check_host_tool(tool: dict) -> None:
     if list(properties) != ["control_id"] or args.get("required") != ["control_id"]:
         fail("concord_worker_check must require only control_id")
     reference = json.loads(PAYLOAD.read_text(encoding="utf-8"))["$defs"]["reference"]
-    actual = {key: value for key, value in properties["control_id"].items() if key != "description"}
-    expected = {key: value for key, value in reference.items() if key != "description"}
+    actual = {key: value for key, value in properties["control_id"].items() if key not in {"description", "examples"}}
+    expected = {key: value for key, value in reference.items() if key not in {"description", "examples"}}
     if actual != expected:
         fail("concord_worker_check control_id must use the workflow reference bounds")
 
@@ -2445,7 +2504,7 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
   // action (approve_contract and supersede_contract) must teach the rule,
   // or a drop from one branch hides behind its siblings.
   const delivery: unknown = carrier.fields.properties.outcome_predicates?.description;
-  if (delivery !== {json.dumps(DELIVERY_RULE_PREDICATE_DESCRIPTION)}) {{
+  if (typeof delivery !== "string" || delivery.split(" Accepted shape:", 1)[0] !== {json.dumps(DELIVERY_RULE_PREDICATE_DESCRIPTION)}) {{
     gaps.push(`outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action ${{carrier.actionId}}`);
   }}
   }}

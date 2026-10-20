@@ -122,6 +122,8 @@ canonical contract shared with Go validators. TypeScript may perform structural
 parsing required by OpenCode; it cannot maintain divergent semantic validation or
 invent defaults absent from the core contract.
 
+Contract-request authoring descriptions expose the accepted shape and a minimal illustrative example for each constrained field. The generator derives both from the canonical schema, including referenced and composed constraints, and validates each example against that field's effective schema. Examples are not defaults, real entity identities, approvals, or evidence, and do not promise admission by a pinned workflow or a live registry. No separately maintained field-specific format or example table owns this guidance.
+
 The TS5 envelope is not model-visible. The adapter derives OpenCode `agent`,
 `sessionID`, `messageID`, `directory`, and `worktree` from tool context and sends
 them beside domain input. Core resolves stable Project/Product

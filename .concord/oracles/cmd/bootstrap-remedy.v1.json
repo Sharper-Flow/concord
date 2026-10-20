@@ -4,7 +4,9 @@
   "test_files": [
     "cmd/concord/bootstrap_remedy_acceptance_test.go"
   ],
-  "fixture_files": [],
+  "fixture_files": [
+    "cmd/concord/testdata/top-level-help.golden"
+  ],
   "cases": {
     "case:capture-checkout-remedy": ["TestBootstrapRemedyNamesCaptureCheckout"],
     "case:active-resume-remedy": ["TestBootstrapRemedyNamesActiveResumePath"]

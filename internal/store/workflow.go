@@ -2618,6 +2618,42 @@ func workflowCompletedActionAdvances(definition WorkflowDefinition, p workflowAc
 	return ok && mode == ActionAdvance && (p.ActionID != "accept_worker_result" || (!p.ReviewAdvanceHeld && !(p.WorkerJob != nil && p.DeliveryState == "")))
 }
 
+func foldWorkflowWorkerAttemptCompletionTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, definition WorkflowDefinition, currentStep string) error {
+	lifecycle := "completed"
+	switch p.ActionID {
+	case "accept_worker_result", "accept_worker_evidence", "reject_worker_result":
+	case "record_worker_job":
+		if p.WorkerAttemptID == "" {
+			return nil
+		}
+		if err := validateSplitReplacementCompletionTx(ctx, tx, event, p); err != nil {
+			return err
+		}
+	case "record_worker_failure":
+		lifecycle = "failed"
+	default:
+		return nil
+	}
+	if err := validateWorkerAttemptAction(ctx, tx, event, p, definition, currentStep, lifecycle); err != nil {
+		return err
+	}
+	switch p.ActionID {
+	case "reject_worker_result":
+		// A rejected confirming review voids provisional repair readiness
+		// at the strict prefix of this rejection (CD-0205 D4).
+		return voidWorkerJobRepairByAttemptTx(ctx, tx, event.SubjectID, p.WorkerAttemptID, event.Seq-1)
+	case "record_worker_failure":
+		var recorded int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=? AND seq<?`, string(SubjectWorkItem), event.SubjectID, WorkflowActionCompleted, p.WorkerAttemptID, event.Seq).Scan(&recorded); err != nil {
+			return workflowProjectionError(err, "cannot inspect recorded worker failures")
+		}
+		if recorded != 0 {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker failure is already recorded", false, "start a fresh workflow attempt")
+		}
+	}
+	return nil
+}
+
 func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
 	var p workflowActionCompletedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -2724,18 +2760,8 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 				return err
 			}
 		}
-		if p.ActionID == "accept_worker_result" || p.ActionID == "accept_worker_evidence" {
-			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
-				return err
-			}
-		}
-		if p.ActionID == "record_worker_job" && p.WorkerAttemptID != "" {
-			if err := validateSplitReplacementCompletionTx(ctx, tx, event, p); err != nil {
-				return err
-			}
-			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
-				return err
-			}
+		if err := foldWorkflowWorkerAttemptCompletionTx(ctx, tx, event, p, entry.Definition, currentStep); err != nil {
+			return err
 		}
 		// accept_worker_result is the one advance that moves the shared step
 		// off a step holding live authorized work, so it waits while another
@@ -2744,29 +2770,6 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 		if p.ActionID == "accept_worker_result" && advancesStep {
 			if err := rejectStepAdvancePastLiveAttemptTx(ctx, tx, event.SubjectID, currentStep, p.WorkerAttemptID, event.Seq); err != nil {
 				return err
-			}
-		}
-		if p.ActionID == "reject_worker_result" {
-			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
-				return err
-			}
-			// A rejected confirming review result voids its repair (CD-0205
-			// D4): the named revisions lose their provisional readiness at
-			// the strict prefix of this rejection.
-			if err := voidWorkerJobRepairByAttemptTx(ctx, tx, event.SubjectID, p.WorkerAttemptID, event.Seq-1); err != nil {
-				return err
-			}
-		}
-		if p.ActionID == "record_worker_failure" {
-			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "failed"); err != nil {
-				return err
-			}
-			var recorded int
-			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=? AND seq<?`, string(SubjectWorkItem), event.SubjectID, WorkflowActionCompleted, p.WorkerAttemptID, event.Seq).Scan(&recorded); err != nil {
-				return workflowProjectionError(err, "cannot inspect recorded worker failures")
-			}
-			if recorded != 0 {
-				return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker failure is already recorded", false, "start a fresh workflow attempt")
 			}
 		}
 		if p.ActionID == "request_correction" && !isWorkflowReplay(ctx) {

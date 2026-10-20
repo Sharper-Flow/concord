@@ -239,6 +239,11 @@ func TestSmallReviewEvidenceUsesTheDispositionOwner(t *testing.T) {
 // whole-item proof acceptance.
 func smallReviewDispositionJourney(t *testing.T, workID string) *candidateJourney {
 	t.Helper()
+	return smallReviewDispositionJourneyAtRoot(t, workID, t.TempDir())
+}
+
+func smallReviewDispositionJourneyAtRoot(t *testing.T, workID, root string) *candidateJourney {
+	t.Helper()
 	s, definition := footprintBindingItem(t, workID, true)
 	owner := WorkflowActor{PrincipalRef: "principal/agent", ClientRef: "client/concord", AgentRef: "agent/size", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	events, err := footprintBindingApproval(t, s, definition, workID)
@@ -251,7 +256,7 @@ func smallReviewDispositionJourney(t *testing.T, workID string) *candidateJourne
 	if err := advanceWorkflowTestInstanceToStep(context.Background(), s, workID, "execution", footprintBindingActorRef(t, workID)); err != nil {
 		t.Fatal(err)
 	}
-	dir, _ := reviewSubjectClaim(t, s, workID)
+	dir, _ := reviewSubjectClaimAtRoot(t, s, workID, root)
 	var branch string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND project_id='project'`, WorktreeSetID(workID)).Scan(&branch); err != nil {
 		t.Fatal(err)

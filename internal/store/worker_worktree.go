@@ -34,8 +34,11 @@ func validateWorkerCompletionWorktree(ctx context.Context, tx *sql.Tx, workID, a
 
 // workerAttemptProjectTx resolves completion or abandonment ownership from the
 // attempt's dispatch authorization, including reclaimed entries whose directory
-// is gone. Unbound legacy authorizations cannot prove a Project: completion
-// refuses them, while abandonment checks occupancy across the whole work item.
+// is gone. A native completion that recorded the original Project and claim
+// operation from its sealed preparation answers from that retained pair alone,
+// with no path resolution. Unbound legacy authorizations cannot prove a
+// Project: completion refuses them, while abandonment checks occupancy across
+// the whole work item.
 func workerAttemptProjectTx(ctx context.Context, tx *sql.Tx, workID, attemptID, operation, recovery string) (string, error) {
 	window, err := FindAuthorizedDispatchWindowTx(ctx, tx, workID, attemptID)
 	if err != nil {
@@ -44,6 +47,10 @@ func workerAttemptProjectTx(ctx context.Context, tx *sql.Tx, workID, attemptID, 
 			return "", nil
 		}
 		return "", err
+	}
+	// Retained native provenance survives reclamation and symlink changes.
+	if window.ProjectID != "" && window.ClaimOpID != "" {
+		return window.ProjectID, nil
 	}
 	if window.WorktreeIdentity == "" {
 		return "", nil

@@ -69,6 +69,9 @@ const workflowActionCompletedWorkerJobVersion = 4
 // from a forged new-legacy claim.
 const workflowActionCompletedAttributionVersion = 5
 
+// Native dispatch Project/claim provenance starts at this payload boundary.
+const workflowActionCompletedDispatchIdentityVersion = 6
+
 type WorkflowVersionFields struct {
 	WorkID           string `json:"work_id"`
 	ExpectedVersion  *int64 `json:"expected_version"`
@@ -367,6 +370,9 @@ type workflowActionCompletedPayload struct {
 	// that carries no list instead of reading its absence as none.
 	WorkerPacketPredicateIDs []string `json:"worker_packet_predicate_ids"`
 	WorkerWorktreeIdentity   string   `json:"worker_worktree_identity,omitempty"`
+	// The sealed preparation owns this pair; historical absence stays unknown.
+	WorkerProjectID string `json:"worker_project_id,omitempty"`
+	WorkerClaimOpID string `json:"worker_claim_op_id,omitempty"`
 	// WorkerContextFrontier is the source-event frontier of the admitted
 	// work-context view the dispatch_worker authorization recorded
 	// New authorizations always record it — explicit zero when
@@ -2678,6 +2684,22 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	if p.WorkerJob != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowActionCompletedWorkerJobVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_job is reserved for payload version >= 4", false, "record the worker-job disposition on the current completion payload")
 	}
+	// Live provenance must match the sealed native claim. Replay reads only
+	// the recorded pair, never later filesystem or auxiliary path state.
+	if p.WorkerProjectID != "" || p.WorkerClaimOpID != "" {
+		if event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowActionCompletedDispatchIdentityVersion {
+			return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_project_id/worker_claim_op_id is reserved for payload version >= 6", false, "record the dispatch identity through the native dispatch boundary")
+		}
+		if p.ActionID != "dispatch_worker" || p.WorkerProjectID == "" || p.WorkerClaimOpID == "" || !workflowString(p.WorkerProjectID, 128) || !workflowDigest(p.WorkerWorktreeIdentity) {
+			return newFailure(KindInvalidPayload, "fold_event", "action_completed native dispatch identity requires dispatch_worker and the complete recorded Project and claim pair", false, "record the pair the sealed dispatch preparation proved")
+		}
+		if !isWorkflowReplay(ctx) {
+			proof := workerDispatchPreparationFrom(ctx)
+			if proof == nil || proof.proof.workID != event.SubjectID || proof.proof.projectID != p.WorkerProjectID || proof.proof.claimOpID != p.WorkerClaimOpID || proof.proof.sessionIdentity != p.WorkerWorktreeIdentity {
+				return newFailure(KindInvalidPayload, "fold_event", "action_completed native dispatch identity does not match this dispatch's sealed native preparation", false, "dispatch the attempt through the native boundary that seals its claim proof")
+			}
+		}
+	}
 	// the attribution reference is the derived record's alone, and
 	// the source-version marker rules apply to both attribution members.
 	// Below the attribution version the reference is smuggled bytes; the
@@ -4325,6 +4347,21 @@ func upcastWorkflowActionCompletedV4(event Event) (Event, error) {
 		event.Payload = raw
 	}
 	event.PayloadVersion = 5
+	return event, nil
+}
+
+// Preserve historical bytes; no original claim is inferred for old records.
+func upcastWorkflowActionCompletedV5(event Event) (Event, error) {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &members); err != nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.action_completed payload is not a JSON object", false, "repair the stored workflow action completion")
+	}
+	for _, member := range []string{"worker_project_id", "worker_claim_op_id"} {
+		if _, authored := members[member]; authored {
+			return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.action_completed native dispatch identity on a stored payload version below the identity boundary is authored bytes no store ever recorded; the upcaster preserves the payload bytes and synthesizes neither member", false, "record the dispatch identity through the native boundary that seals its preparation")
+		}
+	}
+	event.PayloadVersion = workflowActionCompletedDispatchIdentityVersion
 	return event, nil
 }
 

@@ -370,8 +370,8 @@ func TestWorkflowActionCompletedV1UpcastsWithoutWorkerAttemptIdentity(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if upcasted.PayloadVersion != 5 {
-		t.Fatalf("upcast payload version=%d, want 5 (workflow.action_completed current)", upcasted.PayloadVersion)
+	if current := eventKindRegistry[WorkflowActionCompleted].CurrentVersion; upcasted.PayloadVersion != current {
+		t.Fatalf("upcast payload version=%d, want %d (workflow.action_completed current)", upcasted.PayloadVersion, current)
 	}
 	var payload workflowActionCompletedPayload
 	if err := json.Unmarshal(upcasted.Payload, &payload); err != nil {
@@ -379,6 +379,9 @@ func TestWorkflowActionCompletedV1UpcastsWithoutWorkerAttemptIdentity(t *testing
 	}
 	if payload.WorkerAttemptID != "" {
 		t.Fatalf("legacy action completion acquired worker attempt identity %q", payload.WorkerAttemptID)
+	}
+	if payload.WorkerProjectID != "" || payload.WorkerClaimOpID != "" {
+		t.Fatalf("legacy action completion acquired native claim provenance: %+v", payload)
 	}
 }
 

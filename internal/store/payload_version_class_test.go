@@ -41,7 +41,7 @@ var payloadVersionClasses = map[string]map[int]payloadVersionClass{
 	WorkflowContractApproved:           {2: replayOnly, 3: replayOnly, 4: replayOnly, 5: replayOnly, 6: replayOnly, 7: replayOnly},
 	WorkflowNativeRunRecorded:          {2: replayOnly},
 	WorkflowContractSuperseded:         {2: replayOnly, 3: replayOnly, 4: replayOnly, 5: replayOnly, 6: replayOnly},
-	WorkflowActionCompleted:            {2: replayOnly, 3: replayOnly, 4: replayOnly, 5: replayOnly},
+	WorkflowActionCompleted:            {2: replayOnly, 3: replayOnly, 4: replayOnly, 5: replayOnly, 6: replayOnly},
 	WorkflowVerdictRecorded:            {2: replayOnly},
 	WorkflowSuccessorLinked:            {2: replayOnly, 3: replayOnly},
 	WorkflowImpactNoticeRecorded:       {2: replayOnly},

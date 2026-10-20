@@ -57,8 +57,12 @@ func TestReviewDeliveryAnchorQueryIsPrefixBound(t *testing.T) {
 // work-context subject names a commit the claimed worktree actually holds.
 func reviewSubjectClaim(t *testing.T, s *Store, workID string) (string, string) {
 	t.Helper()
+	return reviewSubjectClaimAtRoot(t, s, workID, t.TempDir())
+}
+
+func reviewSubjectClaimAtRoot(t *testing.T, s *Store, workID, root string) (string, string) {
+	t.Helper()
 	ctx := context.Background()
-	root := t.TempDir()
 	var projectVersion int64
 	if err := s.db.QueryRow(`SELECT version FROM projects WHERE id='project'`).Scan(&projectVersion); err != nil {
 		t.Fatal(err)
@@ -67,6 +71,11 @@ func reviewSubjectClaim(t *testing.T, s *Store, workID string) (string, string) 
 		t.Fatal(err)
 	}
 	git := newFakeWorktreeGit(root)
+	canonicalRoot, err := canonicalWorkerWorktreePath(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	git.addRepository(canonicalRoot)
 	claim := baseClaim(git)
 	claim.WorkID, claim.ProjectID, claim.ExpectedVersion = workID, "project", readWorkVersion(t, s, workID)
 	claim.OpID, claim.RequestID = "review-claim-"+workID, "review-claim-"+workID

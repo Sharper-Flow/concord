@@ -880,6 +880,7 @@ func nativeLeaseRef(leaseID string) SubjectCurrentVersion {
 
 func nativeOracleInitialResult(req WorktreeVerifyRequest, entry WorktreeEntry, p nativeOraclePlan) WorktreeVerifyResult {
 	r := WorktreeVerifyResult{WorkID: req.WorkID, ProjectID: req.ProjectID, Path: entry.Path, Branch: entry.Branch, LeaseID: req.LeaseID, OperationRef: worktreeVerifyOperationRef(req.LeaseID), Command: req.Command}
+	r.ClaimOpID, r.WorktreeIdentity = entry.ClaimOpID, p.WorktreeIdentity
 	base := NativeOraclePreparation{Protocol: "native_oracle_v2", Phase: req.Oracle.Phase, Qualification: "unavailable", RunRef: r.OperationRef, WorkID: req.WorkID, ProjectID: req.ProjectID, ContractVersion: p.ContractVersion, SubjectCommit: p.SubjectCommit, BundleDigest: p.BundleDigest, LogicalArgvDigest: nativeDigest([]byte(workflowJSON(p.Bundle.Control.Argv))), LogicalCwd: p.Bundle.Control.Cwd, RecipeSource: p.Bundle.Control.RecipeSource, ManifestBlob: p.ManifestFile.BlobOID, ManifestDigest: p.ManifestFile.SHA256, Files: p.Files, NativePlanSHA256: req.nativePlanSHA256}
 	digest, identity := nativePlanEnvironment(p)
 	base.ToolchainIdentity = identity

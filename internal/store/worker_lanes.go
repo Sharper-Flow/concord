@@ -906,6 +906,9 @@ type WorkerDispatchWindow struct {
 	// recorded, empty when the authorization predates the field.
 	SubjectCommit    string
 	WorktreeIdentity string
+	// Original native claim provenance; empty below its payload boundary.
+	ProjectID string
+	ClaimOpID string
 	// ContextFrontier is the recorded worker_context_frontier of the
 	// dispatch completion: the source-event frontier of the
 	// work-context view the authorization admitted. ContextFrontierPresent
@@ -939,16 +942,20 @@ func FindAuthorizedDispatchWindowTx(ctx context.Context, tx *sql.Tx, workID, att
 func readAuthorizedDispatchWindowBefore(ctx context.Context, q queryer, workID, attemptID string, beforeSeq int64) (WorkerDispatchWindow, int64, error) {
 	var window WorkerDispatchWindow
 	var frontier sql.NullInt64
-	var completionEpoch, startEpoch int64
+	var completionEpoch, startEpoch, completionVersion int64
+	var recordedProjectID, recordedClaimOpID string
 	window.WorkID = workID
 	window.AttemptID = attemptID
-	if err := q.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),COALESCE(json_extract(payload,'$.attempt_epoch'),0),COALESCE(json_extract(payload,'$.worker_packet_digest'),''),COALESCE(json_extract(payload,'$.worker_worktree_identity'),''),COALESCE(json_extract(payload,'$.worker_subject_commit'),''),json_extract(payload,'$.worker_context_frontier') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.worker_attempt_id')=? AND (?=0 OR seq<?) ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", attemptID, beforeSeq, beforeSeq).Scan(&window.StartSeq, &window.StepID, &completionEpoch, &window.PacketDigest, &window.WorktreeIdentity, &window.SubjectCommit, &frontier); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT seq,payload_version,json_extract(payload,'$.step_id'),COALESCE(json_extract(payload,'$.attempt_epoch'),0),COALESCE(json_extract(payload,'$.worker_packet_digest'),''),COALESCE(json_extract(payload,'$.worker_worktree_identity'),''),COALESCE(json_extract(payload,'$.worker_subject_commit'),''),COALESCE(json_extract(payload,'$.worker_project_id'),''),COALESCE(json_extract(payload,'$.worker_claim_op_id'),''),json_extract(payload,'$.worker_context_frontier') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.worker_attempt_id')=? AND (?=0 OR seq<?) ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", attemptID, beforeSeq, beforeSeq).Scan(&window.StartSeq, &completionVersion, &window.StepID, &completionEpoch, &window.PacketDigest, &window.WorktreeIdentity, &window.SubjectCommit, &recordedProjectID, &recordedClaimOpID, &frontier); err != nil {
 		if err == sql.ErrNoRows {
 			return window, 0, newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "no authorized dispatch window exists for this work item bound to this attempt", false, "open a dispatch_worker authorization for this attempt before recording worker evidence")
 		}
 		return window, 0, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the dispatch authorization window", true, "retry once the database is readable", err)
 	}
 	window.ContextFrontier, window.ContextFrontierPresent = frontier.Int64, frontier.Valid
+	if completionVersion >= workflowActionCompletedDispatchIdentityVersion {
+		window.ProjectID, window.ClaimOpID = recordedProjectID, recordedClaimOpID
+	}
 	// The start anchors the single-use consumption read and carries the step
 	// epoch the completion authorized against.
 	if err := q.QueryRowContext(ctx, `SELECT seq,COALESCE(json_extract(payload,'$.attempt_epoch'),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? AND seq<? AND (?=0 OR seq<?) ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionStarted, "dispatch_worker", window.StepID, window.StartSeq, beforeSeq, beforeSeq).Scan(&window.StartSeq, &startEpoch); err != nil {

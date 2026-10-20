@@ -11,8 +11,9 @@ import (
 // It is captured outside both verify transactions. A dirty tree can still
 // complete a legacy verify, but cannot identify that run as a commit subject.
 type oracleGitSubjectSnapshot struct {
-	head  string
-	clean bool
+	head             string
+	clean            bool
+	worktreeIdentity string
 }
 
 func snapshotOracleGitSubject(ctx context.Context, runner GitRunner, path string) (oracleGitSubjectSnapshot, error) {
@@ -24,7 +25,11 @@ func snapshotOracleGitSubject(ctx context.Context, runner GitRunner, path string
 	if err != nil {
 		return oracleGitSubjectSnapshot{}, wrapFailure(KindGitUnreachable, "worktree_verify", "cannot observe the oracle subject's commit", true, "retry once the worktree is reachable", err)
 	}
-	return oracleGitSubjectSnapshot{head: strings.TrimSpace(string(head)), clean: len(status) == 0}, nil
+	var identity string
+	if canonical, err := canonicalWorkerWorktreePath(path); err == nil {
+		identity = workerWorktreeIdentity(canonical)
+	}
+	return oracleGitSubjectSnapshot{head: strings.TrimSpace(string(head)), clean: len(status) == 0, worktreeIdentity: identity}, nil
 }
 
 func oracleVerifySubject(before, after oracleGitSubjectSnapshot, changed bool) string {

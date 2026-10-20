@@ -5439,6 +5439,8 @@ type WorktreeVerifyResult struct {
 	ProjectID           string                 `json:"project_id"`
 	Branch              string                 `json:"branch"`
 	Path                string                 `json:"path"`
+	ClaimOpID           string                 `json:"claim_op_id,omitempty"`
+	WorktreeIdentity    string                 `json:"worktree_identity,omitempty"`
 	LeaseID             string                 `json:"lease_id"`
 	OperationRef        string                 `json:"operation_ref"`
 	SubjectRef          string                 `json:"subject_ref,omitempty"`
@@ -5608,6 +5610,9 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	}
 	result := WorktreeVerifyResult{WorkID: req.WorkID, ProjectID: req.ProjectID, Branch: entry.Branch, Path: entry.Path, LeaseID: req.LeaseID, OperationRef: worktreeVerifyOperationRef(req.LeaseID), Command: req.Command, ExitCode: exitCode, Output: boundedOutput, OutputTruncated: truncated, TrackedFilesChanged: changed}
 	result.SubjectRef = oracleVerifySubject(beforeSubject, afterSubject, changed)
+	if beforeSubject.worktreeIdentity != "" && beforeSubject.worktreeIdentity == afterSubject.worktreeIdentity {
+		result.ClaimOpID, result.WorktreeIdentity = entry.ClaimOpID, beforeSubject.worktreeIdentity
+	}
 	result.GoSuite = commandResult.GoSuite
 	resultJSON, _ := json.Marshal(result)
 	if result.GoSuite != nil {

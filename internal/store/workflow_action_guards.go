@@ -1739,6 +1739,12 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		if in.request.SessionWorktreeIdentity != "" {
 			completionValues["worker_worktree_identity"] = in.request.SessionWorktreeIdentity
 		}
+		// Authored fields and request metadata cannot supply claim provenance.
+		if proof := workerDispatchPreparationFrom(in.ctx); proof != nil && proof.proof.projectID != "" && proof.proof.claimOpID != "" {
+			completionValues["worker_project_id"] = proof.proof.projectID
+			completionValues["worker_claim_op_id"] = proof.proof.claimOpID
+			completionValues["worker_worktree_identity"] = proof.proof.sessionIdentity
+		}
 	}
 	if in.request.ActionID == "reject_worker_result" || in.request.ActionID == "request_correction" {
 		completionValues["correction_diagnosis"] = workflowFieldStringDefault(fields, "diagnosis", "")

@@ -30,31 +30,37 @@ func brGit(t *testing.T, repo string, args ...string) string {
 	return string(out)
 }
 
-// brRepo builds a working repository with a local bare origin so bootstrap
-// and resume run against real Git.
+// brRun runs git in dir with a fixed commit identity.
+func brRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(append(cmd.Env, os.Environ()...), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+}
+
+// brRepo clones a working repository from a seeded bare origin and presents
+// it under a supported https remote URL rewritten to the local bare, so
+// bootstrap and resume run against a real fetched remote without reusing
+// another fixture's repository construction.
 func brRepo(t *testing.T) string {
 	t.Helper()
 	parent := t.TempDir()
+	seed := filepath.Join(parent, "seed")
 	repo := filepath.Join(parent, "repo")
-	run := func(dir string, args ...string) {
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-	run(parent, "init", "-q", "--bare", "-b", "main", "origin.git")
-	run(parent, "init", "-q", "-b", "main", "repo")
-	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("remedy\n"), 0o644); err != nil {
+	const supported = "https://remedy.invalid/repository.git"
+	brRun(t, parent, "init", "-q", "-b", "main", "seed")
+	if err := os.WriteFile(filepath.Join(seed, "README.md"), []byte("remedy\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	run(repo, "add", ".")
-	run(repo, "commit", "-q", "-m", "base")
-	run(repo, "remote", "add", "origin", "https://remedy.invalid/repository.git")
-	run(repo, "config", "url."+filepath.Join(parent, "origin.git")+".insteadOf", "https://remedy.invalid/repository.git")
-	run(repo, "push", "-q", "origin", "main")
-	run(repo, "fetch", "-q", "origin")
-	run(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	brRun(t, seed, "add", ".")
+	brRun(t, seed, "commit", "-q", "-m", "base")
+	brRun(t, parent, "clone", "-q", "--bare", "seed", "origin.git")
+	brRun(t, parent, "clone", "-q", filepath.Join(parent, "origin.git"), "repo")
+	brRun(t, repo, "remote", "set-url", "origin", supported)
+	brRun(t, repo, "config", "url."+filepath.Join(parent, "origin.git")+".insteadOf", supported)
+	brRun(t, repo, "remote", "set-head", "origin", "-a")
 	return repo
 }
 

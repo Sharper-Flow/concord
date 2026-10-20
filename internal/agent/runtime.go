@@ -909,7 +909,13 @@ func failureEnvelope(base Envelope, err error) Envelope {
 			out.Error.ExternalRefConflict = &ExternalRefConflict{ExistingWorkID: sf.ExternalRefConflict.ExistingWorkID, ExternalRef: sf.ExternalRefConflict.ExternalRef}
 		}
 		if len(sf.AdmittedEventKinds) > 0 {
-			out.Error.Details = map[string]any{"admitted_event_kinds": sf.AdmittedEventKinds}
+			// Add, not replace: the authored remedy prose above may already
+			// occupy the details map, and one store refusal can carry both
+			// diagnostics.
+			if out.Error.Details == nil {
+				out.Error.Details = map[string]any{}
+			}
+			out.Error.Details["admitted_event_kinds"] = sf.AdmittedEventKinds
 		}
 		return out
 	}

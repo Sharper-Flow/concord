@@ -19,6 +19,10 @@ __pycache__/
 /project.json
 /.adv/
 
+# Concord-Planner writes research notes and prototypes here; they are never
+# repository content.
+/.planning/
+
 # Host agent tooling writes package manifests, dependencies, and plugin
 # configuration into .opencode/. Only the generated lane agent definitions are
 # Concord-owned, so the directory is ignored except for those.

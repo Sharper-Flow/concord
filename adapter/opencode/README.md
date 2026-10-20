@@ -92,8 +92,10 @@ operation too.
 Use the same database selection and data home as the affected adapter. Inspect
 the current policy, add the needed names with the operator CLI, then inspect
 the result. This example uses the default client `opencode` and authorizes
-both available primary profiles; replace the client reference when the host
+`Concord` and `Concord-RTE`; replace the client reference when the host
 uses another client. A client that will run only Concord needs only `Concord`.
+A client that will run the optional `Concord-Planner` adds that exact name the
+same way.
 
 ```sh
 concord client-show <<'JSON'
@@ -107,7 +109,7 @@ concord client-show <<'JSON'
 JSON
 ```
 
-Do not activate the release or select either profile until the final read
+Do not activate the release or select a profile until the final read
 reports an active client whose `agent_scope` includes each intended exact name.
 Verify that the principal, capabilities, Product scope, Project scope, and all
 previous agent names survive unchanged. Retain the before and after policy
@@ -390,7 +392,13 @@ The generated `Concord` primary agent works end to end without an RTE session.
 `Concord-RTE` is optional coordination for busy Product or Project work. Both
 profiles allow Task delegation; the adapter still requires an open typed
 dispatch window for a Concord execution lane. Broad Task permission does not
-grant lane authority. Numbered host examples keep their narrower Task policy;
+grant lane authority. `Concord-Planner` is optional research and backlog
+refinement: its profile edits only under `.planning/`, asks before any shell
+command it does not name, denies commit, push, pull-request, and release
+commands, delegates only to the read-only utilities, and the adapter refuses
+it every Concord tool that writes work state. Shell rules match command text,
+so a redirect can still write outside `.planning/`; the ask default is the
+human gate. Numbered host examples keep their narrower Task policy;
 hosts own those files and may configure their permissions independently.
 
 The lane agent definitions also deny nested task dispatch. If a host wants

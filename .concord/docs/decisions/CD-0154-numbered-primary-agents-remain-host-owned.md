@@ -8,6 +8,9 @@
   The operator approved the coordinator-routing amendment as exact text on
   2026-10-19 for
   [Concord (CON) issue 1212](https://linear.app/sharper-flow/issue/CON-1212).
+  The operator approved the Concord-Planner amendment as exact text on
+  2026-10-19 for
+  [Concord (CON) issue 1183](https://linear.app/sharper-flow/issue/CON-1183).
 - **Amendment reason:** Concord is the self-sufficient primary agent; a user
   may choose an optional release train engineer for concurrent work.
   A profile-level allow-all shell rule overrode the host's shell denials, so
@@ -55,7 +58,7 @@ an OpenCode discovery path and is not an installer or release-package input.
 A host can copy and adapt an example manually. Concord does not track or adopt
 the resulting host file.
 
-Concord generates and installs two named primary profiles from
+Concord generates and installs three named primary profiles from
 `contracts/agent-primary-profiles.v1.json` and its instruction sources.
 `Concord` is the self-sufficient primary agent. It owns design, implementation,
 tests, independent review, law changes, publication, CI follow-through,
@@ -65,6 +68,18 @@ session, assignment, acceptance, or publication service to complete work.
 The user may choose to start `Concord-RTE` when a Product or Project has many
 simultaneous work streams or needs a coordinated burst of development. This
 session is optional; it is not a required layer above Concord.
+
+The user may also choose to start `Concord-Planner` for ad-hoc research and
+backlog refinement. It is optional and never a gate on Concord's work. It reads
+code and law, runs bounded diagnostics, writes research notes and standalone
+prototypes under the project's `.planning` directory, and updates Linear
+records within the scope the operator approves. It surfaces where an executing
+agent would have to guess, separates what it observed from what it recommends,
+writes only approved decisions into a ticket's description, marks every
+unapproved assumption as unapproved, and proposes a consequential batch of
+record changes before it applies one. It does not edit other files, commit,
+push, open or merge pull requests, deploy, edit live configuration, change
+Product law, start or advance managed work, or approve execution.
 
 Each work-item session decides within its item. It brings a choice that
 [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
@@ -79,9 +94,14 @@ windows with the operator. It never approves, accepts, or publishes for
 another session's item. Inside that item it decides only a choice CD-0230 D5
 routes to it, and records the decision and its reasons on the item.
 
-Both primary profiles grant full editing and delegation permissions, with no
+`Concord` and `Concord-RTE` grant full editing and delegation permissions, with no
 profile-level Concord-tool denial. Their shell rules only deny named unsafe
 commands; the host's shell rules govern every other command.
+`Concord-Planner`'s profile enforces its boundary in configuration: its edit
+rules admit only the `.planning` directory; its shell rules allow named read-only and
+diagnostic commands, deny commit, push, pull-request, and release commands, and
+ask for every other command; its Task rules admit only Concord utilities; and it
+is denied every Concord tool that writes work state.
 Those capabilities do not transfer another session's workflow authority or the
 human operator's approval.
 The RTE never answers a Concord approval challenge; it relays it unchanged to

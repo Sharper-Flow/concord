@@ -54,6 +54,69 @@
         {"pattern": "*", "action": "allow"}
       ],
       "denied_concord_tools": []
+    },
+    {
+      "id": "Concord-Planner",
+      "version": 1,
+      "description": "Concord-Planner — optional research and backlog refinement; reads code and law, writes only under .planning/, and updates Linear within approved scope. Never edits other files, publishes, or advances managed work.",
+      "role_source": ".concord/roles/planner.md",
+      "tools": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "question": "allow",
+        "todowrite": "allow",
+        "skill": "allow",
+        "webfetch": "allow"
+      },
+      "edit": [
+        {"pattern": "*", "action": "deny"},
+        {"pattern": ".planning/*", "action": "allow"}
+      ],
+      "bash": [
+        {"pattern": "*", "action": "ask"},
+        {"pattern": "git status *", "action": "allow"},
+        {"pattern": "git log *", "action": "allow"},
+        {"pattern": "git diff *", "action": "allow"},
+        {"pattern": "git show *", "action": "allow"},
+        {"pattern": "git blame *", "action": "allow"},
+        {"pattern": "git ls-files *", "action": "allow"},
+        {"pattern": "git rev-parse *", "action": "allow"},
+        {"pattern": "gh issue view *", "action": "allow"},
+        {"pattern": "gh issue list *", "action": "allow"},
+        {"pattern": "gh run view *", "action": "allow"},
+        {"pattern": "gh run list *", "action": "allow"},
+        {"pattern": "ls *", "action": "allow"},
+        {"pattern": "wc *", "action": "allow"},
+        {"pattern": "du *", "action": "allow"},
+        {"pattern": "git commit *", "action": "deny"},
+        {"pattern": "git push *", "action": "deny"},
+        {"pattern": "git merge *", "action": "deny"},
+        {"pattern": "git rebase *", "action": "deny"},
+        {"pattern": "git tag *", "action": "deny"},
+        {"pattern": "gh pr *", "action": "deny"},
+        {"pattern": "gh release *", "action": "deny"},
+        {"pattern": "gh workflow run *", "action": "deny"},
+        {"pattern": "sudo *", "action": "deny"},
+        {"pattern": "rm -rf / *", "action": "deny"},
+        {"pattern": "gh pr view *", "action": "allow"},
+        {"pattern": "gh pr list *", "action": "allow"},
+        {"pattern": "gh pr checks *", "action": "allow"},
+        {"pattern": "gh pr diff *", "action": "allow"}
+      ],
+      "task": [
+        {"pattern": "*", "action": "deny"},
+        {"pattern": "concord-explore", "action": "allow"},
+        {"pattern": "concord-lookup", "action": "allow"},
+        {"pattern": "concord-advisor", "action": "allow"}
+      ],
+      "denied_concord_tools": [
+        "concord_work_compact",
+        "concord_work_define",
+        "concord_work_relate",
+        "concord_work_start",
+        "concord_work_transition"
+      ]
     }
   ]
 }

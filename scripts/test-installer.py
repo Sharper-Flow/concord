@@ -2929,10 +2929,11 @@ esac''',
         self.assertEqual(set(installer.AGENT_FILES), generated)
         # The glob admits both named primary files: the prefix-free
         # Concord.md as well as the hyphenated Concord-RTE.md.
-        for name in ("Concord.md", "Concord-RTE.md", "concord-design.md"):
+        for name in ("Concord.md", "Concord-RTE.md", "Concord-Planner.md", "concord-design.md"):
             self.assertTrue(fnmatch.fnmatch(name, installer.AGENT_GLOB), name)
         self.assertIn("Concord-RTE.md", installer.AGENT_FILES)
         self.assertIn("Concord.md", installer.AGENT_FILES)
+        self.assertIn("Concord-Planner.md", installer.AGENT_FILES)
         self.assertNotIn("concord-coordinator.md", installer.AGENT_FILES)
         self.assertNotIn("concord-operator.md", installer.AGENT_FILES)
         self.assertNotIn("concord-rte.md", installer.AGENT_FILES)
@@ -2972,6 +2973,57 @@ esac''',
         self.assertNotEqual(upgraded.returncode, 0)
         self.assertIn("user-authored agent file", upgraded.stderr)
         self.assertEqual(target.read_bytes(), b"host primary agent\n")
+
+    def test_upgrade_refuses_unmanaged_planner_over_host_file(self) -> None:
+        introduced = "Concord-Planner.md"
+        earlier = tuple(name for name in installer.AGENT_FILES if name != introduced)
+        self.make_release("v1.0.0", agent_names=earlier)
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+        target = self.root / "config" / "opencode" / "agents" / introduced
+        target.write_bytes(b"host planner\n")
+        self.make_release("v2.0.0")
+        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertNotEqual(upgraded.returncode, 0)
+        self.assertIn("user-authored agent file", upgraded.stderr)
+        self.assertEqual(target.read_bytes(), b"host planner\n")
+
+    def test_planner_is_placed_and_removed_as_managed_beside_user_profiles(self) -> None:
+        # Planner joins through the managed-agent path: an upgrade places it,
+        # repair keeps it, uninstall removes it, and user-added profiles,
+        # including one the release glob would match, stay byte-identical.
+        introduced = "Concord-Planner.md"
+        agents_dir = self.root / "config" / "opencode" / "agents"
+        earlier = tuple(name for name in installer.AGENT_FILES if name != introduced)
+        self.make_release("v1.0.0", marker="old", agent_names=earlier)
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        planner = agents_dir / introduced
+        self.assertFalse(planner.exists())
+        user_files = {agents_dir / "Concord-Custom.md": b"user primary\n", agents_dir / "planner.md": b"user planner\n"}
+        for path, content in user_files.items():
+            path.write_bytes(content)
+
+        self.make_release("v2.0.0", marker="new")
+        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
+        self.assertEqual(planner.read_text(encoding="utf-8"), "agent:Concord-Planner.md:new\n")
+        manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+        self.assertIn(introduced, manifest["agent_files"])
+        self.assertNotIn("Concord-Custom.md", manifest["agent_files"])
+
+        planner.unlink()
+        repaired = self.run_installer("repair", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(repaired.returncode, 0, repaired.stderr)
+        self.assertEqual(planner.read_text(encoding="utf-8"), "agent:Concord-Planner.md:new\n")
+
+        removed = self.run_installer("uninstall")
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertFalse(planner.exists())
+        for path, content in user_files.items():
+            self.assertEqual(path.read_bytes(), content, path.name)
 
     def test_upgrade_refuses_new_managed_name_over_user_agent(self) -> None:
         introduced = installer.AGENT_FILES[-1]

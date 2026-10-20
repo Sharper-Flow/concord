@@ -145,6 +145,9 @@ type workflowContractApprovedPayload struct {
 	// LawChange records a consequence_v1 contract's law change with its
 	// derived Domains and seriousness (CD-0230 D4); nil when it changes none.
 	LawChange *WorkflowLawChange `json:"law_change,omitempty"`
+	// FootprintBinding names the size assessment whose footprint checks a
+	// small-composition contract owes; nil on every other composition.
+	FootprintBinding *workflowFootprintBinding `json:"footprint_binding,omitempty"`
 }
 
 // workflowContractDecisionDomainsPayloadVersion is the workflow.contract_approved
@@ -1230,6 +1233,9 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 	registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
 	if definitionErr != nil {
 		return definitionErr
+	}
+	if err := checkWorkflowFootprintBindingTx(ctx, tx, event.SubjectID, registered.Definition, p.ContractVersion, p.FootprintBinding, !isWorkflowReplay(ctx)); err != nil {
+		return err
 	}
 	changesProductTruth := registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
 	// consequence_v1 answers consent from the contract's declared decision

@@ -228,6 +228,13 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 	}
 	contract["law_revisions"] = revisions
 	contract["law_boundary_version"] = 1
+	footprintBinding, footprintErr := deriveWorkflowFootprintBindingTx(ctx, tx, request.WorkID, definition, contractVersion, true)
+	if footprintErr != nil {
+		return nil, footprintErr
+	}
+	if footprintBinding != nil {
+		contract["footprint_binding"] = footprintBinding
+	}
 	approvalEvent := workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)
 	approvalEvent.PayloadVersion = workflowContractLawChangePayloadVersion
 	return []Event{approvalEvent}, nil
@@ -379,6 +386,13 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 	}
 	if selfRepairPresent && selfRepair != nil {
 		successor["self_repair"] = selfRepair
+	}
+	footprintBinding, footprintErr := deriveWorkflowFootprintBindingTx(ctx, tx, request.WorkID, definition, next, true)
+	if footprintErr != nil {
+		return nil, footprintErr
+	}
+	if footprintBinding != nil {
+		successor["footprint_binding"] = footprintBinding
 	}
 	events := []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "predecessor_contract_versions": predecessors, "new_contract_version": next, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit, "approval_ref": request.OperatorApprovalRef, "approval_operation_digest": request.ApprovalOperationDigest, "approval_scope_json": request.ApprovalScopeJSON, "approval_versions_json": request.ApprovalVersionsJSON, "approval_consequence": request.ApprovalConsequence, "successor_contract": successor})}
 	return appendWorkflowDesignCorrection(ctx, tx, definition, request, actor, fields["design_record"], eventID, expected, events)

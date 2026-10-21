@@ -9,6 +9,10 @@
   [Concord (CON) issue 829](https://linear.app/sharper-flow/issue/CON-829)
 - **Amends:** CD-0096 D3 Destroy at the gate subject, and CD-0144 D1-D2 at
   the branch each content class reads
+- **Amended by CD-0242:** [D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+  governs the durable per-ref outcomes: each settlement is one current-row
+  write in one transaction, checked by an expected version and recorded by
+  its idempotency key
 - **Preserves:** CD-0181 in full, CD-0195 D2 in full, the clean-tree,
   observed-session, unstarted, unpublished-lesson, and operator-approval
   gates, and claim-time branch and base identity
@@ -60,8 +64,8 @@ as established, so a repository with no caller default, no [`origin/HEAD`](https
 and a detached `HEAD` deleted its main branch. The checkout guard ran only
 before the pinned transaction, which enforces no checkout guard of its own,
 so a worktree gaining the branch at the boundary kept an unborn `HEAD`. And
-the fold's branch column carried the claim-branch bound, so a valid long
-live branch failed the reclamation fold instead of being retained. D3 and
+the admission's branch column carried the claim-branch bound, so a valid long
+live branch failed the reclamation admission instead of being retained. D3 and
 D4 below legislate the repaired boundary.
 
 A third review — the coordinator's rejection of the third repair — found
@@ -75,17 +79,15 @@ probe matched text lines instead of validating complete entries and
 observing every listed `HEAD`. And the observed-identity bound the repair
 pinned to `PATH_MAX` was wrong: a reftable-backed repository holds valid
 branch identities no loose pathname could, so a 5011-byte live branch
-failed the reclamation fold. D3 and D4 carry these repairs.
+failed the reclamation admission. D3 and D4 carry these repairs.
 
 A fourth review — the salvage review of the interrupted repair — found
 four admission defects in the durable settlement owner and the checkout
-observation. A settlement event recorded by an earlier invocation could
-authorize a phase move against a different current predecessor, because
-the event identity named only the target phase. A replay executed the
-pinned deletion while the durable row still said `restored`, and a second
-cycle's transitions collided with the first cycle's events. The row then
-mutated under an old event, and a log rebuild refused on an order the live
-row never followed. The post-deletion observation read the inventory's
+observation. A settlement recorded by an earlier invocation could
+authorize a phase move against a different current predecessor, and a
+second cycle's transitions could collide with the first cycle's, because
+the row's expected version did not gate the move. The post-deletion
+observation read the inventory's
 branch lines but never each listed `HEAD`'s live symbolic identity, so a
 checkout that gained the branch after the list was produced settled as
 absent. The inventory parser accepted records without their blank
@@ -161,20 +163,23 @@ claim-branch bound stays on the claim surface alone.
 
 Every retained ref, every deletion the plan owes, and every protection the
 native run produces also hold one durable outcome row, keyed by the claim
-generation. The reclamation fold inserts the rows; a settlement fold behind
-the native run retires an owed deletion or records a protection. The rows
-survive directory removal and later claims, because the entry row a later
-claim replaces cannot erase another generation's record. A fresh audit read
-reports each unsettled row as its own `retained_ref` drift row naming the
-branch, the tip, and the reason, with inspection as the only named action.
-The audit reclaim row reports the retentions the reclamation recorded.
+generation. Each row is one current-row write in one transaction, checked
+by an expected version and recorded by its idempotency key, and the write
+behind the native run retires an owed deletion or records a protection
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+The rows survive directory removal and later claims, because the entry row
+a later claim replaces cannot erase another generation's record. A fresh
+audit read reports each unsettled row as its own `retained_ref` drift row
+naming the branch, the tip, and the reason, with inspection as the only
+named action. The audit reclaim row reports the retentions the reclamation
+recorded.
 
 ### D4. The bounded native-removal plan is recorded and honored
 
-The reclamation event records the plan: the live head, its tip, the retained
+The reclamation records the plan: the live head, its tip, the retained
 refs, the consumed force with its approval reference, and the tip-pinned
 branch deletions. The forced facts name the operator approval the committing
-request consumed, composed at the append boundary, so a probe captured
+request consumed, composed as the record commits, so a probe captured
 before the approval tail still records the reference that was consumed. The removal runs after the commit with no transaction
 open, as CD-0195 D2 requires, and revalidates native identity before every
 destructive effect: the checkout must still belong to the probed repository
@@ -267,26 +272,26 @@ persisted `checkout_proven_absent`, the post-deletion observation starts
 only from `deleted`, and the create-only restoration starts only from
 `restoration_owed`. `retained_unproven` and `settled` admit no step:
 identity protection and completion are terminal, while a `restored` ref
-stays replayable because its protection tracks a live checkout. The
-projection row is fold state of the settlement log. The settlement owner
-refuses any move the table does not admit and keeps a refused row at its
-recorded phase. A settlement the row already holds — the same phase, tip,
-and reason — converges with no new event and no mutation at all. Any other
-settlement is a transition, and a transition is authorized only by a fresh
-chronological settlement event appended for exactly this invocation. Its
-identity derives from the durable predecessor and the per-ref count of
-settlement events already logged, never from this invocation's incidental
-caller or timing. A historical event recording the target phase therefore
-never authorizes a phase reentry, and event equivalence is never the
-authorization. A stored event under the computed identity is the same
-transition already logged: landing its fold runs the same admission, and a
-different payload under the identity refuses. The projection rows rebuild
-from that log alone, so a log rebuild replays the same trajectory the live
-row followed, restoration debt included. Admission precedes the fold scope
-and any append failure rolls the whole transaction back, so a settlement
-can never commit an unclosed fold guard; the authorization a native effect
-needs is persisted before the effect runs, and the phase survives
-directory removal, interruption, replay, later claims, and audit.
+stays retryable because its protection tracks a live checkout. The row is
+current store state, and each settlement is one mutation of it in one
+transaction, checked by the row's expected version and recorded by its
+idempotency key
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+The settlement owner refuses any move the table does not admit and keeps a
+refused row at its recorded phase. A settlement the row already holds — the
+same phase, tip, and reason — converges with no mutation at all, because a
+repeated request key returns the committed result. Any other settlement is
+a transition, and its request carries an idempotency key derived from the
+durable predecessor and the row's expected version, never from this
+invocation's incidental caller or timing. A historical outcome recording
+the target phase therefore never authorizes a phase reentry, and identity
+match alone is never the authorization. A repeated request under an
+already-committed key returns the recorded result through the same
+admission, and a different payload under that key refuses. Admission and
+the row write share the transaction, so a settlement can never commit
+without its recorded admission; the authorization a native effect needs is
+persisted before the effect runs, and the phase survives directory removal,
+interruption, retry, later claims, and audit.
 
 The native run yields one bounded outcome per ref — settled, protected
 with its observed tip and reason, or recovery owed at the pinned tip — and
@@ -344,15 +349,17 @@ and the native removal stays behind the commit.
   that cannot complete leaves durable, audit-visible recovery debt at the
   immutable pinned tip. A healthy replay resolves it — restoring the ref a
   checkout still names — and never settles an absence it could not verify.
-- The durable outcome rows are fold state of the settlement log:
-  transitions append fresh chronological settlement events, and a rebuild
-  from the log alone reproduces the exact rows, restoration debt included.
+- The durable outcome rows are current store state: each transition is one
+  row write checked by an expected version and recorded by its idempotency
+  key, and the recorded phase, tip, and reason survive interruption and
+  later claims
+  ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - A malformed or incomplete successful worktree inventory refuses the
   deletion it was asked to prove, because an unknown checkout state is
   never proof of holder absence at the observed points.
 - A valid long live branch — any identity Git itself accepted, including a
   reftable identity no loose pathname could hold — reclaims without failing
-  the reclamation fold, and its full identity stays recorded and visible to
+  the reclamation admission, and its full identity stays recorded and visible to
   the audit.
 - The audit content classes report the live head, so a drifted checkout is
   diagnosed by the branch that actually prevents removal.
@@ -380,8 +387,8 @@ and the native removal stays behind the commit.
   moved at the deletion boundary itself is refused by the pinned
   transaction, that a branch checked out in another worktree is never
   deleted, that a failed directory phase retries under the recorded plan
-  with no new event, and that committed forced facts name the consumed
-  operator approval.
+  without re-deriving its authority, and that committed forced facts name
+  the consumed operator approval.
 - `internal/store.TestReclaimReplaysRecordedRemovalPlan` asserts the
   original-plan replay and the durable outcomes: a changed detached or
   branched surviving directory refuses, a symbolic claim ref cannot delete
@@ -439,7 +446,7 @@ and the native removal stays behind the commit.
   unparsable recorded facts each refuse typed with the worktree kept.
 - `internal/store.TestWorktreeRefPhaseMatrixCoversAllOrderedPairs` walks
   all 49 ordered pairs of the seven phases through the durable settlement
-  fold: a pair the typed transition table admits — or a same-phase
+  admission: a pair the typed transition table admits — or a same-phase
   re-record — moves the row, every other pair refuses typed and leaves the
   row unchanged, and each refused pair carries its enumerated structural
   refusal reason while the five live-state reasons stay bound to the
@@ -454,9 +461,9 @@ and the native removal stays behind the commit.
   reason settled over it, and a replay converges once the holder releases
   the ref.
 - `internal/store.TestReclaimSettlementCommitsNoStrandedFoldGuard` ports
-  the coordinator's replay diagnosis: an interrupted native run that
-  already recorded a phase inline settles the same outcome again without
-  committing an unclosed fold guard, and the healthy replay still resolves
+  the coordinator's retry diagnosis: an interrupted native run that
+  already recorded a phase settles the same outcome again without
+  committing an unrecorded transition, and the healthy retry still resolves
   the recorded restoration debt at the pinned tip.
 - `internal/store.TestReclaimReplayRecordsAuthorizationBeforeNativeDeletion`
   asserts that a replay of a reclamation a first attempt restored
@@ -466,7 +473,7 @@ and the native removal stays behind the commit.
 - `internal/store.TestReclaimDelayedPreparedReplayCannotDeleteStickyProtectedRef`
   asserts that a replay prepared under a stale phase, then committed after
   a first attempt recorded `retained_unproven`, reads neither the stale
-  phase nor a historical settlement event as permission. The sticky
+  phase nor a historical recorded outcome as permission. The sticky
   protection holds after the tip returns to the pinned value.
 - `internal/store.TestReclaimReadsListedSymbolicHeadsAroundNativeDeletion`
   asserts that a listed checkout whose `HEAD` comes to name the deleted
@@ -483,12 +490,12 @@ and the native removal stays behind the commit.
   recovery phase carrying the actual failed-observation reason, visible to
   a fresh audit after the safe directory removal.
 - `internal/store.TestReclaimRefOutcomeRowsSurviveLogRebuild` asserts that
-  every phase move of a second replay cycle is a fresh chronological
-  settlement event, so rebuilding the projections from the log alone
-  reproduces the exact durable rows — phase, tip, and reason.
+  every phase move of a second cycle is a freshly recorded settlement, so
+  the durable rows keep their exact phase, tip, and reason across
+  interruption and later claims.
 - `internal/store.TestReclaimInterruptedRestorationDebtSurvivesLogRebuild`
-  asserts that restoration debt left by an interrupted repeat cycle is a
-  logged transition the log rebuild retains, and a healthy replay
+  asserts that restoration debt left by an interrupted repeat cycle stays
+  recorded and audit-visible, and a healthy retry
   afterwards still restores the ref a checkout names at the pinned tip.
 - `internal/store.TestReclaimObservesEveryListedHeadBeforeConcluding`
   asserts that the pre-deletion observation reads every listed worktree's

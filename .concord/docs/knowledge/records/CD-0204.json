@@ -36,7 +36,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1b43ab23ce8ea39d5175b31dc03f536e74b7c7d0b57f34738a77d4d02af451aa",
+  "sha256": "sha256:17643a43a19155e672c827b9307d8d51f4b77b5df7fe81e0e6c5ef4a8d5540cb",
   "status": "accepted",
   "summary": "Admission carries the acceptance-deliverables refusal while a premise question is open, so the preflight, the work pin, and execution refuse confirm_premise alike; the fresh-review refusal defers to the guards only for accept_worker_result, so every site refuses record_delivery behind review debt; and the late record_verdict route serves a premise-question step that does not declare record_verdict, so recorded ops runbooks at cleanup without a verdict record it there. The gate lives in admission code derived from the canonical source.",
   "tags": [

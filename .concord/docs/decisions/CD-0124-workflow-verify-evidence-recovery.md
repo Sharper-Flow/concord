@@ -19,7 +19,7 @@ premise confirmation, but the prior action set provides no typed route that can
 repair the missing evidence without changing the step.
 
 Verdict correction is a separate route. It requires a completed and accepted
-worker delivery, returns to the pinned `repair` step, and does not replace this
+worker delivery, returns to the declared `repair` step, and does not replace this
 evidence-binding recovery.
 
 ## Decision
@@ -71,6 +71,6 @@ deployment or stranded-work recovery.
 - [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
   governs: definitions generate from one canonical source with no retained
   released version.
-- Verdict correction requires a completed and accepted worker delivery, uses a
-  comparable healthy predicate set to reset its bound, and returns break-fix
-  work to the `repair` step without rewriting recorded facts.
+- Verdict correction requires a completed and accepted worker delivery, binds
+  a comparable healthy predicate set, and returns break-fix work to the
+  `repair` step without rewriting recorded facts.

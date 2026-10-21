@@ -73,8 +73,8 @@ The landing binds to the pending request it completes. The core records a
 landing only while the latest committed request for that work item and session
 stands with no recorded landing after it
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-A request its recorded landing already completed replays as already recorded
-with no event while the session holds no rows. Once a later claim's occupancy
+A request its recorded landing already completed resolves as already
+recorded, with no new write, while the session holds no rows. Once a later claim's occupancy
 rows stand, the same landing call refuses and releases nothing: those rows
 belong to the later claim, whose own verified landing or vacate releases them.
 
@@ -83,13 +83,13 @@ belong to the later claim, whose own verified landing or vacate releases them.
 The relocation request stands once the core commits it, so every adapter
 refusal past the commit reports an `effect_state` of possible. The recovery is
 the replay: session_vacate called again re-reads the committed request's
-state and resolves it, appends nothing, and the readback-verified landing
+state and resolves it, writing nothing, and the readback-verified landing
 records through the same verb. The replay resolves from the verified
 destination, or from the source worktree the pending request names while the
 session still runs there, so a commit whose host move never ran and a retry
 after an adapter restart recover the same way. The re-read does not key to
 the idempotency record: a retry under a new idempotency key resolves the
-same still-pending request from its source worktree and appends nothing. A
+same still-pending request from its source worktree and writes nothing. A
 request the recorded landing already completed resolves no pending request
 there, so a re-occupied worktree records its own new relocation request. A
 move that landed without a
@@ -134,9 +134,9 @@ recorded landing after it
 The replay re-reads the committed state on every call, so the idempotency
 response cache never answers a vacate replay from the recorded success. A
 request its recorded landing already completed resolves as a completed replay
-with no event while the session holds no occupancy rows, so an uncertain
+with no write while the session holds no occupancy rows, so an uncertain
 landing result recovers; once a later claim's occupancy rows stand, the same
-replay refuses and appends nothing, because the rows belong to the later
+replay refuses and writes nothing, because the rows belong to the later
 claim, whose own verified landing or vacate releases them. The one documented
 cutover migrates recorded vacate requests to current rows, so no legacy
 request shape or release on fold survives
@@ -147,8 +147,8 @@ request shape or release on fold survives
 CD-0092 D1 refuses an operation on the main checkout when its operations can
 write into the repository checkout or claim implementation worktrees. The
 replayed session_vacate writes neither: it resolves the pending request,
-returns the committed target, and appends no event, and the landing verb owns
-the release. A replay of a completed request appends no event and leaves the
+returns the committed target, and records nothing, and the landing verb owns
+the release. A replay of a completed request records nothing and leaves the
 landing verb the only release owner: it resolves while the session holds no
 rows, and refuses once a later claim's rows stand.
 
@@ -205,13 +205,13 @@ landing
   [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
   anchor: current rows and the readback-verified landing own the release.
 - `go test ./internal/agent/ -run SessionVacate` proves the replay from the
-  verified destination resolves the pending request and appends nothing, and
+  verified destination resolves the pending request and writes nothing, and
   a main-checkout vacate with no committed request still refuses. The same
-  run proves a replay of a completed request resolves with no event while no
+  run proves a replay of a completed request resolves with no write while no
   rows stand and refuses once a later claim's rows stand, the same-key
   replay after a later claim refuses with effect none and leaves the later
   claim's row standing with no landing recorded, and the replay from a
-  pending request's source worktree resolves the request and appends
+  pending request's source worktree resolves the request and writes
   nothing.
 - `bun test adapter/opencode/session-vacate-move.test.ts` proves every
   refusal past the commit reports `effect_state` possible, a replay whose
@@ -226,14 +226,14 @@ landing
   landing, and releases the row, on the first call and on its retry. The
   same run proves the same stale context against a readback outside every
   registered Project: the retry moves the host session to the remembered
-  destination, the replay appends nothing, and the verified landing
+  destination, the replay writes nothing, and the verified landing
   releases the row. It
   also proves a thrown runner timeout on session_vacate reports the
   possible effect with the same replay recovery.
 - `bun test adapter/opencode/session-vacate-reoccupy.test.ts` proves the
   landed-but-unconfirmed move recovers on replay and releases the row, and a
   readback outside every registered Project recovers through the remembered
-  destination: the retry moves the host session there, the replay appends
+  destination: the retry moves the host session there, the replay writes
   nothing, and the verified landing releases the row. The same run proves an
   unreadable ok answer recovers through the same-key replay from the source
   worktree, and a same-key replay after a later claim refuses with effect

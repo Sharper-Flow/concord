@@ -323,7 +323,7 @@ jobs/oracles, CD-0002 invariants, and the falsifiers above remain controlling.
 
 - Given a relation insertion that would create a cycle
   When the operation is attempted
-   Then it fails closed with typed invariant_violation and no record commits.
+  Then it fails closed with typed invariant_violation and no record commits.
 
 - Given a valid supersession of predecessor by successor
   When the supersede operation commits
@@ -332,8 +332,8 @@ jobs/oracles, CD-0002 invariants, and the falsifiers above remain controlling.
 
 - Given superseded work
   When it is reopened
-   Then the reopen removes or replaces the supersession edge and transitions
-   the state in one recorded operation, never a direct superseded-to-needed edit.
+  Then the reopen removes or replaces the supersession edge and transitions
+  the state in one recorded operation, never a direct superseded-to-needed edit.
 
 - Given ready work ranked against a blocked higher-priority item
   When Q5 selects work

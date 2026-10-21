@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:abaefc39b235ed8cd868c9f809ad0911ffaee380226975b45e42e78894a65f5d",
+  "sha256": "sha256:4a43f715328a3368b22d98e68ef7508e1c3596da6bf2204a2b36751639c3604c",
   "status": "accepted",
   "summary": "Directory-to-Project resolution becomes a read-only project-resolve CLI verb returning the Project, its owning Products, and the membership scope_version. The verb does not authenticate, because the operator trust boundary is filesystem access to the authority database. It stays off the agent tool surface and writes no rows.",
   "tags": [

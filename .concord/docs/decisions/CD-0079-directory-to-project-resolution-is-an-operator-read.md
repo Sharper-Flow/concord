@@ -140,8 +140,7 @@ because it produces a durable grant record as a side effect of asking.
 - `TestProjectResolveRefusesUnregisteredRepository` proves the typed refusal and
   that no payload is written on refusal.
 - `TestProjectResolveWritesNothing` proves D3's read-only claim by comparing
-  durable counts across `agent_grants`, `agent_approvals`,
-  `agent_approval_challenges`, `idempotency_records`, and `durable_operations`
+  durable store counts before and after the call
   ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no event-log table exists).
 - `TestProjectResolveRequiresDirectory` proves the verb refuses an absent or
   empty directory.

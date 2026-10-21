@@ -6,13 +6,13 @@ head shard [`knowledge/manifest.json`](./knowledge/manifest.json), the domain
 registry [`knowledge/domain-registry.json`](./knowledge/domain-registry.json),
 and one record shard per record under [`knowledge/records/`](./knowledge/records/) compose the
 manifest document (CD-0114); no committed file lists every record. The current
-schema is `1.3` and carries explicit authority tiers.
+schema is `1.3` and carries explicit authority tiers. The companion
+[`concord-knowledge-index.v1.schema.json`](../../contracts/concord-knowledge-index.v1.schema.json)
+is the closed JSON Schema contract.
+
 > **Amended by [CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** derived law
 > projections are rebuilt from Git in one transaction; no event log, fold, or
 > replay exists.
-The companion
-[`concord-knowledge-index.v1.schema.json`](../../contracts/concord-knowledge-index.v1.schema.json)
-is the closed JSON Schema contract.
 
 ## Contract
 

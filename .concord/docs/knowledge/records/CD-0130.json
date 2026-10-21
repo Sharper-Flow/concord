@@ -36,7 +36,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4555cc456de7177561f36bbed66dce115b7009c9c507daef9537e50f970c0c18",
+  "sha256": "sha256:7d7275bcafefffcf6a5d3a24c1fdddfb212ec9591efc68504e8451037861f5db",
   "status": "accepted",
   "summary": "Makes failed-attempt closure an engine-owned recovery action, keeps current payload, identity, epoch, authorization, and failed-state checks, and retains no released definition version for history.",
   "tags": [

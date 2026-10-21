@@ -43,8 +43,9 @@ scenario corpus no longer leaves a step through either action
 
 ### D2. record_delivery is the exit for a step the session executed
 
-Every external-effect step declares `record_delivery` as its exit, with no
-approval ([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).
+Every external-effect step declares `record_delivery` as its exit, with an
+`internal_sqlite` consequence, no approval, and `advance` mode
+([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).
 The dispatcher admits it only when the step's fenced start action ran in the
 current attempt, since delivery states that the step's own work finished.
 [CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)

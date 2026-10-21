@@ -37,7 +37,7 @@
   },
   "sha256": "sha256:9c55b7e25749020742cfbf5c9b4981e1d5486d6ec4d7808d7a1166ad51a3ca58",
   "status": "accepted",
-  "summary": "Projects the current typed design into implement context, preserves superseded designs as history, and requires an approved replacement after contract correction.",
+  "summary": "Projects the current typed design into implement context, does not present superseded designs as current, and requires an approved replacement after contract correction.",
   "tags": [
     "workflow",
     "design",

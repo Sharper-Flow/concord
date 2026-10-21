@@ -24,7 +24,7 @@ evidenced set of end-to-end agent jobs AJ1 through AJ9 and the tool-neutral
 scenario corpus that judges every later surface candidate.
 ## Contract
 
-AJ8 and Domain-overlap job scenarios use CD-0013 D11's consent policy. Routine compatibility, blocking, and dependency answers prove admission without approval consumption while retaining both work and judged contract pins. Merger or supersession proves exact operator approval consumption as a retained gap without a new class assignment. Workflow scenarios distinguish new engineering/decision policy from retained historical pins; a missing independent verdict is never a consent challenge.
+AJ8 and Domain-overlap job scenarios use CD-0013 D11's consent policy. Routine compatibility, blocking, and dependency answers prove admission without approval consumption while retaining both work and judged contract pins. Merger or supersession proves exact operator approval consumption as a retained gap without a new class assignment. Workflow scenarios bind the one generated current definition ([CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)); a missing review verdict is never a consent challenge.
 
 
 The binding contract is sections 1 through 4: the decision boundary, the
@@ -92,8 +92,10 @@ later choose their concrete request/result schemas.
 10. **Ordered cross-authority proof:** git and external native operations are not
     falsely presented as one transaction with SQLite. Steps are ordered, attributed,
     retry-safe, and expose partial outcomes with an idempotent reconciliation path.
-11. **Stable authority:** in-flight work remains interpretable under its recorded
-    workflow and record formats; surface changes do not rewrite history.
+11. **Stable authority:** active work remains interpretable under the one
+    generated current definition and its record formats
+    ([CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source));
+    surface changes do not rewrite recorded state.
 
 ## 4. Evaluation corpus contract
 

@@ -9,7 +9,7 @@
 - **Related:** CD-0013, CD-0109, CD-0112, and issues #801, #881, #888, #923
 - **Amends:** CD-0013 D5 and CD-0109's evaluator rule by admitting verified
   operator authority after a definition-backed advancing exit
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D6
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D6, D9, D14
 
 ## Context
 

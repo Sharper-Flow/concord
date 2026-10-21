@@ -90,9 +90,13 @@ collision refusal, or the other five workflow types.
 - `TestRecordAlignmentRefusesInconsistentOutcomeAndRelatedIds` proves the
   guard refuses an inconsistent payload and a consistent one records and
   advances.
-- `TestPriorPinnedDefinitionVersionsReplayUnchanged` binds the CD-0242 D14
-  anchor: derived definitions carry the `alignment` step from the one canonical
-  source, and no prior version or pin is retained.
+- `TestPriorPinnedDefinitionVersionsReplayUnchanged` proves every pinned prior
+  version verifies and carries no alignment step. The CD-0242 D14 anchor —
+  derived definitions carrying the `alignment` step from the one canonical
+  source, with no prior version or pin retained — binds when the implementing
+  runtime change lands; until then,
+  `python3 scripts/check-knowledge-index.py` is the executable anchor for this
+  record's law registration.
 - `TestWorkRemovalClearsBacklogAlignmentAtBothEnds` proves work removal clears
   rows naming the removed item in either column. Both foreign keys are
   `RESTRICT`, so a projection delete covering only `work_id` would strand the

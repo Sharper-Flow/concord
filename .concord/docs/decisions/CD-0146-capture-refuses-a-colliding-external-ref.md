@@ -21,8 +21,9 @@ leave another route able to bypass the collision check.
 
 ### D1. Read live collisions at creation
 
-`foldWorkCreated` reads the exact external reference on its existing transaction
-and matches only work items whose `terminal_time IS NULL`. An empty reference
+The creation read (`foldWorkCreated`) checks the exact external reference on
+its existing transaction and matches only work items whose
+`terminal_time IS NULL`. An empty reference
 skips the read. The creation mutation returns `projection_conflict` with an
 `external_ref_conflict` payload that carries the existing work ID and reference
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).

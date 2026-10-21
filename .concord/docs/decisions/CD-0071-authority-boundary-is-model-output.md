@@ -121,8 +121,8 @@ work on it.
 produces; the `cross_scope` capability gate; manifest-digest pinning; typed
 `unauthorized` refusals; the operator approval checkpoint with core-derived
 consequence summaries (CD-0037 D5); and `principal_ref`, on which idempotency
-partitioning, worktree claim ownership, workflow actor distinctness (CD-0017
-D4), and durable operation attribution all depend. These constrain model output
+partitioning, worktree claim ownership, workflow actor authority checks (CD-0017
+D4, CD-0242 D5), and durable operation attribution all depend. These constrain model output
 or carry checked identity. They stay.
 
 **Not load-bearing.** Ed25519 assertion signing, nonce replay protection, client

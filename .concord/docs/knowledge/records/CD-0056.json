@@ -29,7 +29,7 @@
   },
   "sha256": "sha256:3e3d7eb02c6fbbf2a7a8ed88808ebf669bc5dde700d0c7b2c41d1cfbce50b2dd",
   "status": "accepted",
-  "summary": "Lane reports cover their closed declared evidence obligations and retain reported or legacy_unavailable origin. Optional oracle receipts share the evidence array and join controls, cases, pinned recipes, host-derived subjects, and retained execution authority without certifying semantic truth or full output logs. Finding resolutions use durably bound evidence or qualifying current-subject receipts; independently_executed controls require independent bound evidence. The dispatch pins schema and identity, and the adapter strips identity echoes. Worker.completed v6 preserves source-version boundaries; worker.failed remains v2. Workers gain no workflow verdict or completion authority.",
+  "summary": "Lane reports cover their closed declared evidence obligations and retain reported or legacy_unavailable origin. Optional oracle receipts share the evidence array and join controls, cases, pinned recipes, host-derived subjects, and retained execution authority without certifying semantic truth or full output logs. Finding resolutions use durably bound evidence or qualifying current-subject receipts; independently_executed controls require independent bound evidence. The dispatch pins schema and identity, and the adapter strips identity echoes. A completion recorded before this contract reads back with evidence_origin legacy_unavailable, and no payload version invents evidence. Workers gain no workflow verdict or completion authority.",
   "tags": [
     "lanes",
     "evidence",

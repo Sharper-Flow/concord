@@ -6,7 +6,7 @@
   preflight, the work pin, and execution; the late `record_verdict` route
 - **Extends:** CD-0201 D1, the single admission owner, to the acceptance
   deliverables and to the fresh-review refusal over `record_delivery`
-- **Amends:** CD-0203 D2 at its consequence: a frozen ops runbook that
+- **Amends:** CD-0203 D2 at its consequence: a recorded ops runbook that
   reaches cleanup without a verdict records the verdict there before the
   premise question can be confirmed
 - **Amended by:** CD-0209 D1, the closed two-trigger set the late
@@ -115,7 +115,7 @@ Scenario: The preflight refuses a delivery behind review debt
   When the agent asks the preflight for record_delivery
   Then the preflight refuses with the fresh-review refusal that execution applies
 
-Scenario: A frozen ops runbook records a missing verdict at cleanup
+Scenario: A recorded ops runbook records a missing verdict at cleanup
   Given a version-4 ops runbook item at cleanup with no verdict and an investigation artifact
   When the agent records the verdict
   Then the step stays at cleanup

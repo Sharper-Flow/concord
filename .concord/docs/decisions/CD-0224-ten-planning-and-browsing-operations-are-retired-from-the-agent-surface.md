@@ -154,9 +154,9 @@ are, and relation changes write current rows in one transaction.
 
 ## Verification
 
-- `internal/store.TestRetiredPlanningEventsReplay` binds the CD-0242 D2
-  anchor: the store keeps current rows and finite snapshots, not an event
-  log, and the surviving relation kinds stay closed. Until that change lands,
+- The implementing change binds the CD-0242 D2 anchor: the store keeps
+  current rows and finite snapshots, not an event log, and the surviving
+  relation kinds stay closed. Until that change lands,
   `python3 scripts/check-knowledge-index.py` is the executable anchor for
   this record's law registration.
 - `internal/store.TestOverlapTerminalResolutionRejectsCycle` proves

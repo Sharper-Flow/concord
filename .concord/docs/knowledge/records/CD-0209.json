@@ -57,7 +57,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7184cff7e7fdc0e5e9aa8b3d0e035b56b59957ea43181d3180230c1d6da256bd",
+  "sha256": "sha256:05fb4611ec54906804efe3b1b2ae9d3c479eef0a88f027bd18ea747bf8525b0d",
   "status": "accepted",
   "summary": "One declared recovery-route table per workflow definition is the only owner of cross-step correction. The closed two-trigger set (unhealthy_verdict and disproved_premise_at_complete) pairs each trigger with one engine-owned recovery action, the registration gate refuses an undeclared or non-producer route, the runtime cross-step reader is one function, and the artifact-staleness state binds the production frontier to the declared target so only an accepted worker delivery or a typed target production direct action clears the bit. Definitions derive from one canonical source and declare their own table; the liveness and conformance checks cover every registered definition exhaustively; CD-0172 and CD-0186 keep the complete-step supersede bound to implementation and break_fix with exact approval terminal.",
   "tags": [

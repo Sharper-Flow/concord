@@ -49,8 +49,9 @@ The workflow families promoted after this record compose
 steps. The hold-mode accept binds a completed attempt's report as evidence and
 keeps the step, so the operator's own gate stays the step's only advancing
 exit. The advancing accept and the failure record stay off these steps.
-Definitions pinned to older versions keep their digests and reach the amended
-steps through the existing repin route.
+[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
+governs: the families derive from the one canonical source, and an item
+recorded at these steps before the amended binding is revalidated against it.
 
 ### D3. The dispatch hold releases when an accept resolves the attempt
 
@@ -65,9 +66,10 @@ advance admission refuses
 ### D4. Refinement can accept review evidence without delivery
 
 At refinement, `accept_worker_evidence` admits a completed review-class report
-on `workflow.implementation` v21+ and `workflow.break_fix` v19+. This is an
-engine recovery, not a new action in a frozen definition. It binds the exact
-current report and holds the step without asserting delivery.
+in the implementation and break-fix families. This is an engine recovery the
+one canonical source composes, not a new declared action
+([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+It binds the exact current report and holds the step without asserting delivery.
 
 Actual dispatch, work identity, actor independence, readback, epoch, and newest
 review checks remain required. Missing, foreign, unfinished, stale, and already
@@ -85,7 +87,7 @@ authorization closes correction before native dispatch evidence exists. The
 operator approves the exact successor contract; evidence acceptance supplies
 no approval and does not reinterpret an old report as a successor result.
 
-The work pin, preflight, mutation, and replay share the recovery predicate.
+The work pin, preflight, and mutation share the recovery predicate.
 [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
 governs: derived definitions are generated from the one canonical source, and
 no released version or digest is retained.
@@ -164,8 +166,11 @@ Scenario: Evidence acceptance preserves review debt semantics
 - `go test ./internal/store/ -run TestJoinRefusesLaneAtUnadmittedStepKind`
   proves the closed class set.
 - `go test ./internal/store/ -run TestRepinReachesTheCheckpointReviewDefinition`
-  proves the repin route.
-- `go test ./internal/store/ -run TestWorkflowDefinitionVersionPinsHold`
-  proves the frozen and promoted digests.
+  and `go test ./internal/store/ -run TestWorkflowDefinitionVersionPinsHold`
+  prove the current repin and digest-pin checks. The CD-0242 D14 anchor —
+  derived definitions from the one canonical source, with no version pins —
+  binds when the implementing runtime change lands; until then,
+  `python3 scripts/check-knowledge-index.py` is the executable anchor for this
+  record's law registration.
 - `python3 scripts/generate-lane-step-dispatch.py --check` proves the
   generated projections match the amended contract.

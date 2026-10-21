@@ -33,7 +33,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:461b27a17c29fc5115ba17c6987394516c08c30456760ee82b036f04143e604d",
+  "sha256": "sha256:c44acbe3dbeaad50ea4931cc576258f6b77c8a4f27ed6b8b1e6ce30728beef23",
   "status": "accepted",
   "summary": "Verified operator identity permits verdicts and completion after an advancing recorded exit, including delivery, accepted-worker, research-report, and architecture-decision routes. Definition-source membership, evidence, predicate, premise, and version gates remain in force.",
   "tags": [

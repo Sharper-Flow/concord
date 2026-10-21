@@ -87,8 +87,8 @@ a signature over that write.
 
 Signing alone does not prevent an authorized caller from overwriting a recorded
 outcome. Completion and failure now refuse an attempt that already reached a
-terminal lifecycle state, checked inside the same transaction that would append
-the event. A recorded result is final.
+terminal lifecycle state, checked inside the same transaction that would write
+the evidence. A recorded result is final.
 
 ### D5. The recorded actor is a verified identity
 
@@ -149,5 +149,5 @@ reachability D3 removes.
 - The recorded actor is the verified client identity, not `worker:cli`.
 - The Go and TypeScript canonical encoders agree with the shared vector.
 - The adapter's spawned argv and returned envelope contain no signature.
-- CD-0017 model readback, distinctness, and owner-acceptance checks are
-  unchanged.
+- CD-0017 model readback and owner-acceptance checks are unchanged; actor
+  authority follows [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls).

@@ -83,8 +83,8 @@ the operator knows exactly which sessions to restart.
 - Refuse every call while stale. Rejected: this bricks every live session on
   each install and contradicts CD-0111's no-restart guarantee for reads.
 - Warn only and refuse nothing. Rejected: the terminal-attempt harm stays
-  open, because a stale-text worker self-failure needs operator approval to
-  retry.
+  open, because a warning does not stop a stale dispatch from launching a
+  worker on replaced lane text.
 - Compare releases only when the installed release is newer. Rejected: a
   rollback leaves sessions dispatching against mismatched lane text with no
   signal.

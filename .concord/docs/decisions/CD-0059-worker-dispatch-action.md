@@ -68,7 +68,10 @@ For `approval_policy=consequence_v1`, [CD-0242 D6](CD-0242-knowledge-first-workf
 retry is a launch admitted like any other, with its own scope, assignment, and
 subject bindings; no attempt count, convergence basis, escalation wall, or
 approval-gated fresh retry exists, and a launch with an unknown effect is
-reconciled before another launch for that assignment. No historical pins are
+reconciled before another launch for that assignment. The exact failed attempt,
+epoch, active contract, and job binding remain transactional prerequisites of
+the retry launch, and the store records a fresh fenced attempt and epoch
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). No historical pins are
 retained ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 

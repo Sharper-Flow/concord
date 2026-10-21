@@ -75,7 +75,7 @@ resolves, and no timer, poller, or background process exists.
 
 A session that does not yet hold the required merge fact ends the turn with the
 item parked at the gate. A later coordinator resumes the item and uses the
-existing `record_delivery` action when its pinned acceptance and admission
+existing `record_delivery` action when its recorded acceptance and admission
 requirements permit.
 
 For eligible changes in a declared rapid phase, CD-0241 D1–D2 define phase-local
@@ -116,9 +116,9 @@ changes (CD-0242 D2, D14).
   the effect step into the gate and the gate into the verdict step, under the
   required payload.
 - `TestWorkflowDefinitionVersionPinsHold` and
-  `TestBuiltinDefinitionsCoverExactlyThePinnedVersions` prove recorded digests
-  read back unchanged and the generated definitions cover the live families;
-  the implementing change binds the current-state anchor for definitions
+  `TestBuiltinDefinitionsCoverExactlyThePinnedVersions` prove every registered
+  definition version's digest matches its recorded pin and holds exactly one
+  pin; the implementing change binds the current-state anchor for definitions
   generated from one source (CD-0242 D2, D14).
 - `TestWorkflowReadParksDeliveryAtGate` proves the read projection parks one
   parked delivery for a gated item and carries its duration; the Product-row

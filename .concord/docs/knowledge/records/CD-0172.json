@@ -35,9 +35,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d7a6c29fcf906e3856e70734d3cd9d09f3a74cfe8a0942b5bd982081a7359ffd",
+  "sha256": "sha256:b26b771f974d241325932aa21eff6d360cde2b08c3da4b8391a17e354eabf3a7",
   "status": "accepted",
-  "summary": "Operator-approved contract correction extends to the completion step of a break-fix or implementation workflow: a nonterminal item, one active contract, no unsettled attempt, and a same-work observation recorded after the latest verdict admit the typed supersession, whose successor carries the reserved complete_step_correction convention, returns the instance to repair or execution under the generated definition, and cuts predecessor verdicts and evidence off the successor and its descendants.",
+  "summary": "Operator-approved contract correction extends to the completion step of a break-fix or implementation workflow: a nonterminal item, one or more active contracts, no unsettled attempt, and a same-work observation recorded after the latest verdict admit the typed supersession, whose successor carries the reserved complete_step_correction convention, returns the instance to repair or execution under the generated definition, and cuts predecessor verdicts and evidence off the successor and its descendants.",
   "tags": [
     "workflow",
     "correction",

@@ -5,7 +5,7 @@
 - **Amended:** 2026-10-17. Coordinator approval under the operator's delegation
   for [Concord (CON) issue 160](https://linear.app/sharper-flow/issue/CON-160). A new worker completion must prove its directory.
 - **Amended:** 2026-10-17. Coordinator approval under the operator's delegation for [Concord (CON) issue 1095](https://linear.app/sharper-flow/issue/CON-1095/worker-evidence-authority-gaps-generic-applyoperation-may-append). A new completion proves its original Project's claim.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5
 - **Scope:** Where a lane worker runs, how one work item reaches a second
   repository, and what protects a worktree from removal; issues #1358, #1322,
   #1125

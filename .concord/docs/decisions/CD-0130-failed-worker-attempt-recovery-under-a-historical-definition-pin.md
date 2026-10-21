@@ -12,10 +12,10 @@
 
 ## Context
 
-Historical workflow definitions do not declare `record_worker_failure`. A
-failed dispatched attempt blocks other delivery actions, but the pinned action
-set provides no route to record that failure. The work cannot continue through
-its approved workflow.
+Definitions recorded before `record_worker_failure` do not declare it. A
+failed dispatched attempt blocks other delivery actions, but the step's
+declared action set provides no route to record that failure. The work cannot
+continue through its approved workflow.
 
 The closure needs no definition change: [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source. Failed attempt closure is an engine concern, not a change to step policy.
 
@@ -29,7 +29,7 @@ The closure needs no definition change: [CD-0242 D14](CD-0242-knowledge-first-wo
 
 [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: closing a failed attempt uses the current action contract and current rows, not a retained historical definition version.
 
-### D3. Released definition pins stay unchanged
+### D3. No definition pin is retained
 
 [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: no released workflow-definition version is retained for history and no hand-maintained pin duplicates that source.
 

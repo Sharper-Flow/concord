@@ -200,8 +200,8 @@ execution through the existing verify operation and its capability grant.
 This observation grants neither semantic acceptance nor independent authority.
 No new dispatch window or authorization row is implied.
 
-An earlier definition version refuses `inputs.worker_job`. A step without
-`record_worker_job` also refuses it. The lane-step join keeps its existing
+A definition whose step does not declare `record_worker_job` refuses
+`inputs.worker_job`. The lane-step join keeps its existing
 capability limits. Verification requires nonempty recorded checks. The worker
 receives that job's objective, checks, and stopping condition, not an instruction
 to execute the complete parent premise. The dispatch binds the job to its exact

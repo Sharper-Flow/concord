@@ -20,7 +20,7 @@
   late-verdict step that the closed trigger unhealthy_verdict serves sits on
   a step that declares the table's return, and the late record_verdict route
   reaches the producer through the same reader
-- **Amended by CD-0242:** [D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md): [D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
   governs the artifact-staleness state;
   [D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
   replaces the attempt-count and correction-bound clauses; and
@@ -96,7 +96,7 @@ whitelist, or a nearest-target order does not own that decision.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, recovery correction requires the authenticated coordinator and exact diagnosis, strategy, predicates/findings, and bound evidence, without an operator approval. This qualifies the signature prerequisite and its conformance assertions below. Declared producer routes, artifact staleness, return targets, convergence, and real liveness checks remain required. Each correction is one admitted request with its own bindings ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)), and definitions derive from one canonical source with no retained historical pin ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+For `approval_policy=consequence_v1`, recovery correction requires the authenticated coordinator and exact diagnosis, strategy, predicates/findings, and bound evidence, without an operator approval. This qualifies the signature prerequisite and its conformance assertions below. Declared producer routes, artifact staleness, return targets, and real liveness checks remain required. Each correction is one admitted request with its own bindings ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)), and definitions derive from one canonical source with no retained historical pin ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ### D1. One declared recovery-route table per family
 
@@ -377,11 +377,11 @@ Scenario: approved (verify) request_correction lands at execute
 Scenario: revision (verify) successor contract names the route
   Given a workflow.generic_one_off v13 instance at verify with an approved successor contract
   When the route reader resolves
-  Then it returns the quarantined routes the (ref, version) holds
+  Then it returns the declared routes the definition holds
 
 Scenario: unhealthy (verify) recorded bad verdict sets the bit
   Given a workflow.generic_one_off v13 instance at verify with a recorded bad verdict
-  When the loader folds the state
+  When the loader derives the state
   Then artifactStale is true
 
 Scenario: exact correction (verify) request_correction with the bound evidence
@@ -391,7 +391,7 @@ Scenario: exact correction (verify) request_correction with the bound evidence
 
 Scenario: fresh producer (verify) record_delivery at execute clears the bit
   Given a workflow.generic_one_off v13 instance at execute with a fresh record_delivery
-  When the loader re-folds the state
+  When the loader re-derives the state
   Then artifactStale is false
 
 Scenario: independent verification (verify) ok verdict records after fresh production
@@ -417,11 +417,11 @@ Scenario: approved (complete) request_correction lands at execute
 Scenario: revision (complete) successor contract names the route
   Given a workflow.generic_one_off v13 instance at complete with an approved successor contract
   When the route reader resolves
-  Then it returns the quarantined routes the (ref, version) holds
+  Then it returns the declared routes the definition holds
 
 Scenario: unhealthy (complete) recorded bad verdict sets the bit
   Given a workflow.generic_one_off v13 instance at complete with a recorded bad verdict
-  When the loader folds the state
+  When the loader derives the state
   Then artifactStale is true
 
 Scenario: exact correction (complete) request_correction with the bound evidence
@@ -431,7 +431,7 @@ Scenario: exact correction (complete) request_correction with the bound evidence
 
 Scenario: fresh producer (complete) record_delivery at execute clears the bit
   Given a workflow.generic_one_off v13 instance at execute with a fresh record_delivery
-  When the loader re-folds the state
+  When the loader re-derives the state
   Then artifactStale is false
 
 Scenario: independent verification (complete) ok verdict records after fresh production
@@ -551,8 +551,8 @@ verification supplies this evidence, not a fabricated workflow record.
   the canonical bytes and derived digest stay unchanged
   when the field is absent or empty.
 - `internal/store.TestWorkflowRecoveryRoutesGoldenPerReleasedVersion`
-  proves each declared route table holds its graph invariants
-  against the definition it declares.
+  proves each resolved route table holds its graph invariants
+  against the definition it resolves for.
 - `internal/store.TestCompleteStepCorrectionRoutesCoverOnlyTheSupportedFamilies`
   proves the CD-0172 D1 and CD-0186 boundary: only implementation
   and break_fix resolve a `disproved_premise_at_complete` route, the
@@ -609,8 +609,8 @@ verification supplies this evidence, not a fabricated workflow record.
 - `internal/store.TestResearchAndSpikeProducersClearStaleness` proves
   direct production without a worker acceptance.
 - `internal/store.TestUnfencedCheckpointEpochUsesCausalPrefix` proves
-  repeated direct checkpoints keep distinct identities and replay
-  derives each epoch from the preceding event prefix.
+  repeated direct checkpoints keep distinct identities, each derived
+  from the causal prefix that precedes it.
 - `internal/agent.TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep`
   enumerates declared routes and refuses missing public journeys.
 - `internal/agent.TestWorkflowRecoveryRoutesJourneyAdmitsEveryDeclaredRoute`

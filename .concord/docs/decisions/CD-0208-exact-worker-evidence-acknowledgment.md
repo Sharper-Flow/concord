@@ -70,7 +70,7 @@ This is the bounded exception to CD-0044
 D2's append requirement.
 
 An ordinary refusal rolls back nonce consumption. The acknowledgment adds
-no new evidence record or a separate review record. Nonce retention
+neither a new evidence record nor a separate review record. Nonce retention
 uses the existing replay window.
 
 ### D3. A consumed window grants no authority to run again

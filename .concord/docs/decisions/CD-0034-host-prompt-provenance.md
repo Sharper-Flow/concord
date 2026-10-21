@@ -51,7 +51,7 @@ behavior change at migration is thus recorded, never silent: the last
 dispatch under the old provenance and the first under the new bound the
 transition in evidence.
 
-**Migration.** [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) governs: the documented cutover migrates retained evidence, and provenance
+**Provenance recorded before declaration.** [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) governs: the documented cutover migrates retained evidence, and provenance
 recorded before declaration is unknown by construction, stamped as an
 `unenumerated` source with a zero digest rather than fabricated. The CLI
 refuses v3 dispatch evidence without `host_provenance` — injection is

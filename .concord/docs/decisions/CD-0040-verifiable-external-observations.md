@@ -258,7 +258,7 @@ those domains.
 
 ### D11. CD-0039 is amended before implementation
 
-Every CD-0039 native-run event embeds the shared capture component. Its
+Every CD-0039 native-run report embeds the shared capture component. Its
 `reporting_authority_ref`, native subject, evidence, asserted time, and status
 remain as accepted. The added component records capture method, observed
 universe, freshness policy, divergence policy, and verification participation.

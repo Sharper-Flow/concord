@@ -9,7 +9,7 @@ comparison is falsifier-only. CD-0011 records the completed 2026-08-07
 post-falsifier review and retains SQLite.
 **Amended by operator:** 2026-10-17 — D6 states when a payload version bump
 needs a Breaking migration and requires each bump to declare its class.
-**Amended:** 2026-10-18 — [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) supersedes the point-in-time reconstruction rule: recovery restores a verified snapshot and reconciles current rows; no reconstruction exists.
+**Amended:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 supersedes the point-in-time reconstruction rule: recovery restores a verified snapshot and reconciles current rows; no reconstruction exists.
 - **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D6, D13, D14
 **Scope:** Evidence resolution, unreadable-record isolation, workflow checkpoints,
 attempt fencing, external conditions, worktree topology, schema evolution, and the

@@ -1,11 +1,11 @@
-# CD-0203: The admission model folds every condition and three strands recover
+# CD-0203: The admission model derives every condition and three strands recover
 
 - **Status:** Accepted
 - **Date:** 2026-10-04
 - **Scope:** The workflow liveness, well-formed-exit, and conformance checks;
   three store admission routes those checks proved stranded
 - **Extends:** CD-0201 at D1, which names the widening of the checks to the
-  full folded state as later work in a separate record
+  full derived state as later work in a separate record
 - **Amends:** CD-0172 D1 at its contract count: the complete-step correction
   admits one or more active contracts, so a duplicated projection at that
   step recovers instead of refusing
@@ -23,13 +23,14 @@
 
 CD-0201 D2 states the liveness law. Each well-formed nonterminal admission
 state admits an exit, and each reachable nonterminal state reaches a terminal
-step. The first checks folded only a subset of the admission conditions. An
+step. The first checks covered only a subset of the admission conditions. An
 exit that the subset could not prove was not counted, and a state that the
 subset could not reach was not checked.
 
-The checks now fold every condition `workflowAdmit` reads, over all 108
-registered definition versions. The widened checks found three strands in
-the engine:
+The checks now derive every condition `workflowAdmit` reads, over the
+registered definitions
+([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+The widened checks found three strands in the engine:
 
 1. A duplicated contract projection at the pinned complete step refused every
    recovery. CD-0172 D1 admitted the complete-step correction only with
@@ -46,7 +47,7 @@ the engine:
 
 ## Decision
 
-For `approval_policy=consequence_v1`, CD-0013 D11 determines whether an operator question is required; engineering confirmation and routine correction/supersession have non-consent routes. The same folded admission state owns those routes and preserves investigation, evidence, recovery targets, and non-hold exits. The registered-version scenarios below retain their operator questions and approval requirements.
+For `approval_policy=consequence_v1`, CD-0013 D11 determines whether an operator question is required; engineering confirmation and routine correction/supersession have non-consent routes. The same derived admission state owns those routes and preserves investigation, evidence, recovery targets, and non-hold exits. The registered-version scenarios below retain their operator questions and approval requirements.
 
 
 ### D1. The contract step and the complete step keep their contract routes
@@ -76,13 +77,13 @@ The work pin, the operator question read, the product row, and admission
 call this one function. The investigation artifact and the recorded verdict
 stay required, so the question opens only when its evidence exists.
 
-### D3. The checks fold every admission condition
+### D3. The checks derive every admission condition
 
 The liveness and well-formed-exit checks enumerate the abstract states over
 every condition `workflowAdmit` reads. The conformance replay compares the
 loaded state with the abstract successor on the fields `workflowAdmit`
-reads. The step-kind checks cover every registered version, frozen ones
-included, and use the same question function as the engine.
+reads. The step-kind checks cover every registered definition and use
+the same question function as the engine.
 
 No definition version changes. Admission code is not definition content;
 [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
@@ -109,7 +110,7 @@ receives the corrected admission routes at the integration boundary.
 A duplicated projection at the complete step recovers through one operator
 approval. Frozen ops runbooks at cleanup complete through the premise
 question. Version-1 research cannot skip its contract. A future change that
-strands any registered version fails the widened checks with a witness.
+strands any registered definition fails the widened checks with a witness.
 
 ## Verification
 
@@ -131,8 +132,8 @@ Scenario: A frozen ops runbook leaves its cleanup step
   Then the pin carries the confirm_premise question
   And the operator confirmation moves the instance to the complete step
 
-Scenario: Every registered version stays live under the full model
-  Given every registered definition version
+Scenario: Every registered definition stays live under the full model
+  Given the registered definitions
   When the checks enumerate the full abstract admission state
   Then each well-formed nonterminal state has an exit and each reachable state reaches a terminal step
 ```

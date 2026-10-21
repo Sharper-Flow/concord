@@ -34,14 +34,14 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:510636e0c1388ddcf31f70705ef4b07e2c824ea3493cb9b02fe525991a946e30",
+  "sha256": "sha256:6d384f5d71c507d1640ac61852418d098feab19295a31f0a389f1a8e2216d631",
   "status": "accepted",
-  "summary": "The liveness, well-formed-exit, and conformance checks fold every condition workflowAdmit reads over all registered definition versions, and the three strands they found recover: an advancing action with no active contract refuses at the contract step except approve_contract; the complete-step correction admits one or more active contracts so a duplicated projection recovers through the same shared gate; and the operator question opens for confirm_premise on any step that declares it, so frozen ops runbooks leave their internal-SQLite cleanup step. No definition version changes.",
+  "summary": "The liveness, well-formed-exit, and conformance checks derive every condition workflowAdmit reads over the registered definitions, and the three strands they found recover: an advancing action with no active contract refuses at the contract step except approve_contract; the complete-step correction admits one or more active contracts so a duplicated projection recovers through the same shared gate; and the operator question opens for confirm_premise on any step that declares it, so frozen ops runbooks leave their internal-SQLite cleanup step. No definition version changes.",
   "tags": [
     "workflow",
     "workflow-engine",
     "admission",
     "liveness"
   ],
-  "title": "The admission model folds every condition and three strands recover"
+  "title": "The admission model derives every condition and three strands recover"
 }

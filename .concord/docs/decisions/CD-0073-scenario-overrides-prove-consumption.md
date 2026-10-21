@@ -12,7 +12,7 @@
 - **Related:** CD-0033 (the corpus is the accepted oracle), #178 (which surfaced
   the unread keys while binding AJ6)
 - **Preserves:** Every existing assertion, invariant, and deferral; the free-form
-  typing of   `fixture_override` in `contracts/agent-jobs-scenarios.schema.json`;
+  typing of `fixture_override` in `contracts/agent-jobs-scenarios.schema.json`;
   AJ5's initial-state override and the version accounting it depends on
 - **Supersedes:** Nothing. This closes a gap the corpus never covered.
 - **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — overrides are honored by writing current state; no fold or replay exists.

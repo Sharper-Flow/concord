@@ -28,14 +28,14 @@ no mechanism could reopen the work under a corrected contract.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, complete-step contract correction requires attributed supersession, not verified operator approval. Exact successor content, audit evidence, current versions, evidence cutoffs, stale acceptance invalidation, and declared recovery remain required. Conditional human confirmation follows CD-0013 D11; historical pins retain their operator requirement.
+For `approval_policy=consequence_v1`, complete-step contract correction requires attributed supersession, not verified operator approval. Exact successor content, audit evidence, current versions, evidence cutoffs, stale acceptance invalidation, and declared recovery remain required. Conditional human confirmation follows CD-0013 D11; recorded items keep their recorded operator requirement.
 
 
 ### D1. Admit correction at the completion step
 
 `supersede_contract` is available at the step that declares `complete` on a
 break-fix or implementation workflow when the work item lifecycle is
-nonterminal, exactly one approved contract is active, no worker attempt is
+nonterminal, one or more approved contracts are active, no worker attempt is
 unsettled, and a same-work observation was recorded after the latest recorded
 verdict. The completion step declares no evidence-binding action, so the
 post-verdict observation is the durable contradiction record: it is the one
@@ -109,6 +109,6 @@ reader; this predicate is the one scoped reader this decision adds.
 - Identical successor predicates inherit no predecessor verdict, and a fresh verdict under the successor restores the completion path.
 - Predecessor evidence bindings satisfy no required kind, mandate, or verification obligation of the successor: with only predecessor bindings recorded, premise confirmation refuses, and completion refuses at its evidence clause.
 - The cutoff persists across a later ordinary successor of the corrected contract: that successor inherits neither the pre-correction verdict nor the pre-correction bindings.
-- Duplicate contract recovery refuses at the completion step, and a stale-law condition admits correction only through the same shared gate.
-- [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the route supersession is a recorded current fact that reads back to the same instance return, and a supersession recorded before the convention declares none, with no refold or replay.
+- A duplicated contract projection at the completion step takes the same shared gate, and a stale-law condition admits correction only through that gate.
+- [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the route supersession is a recorded current fact that reads back to the same instance return, and a supersession recorded before the convention existed reads back with no convention required, with no refold or replay.
 - A missing observation, an unsettled attempt, a terminal item, an unsupported shape, a missing approval, and a stale version each refuse before any effect.

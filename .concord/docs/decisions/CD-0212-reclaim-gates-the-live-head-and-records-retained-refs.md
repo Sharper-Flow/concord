@@ -9,7 +9,7 @@
   [Concord (CON) issue 829](https://linear.app/sharper-flow/issue/CON-829)
 - **Amends:** CD-0096 D3 Destroy at the gate subject, and CD-0144 D1-D2 at
   the branch each content class reads
-- **Amended by CD-0242:** [D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md): [D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
   governs the durable per-ref outcomes: each settlement is one current-row
   write in one transaction, checked by an expected version and recorded by
   its idempotency key
@@ -84,9 +84,11 @@ failed the reclamation admission. D3 and D4 carry these repairs.
 A fourth review — the salvage review of the interrupted repair — found
 four admission defects in the durable settlement owner and the checkout
 observation. A settlement recorded by an earlier invocation could
-authorize a phase move against a different current predecessor, and a
-second cycle's transitions could collide with the first cycle's, because
-the row's expected version did not gate the move. The post-deletion
+authorize a phase move against a different current predecessor, because
+its authorization named only the target phase. A cycle executed the
+pinned deletion while the durable row still said `restored`, and a
+second cycle's transitions could collide with the first cycle's
+recorded settlements. The post-deletion
 observation read the inventory's
 branch lines but never each listed `HEAD`'s live symbolic identity, so a
 checkout that gained the branch after the list was produced settled as

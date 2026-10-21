@@ -29,7 +29,7 @@ Routine contract supersession under CD-0013 D11 does not require a consent promp
 
 ### D1. Law revision identity
 
-[CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it) and [CD-0242 D10](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d10-knowledge-is-an-input-and-a-law-edit-changes-only-what-it-changes) govern: contract approval pins exactly one content digest for each law ID in the contract's `spec_mandate`. A compatible amendment's new digest triggers reassessment only of the obligations whose meaning it changes, and a breaking supersession of a pinned revision makes the contract stale. Legacy contracts remain readable: they carry law IDs without revision pins and use the compatibility rules below.
+[CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it) and [CD-0242 D10](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d10-knowledge-is-an-input-and-a-law-edit-changes-only-what-it-changes) govern: contract approval pins exactly one content digest for each law ID in the contract's `spec_mandate`. A compatible amendment's new digest triggers reassessment only of the obligations whose meaning it changes, and a breaking supersession of a pinned revision makes the contract stale. Legacy contracts remain readable: they carry law IDs without revision pins and follow the amendment and replacement identity rules in D2.
 
 ### D2. Amendment and replacement have different identities
 

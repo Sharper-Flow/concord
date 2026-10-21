@@ -285,7 +285,7 @@ Each stage change writes a current row checked by its expected version
 Consequently, **evidence is judged under the stage in force when it was
 produced.** Promoting a project from `prototype` to `production` does not
 retroactively invalidate its prototype-era evidence, and it does not retroactively
-bless it either. A recorded stage exit stays true of the subject it recorded
+bless it either. A record about its subject stays true of that subject
 (CD-0242 D7), which is what makes an old completion claim
 interpretable — "this was accepted at prototype rigor in March" is a fact an agent
 can act on; "this was accepted" is not.

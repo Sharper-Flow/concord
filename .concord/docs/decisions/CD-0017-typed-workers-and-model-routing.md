@@ -90,7 +90,7 @@ attempt is never retried; a new attempt is a new decision.
 
 The dispatch record also records `worker_worktree_identity`, the sha256 of the
 canonical session worktree path the core admitted under CD-0102 D7. Later
-worker evidence binds to that claim without a machine path in a public event.
+worker evidence binds to that claim without a machine path in a public record.
 
 [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) governs: a retry is one newly admitted launch with its own authorization and subject bindings; no attempt count, chained approval prerequisite, or resume of the failed attempt exists.
 

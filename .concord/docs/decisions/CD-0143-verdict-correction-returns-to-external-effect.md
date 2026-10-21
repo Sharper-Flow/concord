@@ -73,10 +73,14 @@ verdict and does not weaken evidence or predicate validation.
 - A verdict that predates a completed correction request cannot reopen the failed-review return, and the refusal names the stale verdict.
 - Missing fields, unrelated predicates, unbound evidence, and missing operator approval are refused.
 - Implementation correction returns to `execution`; break-fix correction returns to `repair`.
-- The correction context exposes the affected predicates, evidence, attempt bound, and escalation state.
-- The fourth-correction refusal binds the CD-0242 D6 anchor: no attempt count
-  or escalation wall exists, and completion remains fail-closed until healthy
-  verdicts exist.
+- The correction context exposes the affected predicates and evidence;
+  [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
+  governs: no attempt bound or escalation state exists.
+- Completion remains fail-closed until healthy verdicts exist. The CD-0242 D6
+  anchor — no attempt count or escalation wall exists — binds when the
+  implementing runtime change lands; until then,
+  `python3 scripts/check-knowledge-index.py` is the executable anchor for this
+  record's law registration.
 - The correction route reads current state only; no released definition version
   or event history is retained
   ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).

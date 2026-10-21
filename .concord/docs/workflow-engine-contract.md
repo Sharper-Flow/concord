@@ -407,14 +407,13 @@ and external effects.
 
 ## 6. Outcome evaluation and strength
 
-The approved predicate is immutable. The verdict is recorded through the loop's
-review acceptance: Implement cannot accept its own result, and no separate
-final evaluator or further actor distinctness exists
+The approved predicate is immutable. Review, the loop's verdict actor, is the
+evaluator: for each approved predicate it applies the rules below to the
+delivery and its bound evidence, and records `verdict_kind` and
+`incomparable_with_approved`. Implement cannot accept its own result, and no
+separate final evaluator or further actor distinctness exists
 ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls),
 which governs [CD-0235](./decisions/CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md) D1).
-For each approved predicate it
-applies the rules below to the delivery and its bound evidence, and records
-`verdict_kind` and `incomparable_with_approved`.
 
 At contract approval and again at completion, each approved predicate is
 validated against the pinned definition's `outcome_schema`, not only against the
@@ -450,7 +449,7 @@ for a verdict that records a weaker or incomparable delivery.
 
 Job-oracle controls use exit-status results and retained execution references
 (CD-0205, CD-0056). Their receipts are reported evidence, not per-predicate
-evaluation, independent verdicts, criterion discharge, or completion authority.
+evaluation, review verdicts, criterion discharge, or completion authority.
 Earlier-subject receipts are regression baselines. The oracle does not supply
 the deferred registered evaluator catalog or change the closed predicate union.
 
@@ -769,7 +768,7 @@ No result record is invented for a graph step.
 | Action IDs | Semantic event mapping |
 |---|---|
 | `record_discovery`, `frame_research`, `record_finding`, `record_reproduction`, `record_root_cause`, `record_option`, `record_health`, `declare_scope`, `record_conclusion` | `workflow.action_completed`; immutable artifact/evidence is carried by `result_evidence_refs` and `changed_refs` |
-| `record_proposal` | `workflow.proposal_recorded` plus `workflow.action_completed` for a definition that declares the proposal document; a definition pinned before it records `workflow.action_completed` alone |
+| `record_proposal` | `workflow.proposal_recorded` plus `workflow.action_completed` for a definition that declares the proposal document; otherwise `workflow.action_completed` alone (CD-0242 D14) |
 | `record_design` | `workflow.design_recorded` plus `workflow.action_completed`; the typed design record is the approved change's decision record, not lane methodology |
 | `record_alignment` | `workflow.backlog_alignment_recorded` plus `workflow.action_completed`; the payload records the search scope, the closed `related_found`/`none_found` outcome, and the related work ids exactly when the search found them (CD-0156) |
 | `approve_contract` | `workflow.contract_approved` plus its required approval evidence binding |

@@ -10,8 +10,8 @@
 - **Related:** CD-0054 (model-neutral registry), CD-0017 (worker evidence and
   workflow-declared distinctness), CD-0036 (breaking cutover),
   CD-0044 (evidence boundary, unaffected)
-- **Preserves:** reviewer/implementer model distinctness, worker-attempt model
-  evidence, cost attribution
+- **Preserves:** worker-attempt model evidence, cost attribution; CD-0242 D5
+  requires no reviewer/implementer model distinctness
 
 ## Context
 
@@ -39,7 +39,8 @@ Models are per-host configuration; Concord holds no second opinion about them.
 ### D2. `readback_model` is the sole model evidence
 
 A worker attempt records the model the host reports as having executed it.
-That value remains the input to CD-0017 D6 distinctness, unchanged. Concord
+That value remains bound evidence of what executed; CD-0242 D5 requires no
+distinctness check on it. Concord
 asserts nothing about which model *should* have run, so it detects no
 substitution and claims none.
 

@@ -14,8 +14,9 @@
 > requirements; PM9 rejects a separate process-exhaust receipt. **Does not decide:** PM10
 > backup/restore, C15 resources, agent tools, or exact implementation.
 > **Amended by CD-0222:** `domain_ids` replace `component_ids` in new note
-> front matter; the bounded Domain migration rewrites existing note front matter
-> ([CD-0242 D13](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
+> front matter; the bounded Domain migration rewrote existing note front matter
+> in place, and no upcaster exists
+> ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 > **Amended by [CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** the store keeps
 > current state and finite verified snapshots; no event log or replay exists.
 

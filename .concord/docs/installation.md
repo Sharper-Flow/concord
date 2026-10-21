@@ -1,5 +1,7 @@
 # Installing Concord
 
+> **Amended by [CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** store recovery restores a verified snapshot or reconciles current rows; no event-log rebuild exists.
+
 Concord releases support Linux amd64 only. The published release contains the
 binary, a reproducible bundle with the OpenCode adapter, a SHA-256 checksum
 file, a software bill of materials (SBOM), and the installer itself.
@@ -335,20 +337,7 @@ unrelated configuration are outside the managed paths and are never touched.
 
 ## Fold-guard recovery
 
-When the core refuses to open the authority database because a committed
-`fold_guard` row stranded without its owning fold scope, recover offline from
-an ordinary shell:
-
-```sh
-concord recover-fold-guard
-```
-
-The verb runs without the network. It clears the stranded guard row and
-rebuilds every projection from the append-only event log in one transaction,
-so projection rows the log does not restore are discarded and the log itself
-is preserved. A failed recovery rolls back, which restores the stranded row
-and keeps the database refused; pass `{"path": "..."}` on JSON stdin to
-recover a database outside the default location.
+Recovery restores a verified snapshot or reconciles current rows, and a refusal to open the authority database states the recovery action the caller may take ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history), [CD-0242 D12](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)); the store keeps no append-only event log to rebuild from.
 
 ## Uninstall
 

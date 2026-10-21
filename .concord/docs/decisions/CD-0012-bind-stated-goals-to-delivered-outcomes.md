@@ -15,6 +15,9 @@ invariant in [`workflows.md`](../workflows.md) §2.1 by giving it a binding coun
 amends D3's second paragraph: the independent verdict is the outcome strength evaluation.
 [CD-0236](CD-0236-vacuity-is-judged-at-review.md) amends D4's Vacuity bullet, required
 conformance scenario 3, and the Cost bullet's vacuity clause: vacuity is judged at review.
+[CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5 amends
+D7, the Cost bullet's evaluator-distinctness clause, and conformance scenario 13: Main's
+sequential review loop replaces the distinct final evaluator.
 **Research:** [`R5-goal-to-outcome-binding.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R5-goal-to-outcome-binding.md)
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/22>
 
@@ -205,31 +208,7 @@ to in-flight discoveries generally.
 
 ### D7. Verification is independent of the executing agent
 
-The end-state check is authored at approval by the approving authority and evaluated by a
-party that is not the executing agent. The executing agent may not author, re-select,
-weaken, or disable the check that governs its own completion.
-
-Two structural invariants are decided here rather than deferred, because a principle with
-no enforceable invariant is not a decision:
-
-1. **Authorship fencing.** The approved end-state is written by the approving authority at
-   planning and is immutable for the lifetime of that contract. An execution-time write to
-   it is refused, not merged.
-2. **Evaluator distinctness.** The recorded outcome verdict carries the actor that produced
-   it, and the completion transition refuses a verdict whose actor is the executing actor
-   of the same work item. A verdict with no recorded actor is refused on the same footing
-   as omission under D4.
-
-R5 §1.5 documents the failure this closes: an agent whose verification layer was
-self-authored reported inert work as delivered, because "the verification layer that was
-supposed to catch exactly this kind of gap was itself checking the wrong thing, silently,
-by design." R5 §3.1 records the same lesson from contract practice — an assertion the
-executing party may disable is not a control.
-
-Evidence binding follows CD-0008's immutable-subject rule; this decision introduces no
-separate evidence authority. How actor identity is represented, and which actor classes may
-evaluate which work kinds, are deferred to implementation design. The two invariants above
-are not.
+[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: Main dispatches Review, which inspects the accumulated solution and reports; Implement cannot accept its own result, and no separate final evaluator or executing-actor distinctness beyond these rules is required.
 
 ### D8. Route conventions that determine the operative verb are declared at approval
 
@@ -319,10 +298,10 @@ about recorded findings, not about a change being made.
   lightweight type's end-state can be a single cheap assertion. This decision does not
   pretend the floor is free: a type that becomes materially heavier is a genuine regression
   against Priority 5 and must surface rather than be absorbed.
-- **Independent evaluation requires a second party at every completion.** In a
-  single-operator system, D7's evaluator distinctness means either the operator or a
-  non-executing agent must be available whenever work completes. If neither is, work
-  queues. This is the direct price of R5 §1.5 and is accepted deliberately.
+- **The loop names the second party.**
+  [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
+  governs: Main dispatches Review as its own stage, Implement cannot accept its
+  own result, and no distinct final evaluator beyond Review is required.
  - A change to the agent-visible outcome contract carries generated-manifest,
    digest, strict-schema, deterministic-scenario, and authority-evidence cost that
    [`agent-tool-surface-evolution.md`](../agent-tool-surface-evolution.md) attaches to it.
@@ -370,9 +349,9 @@ follow the existing corpus conventions; this decision does not itself modify
     [`specs-as-laws.md`](../specs-as-laws.md) §6.
 12. An executing agent attempting to author, replace, or disable its own end-state check is
     refused (D7).
-13. A completion carrying an outcome verdict whose actor is the executing actor of the same
-    work item is refused, as is a verdict with no recorded actor (D7, evaluator
-    distinctness).
+13. A review pass that committed corrective edits is accepted after its verified
+    candidate without a further review, and completion records Main's accepted
+    disposition instead of a distinct verdict actor (D7, CD-0242 D5).
 14. A delivery route relying on an undeclared convention that determines the operative verb
     is refused at approval; the same route with that convention declared proceeds (D8).
 15. A work item at the lowest maturity and audience bands still requires an approved outcome

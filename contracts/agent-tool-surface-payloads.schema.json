@@ -11477,7 +11477,7 @@
     "worker_packet5_worker_job": {
       "type": "object",
       "additionalProperties": false,
-      "description": "The selected ready worker-job revision a packet5 attempt executes: the packet2/3 worker_job shape plus the optional core-recorded checks_repair metadata (CD-0205 D4), the recorded production-size members, and the dispatch-time caller exclusions (CD-0225 D1, CD-0227 D1). The core refuses a packet whose worker_job is not a ready or review-bound recorded revision with this exact content; the exclusions are the core's own computed set and bind the packet, never the job digest. inputs.task stays the complete parent contract premise; this object bounds the attempt's own objective.",
+      "description": "The selected ready worker-job revision a packet5 attempt executes: the packet2/3 worker_job shape plus the optional core-recorded checks_repair metadata (CD-0205 D4), the recorded direct-caller allowance, and the dispatch-time caller exclusions (CD-0227 D1). The core refuses a packet whose worker_job is not a ready or review-bound recorded revision with this exact content; the exclusions are the core's own computed set and bind the packet, never the job digest. inputs.task stays the complete parent contract premise; this object bounds the attempt's own objective.",
       "required": [
         "job_id",
         "revision",

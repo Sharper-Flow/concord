@@ -431,13 +431,11 @@ func TestWorkflowCorrectionAttributionFitsDerivedActionBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the packet4 derivation hit an unbudgeted member: %v", err)
 	}
-	// The size-capable packet5 identity mirrors the checks-repair packet4
-	// shape beside the recorded production-size members: the measurement
-	// basis's base commit and the direct-caller allowance's knowledge
-	// content hash are anchored scalars the walker bounds at their exact
-	// quoted serializations.
+	// The caller-capable packet5 identity mirrors the checks-repair packet4
+	// shape beside the direct-caller members: the allowance's knowledge
+	// content hash is an anchored scalar the walker bounds at its exact
+	// quoted serialization.
 	packet5Opt := workerPacketCapacityOptions(defs, "worker_packet5", "worker_packet5_worker_job", packetOpt.FindingRefMax)
-	packet5Opt.PathBounds["worker_packet5/inputs/worker_job/worker_packet5_worker_job/measurement_basis/worker_job_measurement_basis/base_commit"] = 71
 	packet5Opt.PathBounds["worker_packet5/inputs/worker_job/worker_packet5_worker_job/direct_caller_allowance/worker_job_direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash"] = 71
 	packet5Parts, err := schemawire.Max(defs["worker_packet5"], "worker_packet5", packet5Opt)
 	if err != nil {

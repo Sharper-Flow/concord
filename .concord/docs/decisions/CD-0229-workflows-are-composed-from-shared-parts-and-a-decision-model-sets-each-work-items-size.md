@@ -45,7 +45,7 @@
   rule, and changes no UI/UX. It is not serious under
   [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
   D4.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D6, D13, D14
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D4, D6, D13, D14
 
 ## Context
 
@@ -58,15 +58,16 @@ part.
 Goal B asks for workflows of "dynamically different sizes", chosen by "a
 defined decision model", not by the operator case by case and not by the
 agent's own judgment. Its inputs are subject, sensitivity, blast radius,
-security, relative size, and span. A task that proves bigger than its size
-stops, the model runs again, and work continues at the new size (Appendix A2
-row 8).
+security, relative size, and span. [CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)
+governs a task that proves bigger than its size: the model runs again, the
+newly required steps are added, and work continues without redoing completed
+work (Appendix A2 row 8).
 
 The builtin registry holds 146 definition versions across seven families. Each
 version is a fully expanded manifest, so a step two families share is written
 into each. CD-0006 D3 asks for a purpose-built type for each kind of work, so a
-new size would be a new full definition. No work item carries a size, and
-CD-0218 D2 gives every implementation item the same steps whatever the change.
+new size would be a new full definition. No work item carries a size, and the
+registry gives every implementation item the same steps whatever the change.
 
 ## Decision
 
@@ -110,50 +111,17 @@ retained for history.
 
 ### D4. Every sized work item has one size from the decision model
 
-A work item that enters a sized workflow carries one size: `small`, `larger`,
-or `crucial`, with the meanings goal B gives them.
-
-The decision model is one programmed, versioned function. It reads the inputs
-goal B names. Span is three counts read from the change's footprint record
-(goal A): the Domains, the packages, and the repositories the change touches.
-The declared maturity and audience commitment of the work's subject are also
-inputs. The same inputs and model version always give the same size.
-
-The work record keeps the size, the model version, and the inputs the model
-read. An agent supplies only the inputs a tool cannot derive, and independent
-review checks each one. A wrong input is a review finding, and the corrected
-inputs run the model again. The model never reads a size an agent proposes.
-
-Source-free research may omit optional sizing inputs when its workflow does not require a size. Omission records no size: it is neither a zero production-line estimate nor a `small` classification. An agent must not invent production-line estimates or edit paths to obtain a size. This rule does not waive sizing required by a composition, change the admitted range of supplied estimates, or lower any proof obligation.
-
-The obligation bands of CD-0006 D4 and R2 still apply at every size. A size
-sets the steps, proof, and testing above that floor; it never removes an
-obligation a band requires.
+[CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)
+governs: the decision model sets each work item's size; the operator may move
+a size up or down; an agent may ask only for a rerun and may add steps, never
+remove one.
 
 ### D5. The size selects the composition and its least proof
 
-Each family declares one composition for each size. A family whose steps do
-not vary by size may declare one composition for all three. The implementation
-family follows goal B's examples: `small` composes define, implement, review,
-and ship; `larger` adds research, architect, and refine; `crucial` adds
-repeated implement steps and repeats review and refine. This amends CD-0218
-D2 for implementation at every size and CD-0138 D1 only for the `small`
-implementation composition. An implementation item walks the steps of its
-size's composition. At every size it keeps its outcome contract, its independent
-acceptance, and closure.
-
-No size ships with zero proof. A `small` change runs the checks its footprint
-record names and receives one independent review.
-
-Review findings follow Appendix A2 row 5 by size. At `small`, the change fixes
-the problems inside its scope and files follow-up items for the rest. At
-`larger`, one refine step fixes them and one more review follows. At `crucial`,
-review and refine repeat until review finds no high or medium problem, and the
-coordinator ends the loop. At any size, a change does not ship with a high or
-medium problem inside its scope; problems outside its scope become follow-up
-items (R1). A `larger` change whose second review still finds one inside its
-scope has proved bigger than its size under D6. Those open findings are a
-model input, and the model returns `crucial` for them.
+[CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)
+governs: families compose shared stages, the decision model sets each work
+item's minimum steps, proof, and testing, and a small change runs its
+footprint checks and one review.
 
 ### D6. Only the model and the operator change a size
 
@@ -174,15 +142,16 @@ target refuses admission until the operator sets one as a gate.
 
 - Let the agent choose the size. Goal B rules out the agent's own judgment.
 - Let the operator choose each size. Goal B rules out a case-by-case choice;
-  the operator keeps the override in D6.
+  the operator keeps the override in D4.
 - Keep full definitions and add size-specific copies. Each copy would
   redefine shared steps, against goal C's measure.
 - Compose by inheritance between definitions. A child that overrides a parent
   step defines that step twice.
 - Recompile released versions from current parts. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: derived definitions generate from one canonical source; released versions are not retained for history.
-- Re-pin a running instance to the new size's composition. An active execution
-  continues under its recorded current state, and a resize successor keeps the
-  forward link CD-0006 R1 already accepts.
+- Re-pin a running instance to the new size's composition. [CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)
+  governs: a task that proves bigger than its size reruns the model, adds the
+  newly required steps, and continues in the same work item; no successor or
+  re-pin exists.
 
 ## Consequences
 
@@ -193,8 +162,10 @@ CD-0077 D2. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-n
 A part change now produces new versions of several compositions in one
 release, and reviewers see each affected composition.
 
-A resize costs one forward-linked successor. The define-start record of the
-first item stays the start of the change for the D7 measure.
+A resize costs no successor; [CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)
+governs: the decision model runs again, the newly required steps are added,
+and work continues without redoing completed work. The define-start record
+stays the start of the change for the D7 measure.
 
 The decision model's first version is a calibration. Its inputs are recorded
 with each size, so a later model version can be judged against the sizes it

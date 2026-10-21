@@ -303,7 +303,7 @@
   {
    "id": "fc3-reviewer-model-distinctness",
    "condition": "fc3",
-   "title": "Review records the completion verdict and recorded readback identity stays bound evidence",
+   "title": "Review reports the completion disposition and recorded readback identity stays bound evidence",
    "requirement": "CD-0242 D5 governs: no reviewer/model distinctness is required; Review reports its disposition, Main records its acceptance, and Implement cannot accept its own result. The recorded readback model remains bound evidence of what executed.",
    "state": "unmeasured",
    "reason": "The CD-0242 current-state runtime has not landed; the existing proof exercises the retired mechanism, and this item rebinds to the runtime's proof when it lands."

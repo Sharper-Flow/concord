@@ -111,7 +111,11 @@ asserts a decision Concord no longer makes.
 - `adapter/opencode/dispatch.test.ts` checks that lane dispatch omits `--model`
   and that missing or ambiguous readback records one failed attempt.
 - `internal/store.TestDeclaredModelDistinctnessRejectsCollisionAndFailsClosed`
-  proves workflow-declared distinctness evaluates executing-model evidence.
+  proves the same-actor refusal and fail-closed handling of an absent declared
+  readback identity; its declared-collision cases exercise the retired CD-0017
+  D6 check until the CD-0242 runtime change lands
+  ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)
+  governs: no distinctness check exists).
 - `internal/store.TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows`
   proves the migration removes the five columns and preserves existing rows.
 - `scripts/check-agent-contracts.py` and `scripts/check-json.py` pass with

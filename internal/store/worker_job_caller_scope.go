@@ -458,3 +458,213 @@ func WorkerAttemptIDFromRejectionPayload(payload json.RawMessage) string {
 	}
 	return parsed.AttemptID
 }
+
+// workerJobPathsIntersect reports whether a path sits inside a path-scope
+// entry: equal to it or under it with a trailing slash, in either direction,
+// so a scope entry can name a file and a path can name a scope directory.
+func workerJobPathsIntersect(pathScope []string, measuredPath string) bool {
+	for _, scope := range pathScope {
+		if measuredPath == scope || strings.HasPrefix(measuredPath, scope+"/") || strings.HasPrefix(scope, measuredPath+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// workerJobPathScopeTx reads the recorded path scope of one dispatched job
+// revision.
+func workerJobPathScopeTx(ctx context.Context, tx *sql.Tx, workID string, binding WorkerJobBinding) ([]string, error) {
+	var raw string
+	err := tx.QueryRowContext(ctx, `SELECT path_scope FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, workID, binding.JobID, binding.Revision).Scan(&raw)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read the dispatched job's recorded path scope", true, "retry once the worker-job projection is readable", err)
+	}
+	var scope []string
+	if err := json.Unmarshal([]byte(raw), &scope); err != nil {
+		return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "a recorded worker-job revision carries a path scope that is not one string list", false, "rebuild the worker-job projection from the event log")
+	}
+	return scope, nil
+}
+
+// workerDispatchCallerExclusionsTx reads the caller exclusions the attempt's
+// dispatch authorization bound to its completion.
+func workerDispatchCallerExclusionsTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) ([]string, error) {
+	var raw string
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_caller_exclusions'),'[]') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read the dispatch's caller exclusions", true, "retry once the event log is readable", err)
+	}
+	var exclusions []string
+	if err := json.Unmarshal([]byte(raw), &exclusions); err != nil {
+		return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "a dispatch authorization carries caller exclusions that are not one string list", false, "rebuild the workflow events from the authoritative log")
+	}
+	return exclusions, nil
+}
+
+// workerAttemptCapabilityTx returns the attempt's lane capability class, or
+// the empty string when no attempt row exists.
+func workerAttemptCapabilityTx(ctx context.Context, tx *sql.Tx, attemptID string) (string, error) {
+	var capability string
+	err := tx.QueryRowContext(ctx, `SELECT capability_class FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&capability)
+	if err != nil && err != sql.ErrNoRows {
+		return "", wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read the accepted attempt's capability class", true, "retry once the worker-attempt projection is readable", err)
+	}
+	return capability, nil
+}
+
+// readWorkerCompletedRepairsTx reads the direct-caller repairs the attempt's
+// worker.completed report carries, or nil when the attempt carried none or
+// recorded no completion.
+func readWorkerCompletedRepairsTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) ([]WorkerDirectCallerRepair, error) {
+	var raw string
+	err := tx.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerCompleted, attemptID).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read the accepted attempt's completion", true, "retry once the event log is readable", err)
+	}
+	var payload struct {
+		DirectCallerRepairs []WorkerDirectCallerRepair `json:"direct_caller_repairs"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "the accepted attempt's completion payload is not readable", false, "rebuild the worker events from the authoritative log")
+	}
+	return payload.DirectCallerRepairs, nil
+}
+
+// admitWorkerCallerRepairContainmentTx holds CD-0227 D2/D3's acceptance
+// containment (CD-0242 D6 keeps scope and ownership checks): a report that
+// carries direct-caller repairs claims them under the dispatched job's
+// recorded allowance, so every repair's owner is a mechanism of that
+// allowance, no repaired path falls under the dispatch's caller exclusions —
+// the recorded paths of the work's other corrections — and every repaired
+// path outside the job's recorded path scope stays free of another work
+// item's recorded job scope or held path claim in the allowance's Project.
+// The retired measurement recorded no observed delta, so the containment
+// basis is the repairs' own declared changed paths; the review lane and the
+// coordinator's integration evidence own that no unreported change exists.
+func admitWorkerCallerRepairContainmentTx(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, job *WorkerJobBinding, attemptID string) error {
+	if job == nil || !workflowCallerScopeActive(definition) {
+		return nil
+	}
+	repairs, err := readWorkerCompletedRepairsTx(ctx, tx, workID, attemptID)
+	if err != nil || len(repairs) == 0 {
+		return err
+	}
+	allowances, err := readWorkerJobAllowancesTx(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	allowance := allowances[*job]
+	if allowance == nil {
+		return newFailure(KindInvalidOperation, "workflow_action",
+			"accept_worker_result: worker job "+job.JobID+"'s report carries direct-caller repairs, but its dispatched revision records no direct-caller allowance",
+			false, "reject the result with reject_worker_result; a job without the allowance cannot acquire one from a worker report")
+	}
+	capability, err := workerAttemptCapabilityTx(ctx, tx, attemptID)
+	if err != nil {
+		return err
+	}
+	if capability != "implementation" {
+		return newFailure(KindInvalidOperation, "workflow_action",
+			"accept_worker_result: worker job "+job.JobID+"'s report carries direct-caller repairs on a "+capability+" attempt; the caller boundary follows the implementation class",
+			false, "reject the result with reject_worker_result; a repair claim belongs to an implementation attempt")
+	}
+	pathScope, err := workerJobPathScopeTx(ctx, tx, workID, *job)
+	if err != nil {
+		return err
+	}
+	exclusions, err := workerDispatchCallerExclusionsTx(ctx, tx, workID, attemptID)
+	if err != nil {
+		return err
+	}
+	repaired := map[string]bool{}
+	for _, repair := range repairs {
+		if !slices.ContainsFunc(allowance.Mechanisms, func(mechanism OracleMechanism) bool {
+			return mechanism.Path == repair.Owner.Path && mechanism.EntryPoint == repair.Owner.EntryPoint
+		}) {
+			return newFailure(KindInvalidOperation, "workflow_action",
+				"accept_worker_result: worker job "+job.JobID+" reports a caller repair of owner "+repair.Owner.Path+" "+repair.Owner.EntryPoint+", which is not a mechanism of its direct-caller allowance",
+				false, "reject the result with reject_worker_result, then record a revision whose allowance names the real owner mechanism")
+		}
+		for _, path := range repair.ChangedPaths {
+			switch {
+			case repaired[path]:
+				return newFailure(KindInvalidOperation, "workflow_action",
+					"accept_worker_result: worker job "+job.JobID+" reports caller-repair path "+path+" in two repairs",
+					false, "reject the result with reject_worker_result; one changed path joins one evidenced repair")
+			case workerJobPathsIntersect(exclusions, path):
+				return newFailure(KindInvalidOperation, "workflow_action",
+					"accept_worker_result: worker job "+job.JobID+" repaired caller path "+path+", which its dispatch excluded as another correction's recorded path",
+					false, "reconcile the caller path through the coordinator, then reject the result with reject_worker_result")
+			}
+			repaired[path] = true
+			if workerJobPathsIntersect(pathScope, path) {
+				continue
+			}
+			owner, err := workerCallerPathForeignOwnerTx(ctx, tx, workID, allowance.ProjectID, path)
+			if err != nil {
+				return err
+			}
+			if owner != "" {
+				return newFailure(KindInvalidOperation, "workflow_action",
+					"accept_worker_result: worker job "+job.JobID+" repaired caller path "+path+", which "+owner,
+					false, "reconcile the caller path through the coordinator, then reject the result with reject_worker_result")
+			}
+		}
+	}
+	return nil
+}
+
+// workerCallerPathForeignOwnerTx names another work item that owns a caller
+// path: a non-terminal item whose recorded worker job in the same Project
+// scopes the path, or an item holding a path claim on it. It returns the
+// empty string when no other item owns the path.
+func workerCallerPathForeignOwnerTx(ctx context.Context, tx *sql.Tx, workID, projectID, path string) (string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT r.work_id, r.path_scope FROM worker_job_revisions r JOIN work_items w ON w.id=r.work_id WHERE r.work_id<>? AND r.project_scope=? AND w.lifecycle NOT IN ('completed','cancelled','superseded') ORDER BY r.work_id, r.job_id, r.revision`, workID, projectID)
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read other work items' job scopes", true, "retry once the worker-job projection is readable", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var otherWork, raw string
+		if err := rows.Scan(&otherWork, &raw); err != nil {
+			return "", wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot scan other work items' job scopes", true, "retry once the worker-job projection is readable", err)
+		}
+		var scope []string
+		if err := json.Unmarshal([]byte(raw), &scope); err != nil {
+			return "", newFailure(KindInvariantViolation, "worker_job_caller_scope", "a recorded worker-job revision carries a path scope that is not one string list", false, "rebuild the worker-job projection from the event log")
+		}
+		if workerJobPathsIntersect(scope, path) {
+			return "work item " + otherWork + "'s recorded job scope covers", nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot scan other work items' job scopes", true, "retry once the worker-job projection is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return "", wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot close the other job scopes read", true, "retry once the worker-job projection is readable", err)
+	}
+	claims, err := tx.QueryContext(ctx, `SELECT c.holder_work_id, c.resource_key FROM resource_claims c WHERE c.state='held' AND c.holder_work_id<>? AND substr(c.resource_key,1,5)='path:' AND EXISTS (SELECT 1 FROM work_projects wp WHERE wp.work_id=c.holder_work_id AND wp.project_id=?) ORDER BY c.resource_key`, workID, projectID)
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read held path claims", true, "retry once the resource claims are readable", err)
+	}
+	defer claims.Close()
+	for claims.Next() {
+		var holder, key string
+		if err := claims.Scan(&holder, &key); err != nil {
+			return "", wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot scan held path claims", true, "retry once the resource claims are readable", err)
+		}
+		if workerJobPathsIntersect([]string{key[len("path:"):]}, path) {
+			return "work item " + holder + " holds through claim " + key + " over", nil
+		}
+	}
+	if err := claims.Err(); err != nil {
+		return "", wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot scan held path claims", true, "retry once the resource claims are readable", err)
+	}
+	return "", nil
+}

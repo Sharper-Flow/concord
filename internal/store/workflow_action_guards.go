@@ -1618,6 +1618,13 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		if job != nil {
 			completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}
 		}
+		// CD-0227 D2/D3: the acceptance holds a reported direct-caller
+		// repair to the dispatched job's recorded allowance, the dispatch's
+		// caller exclusions, and the other items' recorded scope and claims
+		// (CD-0242 D6 keeps scope and ownership checks).
+		if repairErr := admitWorkerCallerRepairContainmentTx(in.ctx, in.tx, in.request.WorkID, in.entry.Definition, job, workflowFieldStringDefault(fields, "attempt_id", "")); repairErr != nil {
+			return events, "", repairErr
+		}
 	}
 	// CD-0198 D4: the combined accept asserts the same delivery fields on the
 	// same completion event a record_delivery appends, so delivery readers

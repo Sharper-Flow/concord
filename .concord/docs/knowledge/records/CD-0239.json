@@ -39,7 +39,7 @@
   },
   "sha256": "sha256:9ec0199b9145d550818bfc15365c1def353ee481ddbcc02804af5312ff2e0923",
   "status": "accepted",
-  "summary": "An escalated correction whose latest failed dispatch carries host_adapter host_execution attribution with a terminal or cancellation host event derives the closed host_changed convergence basis when the dispatching session's active worktree claim records a live, leased host process that started more than one minute after the failure. The basis admits one counted fresh fenced dispatch per nonprogress window, records the failure sequence and process identity, and never resets the window; the process claim is caller-supplied, not an authenticated host identity.",
+  "summary": "A same-session landing from a different host process refreshes the recorded occupancy identity, and the caller reads the host lease set before the dispatch transaction opens. Under CD-0242 D6 no host_changed or other convergence basis, escalation wall, or attempt count exists; a recorded process claim or failure attribution authorizes no launch.",
   "tags": [
     "worker",
     "retry",

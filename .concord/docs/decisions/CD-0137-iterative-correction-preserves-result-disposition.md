@@ -37,12 +37,10 @@ list. It preserves historical definition digests and all prior attempt records.
 
 - Completed worker results expose accept and reject dispositions.
 - Failed and rejected results expose bounded correction context.
-- Fresh dispatch rejects missing or stale correction context.
 - The fourth-attempt refusal binds the CD-0242 D6 anchor: no attempt count or escalation wall exists, and a launch is admitted on its own scope and safety checks. Until that change lands, `python3 scripts/check-knowledge-index.py` is the executable anchor for this record's law registration.
 - Work-pin and packet journeys use the same correction projection.
-- Original-result rejection after a later same-step review preserves both attempt identities and the review judgment.
-- Forged pairs, prior dispositions, and closed rejection intervals refuse without a durable effect.
-- A stale result cannot advance, and an earlier review cannot bypass an unconsumed rejection correction.
+- Forged pairs and prior dispositions refuse without a durable effect.
+- A stale result cannot advance.
 - Work-pin admission, single-result rejection, and human-checkpoint protections
   retain the same disposition boundaries.
 - `TestOwnerOracleConvergence`, `TestOwnerOracleRequestOpenFindingsComparison`, and `TestOwnerOracleEmptyDerivedSetEquality` cover exact correction sets and supported shrinkage.

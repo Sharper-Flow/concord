@@ -22,9 +22,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:829b466f4a60f505aea8f99f49d8c9d387de1efb7068a0abeb001c05ab8893a7",
+  "sha256": "sha256:1f1dc770a806416cc04a9b85855cc61ec3c0e0fcfc7b375db6c0c98da940c4b2",
   "status": "accepted",
-  "summary": "Defines the Concord-owned model-neutral lane registry, host-owned model selection, actual executing-model readback, typed missing or ambiguous readback failures, workflow-declared model distinctness, and the worker authority boundary.",
+  "summary": "Defines the Concord-owned model-neutral lane registry, host-owned model selection, actual executing-model readback, typed missing or ambiguous readback failures, and the worker authority boundary; under CD-0242 D5 and D6 no model distinctness, attempt count, or chained retry approval applies.",
   "tags": [
     "typed-workers",
     "readback",

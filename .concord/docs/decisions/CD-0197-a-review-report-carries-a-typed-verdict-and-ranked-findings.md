@@ -143,13 +143,12 @@ completion.
 ## Consequences
 
 A review report carries each finding with a closed severity and confidence,
-and carries an explicit ship decision. The coordinator reads the verdict and
+and names one disposition (D1). The coordinator reads the disposition and
 the finding counts as typed fields, and severity discharges through one
 source instead of prose.
 
-The lane verdict holds no workflow authority. The coordinator still owns the
-workflow verdict, so a ship verdict and a `verdict_kind` can disagree without
-either surface recording the other.
+The lane disposition holds no workflow authority: Main records its acceptance
+(D6), and the report itself records no transition.
 
 [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: stored completions are current rows, so no replay or rebuild participates. An
 in-flight attempt completes under its recorded dispatch requirements.
@@ -190,7 +189,7 @@ Scenario: The adapter refuses at admission and the summary carries typed counts
 
 - `go test ./internal/store/ -run TestReviewLaneCompletionRequiresTheTypedReviewBlock` proves the first and second scenarios.
 - `go test ./internal/store/ -run TestReviewLaneCompletionRefusesAFreeTextSeverityEntryBesideTheBlock` proves the fourth scenario's refusal half; the implementing change binds the current-state anchor for stored completions, which read back unchanged with no fold or replay (CD-0242 D2).
-- `go test ./internal/store/ -run TestWorkerCompletionReviewBlockShapeIsClosed` proves the verdict couplings and the closed scales at the store boundary.
+- `go test ./internal/store/ -run TestWorkerCompletionReviewBlockShapeIsClosed` proves the closed scales at the store boundary.
 - `go test ./internal/store/ -run TestLegacyReviewLaneDigestCompletesWithTheRequiredBlock` proves the pre-CD-0197 dispatch identity still completes, answering to its recorded dispatch requirements.
 - `bun test adapter/opencode/dispatch.test.ts` proves the adapter refusals and the typed ride-through.
 - `bun test adapter/opencode/lane_completion.test.ts` proves the attempt summary carries the verdict and the per-severity counts.

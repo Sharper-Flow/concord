@@ -22,7 +22,7 @@ process, and Concord records the executing identity through readback.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, CD-0013 D11 and CD-0059 D2 replace failed-retry consent with exact transactional attempt, epoch, contract, and job binding. The fresh attempt, capability, signed evidence, worker boundary, and convergence requirements remain; [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs the loop, so no model-distinctness requirement is retained. Earlier pins retain the approval prerequisite below.
+For `approval_policy=consequence_v1`, CD-0013 D11 and CD-0059 D2 replace failed-retry consent with exact transactional attempt, epoch, contract, and job binding. The fresh attempt, capability, signed evidence, and worker boundary requirements remain; [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) and [D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) govern the loop and each launch, so no model-distinctness, convergence, or chained approval requirement is retained.
 
 
 ### D1. Concord owns a canonical lane registry
@@ -63,7 +63,7 @@ workflow authority. Durable workflow authority remains with the owning Concord
 workflow; a worker result can complete a gate only when the owning workflow
 transition explicitly permits that typed effect. The owning actor uses the declared
 `accept_worker_result` action, bound to the exact completed attempt and its current
-step epoch. [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: the owning workflow advances through Main's recorded review acceptance, with no owner-versus-executor distinctness beyond the loop. Workers cannot
+step epoch. Acceptance rechecks successful model readback before advancing. [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: the owning workflow advances through Main's recorded review acceptance, with no owner-versus-executor distinctness beyond the loop. Workers cannot
 invoke another advancing action once a worker attempt is dispatched in the current
 step window. This preserves R1 and CD-0013 by construction: the prohibition binds
 authority, not labor.

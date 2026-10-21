@@ -208,6 +208,8 @@ to in-flight discoveries generally.
 
 ### D7. Verification is independent of the executing agent
 
+The approving authority authors the end-state check at approval, and it stays immutable for that contract: an execution-time write to it is refused, and the executing agent may not author, re-select, weaken, or disable it.
+
 [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: Main dispatches Review, which inspects the accumulated solution and reports; Implement cannot accept its own result, and no separate final evaluator or executing-actor distinctness beyond these rules is required.
 
 ### D8. Route conventions that determine the operative verb are declared at approval

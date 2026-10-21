@@ -157,10 +157,10 @@ model input, and the model returns `crucial` for them.
 
 ### D6. Only the model and the operator change a size
 
-[CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-governs: Main sizes each assignment by complexity and relatedness, no
-production-line cap, size measurement, or mandatory split applies, and scope,
-prerequisite, ownership, and safety checks remain.
+[CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)
+governs a task that proves bigger than its size: the decision model runs again,
+adds the newly required steps, and work continues without redoing completed
+work or creating a successor item.
 
 ### D7. A sized workflow records its own timing
 

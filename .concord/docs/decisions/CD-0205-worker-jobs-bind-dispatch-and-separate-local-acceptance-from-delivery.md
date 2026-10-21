@@ -49,7 +49,7 @@ job.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, failed retry and correction require exact transactional state/evidence bindings, not operator approval. Parent-contract, immutable job/oracle, preparation, packet, receipt, delivery, integration, independence, and convergence obligations remain unchanged. Premise confirmation remains required with CD-0013 D11's class-appropriate actor. Historical pins retain their original signature requirements.
+For `approval_policy=consequence_v1`, failed retry and correction require exact transactional state/evidence bindings, not operator approval. Parent-contract, immutable job/oracle, preparation, packet, receipt, delivery, integration, and independence obligations remain unchanged. Premise confirmation remains required with CD-0013 D11's class-appropriate actor. Historical pins retain their original signature requirements.
 
 
 ### D1. A worker-job revision is an immutable record under the work item
@@ -156,8 +156,7 @@ stays the complete parent premise.
 
 The `dispatch_worker` completion records the binding. The dispatch evidence
 must carry exactly that binding. The report must claim exactly that revision.
-A satisfied revision refuses a new dispatch (except the D4 confirming
-review), on resume and on the first ask.
+A satisfied revision refuses a new dispatch, on resume and on the first ask.
 
 The host derives canonical report identity from the authorized packet. Worker
 echoes cannot select another job, revision, attempt, or subject. The store
@@ -249,9 +248,7 @@ replace the anchor. A delivery from another work item, Project, or worktree
 cannot host the review, and a cancelled or superseded work item cannot review.
 Historical completions without the observation refuse the review. The
 approved remedy is a fresh implementation attempt, never a fabricated
-observation. This join resets no correction budget, refunds no attempt, and
-opens no approval challenge; the walls of CD-0164 and CD-0148 hold exactly
-as before.
+observation. This join opens no approval challenge.
 
 ### D3. Local acceptance holds the step and asserts no delivery
 
@@ -264,7 +261,7 @@ Whole-work delivery keeps its two routes: `record_delivery`, and the accept
 that carries `delivery_artifact` and `delivery_state`. Both routes run one
 complete delivery admission — the same function, not two. That admission
 includes the fenced start, the refine proof, the declared tooling, the review
-debt (including any unconfirmed checks repair), the verdicts, the operator
+debt, the verdicts, the operator
 checkpoint, and — where the work has recorded
 worker jobs — the satisfied required jobs and the integration evidence. Local
 acceptances and their count prove no integration and no delivery:
@@ -294,6 +291,11 @@ governs: each launch is one admitted request with its own scope, assignment,
 and subject bindings; no attempt count, correction count, convergence basis,
 or escalation wall exists; and each terminal result is accepted or rejected
 once.
+
+A recorded revision also keeps the parent contract authority it was recorded
+under. After a contract supersession, a revision recorded under the superseded
+contract is no longer ready and the core refuses its dispatch until a new
+revision is recorded under the active contract.
 
 ### D5. The combined accept keeps CD-0198 D4 for delivery (amends CD-0198 D4)
 
@@ -534,11 +536,11 @@ Scenario: Attribution joins read from current rows
   unsatisfied jobs and unbound integration evidence, stale contract authority
   refuses dispatch, and the predicate grammar admits the report schema's short
   predicate ids.
-- `go test ./internal/store/ -run 'TestWitnessUnrelatedLocalAcceptHoldsSameStepWall|TestWitnessCombinedAcceptRejectsPreResultIntegration'`
-  proves a held local acceptance resets no same-step hold and a combined
-  acceptance refuses integration evidence acquired before the final job
-  completed; the rewritten-revision correction-authority half binds the
-  CD-0242 D6 anchor: no correction authority or window exists.
+- `go test ./internal/store/ -run 'TestWitnessCombinedAcceptRejectsPreResultIntegration'`
+  proves a combined acceptance refuses integration evidence acquired before
+  the final job completed; the same-step wall and rewritten-revision
+  correction-authority probes bind the CD-0242 D6 anchor: no attempt count,
+  correction authority, or window exists.
 - `go test ./internal/store/ -run 'TestReachableAdmissionStateReachesTerminal|TestWellFormedAdmissionStateHasNonContinuityExit|TestAdmissionConformanceLocalJobAcceptHolds'` proves the liveness scenario. The model derives the worker-job readiness, satisfaction, unresolved-obligation and integration dimensions, and the conformance check exercises the real delivery admission from the held state: `record_delivery` refuses without integration evidence and admits behind it.
 - `bun test adapter/opencode/packet.test.ts adapter/opencode/dispatch_route_end_to_end.test.ts` proves the adapter selects the one ready revision and that the real route holds the step until delivery.
 - `TestOwnerOracleGraph`, `TestOwnerOracleAuthorAuthorityJoins`, and `TestOwnerOracleImmutableRevisionAndReplay` cover oracle structure and authority joins; the implementing change binds the current-state anchor for immutable recorded revisions (CD-0242 D2).

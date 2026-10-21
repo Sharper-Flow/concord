@@ -17,7 +17,7 @@
     },
     {
       "criterion": 4,
-      "exemption": "Replay qualification and rollback ordering are operation properties. TestBackupRefusesUnreplayableLogAndDiscardsSnapshot (internal/store/backup_test.go), TestHistoricalPayloadUpgradeSnapshotQualification and TestHistoricalPayloadRepairSnapshotQualification (cmd/concord/historical_backup_cli_test.go) prove refusal before manifest promotion or guarded mutation."
+      "exemption": "Snapshot qualification refusal and rollback ordering are operation properties. TestBackupRefusesUnreplayableLogAndDiscardsSnapshot (internal/store/backup_test.go), TestHistoricalPayloadUpgradeSnapshotQualification and TestHistoricalPayloadRepairSnapshotQualification (cmd/concord/historical_backup_cli_test.go) prove refusal before manifest promotion or guarded mutation, until the CD-0242 cutover replaces replay-based qualification."
     },
     {
       "criterion": 5,
@@ -45,7 +45,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c6ec60377c686dade64d9fbdd269d25382f90d9decd6be87301dd750b4d1d071",
+  "sha256": "sha256:7b9d46b31ddd236a4de475a12dc3f1a05bb979651ea8f78241e904c0d0d66dbf",
   "status": "accepted",
   "summary": "Defines backup and restore through the SQLite online backup interface with integrity, foreign-key, and quick verification.",
   "tags": [

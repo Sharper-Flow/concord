@@ -9,6 +9,8 @@
 > **Amended by CD-0222 and CD-0042:** Domain replaces component as the canonical
 > architecture/filter identity. Issue #197 changes the pre-go-live primary path
 > directly; component inputs are not a supported compatibility surface.
+> **Amended by CD-0242 D2:** the store keeps current state and finite verified
+> snapshots, not an event log, fold, or replay; Q7 states that rule.
 
 ## Context
 
@@ -251,18 +253,10 @@ The JSON corpus is executable through a candidate adapter implementing
 
 ### Q7. Explain work history
 
-- **Intent:** "Why is this work in its current state?"
-- **Input:** work reference; direction; cursor/limit; optional event kinds.
-- **Output:** atomic ordered events with sequence/version, from/to lifecycle,
-  actor, timestamp, reason, and evidence references.
-- **Order:** newest-first by default; event sequence is monotonic and contiguous
-  within the returned range.
-- **Oracle:** no observer can see a partially terminal event; current lifecycle is
-  the fold of authoritative events.
-- **PM4 semantics:** lifecycle/relation events follow the accepted PM4 contract.
-- **Retention semantics:** retained `domain_events` remain the authoritative complete
-  history after projection pruning; the prune marker only changes live projection
-  membership.
+The store answers this from current state: current lifecycle and relation rows
+plus the recorded stage exits, evidence receipts, and completion receipt that
+justify them; no event log, fold, or replay exists to query
+([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### Q8. Dependencies and supersession
 

@@ -6509,6 +6509,31 @@ DELETE FROM fold_guard;
 ALTER TABLE workflow_contracts ADD COLUMN law_change TEXT CHECK(law_change IS NULL OR json_valid(law_change));
 `,
 	},
+	{
+		Version:  136,
+		Name:     "work_size_retirement",
+		Breaking: true,
+		// CD-0242 D6 retires the size system: no production-line cap, size
+		// measurement, or mandatory split applies. The retired event kinds
+		// stay registered in the kind registry, so a replay of an existing
+		// log still folds; their projections have no rows to keep.
+		SQL: `
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+DROP TRIGGER work_size_overrides_guard_insert;
+DROP TRIGGER work_size_overrides_guard_update;
+DROP TRIGGER work_size_overrides_guard_delete;
+DROP TRIGGER work_resize_lineage_guard_insert;
+DROP TRIGGER work_resize_lineage_guard_update;
+DROP TRIGGER work_resize_lineage_guard_delete;
+DROP TRIGGER work_size_assessments_guard_insert;
+DROP TRIGGER work_size_assessments_guard_update;
+DROP TRIGGER work_size_assessments_guard_delete;
+DROP TABLE work_size_overrides;
+DROP TABLE work_resize_lineage;
+DROP TABLE work_size_assessments;
+DELETE FROM fold_guard;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

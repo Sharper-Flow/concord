@@ -956,10 +956,9 @@ class CommittedContentRuleTests(unittest.TestCase):
 
 
 class JobSizeProjectionTests(unittest.TestCase):
-    # CD-0225 D2 and CD-0227 D2: the capped job's size accounting, the
-    # coordinator-owned overrun split, and the direct-caller repair boundary
-    # are generated lane instructions, so the tests prove the projected
-    # behavior for every relevant lane, not only the helper.
+    # CD-0227 D2 (as amended by CD-0242 D6): the direct-caller repair
+    # boundary is generated lane instruction, so the tests prove the
+    # projected behavior for every relevant lane, not only the helper.
 
     @staticmethod
     def normalized(lane):
@@ -969,49 +968,33 @@ class JobSizeProjectionTests(unittest.TestCase):
         manifest, _ = generator.load_manifest()
         return next(lane for lane in manifest["lanes"] if lane["id"] == lane_id)
 
-    def test_capped_size_rule_is_stated_for_every_registered_lane(self):
+    def test_caller_boundary_section_is_stated_for_every_registered_lane(self):
         manifest, _ = generator.load_manifest()
         for lane in manifest["lanes"]:
             with self.subTest(lane=lane["id"]):
                 text = self.normalized(lane)
-                self.assertIn("## Job size and caller boundary", text)
-                self.assertIn("carries `production_size_max` and `measurement_basis`", text)
-                self.assertIn(
-                    "measured against the recorded `measurement_basis.base_commit` under the recorded path inventory",
-                    text,
-                )
-                self.assertIn("counts as `production`", text)
-                self.assertIn("additions plus deletions of text lines over the whole base..tree delta", text)
-                self.assertIn("a binary path adds no text lines and never establishes available production size", text)
+                self.assertIn("## Caller boundary", text)
+                self.assertIn("A packet without these members is historical or carries no caller scope", text)
+                self.assertIn("report without the absent fields and never invent them", text)
+                self.assertNotIn("production_size", text)
+                self.assertNotIn("measurement_basis", text)
 
-    def test_only_the_implementation_lane_carries_the_size_report_and_split_boundary(self):
+    def test_only_the_implementation_lane_carries_the_caller_repair_boundary(self):
         manifest, _ = generator.load_manifest()
         carrying = set()
         for lane in manifest["lanes"]:
             text = self.normalized(lane)
-            if "completed report carries `production_size`" not in text:
+            if "A changed path outside the job's recorded scope is admitted only" not in text:
                 continue
             carrying.add(lane["id"])
             self.assertIn(
-                "`base` is the packet's `measurement_basis.base_commit`, `tree` is the raw delivered commit OID, "
-                "and `count` is that whole base..tree text count",
+                "as an evidenced direct-caller repair under the packet's `direct_caller_allowance` "
+                "and outside its `caller_exclusions`, never as a widening of `path_scope`",
                 text,
             )
-            self.assertIn(
-                "Never pre-apply a proposed supplemental classification and never subtract another job's accepted paths",
-                text,
-            )
-            self.assertIn(
-                "the coordinator alone applies final classifications and foreign subtraction, "
-                "records the accepted size, and holds it to the fixed cap",
-                text,
-            )
-            self.assertIn("an overrun stays reported", text)
-            self.assertIn(
-                "Never raise the cap, hide the delta, rebase the correction, invent an acceptance, "
-                "author a split, or reset the cumulative base",
-                text,
-            )
+            self.assertIn("Make only the minimum source and test change that preserves an existing direct caller's request behavior", text)
+            self.assertIn("a generated output is never hand-edited", text)
+            self.assertIn("Missing authority or evidence stops the repair", text)
         self.assertEqual(carrying, {"implement"})
 
     def test_direct_caller_boundary_is_implementation_lane_text(self):
@@ -1052,37 +1035,28 @@ class JobSizeProjectionTests(unittest.TestCase):
                     text,
                 )
 
-    def test_other_lanes_invent_no_size_fields_and_gain_no_capability(self):
+    def test_other_lanes_invent_no_repair_fields_and_gain_no_capability(self):
         manifest, _ = generator.load_manifest()
         for lane in manifest["lanes"]:
             if lane["id"] == "implement":
                 continue
             with self.subTest(lane=lane["id"]):
                 text = self.normalized(lane)
-                self.assertIn("A capped packet expands no capability", text)
-                self.assertIn("reports no `production_size` and no `direct_caller_repairs`", text)
-                self.assertIn("never invents either field", text)
+                self.assertIn("A caller-capable packet expands no capability", text)
+                self.assertIn("reports no `direct_caller_repairs` and never invents the field", text)
 
     def test_review_distinguishes_missing_evidence_from_a_proven_defect(self):
         text = self.normalized(self.manifest_lane("review"))
-        self.assertIn("Examine the size and caller-repair evidence a completed report carries", text)
+        self.assertIn("Examine the caller-repair evidence a completed report carries", text)
         self.assertIn("distinguish missing evidence from a proven defect", text)
 
-    def test_design_is_not_mislabelled_read_only_by_the_size_block(self):
+    def test_design_is_not_mislabelled_read_only_by_the_caller_block(self):
         # The design lane edits its scoped files; it is not the implementation
-        # capability class, and the size block must not call it read-only.
+        # capability class, and the caller block must not call it read-only.
         projection = lane_projection(self.manifest_lane("design"))
-        section = projection.split("## Job size and caller boundary", 1)[1]
+        section = projection.split("## Caller boundary", 1)[1]
         self.assertNotIn("read-only", section)
         self.assertIn("expands no capability", section)
-
-    def test_uncapped_and_historical_packets_gain_no_fields(self):
-        manifest, _ = generator.load_manifest()
-        for lane in manifest["lanes"]:
-            with self.subTest(lane=lane["id"]):
-                text = self.normalized(lane)
-                self.assertIn("A packet without these members is historical or uncapped", text)
-                self.assertIn("report without the absent fields and never invent them", text)
 
     def test_repairs_ceiling_tracks_the_report_schema(self):
         # The entries ceiling in the direct-caller paragraph is a parameter
@@ -1093,9 +1067,9 @@ class JobSizeProjectionTests(unittest.TestCase):
         self.assertIn("at most 3 `direct_caller_repairs` entries", text)
         self.assertNotIn("at most 8 `direct_caller_repairs` entries", text)
 
-    def test_implementation_projects_closed_size_and_repair_report_shapes(self):
-        fields = ("production_size", "direct_caller_repairs")
-        definitions = ("production_size", "direct_caller_repair", "caller_mechanism", "caller_repair_checks", "caller_repair_check")
+    def test_implementation_projects_closed_repair_report_shapes(self):
+        fields = ("direct_caller_repairs",)
+        definitions = ("direct_caller_repair", "caller_mechanism", "caller_repair_checks", "caller_repair_check")
         manifest, _ = generator.load_manifest()
         for lane in manifest["lanes"]:
             lines = generator.report_projection_constraints(REPORT_SCHEMA, lane)

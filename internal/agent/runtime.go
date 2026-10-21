@@ -914,9 +914,6 @@ func failureEnvelope(base Envelope, err error) Envelope {
 		if sf.ExternalRefConflict != nil {
 			out.Error.ExternalRefConflict = &ExternalRefConflict{ExistingWorkID: sf.ExternalRefConflict.ExistingWorkID, ExternalRef: sf.ExternalRefConflict.ExternalRef}
 		}
-		if overrun := sf.SizeOverrun; overrun != nil {
-			out.Error.SizeOverrun = &SizeOverrun{JobID: overrun.JobID, Revision: overrun.Revision, Cap: overrun.Cap, Observed: overrun.Observed, Subject: overrun.Subject}
-		}
 		if len(sf.AdmittedEventKinds) > 0 {
 			// Add, not replace: the authored remedy prose above may already
 			// occupy the details map, and one store refusal can carry both
@@ -1513,14 +1510,12 @@ type workSummary struct {
 	// declares it on work_summary, so every summary carries the band.
 	// DefectIntake rides the same authoritative reads: the immutable defect
 	// classification and the core's sibling snapshot, so a coordinator can
-	// retrieve the canonical cluster keys without reading storage. Size, the
-	// current size record, rides the same reads.
+	// retrieve the canonical cluster keys without reading storage.
 	Task            string                      `json:"task,omitempty"`
 	ValueStatement  string                      `json:"value_statement,omitempty"`
 	Tags            []string                    `json:"tags,omitzero"`
 	WorkflowTypeRef string                      `json:"workflow_type_ref,omitempty"`
 	DefectIntake    *store.DefectClassification `json:"defect_intake,omitempty"`
-	Size            *store.WorkSizeSummary      `json:"size,omitempty"`
 	Urgency         string                      `json:"urgency"`
 	Lifecycle       string                      `json:"lifecycle"`
 	Version         int64                       `json:"version"`
@@ -1545,7 +1540,7 @@ func summary(w store.WorkItem) workSummary {
 	if w.TerminalAt != "" {
 		terminal = &w.TerminalAt
 	}
-	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, DefectIntake: w.DefectIntake, Size: w.Size, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, WorkPin: w.WorkPin}
+	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, DefectIntake: w.DefectIntake, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, WorkPin: w.WorkPin}
 }
 func (r runtime) q1(base Envelope, q store.Q1Result) (Envelope, error) {
 	projects := []map[string]any{}

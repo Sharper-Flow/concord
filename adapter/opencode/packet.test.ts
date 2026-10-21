@@ -1522,18 +1522,9 @@ const ORACLE = {
 }
 const ORACLE_JOB = { ...READY_JOB, predicate_ids: ["predicate:primary"], acceptance_oracle: ORACLE }
 
-test("size bindings ride unchanged while caller exclusions remain implementation-only", async () => {
+test("caller scope rides unchanged while caller exclusions remain implementation-only", async () => {
   const job: AgentLanePacketWorkerJob = {
     ...ORACLE_JOB,
-    production_size_max: 200,
-    measurement_basis: {
-      base_commit: "1".repeat(40),
-      paths: [
-        { path: "internal/store/worker_jobs.go", class: "production" },
-        { path: "internal/store/worker_jobs_test.go", class: "test" },
-        { path: "internal/store/generated.go", class: "generated", generator_ref: "scripts/generate.go" },
-      ],
-    },
     direct_caller_allowance: {
       project_id: "project-1",
       mechanisms: [ORACLE.owners[0].mechanism],

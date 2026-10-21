@@ -94,8 +94,7 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 		DeliveryFailure: state.Delivery.Failure != nil, MandateFailure: state.Mandate.Failure != nil,
 		DeliveryJobsRecorded: state.Delivery.JobsRecorded, DeliveryJobsUnsatisfiedKeys: state.Delivery.JobsUnsatisfiedKeys,
 		DeliveryJobsScopeKeys: state.Delivery.JobsScopeKeys, DeliveryJobsIntegrated: state.Delivery.JobsIntegrated,
-		DeliveryJobsUndischargedSplit: state.Delivery.JobsUndischargedSplits,
-		MandatePresent:                state.Mandate.Present, MandateMissing: state.Mandate.LawID != "", MandateBindingStep: state.Mandate.BindingStep,
+		MandatePresent: state.Mandate.Present, MandateMissing: state.Mandate.LawID != "", MandateBindingStep: state.Mandate.BindingStep,
 		MandateAddedByContract: state.Mandate.AddedByContract, MandateCorrectionAction: state.Mandate.CorrectionAction,
 	}
 	if state.Delivery.ProofRequired {

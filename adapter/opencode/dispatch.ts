@@ -149,11 +149,6 @@ export interface AgentLanePacketWorkerJob {
   // revision a pre-oracle definition recorded; required by oracle-capable
   // definition versions. The same copy reaches every admitted lane.
   acceptance_oracle?: AgentLaneAcceptanceOracle
-  production_size_max?: number
-  measurement_basis?: {
-    base_commit: string
-    paths: { path: string; class: "production" | "test" | "documentation" | "generated"; generator_ref?: string }[]
-  }
   direct_caller_allowance?: {
     project_id: string
     mechanisms: AgentLaneOracleMechanism[]
@@ -519,15 +514,6 @@ export interface AgentLaneReportBaseComparison {
   checks: AgentLaneReportBaseComparisonCheck[]
 }
 
-// AgentLaneReportProductionSize mirrors the report's production_size
-// (CD-0225 D2): the production lines the worker counted between the job's
-// recorded base and its delivered tree. The core binds base and tree.
-export interface AgentLaneReportProductionSize {
-  base: string
-  tree: string
-  count: number
-}
-
 // AgentLaneReportCallerMechanism names one direct-caller repair endpoint.
 export interface AgentLaneReportCallerMechanism {
   path: string
@@ -640,7 +626,6 @@ export interface AgentLaneReport {
   base_comparison?: AgentLaneReportBaseComparison
   review?: AgentLaneReportReview
   worker_job?: AgentLaneReportWorkerJob
-  production_size?: AgentLaneReportProductionSize
   direct_caller_repairs?: AgentLaneReportDirectCallerRepair[]
 }
 
@@ -3161,7 +3146,6 @@ async function completeWorkerSession(
     base_comparison: terminal.report.base_comparison,
     review: terminal.report.review,
     worker_job: terminal.report.worker_job,
-    production_size: terminal.report.production_size,
     direct_caller_repairs: terminal.report.direct_caller_repairs,
     worker_directory: workerDirectory,
     assertion: terminalAssertion,

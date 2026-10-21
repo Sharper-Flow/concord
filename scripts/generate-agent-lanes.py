@@ -398,9 +398,9 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         "and one with a `no_ship` verdict and zero findings.",
     ]
     if lane.get("capability_class") == "implementation":
-        for name in ("production_size", "direct_caller_repairs"):
+        for name in ("direct_caller_repairs",):
             lines.append(f"{name}: implementation-only report member; schema={json.dumps(properties[name], ensure_ascii=False)}.")
-        for name in ("production_size", "direct_caller_repair", "caller_mechanism", "caller_repair_checks", "caller_repair_check"):
+        for name in ("direct_caller_repair", "caller_mechanism", "caller_repair_checks", "caller_repair_check"):
             lines.append(f"{name} shape: {json.dumps(report_schema['$defs'][name], ensure_ascii=False)}.")
     if "review" in lane.get("required_report_blocks", []):
         return lines + review_lines
@@ -846,36 +846,16 @@ current-subject evidence for current acceptance.
 
 
 def job_size_instructions(report_schema: dict, lane: dict) -> str:
-    # Size reporting follows the implementation class, not edit capability:
-    # design can edit scoped files but cannot report implementation size.
+    # The caller boundary follows the implementation class, not edit
+    # capability: design can edit scoped files but cannot claim a caller
+    # repair.
     repairs_max = report_schema["properties"]["direct_caller_repairs"]["maxItems"]
 
     def paragraph(text: str) -> str:
         return textwrap.fill(text, width=80, break_on_hyphens=False, break_long_words=False)
 
-    shared = paragraph(
-        "When `inputs.worker_job` carries `production_size_max` and "
-        "`measurement_basis`, the job is capped: its production delta is "
-        "measured against the recorded `measurement_basis.base_commit` under "
-        "the recorded path inventory. A changed path the inventory does not "
-        "classify, including one discovered during the work, counts as "
-        "`production`. Count additions plus deletions of text lines over the "
-        "whole base..tree delta; a binary path adds no text lines and never "
-        "establishes available production size."
-    )
+    paragraphs = []
     if lane.get("capability_class") == "implementation":
-        report_rule = paragraph(
-            "A capped job's completed report carries `production_size`: `base` "
-            "is the packet's `measurement_basis.base_commit`, `tree` is the "
-            "raw delivered commit OID, and `count` is that whole base..tree text count. "
-            "Never pre-apply a proposed supplemental classification and never "
-            "subtract another job's accepted paths; the coordinator alone "
-            "applies final classifications and foreign subtraction, records "
-            "the accepted size, and holds it to the fixed cap. Report the "
-            "actual count: an overrun stays reported. Never raise the cap, "
-            "hide the delta, rebase the correction, invent an acceptance, "
-            "author a split, or reset the cumulative base."
-        )
         caller_rule = paragraph(
             f"A changed path outside the job's recorded scope is admitted only "
             f"as an evidenced direct-caller repair under the packet's "
@@ -898,28 +878,28 @@ def job_size_instructions(report_schema: dict, lane: dict) -> str:
             f"authority or evidence stops the repair: report the blocker "
             f"through this report, never as a direct operator question."
         )
-        paragraphs = [shared, report_rule, caller_rule]
+        paragraphs = [caller_rule]
     else:
         lane_rule = paragraph(
-            "A capped packet expands no capability: this lane reports no "
-            "`production_size` and no `direct_caller_repairs`, and never "
-            "invents either field."
+            "A caller-capable packet expands no capability: this lane reports "
+            "no `direct_caller_repairs` and never invents the field."
             + (
-                " Examine the size and caller-repair evidence a completed "
-                "report carries, and distinguish missing evidence from a "
-                "proven defect."
+                " Examine the caller-repair evidence a completed report "
+                "carries, and distinguish missing evidence from a proven "
+                "defect."
                 if "review" in lane.get("required_report_blocks", [])
                 else ""
             )
         )
-        paragraphs = [shared, lane_rule]
+        paragraphs = [lane_rule]
     paragraphs.append(
         paragraph(
-            "A packet without these members is historical or uncapped: report "
-            "without the absent fields and never invent them."
+            "A packet without these members is historical or carries no "
+            "caller scope: report without the absent fields and never invent "
+            "them."
         )
     )
-    return "## Job size and caller boundary\n\n" + "\n\n".join(paragraphs) + "\n"
+    return "## Caller boundary\n\n" + "\n\n".join(paragraphs) + "\n"
 
 
 def objective_binding_instructions() -> str:

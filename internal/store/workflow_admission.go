@@ -39,11 +39,6 @@ type WorkflowAdmissionState struct {
 	// OutsideRepairActive suspends every managed action, including continuity
 	// and recovery actions. Only the operator-only outside-repair APIs clear it.
 	OutsideRepairActive bool
-	// SizeRerunRequired is the CD-0229 D6 stop: a review proved the larger
-	// change bigger after its latest size record (CD-0229 D5). Only the
-	// pre-proof attempts' rejection and failure routes stay admitted, and
-	// only a newer size record releases it.
-	SizeRerunRequired bool
 	// RefinementWorkflow reports whether the pinned definition declares the
 	// refinement review shape: a step that declares checkpoint_refine. The
 	// post-rejection review debt and its settling review belong to that
@@ -389,14 +384,9 @@ type workflowAdmissionLoad struct {
 	registry DefinitionRegistry
 }
 
-// staleness folds the size rerun, law-pin staleness, breaking notices, open
-// conditions, design staleness, and artifact staleness.
+// staleness folds the law-pin staleness, breaking notices, open conditions,
+// design staleness, and artifact staleness.
 func (l workflowAdmissionLoad) staleness(state *WorkflowAdmissionState) error {
-	proofs, err := deriveWorkSizeProofsTx(l.ctx, l.q, l.workID, 0)
-	if err != nil {
-		return err
-	}
-	state.SizeRerunRequired = len(proofs) != 0
 	lawErr := checkWorkflowLawRevisionStalenessAdmittingTx(l.ctx, l.q, l.workID, workflowStalePinAdmitNone)
 	// The staleness boundary's overlap half resolves the one active contract,
 	// so under a duplicated projection it raises the duplicate invariant the
@@ -839,16 +829,6 @@ func workflowAdmitInstanceRefused(definition WorkflowDefinition, state WorkflowA
 		decision.Failure = newFailure(KindInvalidOperation, "workflow_action",
 			"workflow family "+definition.Ref+" is archived: new public workflow actions are refused", false,
 			"read the recorded history, or start retained-family work")
-		return true
-	}
-	if state.SizeRerunRequired && actionID != "reject_worker_result" && actionID != "record_worker_failure" {
-		// The stop follows the terminal and archived answers, which no
-		// rerun can change. Every attempt still open was dispatched before
-		// the proof: the stop refuses dispatch_worker, so no later attempt
-		// exists.
-		decision.Failure = newFailure(KindStaleRequiresReview, "workflow_action",
-			"a second review proved this larger change bigger (CD-0229 D5); its size must be decided again before the work continues", false,
-			RecoveryWorkSizeRerun)
 		return true
 	}
 	consequence := workflowActionConsequence(definition, actionID)

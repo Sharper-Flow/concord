@@ -118,40 +118,6 @@ func TestWorkflowRetryWindowSurvivesRebuildWithTheSameWindow(t *testing.T) {
 	}
 }
 
-func TestWorkflowRetryWindowSplitLeafBasisSerializes(t *testing.T) {
-	t.Parallel()
-	const workID = "retry-window-split-leaf"
-	fixture := splitProgressRawFixture(t, workID)
-	acceptanceSeq := splitProgressAcceptLeaf(t, fixture, workID, testJobSizeBaseCommit(), "job:successor-a", "internal/store/worker_jobs.go", 1, false)
-	if acceptanceSeq == 0 {
-		t.Fatal("the split-leaf acceptance recorded no sequence")
-	}
-	s := workerJobSizeStore(fixture)
-	window := readRetryWindow(t, s, workID, currentStep(t, s, workID))
-	// The funded split journey escalates the wall and derives the upstream
-	// split_leaf_progress basis; the window carries it verbatim.
-	if window.BlockingPopulation == "none" {
-		t.Fatalf("blocking population = %q, want the escalated wall behind the funded split", window.BlockingPopulation)
-	}
-	if window.ConvergenceBasis != "split_leaf_progress" {
-		t.Fatalf("convergence basis = %q, want split_leaf_progress", window.ConvergenceBasis)
-	}
-	if marshaled, err := json.Marshal(window); err != nil {
-		t.Fatal(err)
-	} else if err := payloadschema.Validate("workflow_retry_window", marshaled); err != nil {
-		t.Fatalf("the produced split-leaf window violates the published contract: %v", err)
-	}
-	pin := issue1013Pin(t, s, workID)
-	if pin.RetryWindow == nil || pin.RetryWindow.ConvergenceBasis != "split_leaf_progress" {
-		t.Fatalf("pin retry window = %+v, want the split_leaf_progress basis", pin.RetryWindow)
-	}
-	if marshaled, err := json.Marshal(pin); err != nil {
-		t.Fatal(err)
-	} else if err := payloadschema.Validate("work_pin", marshaled); err != nil {
-		t.Fatalf("the split-leaf pin violates the closed pin contract: %v", err)
-	}
-}
-
 func TestWorkflowRetryWindowDuplicateContractPinStaysReadableWithoutAWindow(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -302,19 +302,20 @@ var migrationTailReversals = map[int][]string{
 		`DROP TABLE law_coverage_anchors`,
 		`DROP TABLE law_evidence_paths`,
 	},
-	131: {
-		`DROP TABLE work_size_assessments`,
-	},
-	132: {
-		`DROP TABLE work_resize_lineage`,
-		`DROP TABLE work_size_overrides`,
-	},
+	// Migrations 131 and 132 create only the tables migration 136's
+	// retirement drops, so the rewind restores nothing and the reapplied
+	// tail recreates them fresh.
+	131: nil,
+	132: nil,
 	133: {
 		`ALTER TABLE workflow_contracts DROP COLUMN decision_domains`,
 	},
 	135: {
 		`ALTER TABLE workflow_contracts DROP COLUMN law_change`,
 	},
+	// Migration 136's retirement drops only retired tables; reapplying it
+	// after the reversal recreates nothing the fixture must restore.
+	136: nil,
 	128: {
 		`ALTER TABLE project_locators DROP COLUMN normalization_version`,
 	},

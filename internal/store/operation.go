@@ -204,9 +204,9 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.resource_claimed":                   registerEventKind[resourceClaimedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldResourceClaimed, nil),
 	"work.message_sent":                       registerEventKind[messageSentPayload](1, 1, nil, EventAppendAuthorityGeneric, foldMessageSent, nil),
 	WorkObservationRecorded:                   registerEventKind[workObservationRecordedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkObservationRecorded, nil),
-	WorkSized:                                 registerEventKind[workSizedPayload](2, 1, map[int]Upcaster{1: upcastWorkSizedV1}, EventAppendAuthorityGeneric, foldWorkSized, nil),
-	WorkSizeOverridden:                        registerEventKind[workSizeOverriddenPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkSizeOverridden, nil),
-	WorkConflictApplied:                       registerEventKind[ConflictApplication](1, 1, nil, EventAppendAuthorityGeneric, foldWorkConflictApplied, validateWorkConflictAppliedPayload),
+	WorkSized:                                 registerEventKind[workSizedPayload](2, 1, map[int]Upcaster{1: upcastWorkSizedV1}, EventAppendAuthorityRetired, foldRetiredWorkSized, nil),
+	WorkSizeOverridden:                        registerEventKind[workSizeOverriddenPayload](1, 1, nil, EventAppendAuthorityRetired, foldRetiredWorkSizeOverridden, nil),
+	WorkConflictApplied:                       registerEventKind[ConflictApplication](2, 1, map[int]Upcaster{1: upcastConflictApplicationV1}, EventAppendAuthorityGeneric, foldWorkConflictApplied, validateWorkConflictAppliedPayload),
 	EventExternalObservationCaptured:          registerEventKind[externalObservationCapturedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldExternalObservationCaptured, nil),
 	EventExternalObservationVerified:          registerEventKind[externalObservationVerifiedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldExternalObservationVerified, nil),
 	"work.message_withdrawn":                  registerEventKind[messageWithdrawnPayload](1, 1, nil, EventAppendAuthorityGeneric, foldMessageWithdrawn, nil),
@@ -221,7 +221,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.session_claim_landed":               withRecordedSchemas(registerEventKind[sessionClaimLandedPayload](2, 1, map[int]Upcaster{1: upcastRecordedShapeV1}, EventAppendAuthorityGeneric, foldSessionClaimLanded, nil), recordedClaimLandingSchemas()),
 	"work.transitioned":                       registerScopedEventKind[workTransitionPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkTransitioned, nil),
 	"work.superseded":                         registerEventKind[workSupersededPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkSuperseded, nil),
-	WorkResized:                               registerEventKind[workResizedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkResized, nil),
+	WorkResized:                               registerEventKind[workResizedPayload](1, 1, nil, EventAppendAuthorityRetired, foldRetiredWorkResized, nil),
 	"work.reopened":                           registerEventKind[workReopenedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkReopened, nil),
 	"work.reopened_from_superseded":           registerEventKind[workReopenedFromSupersededPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkReopenedFromSuperseded, nil),
 	"relation.added":                          registerEventKind[relationPayload](1, 1, nil, EventAppendAuthorityGeneric, foldRelationAdded, nil),
@@ -251,8 +251,8 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"initiative_entry.requiredness_changed":   registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityRetired, foldRetiredInitiativeEntry, nil),
 	"initiative.narrative_revised":            registerEventKind[initiativeNarrativePayload](1, 1, nil, EventAppendAuthorityRetired, foldRetiredInitiativeNarrativeRevised, nil),
 	WorkerJobRecorded:                         registerEventKind[WorkerJobRecordedPayload](1, 1, nil, EventAppendAuthorityWorkflow, foldWorkerJobRecorded, validateWorkerJobRecordedPayload),
-	WorkerJobSplit:                            registerEventKind[WorkerJobSplitPayload](2, 1, map[int]Upcaster{1: upcastRecordedShapeV1}, EventAppendAuthorityWorkflow, foldWorkerJobSplit, validateWorkerJobSplitPayload),
-	WorkerJobSplitDischarged:                  registerEventKind[WorkerJobSplitDischargedPayload](1, 1, nil, EventAppendAuthorityWorkflow, foldWorkerJobSplitDischarge, validateWorkerJobSplitDischargedPayload),
+	WorkerJobSplit:                            registerEventKind[WorkerJobSplitPayload](2, 1, map[int]Upcaster{1: upcastRecordedShapeV1}, EventAppendAuthorityRetired, foldRetiredWorkerJobSplit, nil),
+	WorkerJobSplitDischarged:                  registerEventKind[WorkerJobSplitDischargedPayload](1, 1, nil, EventAppendAuthorityRetired, foldRetiredWorkerJobSplitDischarged, nil),
 	WorkerDispatched:                          withRecordedSchemas(registerEventKind[WorkerDispatchedPayload](6, 1, map[int]Upcaster{1: upcastWorkerDispatchedV1, 2: upcastWorkerDispatchedV2, 3: upcastWorkerDispatchedV3, 4: upcastWorkerDispatchedV4, 5: upcastWorkerDispatchedV5}, EventAppendAuthorityGeneric, foldWorkerDispatched, validateWorkerDispatchedPayload), recordedDispatchSchemas()),
 	WorkerCompleted:                           registerEventKind[WorkerCompletedPayload](8, 1, map[int]Upcaster{1: upcastWorkerCompletedV1, 2: upcastWorkerCompletedV2, 3: upcastWorkerCompletedV3, 4: upcastWorkerCompletedV4, 5: upcastWorkerCompletedV5, 6: upcastWorkerCompletedV6, 7: upcastWorkerCompletedV7}, EventAppendAuthorityGeneric, foldWorkerCompleted, validateWorkerCompletedPayload),
 	WorkerFailed:                              withRecordedSchemas(registerEventKind[WorkerFailedPayload](4, 1, map[int]Upcaster{1: upcastWorkerFailedV1, 2: upcastWorkerFailedV2, 3: upcastWorkerFailedV3}, EventAppendAuthorityGeneric, foldWorkerFailed, validateWorkerFailedPayload), recordedWorkerFailureSchemas()),
@@ -797,10 +797,9 @@ var replayProjectionClearTables = []string{
 	"domain_observations",
 	"resource_products", "managed_resources",
 	// work-referencing RESTRICT-FK tables clear before work_items:
-	// observations (CD-0030), size overrides, resize lineage and size
-	// records (CD-0229), messages (CD-0029), claims (CD-0028),
+	// observations (CD-0030), messages (CD-0029), claims (CD-0028),
 	// outside-repair reconciliations and dispositions.
-	"work_observations", "work_size_overrides", "work_resize_lineage", "work_size_assessments", "work_messages", "resource_claims",
+	"work_observations", "work_messages", "resource_claims",
 	"outside_repair_reconciliations", "outside_repair_dispositions",
 	// Worktree entries fold purely from the worktree events; clearing them
 	// lets the replay rebuild every claim generation instead of upserting

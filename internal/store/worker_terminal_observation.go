@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -112,10 +111,6 @@ type workerTerminalSample struct {
 	attempt WorkerAttempt
 	window  WorkerDispatchWindow
 	entries []WorktreeEntry
-	// jobBasisBase is the dispatched job's recorded measurement base, empty
-	// when the attempt bound no job or the job records no basis. It decides
-	// whether the probe observes the measured delta beside the delivery.
-	jobBasisBase string
 }
 
 // sampleWorkerTerminalDeliveryInto samples the terminal delivery state into
@@ -158,17 +153,6 @@ func sampleWorkerTerminalDelivery(ctx context.Context, q queryer, workID, attemp
 		return sample, err
 	}
 	sample.window = window
-	// The dispatched job's recorded basis decides whether this terminal
-	// observes the measured delta. The read is SQL only and rides the same
-	// snapshot as the window, so the probe and the ingest revalidate one
-	// authority.
-	job, jobErr := workflowDispatchedJobForAttempt(ctx, q, workID, attemptID)
-	if jobErr != nil {
-		return sample, jobErr
-	}
-	if sample.jobBasisBase, err = workerJobBasisBase(ctx, q, workID, job); err != nil {
-		return sample, err
-	}
 	if window.WorktreeIdentity == "" {
 		return sample, nil
 	}
@@ -231,7 +215,7 @@ func PrepareWorkerTerminalDelivery(ctx context.Context, s *Store, request Prepar
 	if runner == nil {
 		runner = ExecGitRunner{}
 	}
-	observation, err := observeWorkerDelivery(ctx, runner, proof.probePath, sample.jobBasisBase)
+	observation, err := observeWorkerDelivery(ctx, runner, proof.probePath)
 	if err != nil {
 		return nil, err
 	}
@@ -262,12 +246,9 @@ func selectWorkerClaimEntry(entries []WorktreeEntry, identity string) (WorktreeE
 }
 
 // observeWorkerDelivery runs the read-only Git observation of one claimed
-// worktree under the single fixed probe deadline — status, HEAD, and, when
-// the dispatched job records a measurement basis, one numstat diff between
-// that recorded base and the observed commit with the shared diff flags
-// (CD-0225 D2). Dirty-but-reachable records dirty with no paths; a failed
+// worktree under the single fixed probe deadline — status and HEAD. A failed
 // command or the deadline produces a typed refusal.
-func observeWorkerDelivery(ctx context.Context, runner GitRunner, path, basisBase string) (*WorkerObservedDelivery, error) {
+func observeWorkerDelivery(ctx context.Context, runner GitRunner, path string) (*WorkerObservedDelivery, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, workerTerminalObservationDeadline)
 	defer cancel()
 	status, err := runner.Run(probeCtx, path, "status", "--porcelain=v1", "-z", "--untracked-files=all")
@@ -282,61 +263,7 @@ func observeWorkerDelivery(ctx context.Context, runner GitRunner, path, basisBas
 	if !worktreeSHAPattern.MatchString(commit) {
 		return nil, newFailure(KindGitUnreachable, workerTerminalObservationOp, "the worktree's HEAD is not one raw commit OID", true, "retry once the worktree resolves a commit")
 	}
-	observation := &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}
-	if basisBase == "" {
-		// A basis-free job measures nothing.
-		return observation, nil
-	}
-	observation.Base = basisBase
-	if observation.State == "dirty" {
-		// A dirty tree records the recorded base but no paths: it cannot
-		// establish a size, and acceptance refuses it as unavailable evidence.
-		return observation, nil
-	}
-	numstat, err := runner.Run(probeCtx, path, append(workerDiffSharedDiffArgs(), "--numstat", "-z", basisBase, commit)...)
-	if err != nil {
-		return nil, workerDeliveryProbeFailure("measured delta", probeCtx, err)
-	}
-	paths, parseErr := parseWorkerNumstat(numstat)
-	if parseErr != nil {
-		return nil, wrapFailure(KindGitUnreachable, workerTerminalObservationOp, "cannot parse the worktree's measured delta", true, "retry the same completion once the worktree is reachable", parseErr)
-	}
-	observation.Paths = paths
-	return observation, nil
-}
-
-// parseWorkerNumstat parses one `git diff --numstat -z` output: each
-// NUL-terminated record is `added\tdeleted\tpath`, and a `-\t-` count pair
-// marks a binary path. Rename detection stays off, so a rename arrives as a
-// deletion record beside an addition record.
-func parseWorkerNumstat(raw []byte) ([]WorkerObservedPath, error) {
-	records := strings.Split(string(raw), "\x00")
-	var paths []WorkerObservedPath
-	for _, record := range records {
-		if record == "" {
-			continue
-		}
-		parts := strings.SplitN(record, "\t", 3)
-		if len(parts) != 3 {
-			return nil, newFailure(KindGitUnreachable, workerTerminalObservationOp, "the measured delta carries a numstat record without two count columns and a path", true, "retry the same completion once the worktree is reachable")
-		}
-		path := WorkerObservedPath{Path: parts[2]}
-		if parts[0] == "-" && parts[1] == "-" {
-			path.Binary = true
-		} else {
-			added, addedErr := strconv.ParseInt(parts[0], 10, 64)
-			deleted, deletedErr := strconv.ParseInt(parts[1], 10, 64)
-			if addedErr != nil || deletedErr != nil || added < 0 || deleted < 0 {
-				return nil, newFailure(KindGitUnreachable, workerTerminalObservationOp, "the measured delta carries a numstat record whose counts are not two nonnegative integers", true, "retry the same completion once the worktree is reachable")
-			}
-			path.Added, path.Deleted = added, deleted
-		}
-		if path.Path == "" {
-			return nil, newFailure(KindGitUnreachable, workerTerminalObservationOp, "the measured delta carries a numstat record with no path", true, "retry the same completion once the worktree is reachable")
-		}
-		paths = append(paths, path)
-	}
-	return paths, nil
+	return &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}, nil
 }
 
 func observedDeliveryState(status []byte) string {
@@ -500,40 +427,9 @@ func enrichWorkerObservedDeliveryTx(ctx context.Context, tx *sql.Tx, event Event
 	if proof.observation == nil {
 		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared delivery proof carries no observation for an implementation completion", false, "prepare the completion against a reachable claimed worktree")
 	}
-	// The measured size surface revalidates inside the transaction against
-	// the dispatched job's recorded basis (CD-0225 D2): the observation
-	// carries a base exactly when the job records a measurement basis, and
-	// that base is the recorded base_commit — never another foundation.
-	job, jobErr := workflowDispatchedJobForAttempt(ctx, tx, event.SubjectID, payload.AttemptID)
-	if jobErr != nil {
-		return jobErr
-	}
-	basisBase, basisErr := workerJobBasisBase(ctx, tx, event.SubjectID, job)
-	if basisErr != nil {
-		return basisErr
-	}
-	if basisBase == "" && (proof.observation.Base != "" || proof.observation.Paths != nil) {
-		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared delivery observation carries size content for a dispatched job that records no measurement basis", false, "prepare the completion against the recorded job")
-	}
-	if basisBase != "" && proof.observation.Base != basisBase {
-		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared delivery observation names base "+proof.observation.Base+", not the dispatched job's recorded base_commit "+basisBase, false, "prepare the completion against the recorded job")
-	}
+	// The delivery observation is the core's own clean-or-dirty reading of
+	// the claimed worktree at the observed commit. The retired measurement
+	// surface recorded no base and no paths (CD-0242 D6).
 	payload.ObservedDelivery = proof.observation
 	return nil
-}
-
-// workerJobBasisBase is the base_commit the job's recorded measurement basis
-// names, or empty for no job or a basis-free job.
-func workerJobBasisBase(ctx context.Context, q queryer, workID string, job *WorkerJobBinding) (string, error) {
-	if job == nil {
-		return "", nil
-	}
-	content, err := readWorkerJobSizeContentTx(ctx, q, workID)
-	if err != nil {
-		return "", err
-	}
-	if entry, recorded := content[*job]; recorded && entry.basis != nil {
-		return entry.basis.BaseCommit, nil
-	}
-	return "", nil
 }

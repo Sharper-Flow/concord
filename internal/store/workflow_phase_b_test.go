@@ -273,9 +273,6 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 					WorkflowPayloadField{Name: "delivery_state", ValueType: PayloadString, Enum: []string{"asserted"}},
 				)
 			}
-			if workflowJobSizeActive(latest) {
-				want = append(want, WorkflowPayloadField{Name: "supplemental_classifications", ValueType: PayloadArray, ItemRef: "worker_job_measured_path"})
-			}
 			if len(fields) != len(want) {
 				t.Fatalf("%s acceptance payload has %d fields, want %d", latest.Ref, len(fields), len(want))
 			}

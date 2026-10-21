@@ -305,7 +305,7 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	if err != nil {
 		return out, err
 	}
-	if err := continuityReadReadyWorkerJobsTx(ctx, tx, req.Work, instance.sizeCapable, &out); err != nil {
+	if err := continuityReadReadyWorkerJobsTx(ctx, tx, req.Work, instance.callerCapable, &out); err != nil {
 		return out, err
 	}
 	if err := continuityReadProposalTx(ctx, tx, req.Work, &out); err != nil {
@@ -533,19 +533,19 @@ func validateWorkerPacketCheckpoint(ctx context.Context, q queryer, workID strin
 
 // continuityReadReadyWorkerJobsTx reads the dispatch-ready worker-job
 // revisions through the one readiness predicate dispatch admission applies.
-// On a size-capable pin each job carries the caller_exclusions its
+// On a caller-capable pin each job carries the caller_exclusions its
 // implementation dispatch binds (CD-0227 D1); a dispatcher drops them for
 // every other lane. A set above the packet's declared bounds — in count or
 // in per-path characters — is not published, so the read stays available
 // and the dispatch refuses with its recovery.
-func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work string, sizeCapable bool, out *ContinuitySnapshot) error {
+func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work string, callerCapable bool, out *ContinuitySnapshot) error {
 	views, err := readWorkerJobRevisions(ctx, tx, work)
 	if err != nil {
 		return err
 	}
 	var corrections map[string][]string
-	if sizeCapable {
-		if corrections, err = workerJobCorrectionMeasuredTx(ctx, tx, work); err != nil {
+	if callerCapable {
+		if corrections, err = workerJobCorrectionPathsTx(ctx, tx, work); err != nil {
 			return err
 		}
 	}
@@ -554,7 +554,7 @@ func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work strin
 			continue
 		}
 		job := packetJobFromView(view)
-		if sizeCapable {
+		if callerCapable {
 			exclusions := workerJobCorrectionExclusions(corrections, view.Binding.JobID)
 			if len(exclusions) > 0 && validateWorkerJobPacketExclusions(view.Binding.JobID, exclusions) == nil {
 				job.CallerExclusions = exclusions
@@ -791,11 +791,16 @@ func (s *Store) ResolveContinuityWorkByDirectory(ctx context.Context, directory 
 // continuityInstance is the workflow-instance part of one continuity read.
 // present is false for a recorded work item that holds no instance.
 type continuityInstance struct {
-	step        string
-	definition  WorkflowReadDefinition
-	workVersion int64
-	present     bool
-	sizeCapable bool
+	step string
+	// definition is the read-model reference; the full registered
+	// definition loads beside it, so the caller-scope capability derives
+	// from the declared record_worker_job members exactly as dispatch
+	// admission derives it.
+	definition    WorkflowReadDefinition
+	registered    *RegisteredDefinition
+	workVersion   int64
+	present       bool
+	callerCapable bool
 }
 
 // readContinuityInstanceForRegistryTx is the registry-threaded continuity
@@ -832,7 +837,7 @@ func readContinuityInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, work s
 		return instance, err
 	}
 	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
-	instance.sizeCapable = workflowJobSizeActive(registered.Definition)
+	instance.callerCapable = workflowCallerScopeActive(registered.Definition)
 	if step := workflowStep(registered.Definition, instance.step); step != nil {
 		out.StepActions = append(out.StepActions, step.Actions...)
 	}

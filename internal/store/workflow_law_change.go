@@ -31,20 +31,23 @@ import (
 // after-state content hash when the item edits the registry. Completion
 // refuses an enacted state that differs.
 type WorkflowLawChange struct {
-	Reason                     string                       `json:"reason"`
-	RemovesUserVisibleBehavior bool                         `json:"removes_user_visible_behavior"`
-	TouchesSecurityOrDataSafe  bool                         `json:"touches_security_or_data_safety"`
-	LawIDs                     []string                     `json:"law_ids"`
-	DomainIDs                  []string                     `json:"domain_ids"`
-	Crucial                    bool                         `json:"crucial"`
-	PredecessorSerious         bool                         `json:"predecessor_serious,omitempty"`
-	Serious                    bool                         `json:"serious"`
-	EditsRegistry              bool                         `json:"edits_registry,omitempty"`
-	TextPins                   []WorkflowLawRevision        `json:"text_pins,omitempty"`
-	RegistryContentHash        string                       `json:"registry_content_hash,omitempty"`
-	Approval                   *workflowLawChangeApproval   `json:"approval,omitempty"`
-	LawBefore                  []workflowLawState           `json:"law_before"`
-	RegistryBefore             *workflowLawRegistrySnapshot `json:"registry_before"`
+	Reason                     string   `json:"reason"`
+	RemovesUserVisibleBehavior bool     `json:"removes_user_visible_behavior"`
+	TouchesSecurityOrDataSafe  bool     `json:"touches_security_or_data_safety"`
+	LawIDs                     []string `json:"law_ids"`
+	DomainIDs                  []string `json:"domain_ids"`
+	// Crucial decodes the recorded crucial-size fact of a law change made
+	// while the size system existed (CD-0242 D6); no new record sets it and
+	// seriousness no longer derives from it.
+	Crucial             bool                         `json:"crucial"`
+	PredecessorSerious  bool                         `json:"predecessor_serious,omitempty"`
+	Serious             bool                         `json:"serious"`
+	EditsRegistry       bool                         `json:"edits_registry,omitempty"`
+	TextPins            []WorkflowLawRevision        `json:"text_pins,omitempty"`
+	RegistryContentHash string                       `json:"registry_content_hash,omitempty"`
+	Approval            *workflowLawChangeApproval   `json:"approval,omitempty"`
+	LawBefore           []workflowLawState           `json:"law_before"`
+	RegistryBefore      *workflowLawRegistrySnapshot `json:"registry_before"`
 }
 
 // workflowLawState is one law's state as the projection holds it: absent, or
@@ -273,8 +276,7 @@ func deriveWorkflowLawChangeCountTx(ctx context.Context, q queryer, workID strin
 		return err
 	}
 	change.DomainIDs = uniqueSorted(append(domains, registryChanged...))
-	change.Crucial, err = workflowWorkIsCrucial(ctx, q, workID)
-	return err
+	return nil
 }
 
 // readWorkflowLawStatesTx reads the current state of each law: absent when
@@ -411,19 +413,11 @@ func validateWorkflowLawChangePins(change *WorkflowLawChange, op string) error {
 	return nil
 }
 
-func workflowWorkIsCrucial(ctx context.Context, q queryer, workID string) (bool, error) {
-	size, sized, err := readWorkSize(ctx, q, workID)
-	if err != nil {
-		return false, err
-	}
-	return sized && size.Size == WorkSizeCrucial, nil
-}
-
 // workflowLawChangeSerious applies P12 to one law change: more than one child
 // Domain, a declared removal of user-visible behavior, a declared security or
-// data-safety change, a UI/UX change, crucial size (Appendix A2 row 3), or a
-// predecessor whose change was serious: narrowing a successor never erases
-// the consent obligation of a change already made.
+// data-safety change, a UI/UX change, a recorded crucial-size fact on a
+// stored law change, or a predecessor whose change was serious: narrowing a
+// successor never erases the consent obligation of a change already made.
 func workflowLawChangeSerious(change *WorkflowLawChange, decisionDomains []string) bool {
 	return len(change.DomainIDs) > 1 || change.RemovesUserVisibleBehavior || change.TouchesSecurityOrDataSafe || change.Crucial || change.PredecessorSerious || slices.Contains(decisionDomains, "ui_ux")
 }
@@ -602,8 +596,8 @@ func validateLiveWorkflowLawChangeTx(ctx context.Context, tx *sql.Tx, workID str
 		return err
 	}
 	recorded := p.LawChange
-	if !slices.Equal(expected.LawIDs, recorded.LawIDs) || !slices.Equal(expected.DomainIDs, recorded.DomainIDs) || expected.Crucial != recorded.Crucial || expected.PredecessorSerious != recorded.PredecessorSerious || expected.EditsRegistry != recorded.EditsRegistry {
-		return newFailure(KindInvalidPayload, "fold_event", "law_change does not match the item's recorded law change, law Domains, and work size", false, "derive law_change from the item's baseline and current state")
+	if !slices.Equal(expected.LawIDs, recorded.LawIDs) || !slices.Equal(expected.DomainIDs, recorded.DomainIDs) || expected.PredecessorSerious != recorded.PredecessorSerious || expected.EditsRegistry != recorded.EditsRegistry {
+		return newFailure(KindInvalidPayload, "fold_event", "law_change does not match the item's recorded law change and law Domains", false, "derive law_change from the item's baseline and current state")
 	}
 	if !reflect.DeepEqual(expected.RegistryBefore, recorded.RegistryBefore) || !reflect.DeepEqual(expected.LawBefore, recorded.LawBefore) {
 		return newFailure(KindInvalidPayload, "fold_event", "law_change before-state differs from the one the item recorded first", false, "carry the before-states recorded at the item's first law-change approval")
@@ -628,7 +622,7 @@ func validateLiveWorkflowLawChangeTx(ctx context.Context, tx *sql.Tx, workID str
 // declares. No merged edit of another item is excluded, because nothing
 // records which item made it. A serious change must then enact exactly the
 // text the operator approved. A non-serious change must still be non-serious
-// once enacted: the work is not crucial, the child Domains the counted laws
+// once enacted: the child Domains the counted laws
 // hold now, joined with those recorded at approval and every registry
 // difference, number at most one, and each counted law revision carries the
 // derived tier, whatever tier it held before, including a D5 cohort default.
@@ -665,13 +659,6 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 	}
 	if change.Serious {
 		return checkWorkflowLawChangePinsEnactedTx(ctx, tx, workID, change)
-	}
-	crucial, err := workflowWorkIsCrucial(ctx, tx, workID)
-	if err != nil {
-		return err
-	}
-	if crucial {
-		return newFailure(KindApprovalRequired, "complete_workflow", "every law change at crucial size requires the operator's approval of its exact text (CD-0230 D4)", false, "supersede the contract with the operator's approval of the exact text")
 	}
 	domains, err := workflowLawChangeDomainsTx(ctx, tx, workID, change.LawIDs, nil, change.DomainIDs)
 	if err != nil {

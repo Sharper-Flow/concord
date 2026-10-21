@@ -139,21 +139,13 @@ never a measured failure. Never author `subject_commit`: the dispatch owns that
 identity. Receipts from earlier subjects are regression baselines only: report
 current-subject evidence for current acceptance.
 
-## Job size and caller boundary
+## Caller boundary
 
-When `inputs.worker_job` carries `production_size_max` and `measurement_basis`,
-the job is capped: its production delta is measured against the recorded
-`measurement_basis.base_commit` under the recorded path inventory. A changed
-path the inventory does not classify, including one discovered during the work,
-counts as `production`. Count additions plus deletions of text lines over the
-whole base..tree delta; a binary path adds no text lines and never establishes
-available production size.
+A caller-capable packet expands no capability: this lane reports no
+`direct_caller_repairs` and never invents the field.
 
-A capped packet expands no capability: this lane reports no `production_size`
-and no `direct_caller_repairs`, and never invents either field.
-
-A packet without these members is historical or uncapped: report without the
-absent fields and never invent them.
+A packet without these members is historical or carries no caller scope: report
+without the absent fields and never invent them.
 
 ## Objective and binding
 

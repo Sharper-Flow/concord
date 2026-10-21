@@ -52,7 +52,7 @@ func requireActionableWork(ctx context.Context, q queryer, workID, operation str
 // the version they were written against. The fold writes no planning state,
 // and appendEvent refuses every new append of a retired kind.
 
-func retiredEventAppendRefused(kind string) error {
+func planningRetiredEventAppendRefused(kind string) error {
 	return newFailure(KindInvalidOperation, "apply_operation",
 		"event kind "+kind+" is retired by CD-0213 D8: Linear is the only planning authority", false,
 		"make the planning change in Linear through the Linear MCP server")

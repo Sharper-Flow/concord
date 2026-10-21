@@ -70,35 +70,8 @@ var unobservedTreeForTest = strings.Repeat("e", 40)
 // is rebound to the sealed one; an authored tree stays as written.
 func workerCompletionWithReportedSize(t *testing.T, ctx context.Context, s *Store, event Event) Event {
 	t.Helper()
-	prepared := workerTerminalPreparationFrom(ctx)
-	if prepared == nil || prepared.proof.observation == nil {
-		return event
-	}
-	var payload WorkerCompletedPayload
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.ProductionSize != nil && payload.ProductionSize.Tree != unobservedTreeForTest {
-		return event
-	}
-	if payload.ProductionSize == nil {
-		event = withReportedSizeForTest(t, s, event, prepared.proof.observation.Commit)
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if payload.ProductionSize != nil {
-		payload.ProductionSize.Tree = prepared.proof.observation.Commit
-		content, err := readWorkerJobSizeContentTx(ctx, s.db, event.SubjectID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		count, unavailable := workerJobReportedLineCount(content[*payload.WorkerJob].basis, prepared.proof.observation)
-		if unavailable == "" {
-			payload.ProductionSize.Count = count
-		}
-		event.Payload = mustJSONValue(payload)
-	}
+	// The retired production_size member records nothing (CD-0242 D6); the
+	// seam keeps its call site and carries no member.
 	return event
 }
 
@@ -109,23 +82,7 @@ func workerCompletionWithReportedSize(t *testing.T, ctx context.Context, s *Stor
 // their authored bytes.
 func withReportedSizeForTest(t *testing.T, s *Store, event Event, tree string) Event {
 	t.Helper()
-	var payload WorkerCompletedPayload
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.ProductionSize != nil || payload.WorkerJob == nil {
-		return event
-	}
-	var class string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT capability_class FROM worker_attempts WHERE work_id=? AND attempt_id=?`, event.SubjectID, payload.AttemptID).Scan(&class); err != nil || class != "implementation" {
-		return event
-	}
-	job, err := workflowDispatchedJobForAttempt(context.Background(), s.DatabaseForTesting(), event.SubjectID, payload.AttemptID)
-	if err != nil || job == nil {
-		return event
-	}
-	payload.ProductionSize = completionProductionSizeForTest(t, s, event.SubjectID, job, tree)
-	event.Payload = mustJSONValue(payload)
+	// The retired production_size member records nothing (CD-0242 D6).
 	return event
 }
 

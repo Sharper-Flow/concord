@@ -14,7 +14,7 @@ import (
 // production: any growth in the widest shape fails this exact figure first,
 // and the pin moves only by a deliberate re-derivation beside the ceilings'
 // own next-power-of-two assertions.
-const derivedRequestWireMaxBytes = 86143425
+const derivedRequestWireMaxBytes = 33506667
 
 // The shared action ceilings derive from the widest admitted shape, not a
 // shortlist: this test enumerates every admitted workflow-action variant the
@@ -72,13 +72,9 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 			"worker_packet5":             packet5 + store.DispatchContextAggregateMaxBytes - 1,
 		},
 		PathBounds: map[string]int{
-			recordJob + "/fields/oneOf/measurement_basis/worker_job_measurement_basis/base_commit":                                                                     commitOIDWire,
-			recordJob + "/fields/oneOf" + lawSourceHash:                                                                                                                digestWire,
-			recordJob + "/fields/oneOf/split/worker_job_split2/predecessor/digest":                                                                                     digestWire,
-			recordJob + "/fields/oneOf/split/worker_job_split2/successors/items/worker_job_split_successor/measurement_basis/worker_job_measurement_basis/base_commit": commitOIDWire,
-			recordJob + "/fields/oneOf/split/worker_job_split2/successors/items/worker_job_split_successor" + lawSourceHash:                                            digestWire,
-			recordContext + "/fields/required_reading/items/work_context_reading/source/oneOf/work_context_reading_source_repository_file/commit_oid":                  commitOIDWire,
-			recordContext + "/fields/required_reading/items/work_context_reading/source/oneOf/work_context_reading_source_knowledge/content_hash":                      digestWire,
+			recordJob + "/fields" + lawSourceHash: digestWire,
+			recordContext + "/fields/required_reading/items/work_context_reading/source/oneOf/work_context_reading_source_repository_file/commit_oid": commitOIDWire,
+			recordContext + "/fields/required_reading/items/work_context_reading/source/oneOf/work_context_reading_source_knowledge/content_hash":     digestWire,
 		},
 		FindingRefMax: findingRefMax,
 	}

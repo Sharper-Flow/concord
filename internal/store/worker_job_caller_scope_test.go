@@ -95,6 +95,64 @@ func (r observedDeltaRunner) Run(_ context.Context, _ string, args ...string) ([
 	return nil, fmt.Errorf("unexpected git invocation: %v", args)
 }
 
+// TestWorkerJobCallerExclusionsAboveTheCountBound holds the two sites that
+// share the packet-bounds guard over recorded correction scopes: once the
+// work's failed corrections record more paths than the packet admits, the
+// dispatch computation refuses with its recovery and the continuity ready
+// projection omits the whole set instead of failing the read.
+func TestWorkerJobCallerExclusionsAboveTheCountBound(t *testing.T) {
+	const workID = "caller-exclusions-count-bound"
+	f := oracleRepairFixtureFrom(t, workID, seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 34, "repair"))
+	defer f.store.Close()
+	if !testWorkPinCallerCapable(t, f.store, workID) {
+		t.Fatal("the oracle repair fixture pinned no caller-capable definition")
+	}
+	fail := func(jobID string, scope []string) {
+		t.Helper()
+		job := recordOracleJobRevisionWith(t, f.store, workID, f.owner, jobID, twoPathOracleFields(t, f.store, workID, nil), map[string]any{"path_scope": scope})
+		attempt := "attempt:" + jobID
+		dispatchChangeAcceptanceAttempt(t, f, workID, attempt, job)
+		s2WorkerFailedAttributedLive(t, f.store, workID, attempt, "lane fallback blocked before the model ran")
+	}
+	wide := make([]string, WorkerJobCallerExclusionsMax)
+	for i := range wide {
+		wide[i] = fmt.Sprintf("wide/p%02d.go", i)
+	}
+	fail("job:wide", wide)
+	ready := recordOracleJobRevisionWith(t, f.store, workID, f.owner, "job:ready", twoPathOracleFields(t, f.store, workID, nil), map[string]any{"path_scope": []string{"owner"}})
+	published := func() []string {
+		t.Helper()
+		tx, err := f.store.db.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		var snapshot ContinuitySnapshot
+		if err := continuityReadReadyWorkerJobsTx(context.Background(), tx, workID, true, &snapshot); err != nil {
+			t.Fatalf("continuity ready read: %v", err)
+		}
+		for _, job := range snapshot.ReadyWorkerJobs {
+			if job.JobID == ready.JobID {
+				return job.CallerExclusions
+			}
+		}
+		t.Fatalf("continuity published no ready job %s", ready.JobID)
+		return nil
+	}
+	if got := published(); !slices.Equal(got, wide) {
+		t.Fatalf("continuity exclusions at the bound = %v, want the failed correction's %d paths", got, len(wide))
+	}
+	fail("job:extra", []string{"extra/one.go"})
+	_, err := workerJobCallerExclusionsTx(context.Background(), f.store.db, workID, ready.JobID)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, fmt.Sprintf("would carry %d paths", WorkerJobCallerExclusionsMax+1)) || !strings.Contains(failure.RecoveryAction, "accept_worker_result") {
+		t.Fatalf("over-count exclusions = %v, want the packet count refusal", err)
+	}
+	if got := published(); got != nil {
+		t.Fatalf("continuity published %d exclusions above the packet bound, want none", len(got))
+	}
+}
+
 // TestWorkerJobDeliveredPathContainmentAtAcceptance holds the acceptance
 // containment (CD-0227 D2/D3, CD-0242 D6) over the delta the core observed
 // between the dispatched subject commit and the delivered commit: in-scope

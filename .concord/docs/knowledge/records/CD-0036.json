@@ -25,7 +25,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4c33f70b6b7e7dd1d8154df09bb5d18794ccf5d6853e1490a9e46e0ea3983628",
+  "sha256": "sha256:a1c258f82704710ca20905de07e2ef58282e60bd69caba8fa38da0effa757a3c",
   "status": "accepted",
   "summary": "Contract approval pins one content digest for each mandated law ID; a compatible amendment keeps the law ID, states the current rule in place, and triggers reassessment only of the obligations whose meaning it changes, while a breaking supersession marks stale exactly the contracts that consumed the superseded revision until recovery.",
   "tags": [
@@ -33,5 +33,5 @@
     "law",
     "cutover"
   ],
-  "title": "Breaking law supersession strictly quiesces old consumers"
+  "title": "Breaking law supersession marks dependent contracts stale"
 }

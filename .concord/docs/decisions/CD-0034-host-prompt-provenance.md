@@ -5,6 +5,7 @@
 - **Scope:** Worker dispatch evidence; adapter; issue #103
 - **Related:** CD-0017 (D1, D5, D7, Invariant 8), issue #103
 - **Supersedes:** nothing
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 and D13 — no upcast exists; the cutover is one documented migration.
 
 ## Context
 
@@ -41,7 +42,7 @@ provenance digest of the run under test. A green eval proves nothing about a
 later run whose provenance differs — and now the difference is visible in
 dispatch evidence rather than inferable only from drift. Deterministic
 authority stays in Go tests (provenance shape validation, the v3 gate at the
-CLI boundary, upcast behavior); behavioral evaluation stays outside, as D7
+CLI boundary); behavioral evaluation stays outside, as D7
 already holds.
 
 **Migration (predecessor-coupled instruction files).** Retiring an
@@ -50,9 +51,9 @@ behavior change at migration is thus recorded, never silent: the last
 dispatch under the old provenance and the first under the new bound the
 transition in evidence.
 
-**History.** Legacy v1/v2 dispatch evidence upcasts with an honest marker:
-provenance recorded-before-declaration is unknown by construction, stamped as
-an `unenumerated` source with a zero digest rather than fabricated. The CLI
+**Migration.** [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) governs: the documented cutover migrates retained evidence, and provenance
+recorded before declaration is unknown by construction, stamped as an
+`unenumerated` source with a zero digest rather than fabricated. The CLI
 refuses v3 dispatch evidence without `host_provenance` — injection is
 permitted only when recorded, and the emitter gate is the enforcement point.
 
@@ -72,10 +73,10 @@ permitted only when recorded, and the emitter gate is the enforcement point.
 - `internal/store/worker_lanes_test.go`: provenance validation in
   `internal/store.TestWorkerHostProvenanceValidation`
   (digest shape, closed kinds, bounded sources, unenumerated carries no
-  hash and its path is its name, enumerated must carry a hash, no
-  duplicates); v3 dispatch with
-  provenance folds and the evidence bytes persist in
-  `internal/store.TestWorkerDispatchV3CarriesProvenanceIntoDurableEvidence`.
+   hash and its path is its name, enumerated must carry a hash, no
+   duplicates); v3 dispatch with
+   provenance writes durable evidence in
+   `internal/store.TestWorkerDispatchV3CarriesProvenanceIntoDurableEvidence`.
 - `adapter/opencode/dispatch.test.ts`: provenance is deterministic for the
   same inputs and changes when an enumerated source's content changes
   (bun, local — CI validates the generated contracts, as the repo already

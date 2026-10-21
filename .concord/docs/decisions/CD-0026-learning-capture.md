@@ -6,6 +6,7 @@
 - **Related:** CD-0215 (D7 publication destinations), CD-0019 (wisdom question),
   CD-0020 (knowledge index), PM6 and compaction-retention-policy compaction
 - **Issue:** #108 (fc6, learning-capture group)
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — the manifest is the durable backing; no event stream exists.
 
 ## Context
 
@@ -34,8 +35,8 @@ never an inferred coverage state — the author declares the CD-0047
 reason, issue, or evidence, and that declaration commits beside the record.
 A merged commit is not by itself a published lesson: the lesson is published
 when the pull request merges and a knowledge read verifies the record.
-The manifest — not a parallel event stream — remains the lesson's durable
-backing (CD-0020): no new event kind, no new projection table.
+The manifest remains the lesson's durable
+backing (CD-0020); no new store surface is added ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no event stream exists).
 Canonical knowledge reads make no publication claim before the merge.
 After the merge, `resolve_note` (PM1.Q10) verifies the record against the
 manifest, and search (PM1.Q9) picks it up at the next index rebuild. The

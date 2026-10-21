@@ -9,7 +9,8 @@
   provenance), issue #254
 - **Amended:** Concord (CON) issue CON-910 (2026-10-13) re-homes the session
   assertion from launcher start to session preparation under the Snowball
-  coordinator's operator-delegated approval.
+  coordinator's operator-delegated approval. [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
+  D2 amends D4: the assertion is a current row; no domain event exists.
 - **Supersedes:** nothing; scopes CD-0027's exclusion and amends CD-0049's
   consequences
 
@@ -106,15 +107,15 @@ for. It does not foreclose reversal: a future decision restoring lane restart
 adds its storage in the same accepted change that reopens the capability, which
 is the sequence CD-0027's own consequences describe.
 
-### D4. A session assertion is recorded as a domain event
+### D4. A session assertion is recorded as a current row
 
-The asserted orchestrator identity is recorded as a domain event with
+The asserted orchestrator identity is recorded as a current row with
 `subject_type='session'`, carrying the asserted type, version, and ruleset
-digest. Events are Concord's durable monotonic spine, they need no new table, and
-they do not constitute a definition of an orchestrator persona, so CD-0049
+digest ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each mutation writes current rows in one transaction; no event log exists). The row needs no new
+table, and it does not constitute a definition of an orchestrator persona, so CD-0049
 Invariant 4 and CD-0016's exclusion of an `agent_definitions` table both hold.
 
-The event records what was asserted at a moment. It is evidence, not
+The row records what was asserted at a moment. It is evidence, not
 configuration, and nothing reads it back to decide what a session may do.
 
 ### D5. The ruleset digest covers the host artifacts the assertion observed
@@ -147,7 +148,7 @@ Issue #254 becomes implementable: the assertion slots beside the lane
 identity check in session-prepare, and its record has a home that no accepted
 decision forbids.
 
-Session preparation acquires a durable write: the typed assertion event of
+Session preparation acquires a durable write: the typed assertion record of
 D4. No entry surface performs a durable store write (CD-0108 as amended).
 
 The migration in D3 is forward-only and drops columns that hold no rows, so it

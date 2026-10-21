@@ -1,4 +1,4 @@
-# CD-0036: Breaking law supersession strictly quiesces old consumers
+# CD-0036: Breaking law supersession marks dependent contracts stale
 
 - **Status:** Accepted
 - **Amended:** 2026-10-18.
@@ -8,7 +8,7 @@
 - **Related:** CD-0006 D5/D10/R3, CD-0012, CD-0013, CD-0015,
   CD-0016, CD-0027, CD-0033
 - **Supersedes:** nothing; amends CD-0015's law-boundary contract
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D7, D10
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D7, D10, D14
 
 ## Context
 
@@ -24,7 +24,7 @@ workflow authority without claiming it killed or controlled the host process.
 
 ## Decision
 
-Routine contract supersession under CD-0013 D11 does not require a consent prompt and does not enact a law revision. Actual law changes follow CD-0230 D4; breaking-cutover authorization, digest staleness, migration fencing, and compatibility floors remain separate obligations. Historical contract pins retain their original approval rule.
+Routine contract supersession under CD-0013 D11 does not require a consent prompt and does not enact a law revision. Actual law changes follow CD-0230 D4; breaking-cutover authorization, digest staleness, migration fencing, and compatibility floors remain separate obligations. [CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it) and [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) govern: a contract pins the law revisions its approval consumed, and no historical pins are retained.
 
 
 ### D1. Law revision identity
@@ -35,7 +35,7 @@ Routine contract supersession under CD-0013 D11 does not require a consent promp
 
 [CD-0242 D10](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d10-knowledge-is-an-input-and-a-law-edit-changes-only-what-it-changes) governs: a compatible amendment keeps the law ID and states the current rule in place, without amendment dates, override instructions, or change history, and a law edit triggers reassessment only of the obligations whose meaning it changes. A new independent decision receives its own record. A change that requires existing consumers to reconsider their contract is not a compatible amendment: it publishes a new law ID, marks the old record `superseded`, and declares the existing `supersedes` relation, so every law supersession is a breaking cutover. The operator makes this legislative choice through the Git delta; agents may recommend a path but do not infer compatibility as workflow authority.
 
-### D3. Strict quiescence
+### D3. Staleness scoped to dependents
 
 [CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it) and [CD-0242 D10](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d10-knowledge-is-an-input-and-a-law-edit-changes-only-what-it-changes) govern: a revision invalidates only records that depended on its changed digests, and a law edit triggers reassessment only of the obligations whose meaning it changed. A breaking supersession therefore marks stale exactly the active contracts that consumed the superseded revision; no grandfather path exists for them.
 

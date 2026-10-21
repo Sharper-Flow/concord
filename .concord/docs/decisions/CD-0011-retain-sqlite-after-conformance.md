@@ -5,6 +5,7 @@
 **Approval:** Explicit operator approval after review of PR #16 and issue #17.
 **Type:** Architecture confirmation after a falsifier review.
 **Amended by:** [CD-0195](CD-0195-the-escaped-sqlite-busy-on-record-is-an-application-defect.md) at §Falsifier interpretation's escaped-`SQLITE_BUSY` condition: CD-0195 holds the disposition of the two escape classes on record through 2026-09-30. The condition stands unchanged for any later escape.
+**Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — the store keeps current rows; no event log or projection fold exists.
 
 ## Decision
 
@@ -30,8 +31,9 @@ The current architecture therefore remains:
 1. one global local SQLite database per operator installation;
 2. short-lived processes using the in-process store library;
 3. `WAL`, `synchronous=NORMAL`, per-connection foreign keys and busy timeout;
-4. append-only events, atomic projection folds, explicit attempt epochs, durable
-   idempotency, and PM10 Online Backup/Restore;
+4. current-row writes checked by expected version and recorded by idempotency key
+   ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no event log or projection fold exists), explicit attempt
+   epochs, and PM10 Online Backup/Restore;
 5. git as the separate durable-knowledge authority fixed by PM6–PM10.
 
 No single-writer IPC boundary, Dolt server, Postgres, or DBOS authority is introduced

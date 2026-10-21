@@ -9,10 +9,8 @@ comparison is falsifier-only. CD-0011 records the completed 2026-08-07
 post-falsifier review and retains SQLite.
 **Amended by operator:** 2026-10-17 — D6 states when a payload version bump
 needs a Breaking migration and requires each bump to declare its class.
-**Amended:** 2026-10-18 — [CD-0238](CD-0238-point-in-time-reconstruction-runs-outside-the-core.md) amends
-D6's point-in-time reconstruction bullet: reconstruction runs on the operator's
-machine, outside the core.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D13, D14
+**Amended:** 2026-10-18 — [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) supersedes the point-in-time reconstruction rule: recovery restores a verified snapshot and reconciles current rows; no reconstruction exists.
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D6, D13, D14
 **Scope:** Evidence resolution, unreadable-record isolation, workflow checkpoints,
 attempt fencing, external conditions, worktree topology, schema evolution, and the
 SQLite confirmation and alternative-engine trigger.
@@ -156,13 +154,13 @@ Examples:
 - Unreadable records outside the bounded closure are advisory and cannot alter the
   conclusion.
 
-### Projection rebuild and quarantine
+### Row recovery and quarantine
 
 - [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: corrupted rows recover through a verified snapshot restore plus reconciliation of current rows; no fold, replay, or rebuild exists.
 - An unreadable current row contributes unknown and carries a typed quarantine diagnostic; it never silently blocks or clears a safety conclusion.
 - [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: snapshot cleanup never removes the newest verified snapshot or one an unfinished recovery needs.
 - Distinguish corrupted storage from an unreadable row or schema skew; both fail closed for safety conclusions.
-- Repair follows reconcile → repair/compensate → verified snapshot restore → operator escalation. Redrive is operator-triggered, recorded, and retry-bounded.
+- Repair follows reconcile → repair/compensate → verified snapshot restore → operator escalation. Redrive is operator-triggered and recorded; each redrive is one admitted request ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) governs: no attempt count or retry bound exists).
 
 ## D4. Workflow checkpoints and execution-attempt fencing
 
@@ -234,7 +232,7 @@ after checking the owning authority.
 - Failed/ambiguous/stale conditions remain open and surface a typed problem.
 - Heuristics may discover candidate CI runs/PRs but cannot resolve a condition.
 
-## D6. Event/schema evolution and historical reconstruction
+## D6. Schema evolution and migration
 
 [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history), [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot), and [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) govern: no event log, fold, upcaster, or replay exists; the cutover is one documented migration with a verified snapshot; definitions derive from one source with no retained history.
 

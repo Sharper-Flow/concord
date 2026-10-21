@@ -17,7 +17,9 @@ amends D3's second paragraph: the independent verdict is the outcome strength ev
 conformance scenario 3, and the Cost bullet's vacuity clause: vacuity is judged at review.
 [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5 amends
 D7, the Cost bullet's evaluator-distinctness clause, and conformance scenario 13: Main's
-sequential review loop replaces the distinct final evaluator.
+sequential review loop replaces the distinct final evaluator. [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
+D2 and D14 amend the candidate-set event statements and the historical-pins clause:
+the store keeps current state in current rows, and no historical pins are retained.
 **Research:** [`R5-goal-to-outcome-binding.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R5-goal-to-outcome-binding.md)
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/22>
 
@@ -71,7 +73,7 @@ not the supporting evidence, determines the shape below.
 
 ## Decisions
 
-For definitions declaring `approval_policy=consequence_v1`, CD-0013 D11 qualifies the operator-authored contract and operator-confirmed premise requirements. A valid contract, current-version premise confirmation, independent evaluation, and every outcome/evidence obligation remain required. Engineering confirmation records its authenticated coordinator, not a fictitious operator. Historical pins retain their operator requirements.
+For definitions declaring `approval_policy=consequence_v1`, CD-0013 D11 qualifies the operator-authored contract and operator-confirmed premise requirements. A valid contract, current-version premise confirmation, independent evaluation, and every outcome/evidence obligation remain required. Engineering confirmation records its authenticated coordinator, not a fictitious operator. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: no historical pins are retained, and identities active work needs derive at the integration boundary.
 
 
 ### D1. The outcome contract has three parts with three revision authorities
@@ -83,7 +85,7 @@ part has a different mutability rule, and separating them is the point.
 |---|---|---|---|
 | **Premise** | Why this work exists, in the operator's terms. Durable. | Operator only | Not an edit. A changed premise supersedes the item with a successor. |
 | **Required end-state** | One or more falsifiable postconditions over the world after delivery, carrying the operative verb. | Operator only, at approval | Not an edit. See D6. |
-| **Candidate set** | The specific instances the end-state ranges over. | The executing agent, during execution | Appends an event. Premise and required end-state are untouched and no re-approval occurs. |
+| **Candidate set** | The specific instances the end-state ranges over. | The executing agent, during execution | Records a revision in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Premise and required end-state are untouched and no re-approval occurs. |
 
 The candidate set is deliberately the mutable part. R5 §5.1 shows that a contract which
 forbids in-place revision of the instance list converts a recoverable framing error into a
@@ -95,9 +97,10 @@ R5 §4.1 records that no established practice enforces this split. It is Concord
 adopted because the counter-evidence requires it, and it is not adopted consensus. Two
 further choices inside D1 are Concord design decisions that R5 does **not** establish:
 vesting candidate-set revision in the executing agent rather than the operator, and
-recording that revision as an appended event rather than as a re-approval. Both follow from
-D6's requirement that revision be visible without being obstructive, and from PM3's event
-authority. They are stated here as design, not as findings.
+recording that revision as a current-row change rather than as a re-approval. Both follow from
+D6's requirement that revision be visible without being obstructive; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+governs: each mutation writes current rows in one transaction, not an appended event. They
+are stated here as design, not as findings.
 
 ### D2. The end-state mandate is approved at planning, beside the spec mandate
 
@@ -337,8 +340,8 @@ follow the existing corpus conventions; this decision does not itself modify
 5. A delivery asserting a stronger end-state than approved is accepted (D3).
 6. An absence end-state over a named ground-truth surface is satisfied by removal and
    refused when the subject is relocated rather than removed (D3, D5).
-7. Candidate-set revision during execution succeeds without re-approval, appends an event,
-   and leaves premise and required end-state byte-identical (D1).
+7. Candidate-set revision during execution succeeds without re-approval, records its revision in one
+    transaction, and leaves premise and required end-state byte-identical (D1, CD-0242 D2).
 8. Premise revision is refused as an in-place edit and is representable only as
    supersession with a successor item (D1).
 9. An execution-time write to the approved required end-state is refused rather than
@@ -375,9 +378,9 @@ These are named rather than silently decided by implication.
 1. **Predicate representation.** Whether an end-state assertion is a typed structure, a
    named executable check, or a bounded expression language. D3 requires only that two
    assertions be comparable for strength.
-2. **Event and projection shape.** Which domain events carry contract approval, candidate-set
-   revision, and outcome verdict, and whether a typed projection is warranted. Bound by
-   CD-0002 and PM3; the one-transaction rule applies.
+2. **Storage shape.** How current rows record contract approval, candidate-set revision, and
+   outcome verdict ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each mutation writes current rows in one transaction;
+   no domain events exist).
 3. **Strength ordering for behavioral assertions.** Mechanical for existence and absence;
    open for richer assertions. Until resolved, comparison in ambiguous cases surfaces to
    the operator rather than defaulting to pass.

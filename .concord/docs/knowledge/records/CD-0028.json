@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:877ddfc6fd27ea8d94451ba06e2501ab6d267f2b9e668bce07b9f5177521424f",
+  "sha256": "sha256:f3225be867df90d1dac545970e739ec8f127af63baaa53551d59218e1148b78a",
   "status": "accepted",
   "summary": "Claims are durable records of intent on typed resource keys: work-item holders survive session death, contention refuses with coordination, terminal transition releases, and no authority is granted.",
   "tags": [

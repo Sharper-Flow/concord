@@ -8,6 +8,9 @@ relations with architecture-bound work contracts and overlap checks.
 **Amended:** 2026-10-17. Planning admits an explicit conflict only when
 `law_modifies` names the endpoint whose record declares it, because only that
 record can withdraw the declaration.
+**Amended:** 2026-10-21. [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 amends
+the event vocabulary in §Decision: the store keeps current rows, and no domain
+event exists.
 
 ## Decision
 
@@ -73,9 +76,9 @@ two sources hold it, and names the resolving source's repository in the law
 context. A source-qualified `<project_id>/<law_id>` reference resolves only
 through that Project's canonical knowledge locator.
 
-Heuristics may suggest conflicts in memory or UI, but they never persist rows,
-events, or blocking decisions. Concord adds no runtime policy engine, LegalRuleML
-dependency, law-authoring domain event, or agent tool.
+Heuristics may suggest conflicts in memory or UI, but they never persist rows
+or blocking decisions. Concord adds no runtime policy engine, LegalRuleML
+dependency, law-authoring store write, or agent tool ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no domain event exists).
 
 ## Consequences
 

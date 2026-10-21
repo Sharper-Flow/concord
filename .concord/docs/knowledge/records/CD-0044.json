@@ -22,9 +22,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f71fca24868947d6e8042dc9fcb01bbd89051ba893d9e90aaa79f163a39df0e6",
+  "sha256": "sha256:a453ba9adb828a00332cc20fe79f3cb5a07da77b792e6b753bfbba59fd52253d",
   "status": "accepted",
-  "summary": "Worker-evidence CLI writes carry a signed worker-evidence-v1 assertion bound to the exact attempt, lane, readback, and provenance identity; the nonce is consumed in the appending transaction, worker_evidence is client-policy authority no grant can carry, terminal attempts refuse further evidence, and the recorded actor is a verified client.",
+  "summary": "Worker-evidence CLI writes carry a signed worker-evidence-v1 assertion bound to the exact attempt, lane, readback, and provenance identity; the nonce is consumed in the evidence transaction, worker_evidence is client-policy authority no grant can carry, terminal attempts refuse further evidence, and the recorded actor is a verified client.",
   "tags": [
     "typed-workers",
     "authority",

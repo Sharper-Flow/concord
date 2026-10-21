@@ -12,6 +12,7 @@
 - **Preserves:** CD-0222 D2-D3 and CD-0062 D1-D2/D4-D5
 - **Supersedes:** The requirement to migrate schema 1.0 or 1.1 knowledge
   manifests and the transient undecided-root marker
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — no upcaster exists.
 
 ## Context
 
@@ -49,10 +50,8 @@ repository surface.
 and validator branch are removed. Concord does not add a flag, compatibility
 shim, startup migration, or operator command for schema 1.0 or 1.1 manifests.
 
-This decision amends CD-0222 D9.2 by ending its legacy-manifest upcast. It also
-amends CD-0062 D3 by ending the undecided-marker rule that existed only for that
-upcast. Those clauses remain historical statements of the accepted design at
-their dates. They no longer govern current behavior.
+This decision amends CD-0222 D9.2 and CD-0062 D3: no legacy-manifest upcast
+exists ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no upcaster exists), and no undecided-root marker remains.
 
 ### D3. Root-home rationale validation remains current law
 
@@ -74,7 +73,7 @@ continues through the SQLite projection for PM1.Q10 as CD-0062 D4 requires.
 ## Rejected alternatives
 
 **Wire the migration during store open.** Rejected because the Product has no
-released compatibility cohort and no current input that needs the upcast.
+released compatibility cohort and no upcast exists ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 **Expose an operator migration command.** Rejected for the same reason. A new
 surface would make obsolete repository history into a supported runtime case.

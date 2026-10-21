@@ -9,9 +9,11 @@
 - **Related:** CD-0018 (relation-kind declaration precedent), CD-0222
   (architecture bindings own the work-to-Domain dimension),
   [`workflow-engine-contract.md`](../workflow-engine-contract.md)
-- **Preserves:** the closed relation vocabulary in the fold grammar, the
-  schema CHECKs, and the agent-facing payload enum; the cycle exemption
+- **Preserves:** the closed relation vocabulary in the schema CHECKs and the
+  agent-facing payload enum; the cycle exemption
+  ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the vocabulary binds current-row writes; no fold grammar exists)
 - **Supersedes:** nothing; gives undefined vocabulary its first semantics
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 
 ## Context
 

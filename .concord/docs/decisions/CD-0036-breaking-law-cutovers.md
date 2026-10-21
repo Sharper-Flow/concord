@@ -93,7 +93,7 @@ contract is stale.
 
 ### D5. Linearizable boundary and deterministic history
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: contract approval records its law-revision pins as current rows in one transaction; no approval event, folding, or replay exists.
+Live contract approval validates current Git-derived laws and captures their revision pins as current rows in the same SQLite transaction; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no approval event, folding, or replay exists.
 
 Every later mutating preflight compares the active contract with the current
 law projection inside its owning `BEGIN IMMEDIATE` transaction. A cutover and a

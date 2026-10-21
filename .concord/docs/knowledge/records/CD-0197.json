@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:01c209adbe94eac1a214e4298fd1dbff0bd623707b3d0bbccaf8880e130f7d5c",
+  "sha256": "sha256:3c462950b4c01fbec115a9eeb0617d88a2bf5785d75f03b949390a642553b607",
   "status": "accepted",
   "summary": "A dispatch-pinned review report carries ship or no_ship and up to 64 ranked findings with closed severity and confidence. Oracle-bound findings classify delivery blockers, uncovered cases, follow-ups, and oracle defects, with source bindings and canonical event-sequence/ordinal lineage. Closed resolution claims name finding IDs and qualifying evidence. Ship refuses P0 or classified blockers; an outside-scope P0 follow-up remains retained no_ship without becoming repair debt. Recorded terminal results stay as recorded; no payload version, upcast, or replay reinterprets them. The shared context exposes reported content without granting workflow verdict or acceptance authority.",
   "tags": [

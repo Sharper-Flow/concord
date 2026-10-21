@@ -461,7 +461,7 @@ host identity.
 Existing attempt and terminal-record reads expose attribution with its source
 version. An attribution absence reads as an explicit unavailable origin. That
 origin is separate from completion evidence origin. No read invents a job,
-subject, source, or cause; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded facts stay as recorded. Admission validates the same retained structural joins without current-host reads.
+subject, source, or cause; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no upcaster or fold exists. Admission validates the same retained structural joins without current-host reads.
 
 ## Alternatives considered
 

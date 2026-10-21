@@ -90,9 +90,8 @@ between them. Parts and compositions are Go values in the registry, not a
 workflow language. A new size, family, or kind is a new composition and adds
 no step code.
 
-The registry compiles each composition to the canonical definition that
-CD-0013 D1 lists and computes the digest from the compiled definition. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: no released definition version or pin is retained for history. This amends CD-0013 D1: the
-source of a definition is its composition, and the fields D1 lists are its
+The registry compiles each composition to its canonical definition and computes the digest from the compiled definition. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: no released definition version or pin is retained for history. The
+source of a definition is its composition, and the canonical definition is its
 compiled result.
 
 This amends CD-0006 D3. Workflow types are compositions of shared parts, not

@@ -95,7 +95,7 @@ manufacturing one.
 
 Oracle enforcement joins the attempt's dispatched job revision, not the
 current definition. Historical reports retain their recorded content and
-requirements; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded facts stay as recorded, and no upcast fabricates a tie, receipt, or closure.
+requirements; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no upcaster exists, so nothing fabricates a tie, receipt, or closure.
 
 ### D4. The verdict couplings are structural
 
@@ -170,7 +170,7 @@ in-flight attempt completes under its recorded dispatch requirements.
 Scenario: A review completion carries the typed block
   Given a dispatched review attempt
   When the coordinator records a completion that carries a valid review block
-  Then the attempt completes and the block stays durable in the event payload
+  Then the attempt completes and the block stays durable in the recorded completion
 
 Scenario: A review completion without the block is not a completion
   Given a dispatched review attempt
@@ -201,7 +201,7 @@ Scenario: The adapter refuses at admission and the summary carries typed counts
 - `go test ./internal/store/ -run TestReviewLaneCompletionRequiresTheTypedReviewBlock` proves the first and second scenarios.
 - `go test ./internal/store/ -run TestReviewLaneCompletionRefusesAFreeTextSeverityEntryBesideTheBlock` proves the fourth scenario's refusal half; the implementing change binds the current-state anchor for stored completions, which read back unchanged with no fold or replay (CD-0242 D2).
 - `go test ./internal/store/ -run TestWorkerCompletionReviewBlockShapeIsClosed` proves the verdict couplings and the closed scales at the store boundary.
-- `go test ./internal/store/ -run TestLegacyReviewLaneDigestCompletesWithTheRequiredBlock` proves the pre-CD-0197 dispatch identity still completes, answering to its recorded dispatch requirements; the implementing change binds the current-state anchor: no payload version, upcast, or replay reinterprets a recorded terminal result (CD-0242 D2).
+- `go test ./internal/store/ -run TestLegacyReviewLaneDigestCompletesWithTheRequiredBlock` proves the pre-CD-0197 dispatch identity still completes, answering to its recorded dispatch requirements.
 - `bun test adapter/opencode/dispatch.test.ts` proves the adapter refusals and the typed ride-through.
 - `bun test adapter/opencode/lane_completion.test.ts` proves the attempt summary carries the verdict and the per-severity counts.
 - `python3 scripts/generate-agent-lanes.py --check` proves the generated Go, TypeScript, docs, and lane prompts carry the requirement.

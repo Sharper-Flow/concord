@@ -25,7 +25,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:00c998a74d9b6bbe52be2318b578c4c90cc397d8672c4116af1f04a90749d38d",
+  "sha256": "sha256:f26e4f26e0f17c71f1a7170893c1d28072c5e779e2a074d5772669c34ecfd729",
   "status": "accepted",
   "summary": "Law revision identity is the law ID and content hash; same-ID amendments remain compatible, while an accepted superseding law strictly quiesces old workflow consumers until recovery.",
   "tags": [

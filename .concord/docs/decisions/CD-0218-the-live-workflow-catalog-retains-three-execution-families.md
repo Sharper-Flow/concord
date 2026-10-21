@@ -2,7 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-09
-- **Scope:** Live workflow catalog, typed authoring, and authorized cutover.
+- **Scope:** Live workflow catalog, typed authoring, and authorized cutover. No
+  live migration or release activation is authorized.
 - **Classification:** Breaking replacement under CD-0036 D2
 - **Planning record:** [Concord (CON) issue 902](https://linear.app/sharper-flow/issue/CON-902/delete-redundant-workflow-ceremony-retain-minimal-authorized-agent)
 - **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D13, D14
@@ -13,8 +14,7 @@
   activate a release.
 - **Candidate supersession set:** CD-0007, CD-0012, CD-0013, CD-0039,
   CD-0077, CD-0115, CD-0156, CD-0198. This set comes from the approved design;
-  its current successor identities resolve through
-  [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md).
+  the D5 owner must resolve its current successor identities before cutover.
 - **Amends:** CD-0115, which
   [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
   supersedes in full;
@@ -320,7 +320,7 @@ set at the D5 boundary.
   The last two refuse the disposed lane's checkpoint and, after the next dispatch
   re-pins a lane, the former disposer's checkpoint.
 
-Retained research failure derivation and recovery are covered by
+Retained research failure derivation is covered by
 `internal/store.TestResearchDerivedFailureRetriesAndRebuilds`.
 These runtime witnesses establish enforcement, not live consumer disposition,
 supersession publication or release activation. D5 still governs those operator actions.

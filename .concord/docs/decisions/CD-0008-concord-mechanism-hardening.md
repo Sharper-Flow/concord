@@ -159,7 +159,7 @@ Examples:
 
 - [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: corrupted rows recover through a verified snapshot restore plus reconciliation of current rows; no fold, replay, or rebuild exists.
 - An unreadable current row contributes unknown and carries a typed quarantine diagnostic; it never silently blocks or clears a safety conclusion.
-- [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded rows stay as recorded, and snapshot cleanup never removes the newest verified snapshot or one an unfinished recovery needs.
+- [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: snapshot cleanup never removes the newest verified snapshot or one an unfinished recovery needs.
 - Distinguish corrupted storage from an unreadable row or schema skew; both fail closed for safety conclusions.
 - Repair follows reconcile → repair/compensate → verified snapshot restore → operator escalation. Redrive is operator-triggered, recorded, and retry-bounded.
 

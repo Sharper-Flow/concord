@@ -146,13 +146,12 @@ under P12.
 
 ### D5. The operator approves only at the operator's boundaries
 
-An operator approval point belongs to one of five classes, or is a listed gap:
+An operator approval point belongs to one of four classes, or is a listed gap:
 
 - a change that affects UI/UX, which waits for the operator's review and
-  acceptance (rule U);
-- a change under rule U that needs the operator's approval of a development
-  preview of the final candidate before it is pushed to a shared remote or
-  merged ([CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication));
+  acceptance (rule U), including approval of a development preview of the
+  final candidate before it is pushed to a shared remote or merged
+  ([CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication));
 - a product or preference decision, including a governed scope cut;
 - a serious law change under D4;
 - a destructive action on Concord-owned state that has a verified recovery
@@ -214,7 +213,7 @@ the D6 label duty as a gap.
 - Keep operator approval for every law change. R3 replaces that rule.
 - Treat every change to a `legislated` record as serious. That adds a fifth
   test P12 does not hold.
-- Reclassify every operator approval point outside the five classes at once,
+- Reclassify every operator approval point outside the four classes at once,
   without amending the records that hold them. An unnamed amendment cannot be
   checked, and it would remove approvals no review has seen.
 - Keep the follow-up ledger in the store. CD-0213 keeps planning facts in
@@ -232,7 +231,7 @@ test alone; the other three tests and the `crucial`-size rule still apply.
 A record the operator legislated becomes `derived` when an agent revises it
 without operator approval, so its standing shows who last enacted it.
 
-Operator approval points outside the five D5 classes stay in force as listed
+Operator approval points outside the four D5 classes stay in force as listed
 gaps. Each becomes an agent or coordinator decision only when a later change
 amends the record that holds it.
 
@@ -264,5 +263,5 @@ Every change to `goals.md` moves its content hash, so the change that edits
   change at `crucial` size requires approval, and that a governed scope cut
   requires it at every size.
 - `go test ./internal/store` must prove that each operator approval point
-  carries one of the five D5 classes or stays an operator approval as a listed
+  carries one of the four D5 classes or stays an operator approval as a listed
   gap, and that a conflict record names its rule ID, size, and outcome.

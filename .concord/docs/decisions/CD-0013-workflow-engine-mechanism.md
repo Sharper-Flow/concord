@@ -26,7 +26,7 @@ outcome-contract acceptance criterion 3 (vacuity is judged at review); and
 [CD-0238](CD-0238-point-in-time-reconstruction-runs-outside-the-core.md) amends D13's
 `ReconstructSubjectAt` paragraph and acceptance criterion 36 (point-in-time
 reconstruction runs outside the core).
-**Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
+**Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D11, D13, D14
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/28>
 **Historical surface note:** CD-0042 supersedes the pre-go-live agent-surface
 version, negotiation, migration, and deprecation requirements described in D11.
@@ -183,7 +183,7 @@ without making operator evaluation of agent-run work impossible.
 - Approvals use the existing `ApprovalCheck{OperationDigest, Scope, Versions,
   Consequence}` chain with `Consequence=workflow_action` already reserved in the
   schema.
-- External conditions use current condition rows (D2); [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: workflow state is current rows, not event-folded projections. No
+- External conditions use current condition rows (D2). No
   resolver exists in the runtime today; the engine must add one bound to the closed
   `await_type` set — `pr_merge`, `ci_result`, `timer`, `human_approval`,
   `remote_work_state` — where resolution is an attributable record carrying the
@@ -384,9 +384,8 @@ The implementation acceptance suite must exercise:
 11. End-state supersession re-enters planning and records an audit shape matching
     `specs-as-laws.md` §6.
 12. The executing agent cannot author, replace, or disable its own end-state check.
-13. Implement cannot accept its own result (CD-0242 D5): completion records
-    verdicts through the loop's review acceptance, and a completion whose
-    required verdict evidence is missing is refused.
+13. A completion verdict whose actor equals the executing actor is refused; a
+    verdict with no actor is refused.
 14. A delivery route relying on an undeclared convention is refused at approval.
 15. The lowest maturity × audience band still requires an approved contract; only
     proof depth differs.

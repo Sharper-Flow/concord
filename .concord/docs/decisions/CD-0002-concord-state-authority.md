@@ -12,7 +12,7 @@
 > - [`CD-0215-retained-research-context.md`](./CD-0215-retained-research-context.md) (2026-10-09) keeps the sole narrow direct-table exception for research context, retained until explicit retirement.
 > - [`CD-0011-retain-sqlite-after-conformance.md`](./CD-0011-retain-sqlite-after-conformance.md) (2026-08-07) records the post-falsifier review and retains SQLite with explicit future reopen conditions.
 > - [`CD-0238-point-in-time-reconstruction-runs-outside-the-core.md`](./CD-0238-point-in-time-reconstruction-runs-outside-the-core.md) (2026-10-18) moves point-in-time reconstruction out of the core, onto the operator's machine.
-> - **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D1, D2
+> - **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D1, D2, D9, D11, D13, D14
 > **Decided:** 2026-08-05 (operator decision D1, reopened under the simplicity mandate).
 > **Confirmed by operator:** 2026-08-05, as the *revised* set following stack re-validation (see §2a). The re-validation reversed an earlier single-writer-daemon recommendation to library-in-process.
 > **Resolves:** [`../core-architecture.md`](../core-architecture.md) §2; [`../design-constraints.md`](../design-constraints.md) research backlog #8; [`../clarifications.md`](../clarifications.md) C2.
@@ -91,7 +91,7 @@ SQLite single-authority won; the reasoning, condensed:
   deterministic-replay guarantee is meaningful only for steps that can be
   re-executed identically. Concord's workflow steps are LLM calls (non-deterministic
   Activities). Once steps can't replay, replay's value reduces to
-  checkpoint-and-resume. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: resumption works from current state and finite snapshots, with no event log or replay.
+  checkpoint-and-resume. [CD-0242 D11](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d11-a-fresh-session-resumes-from-current-state) governs: resumption works from current state and finite snapshots, with no event log or replay.
 - **The scale does not warrant a workflow engine.** ~50 concurrent state machines,
   one operator, one machine. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: one transaction per mutation over current rows is the entire mechanism. No worker pool, no task queue, no
   server process, no version pinning.
@@ -153,10 +153,7 @@ decision:
 
 ## 2c. Storage tiers and the archive lifecycle
 
-Concord has **four tiers**. The first two are authoritative for disjoint live fact
-types; neither duplicates the other:
-
-[CD-0242 D1](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d1-each-kind-of-state-has-one-owner) governs the tiers: the local SQLite store owns current state and research, the Git knowledge home owns durable knowledge, the worktree owns code progress, and process exhaust is not stored.
+[CD-0242 D1](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d1-each-kind-of-state-has-one-owner) governs the tiers: Linear owns planning, the Git knowledge home owns durable knowledge and completion receipts, the SQLite store owns current state and research, an execution's artifact directory owns its working evidence, and the worktree owns code progress.
 
 **Archival is a compaction, not a serialization dump.** On reaching terminal state,
 an entity's outcome is distilled into **one human-readable markdown note**
@@ -180,7 +177,7 @@ then deletes the complete active pack only after Git/linkage proof.
 3. **No duplication with SQLite.** A fact is operational (SQLite, while in-flight) or
    durable knowledge (git, after terminal) — never both as competing copies.
 4. **Process exhaust is not archived.** Sub-agent reports, briefing digests, and
-   traceability artifacts remain producer-owned; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: a category of state without a consumer is not stored, so accepted PM9 retains no separate receipt.
+   traceability artifacts remain producer-owned; [CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication) governs: closure publishes one concise completion receipt in the canonical knowledge home.
 5. **Greppable.** An agent must be able to answer "have we solved this before?" by
    searching the durable tier.
 
@@ -327,10 +324,10 @@ and membership scope. PM1–PM5 now authorize storage/core implementation.
 
 ## 7. Deferred questions now resolved
 
-- **Migrations / schema evolution — resolved by CD-0008 D6 (2026-08-06), now amended:** [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) governs: the cutover is one documented migration with a verified snapshot, and [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: derived definitions generate from one source with no retained history.
+- **Migrations / schema evolution — resolved by CD-0008 D6 (2026-08-06):** [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) governs: the cutover is one documented migration with a verified snapshot, and [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: derived definitions generate from one source with no retained history.
 
 **Now closed by CD-0003 + PM3 (2026-08-05):** invocation boundary (short-lived
-CLI), SQLite binding ([`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)), generic event authority, and explicit
+CLI), SQLite binding ([`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)), and explicit
 typed Product-memory projection shape. See
 [`CD-0003-concord-storage-layer-shape.md`](./CD-0003-concord-storage-layer-shape.md)
 and [`../product-memory-domain-schema.md`](../product-memory-domain-schema.md).

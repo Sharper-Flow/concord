@@ -110,6 +110,5 @@ list. It preserves historical definition digests and all prior attempt records.
 - Forged pairs, prior dispositions, and closed rejection intervals refuse without a durable effect.
 - A stale result cannot advance, and an earlier review cannot bypass an unconsumed rejection correction.
 - Work-pin admission, single-result rejection, and human-checkpoint protections
-  retain the same disposition boundaries; the implementing change binds the
-  current-state anchor (CD-0242 D2).
+  retain the same disposition boundaries.
 - `TestOwnerOracleConvergence`, `TestOwnerOracleRequestOpenFindingsComparison`, and `TestOwnerOracleEmptyDerivedSetEquality` cover exact correction sets and supported shrinkage.

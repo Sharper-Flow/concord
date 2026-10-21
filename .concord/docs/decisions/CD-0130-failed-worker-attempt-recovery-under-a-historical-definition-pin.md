@@ -29,7 +29,7 @@ pin. Failed attempt closure is an engine concern, not a change to step policy.
 
 ### D2. Recovery uses the current action contract
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recovery works from current rows and verified snapshots, not from a retained historical version.
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: closing a failed attempt uses the current action contract and current rows, not a retained historical definition version.
 
 ### D3. Released definition pins stay unchanged
 

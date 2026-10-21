@@ -12,7 +12,7 @@
 - **Approval:** The operator approved this route on 2026-10-09 under CON-801.
   The decision cancels CON-35 and CON-501 and rejects repair of the Concord
   planning mirror.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D13
 
 ## Context
 
@@ -92,7 +92,7 @@ server.
   second planning copy.
 - Keep a local-only mode for Products without Linear. This keeps the full
   planning store for one route that no current Product uses.
-- Rewrite retired planning records in place. Rejected: [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded facts stay as recorded, and the one documented cutover migration, not an in-place rewrite, retires old tables.
+- Rewrite retired planning records in place. Rejected: [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) governs: the one documented cutover migration, not an in-place rewrite, retires old tables.
 
 ## Consequences
 
@@ -109,8 +109,7 @@ server.
 - `internal/agent.TestDispatchIssueLinkRecordStoresReportedIdentity` exercises
   D3's record-only issue identity through the public dispatch boundary.
 - The implementing change binds the current-state anchor: retired planning
-  records carry no Initiative behavior, and new planning writes refuse
-  (CD-0242 D2). Until that change lands,
+  records carry no Initiative behavior (CD-0242 D2). Until that change lands,
   `python3 scripts/check-knowledge-index.py` is the executable anchor for this
   record's law registration.
 - `python3 scripts/check-law-coverage.py` resolves the coverage shard's typed

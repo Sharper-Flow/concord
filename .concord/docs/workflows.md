@@ -4,6 +4,7 @@
 > [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)
 > and
 > [CD-0229](./decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md).
+> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D4, D6, and D14:** definitions are generated from one canonical source, and the store keeps current state and finite snapshots.
 > Companion to [`README.md`](./README.md),
 > [`feature-inventory.md`](./feature-inventory.md),
 > [`specs-as-laws.md`](./specs-as-laws.md),
@@ -18,10 +19,11 @@
 
 The live workflow catalog retains three execution families for new work
 (CD-0218 D1; §4). A workflow definition is a composition of shared parts, and a
-programmed decision model sets each work item's size (§7; CD-0229). Every
-released definition stays exact frozen history, and live supersession or
-release activation happens only at the operator-owned cutover boundary
-(CD-0218 D4, D5).
+programmed decision model sets each work item's size (§7; CD-0229). Definitions
+are generated from one canonical source, and no released workflow-definition
+version, pin, or catalog list is retained for history (CD-0242 D14). The cutover
+is one documented migration with a verified snapshot and the operator's approval
+of its destructive operation (CD-0242 D13).
 
 The primary operator interacts through host-started agent sessions: the
 operator starts each session, and agents enter managed work through
@@ -55,18 +57,19 @@ follows them without restating them.
 
 ## 1. The shift: from one workflow to a plurality
 
-Concord owns durable progression, branching, retries, evidence, and recovery
-across its workflow families. Native systems still execute git, CI, cloud,
+Concord owns durable progression, branching, attempts, evidence, and recovery
+across its workflow families; each launch is one admitted attempt with its own
+authority (CD-0242 D6). Native systems still execute git, CI, cloud,
 database, and other external effects. Arbitrary inline workflow languages are
 out of scope.
 
 - **Families:** new execution selects one of three retained families; a
   retired ref refuses before any capture or contract write (CD-0218 D1).
   §4 lists them.
-- **Frozen history:** every released definition keeps its original ref,
-  version, digest, graph, action payloads, and recovery data. No upcaster
-  converts a family, and lookup of a historical pin does not make it eligible
-  for new capture or dispatch (CD-0218 D4).
+- **Generated definitions:** definitions are generated from one canonical
+  source, and no released workflow-definition version, pin, or catalog list is
+  retained for history (CD-0242 D14). No event log, fold, upcaster, or replay
+  exists; the store keeps current state and finite snapshots (CD-0242 D2).
 
 ---
 
@@ -199,8 +202,8 @@ matures into a break-fix workflow, which may become an implementation change.
 
 | Family | Captures | Shape |
 |---|---|---|
-| **`workflow.implementation`** | Tasks default here | Composes shared parts at the size the decision model sets: `small` walks define, implement, review, and ship; `larger` adds research, architect, and refine; `crucial` adds repeated implement steps and repeats review and refine (CD-0229 D5). The outcome contract, independent acceptance, and closure hold at every size. |
-| **`workflow.break_fix`** | Bugs default here | One typed diagnosis with required reproduction, backlog-search, and root-cause sections, then repair, the mandatory refine pass, and verification (CD-0218 D2; CD-0138 D1). |
+| **`workflow.implementation`** | Tasks default here | Composes shared parts at the size the decision model sets: `small` walks define, implement, review, and ship; `larger` adds research, architect, and refine; `crucial` adds repeated implement steps and repeats review and refine (CD-0229 D5; CD-0242 D4). The outcome contract, independent acceptance, and closure hold at every size. |
+| **`workflow.break_fix`** | Bugs default here | One typed diagnosis with required reproduction, backlog-search, and root-cause sections, then repair, the mandatory refine pass, and verification (CD-0242 D4; CD-0138 D1). |
 | **`workflow.research`** | Research defaults here | Records findings, conclusions, and recommendations; may conclude `no_change`; outcome predicates only (CD-0218 D1). [CD-0215](./decisions/CD-0215-retained-research-context.md) owns the research-pack capability. |
 
 The retired families — `architecture_spike`, `ops_runbook`, `static_analysis`,
@@ -257,14 +260,18 @@ status.
    waiting (CD-0006 R1).
 2. **Composition inside a definition:** a definition is a declared composition
    of shared parts at pinned part versions; each step is defined in exactly
-   one part, and a variant need is a part parameter, never a copy. A change to
-   a part is a new part version, and a released composition keeps compiling to
-   its released bytes and digest (CD-0229 D1–D3).
+   one part, and a variant need is a part parameter, never a copy (CD-0229
+   D1, D2). A change to a part is a new part version, and each composition
+   compiles to its canonical definition from the one source, with no released
+   definition version retained for history (CD-0229 D2; CD-0242 D14).
 3. **Size:** one programmed, versioned decision model sets `small`, `larger`,
-   or `crucial` from the recorded inputs; only the model and the operator
-   change a size; the size selects the composition and its least proof
-   (CD-0229 D4–D6). A sized workflow records its define start and its
-   merge-queue entry (CD-0229 D7).
+   or `crucial` from the recorded inputs; the size selects the composition,
+   and rules derived from change type and risk set its mandatory stages
+   (CD-0229 D4, D5; CD-0242 D4). A task that proves bigger than its size
+   reruns the model, adds the newly required steps, and continues without
+   redoing completed work; no production-line cap, size measurement, or
+   mandatory split applies (CD-0242 D6). A sized workflow records its define
+   start and its merge-queue entry (CD-0229 D7).
 
 ---
 
@@ -273,15 +280,15 @@ status.
 | Doc | Link |
 |---|---|
 | `feature-inventory.md` §3.13 | The capability entry. |
-| [`architecture-spike.md`](./architecture-spike.md) | Historical model of the retired `architecture_spike` family; retained pins stay exact frozen history (CD-0218 D4). |
+| [`architecture-spike.md`](./architecture-spike.md) | Historical model of the retired `architecture_spike` family; retired families select no new execution (CD-0218 D1), and definitions are generated from one canonical source with no retained pins (CD-0242 D14). |
 | `product-data-model.md` §6 | Product → Domain navigation. |
 | `specs-as-laws.md` | Workflow evolution couples to spec evolution. |
-| `design-constraints.md` §3 | Workflow evolution constraints; composition changes release through new part and definition versions (§7; CD-0229 D3). |
-| [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) | The three retained execution families, frozen-history guarantees, and the cutover boundary. |
+| `design-constraints.md` §3 | Workflow evolution constraints; a composition change is a new part version compiled from the one canonical source (§7; CD-0229 D2; CD-0242 D14). |
+| [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) | The three retained execution families (CD-0218 D1); the store keeps current state, and the cutover is one documented migration (CD-0242 D2, D13). |
 | [CD-0229](./decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md) | Shared-part composition and the size decision model. |
 
 ---
 
 *New execution runs in one of the three retained families (§4), composed from
-shared parts at the size the decision model sets (§7); released history stays
-exact (CD-0218 D4).*
+shared parts at the size the decision model sets (§7); definitions are
+generated from one canonical source (CD-0242 D14).*

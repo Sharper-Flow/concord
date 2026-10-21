@@ -6,7 +6,7 @@
 - **Related:** CD-0008, CD-0017, CD-0027, CD-0112, CD-0113, CD-0130, CD-0133, CD-0148, CD-0193, CD-0205
 - **Preserves:** Approved contracts, immutable attempt history, and fail-closed completion
 - **Approval:** The Snowball coordinator approved this law change on 2026-10-16 under the operator's delegation.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D6
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D6, D7
 
 ## Context
 
@@ -30,8 +30,7 @@ attempt what failed or prevent reuse of the same attempt identity.
 
 ### D4. Preserve historical pins
 
-The rejection route is a recovery action outside the pinned definition action
-list. It preserves historical definition digests and all prior attempt records.
+[CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it) governs: prior attempt records and definition pins stay true of their earlier subject and authorize nothing about a later attempt, and a correction invalidates only records that depended on what it changed. The rejection route remains a recovery action outside the pinned definition action list.
 
 ## Verification
 

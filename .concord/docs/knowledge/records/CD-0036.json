@@ -25,9 +25,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f26e4f26e0f17c71f1a7170893c1d28072c5e779e2a074d5772669c34ecfd729",
+  "sha256": "sha256:b11d693cf4416407834295e219d53cdcca1699a1837fa14e74f2917cb48ace87",
   "status": "accepted",
-  "summary": "Law revision identity is the law ID and content hash; same-ID amendments remain compatible, while an accepted superseding law strictly quiesces old workflow consumers until recovery.",
+  "summary": "Contract approval pins the content digests of the law revisions the contract depends on, and it is stale exactly when one of those digests changes; a compatible amendment keeps the law ID and states the new rule in place, while a breaking supersession marks stale exactly the contracts that consumed the superseded revision until recovery.",
   "tags": [
     "workflow",
     "law",

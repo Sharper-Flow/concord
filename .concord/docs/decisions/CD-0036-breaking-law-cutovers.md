@@ -8,7 +8,7 @@
 - **Related:** CD-0006 D5/D10/R3, CD-0012, CD-0013, CD-0015,
   CD-0016, CD-0027, CD-0033
 - **Supersedes:** nothing; amends CD-0015's law-boundary contract
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D7, D10
 
 ## Context
 
@@ -24,47 +24,20 @@ workflow authority without claiming it killed or controlled the host process.
 
 ## Decision
 
-Routine contract supersession under CD-0013 D11 does not require a consent prompt and does not enact a law revision. Actual law changes follow CD-0230 D4; breaking-cutover authorization, strict quiescence, migration fencing, and compatibility floors remain separate obligations. Historical contract pins retain their original approval rule.
+Routine contract supersession under CD-0013 D11 does not require a consent prompt and does not enact a law revision. Actual law changes follow CD-0230 D4; breaking-cutover authorization, digest staleness, migration fencing, and compatibility floors remain separate obligations. Historical contract pins retain their original approval rule.
 
 
 ### D1. Law revision identity
 
-The immutable revision identity is `(law_id, content_hash)`. `content_hash` is
-the manifest-authored SHA-256 proof of the law blob. The scanned Git commit stays
-audit context, not identity, because an unrelated commit changes it.
-
-Every new law-aware workflow contract records exactly one revision pin for each
-ID in its `spec_mandate`. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: contract-revision pins are current rows, so no event log or rebuildable projection exists; bounded reverse lookup reads current rows.
-
-Legacy contracts remain readable. They carry law IDs without revision pins and
-use the compatibility rules below.
+[CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it) governs: a contract pins the content digests of the law revisions it depends on and is stale exactly when one of those digests changes. Pins are captured at contract approval. Legacy contracts remain readable: they carry law IDs without revision pins and use the compatibility rules below.
 
 ### D2. Amendment and replacement have different identities
 
-A compatible amendment keeps the same stable law ID and publishes a new content
-hash. Existing consumers remain valid under their recorded revision; continuity
-may show that a newer compatible revision exists.
-
-A compatible amendment edits the owning record in place. Its body states the
-current rule without amendment dates, override instructions, or change history.
-Git history preserves earlier text. A new independent decision receives its own
-record. A breaking replacement follows the new-ID cutover below.
-
-A change that requires existing consumers to reconsider their contract is not a
-compatible amendment. It must publish a new law ID, mark the old record
-`superseded`, and declare the existing `supersedes` relation from the accepted
-successor to the old law. Every law supersession is therefore a breaking
-cutover. Rename, removal, or rewritten obligation never hides behind a same-ID
-overwrite when old consumers must stop.
-
-The operator makes this legislative choice through the Git delta. Agents may
-recommend a path but do not infer compatibility as workflow authority.
+[CD-0242 D10](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d10-knowledge-is-an-input-and-a-law-edit-changes-only-what-it-changes) governs: a compatible amendment keeps the law ID and states the new rule in place, and a law edit triggers reassessment only of the obligations whose meaning it changes. A change that requires existing consumers to reconsider their contract is not a compatible amendment: it publishes a new law ID, marks the old record `superseded`, and declares the existing `supersedes` relation, so every law supersession is a breaking cutover. The operator makes this legislative choice through the Git delta; agents may recommend a path but do not infer compatibility as workflow authority.
 
 ### D3. Strict quiescence
 
-Once the Git-derived law projection commits a supersession, every active
-workflow contract that consumes the old law is stale. No grandfather path
-exists.
+[CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it) and [CD-0242 D10](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d10-knowledge-is-an-input-and-a-law-edit-changes-only-what-it-changes) govern: a revision invalidates only records that depended on its changed digests, and a law edit triggers reassessment only of the obligations whose meaning it changed. A breaking supersession therefore marks stale exactly the active contracts that consumed the superseded revision; no grandfather path exists for them.
 
 The stale check runs inside the transaction that owns each authoritative
 workflow action. It blocks new execution claims, checkpoints, evidence binding,

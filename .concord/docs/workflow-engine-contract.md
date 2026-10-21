@@ -197,9 +197,7 @@ definition edge. A completed, cancelled, or superseded instance is immutable.
 Internal SQLite-only actions are one domain transaction.
 Cross-authority and external-effect actions claim an epoch in
 `durable_operations`, then record start, checkpoint, and result under the
-current epoch; [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-governs: each mutation writes current rows in one transaction checked by an
-expected version and recorded by its idempotency key.
+current epoch.
 
 ## 4. Event families
 
@@ -208,11 +206,15 @@ governs: the store keeps current state and finite snapshots, not an append-only
 workflow history; no workflow event log, upcaster, or replay exists. Each
 mutation writes current rows in one transaction checked by an expected version
 and recorded by its idempotency key. The names below identify the typed
-mutation records that §12.1 maps actions to; omitted and unknown keys are
+mutation records that the §12 action tables map actions to; omitted and unknown keys are
 refused. Only `CompleteWorkflowTxWithRegistry` records `workflow.completed`,
 after the ordered gate in §7; every other mutation route refuses it
 structurally. `workflow.staleness_observed` records an external observation
 and does not advance the work-item version.
+
+Every mutating workflow payload also carries `expected_version` and
+`resulting_version`, consecutive positive integers checked by the mutation;
+the rows below do not repeat this pair.
 
 `workflow.condition_cancelled` is the typed representation required by
 CD-0013 D10's “resolved or canceled” completion clause. It adds no await type

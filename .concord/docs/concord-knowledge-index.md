@@ -6,7 +6,11 @@ head shard [`knowledge/manifest.json`](./knowledge/manifest.json), the domain
 registry [`knowledge/domain-registry.json`](./knowledge/domain-registry.json),
 and one record shard per record under [`knowledge/records/`](./knowledge/records/) compose the
 manifest document (CD-0114); no committed file lists every record. The current
-schema is `1.3` and carries explicit authority tiers. The companion
+schema is `1.3` and carries explicit authority tiers.
+> **Amended by [CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** derived law
+> projections are rebuilt from Git in one transaction; no event log, fold, or
+> replay exists.
+The companion
 [`concord-knowledge-index.v1.schema.json`](../../contracts/concord-knowledge-index.v1.schema.json)
 is the closed JSON Schema contract.
 
@@ -101,7 +105,7 @@ Python or Go, composes the manifest document in memory:
 refreshes only `sha256` values in record shards.
 
 SQLite's `law_subjects` and `law_relations` tables are derived only by
-`RebuildKnowledgeIndex` for one home, inside the same transactional fold guard.
+`RebuildKnowledgeIndex` for one home, in one transaction.
 Failed validation or rollback leaves the previous derived law projection
 byte-identical. Workflow `spec_mandate` references these accepted subjects;
 bounded `law_modifies` explicitly enters the operator-approved amendment path.
@@ -115,7 +119,7 @@ reads; Q10 resolves a canonical work note. Consumers preserve `unread`,
 `authoritative-empty`, and `unavailable` as distinct states and do
 not create or update index records.
 
-This design does not weaken work-note compaction publication or fold guards.
+This design does not weaken work-note compaction publication or its transactional guards.
 
 Current workflow approvals also capture one `law_revisions` pin per mandated
 ID. The immutable identity is `(law_id, content_hash)`; scanned commit OIDs are

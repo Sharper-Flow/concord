@@ -39,7 +39,7 @@ deduplicate, retain, back up, or garbage-collect WIP logs, traces, screenshots, 
 output, recordings, or arbitrary binary files.
 
 WIP output is process exhaust owned by its producing tool or environment. It must not
-become a Concord domain event, durable evidence reference, external-file path record,
+become a Concord typed record, durable evidence reference, external-file path record,
 or a backup obligation merely because it exists. A failed task may still record a
 bounded outcome/error classification in normal Product-memory state; raw output is not
 required for that state to be valid.
@@ -113,9 +113,9 @@ promises**:
   ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)),
   which are the current post-hoc needs—not exact WIP byte replay.
 
-Except for section 1.1, the boundary is structural: Concord's v1 schema and domain-event registry contain no
+Except for section 1.1, the boundary is structural: Concord's v1 schema and typed record set contain no
 blob descriptor, evidence-reference, file-path, digest, content-addressed-store, or
-blob-lifecycle event. A workflow cannot accidentally make WIP output durable by adding
+blob-lifecycle record. A workflow cannot accidentally make WIP output durable by adding
 an optional metadata field.
 
 ## 3. Normal flow and failure handling
@@ -123,7 +123,7 @@ an optional metadata field.
 | Situation | Concord behavior | Not a Concord responsibility |
 |---|---|---|
 | generic test/build/log output | producer/CI retains or discards it under its own policy; section 1.1 alone owns native oracle streams | ingestion, hashing, mirroring, or backup beyond section 1.1 |
-| task fails | record only the bounded state/outcome needed by its owning Product-memory event | storing full command output as evidence |
+| task fails | record only the bounded state/outcome needed by its owning Product-memory record | storing full command output as evidence |
 | terminal compaction | PM6 note distills outcome, decision, lesson, and normal links | copying raw WIP files into git/SQLite |
 | compaction-retention-policy projection pruning | retains authoritative current rows and durable note/index behavior (CD-0242 D2) | preserving raw WIP bytes |
 | producer output disappears | surface only an external-link failure if a user tries to follow a normal link | recovery/substitution of a Concord-held blob |
@@ -173,7 +173,7 @@ not automatic retention of raw WIP bytes.
    output copy or generated evidence attachment.
 4. compaction-retention-policy prunes an eligible work projection while current state and the note/index
    remain valid without requiring any external blob.
-5. Schema and event-registry validation reject attempts to introduce blob descriptors,
+5. Schema and record validation reject attempts to introduce blob descriptors,
    content hashes, arbitrary filesystem paths, or raw output payloads through generic
    metadata.
 6. PM10 clean-machine restore succeeds with SQLite and canonical git authorities alone;
@@ -264,8 +264,8 @@ carries a typed exemption naming the structural proof. The checker
   (`internal/store/pm8_pm9_absence_test.go`), whose exhaustive binary large
   object (BLOB) column allow-list admits fixed-size authority material and only
   the two native stream columns in section 1.1.
-- Criterion 2 is proved by the same absence test's event-kind registry
-  sweep, which admits no exhaust-retention event, together with
+- Criterion 2 is proved by the same absence test's record-kind
+  sweep, which admits no exhaust-retention record, together with
   `TestRegressionDefect3_TerminalWithoutEvidenceReturnsMissingEvidence`
   (`internal/agent/agent_defects_regression_test.go`), which fixes the
   bounded terminal classification.

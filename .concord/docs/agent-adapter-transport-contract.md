@@ -9,6 +9,8 @@
 > **Does not decide:** TS7 result/error field layout, TS8 digest identity/change
 > evidence, TS9 pre-go-live measurements, adapter package/repository name, UI styling,
 > or C15.
+> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** every recorded
+> write is one current-row mutation; no event append exists.
 
 ## Context
 
@@ -52,7 +54,7 @@ decisions require. The continuity hook re-asserts core-derived state without
 approval, gating, or payload-validation
 authority, as [CD-0090 D1–D2](./decisions/CD-0090-per-turn-continuity-re-pin-hook.md#d1-runtime-hooks-and-authority-hooks-are-different-classes)
 requires. Every domain decision, scope resolution, authorization check, approval
-binding, expected-version check, idempotency decision, event append, recovery
+binding, expected-version check, idempotency decision, recorded write, recovery
 state, and result classification stays in the Go core.
 
 ## 2. Process and transport

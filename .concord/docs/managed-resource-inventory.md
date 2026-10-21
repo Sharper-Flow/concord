@@ -148,7 +148,7 @@ Later Product-stage changes do not silently rewrite the resource's recorded stag
 This deliberately narrows the earlier generic inheritance prose for managed
 resources: shared resources cannot inherit from several Products, and dynamic
 inheritance would make old evidence uninterpretable. Owner transfer also does not
-change stage; any stage change is a separate explicit appended action.
+change stage; any stage change is a separate explicit recorded action.
 
 CD-0006 R2 owns the accepted maturity/audience obligations. C15 supplies the single
 authoritative input and forbids a consumer Product from lowering it.

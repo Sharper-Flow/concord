@@ -14,7 +14,10 @@
 > requirements; PM9 rejects a separate process-exhaust receipt. **Does not decide:** PM10
 > backup/restore, C15 resources, agent tools, or exact implementation.
 > **Amended by CD-0222:** `domain_ids` replace `component_ids` in new note
-> front matter; legacy notes upcast during the bounded Domain migration.
+> front matter; the bounded Domain migration rewrites existing note front matter
+> ([CD-0242 D13](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
+> **Amended by [CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** the store keeps
+> current state and finite verified snapshots; no event log or replay exists.
 
 ## Context
 
@@ -183,17 +186,18 @@ monotonic publish protocol rather than pretending cross-store atomicity:
 3. commit the note to git;
 4. verify `commit_oid:note_path` exists, contains the expected `concord_work_id`, and
    hashes to `content_hash`;
-5. only then, in one SQLite transaction, append the compaction-link event and write
+5. only then, in one SQLite transaction, record the compaction-link row and write
    the derived `archived_work` locator/index state;
 6. Accepted compaction-retention-policy may later prune only verified eligible projections through a bounded
-   lazy operation; it retains `domain_events` and the git-rebuildable historical index.
+   lazy operation; it keeps current rows and the git-rebuildable historical index
+   ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 PM6 proves durable linkage; compaction-retention-policy owns the bounded lazy pruning transition.
 
 Failure before step 3 leaves only a draft. Failure after git commit but before step 5
 leaves an orphan canonical-looking note; a retry finds and verifies the same note by
 work ID rather than creating another. Failure before/inside step 5 leaves SQLite
-`not_compacted` because no compaction-link event committed, even if an approved git
+`not_compacted` because no compaction-link row committed, even if an approved git
 note exists in the orphan window. SQLite never commits a locator before git proof.
 
 Rebuild scans canonical note directories, validates unique `concord_work_id`, and
@@ -249,7 +253,7 @@ note.
 | Outcome | Meaning |
 |---|---|
 | canonical locator | one verified note proof exists and index watermark is complete |
-| `not_compacted` | publish protocol is incomplete; no compaction-link event is recorded |
+| `not_compacted` | publish protocol is incomplete; no compaction-link row is recorded |
 | `ambiguous` | home selection failed or multiple notes claim the work ID |
 | `missing` | recorded/candidate git object cannot be found after required authorities were checked |
 

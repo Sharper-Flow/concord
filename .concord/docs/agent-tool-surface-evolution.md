@@ -35,7 +35,7 @@ authoritative.
 Every invocation, session-boot packet, and result envelope binds the exact
 manifest digest. A digest mismatch fails before a domain effect. There is no surface
 version, version range, envelope-version negotiation, down-conversion, alias, or
-fallback meaning. Schema, event, workflow, session, and release versions remain
+fallback meaning. Schema, record, workflow, session, and release versions remain
 where they identify real current formats or builds; they are not agent-surface
 compatibility identities.
 

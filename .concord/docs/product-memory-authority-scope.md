@@ -185,7 +185,7 @@ factual claims. No unsourced internal SaaS storage claims are made.
 - **Backup:** one consistent SQLite backup/checkpoint plus git backups. PM10
   must automate and test this before production readiness.
 - **Product export:** versioned logical bundle containing Product identity,
-  Project membership, canonical work/relations/events allowed by policy,
+  Project membership, canonical work and relations allowed by policy,
   knowledge locators, and ordinary external references allowed by policy. The bundle is
   not live authority.
 - **Import:** deferred; it must validate schema/IDs and cannot silently merge.

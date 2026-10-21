@@ -1,10 +1,10 @@
 # Product coordination view — accepted contract
 
-**Status:** Accepted C17 contract, amended by CD-0222; §5.2 amended
-2026-09-28 to carry the stored last-activity ordering rule of CD-0048 D3 as
-amended. Amended 2026-10-09: the launcher rendering of this view retired with
-the launcher TUI under CD-0219; the ranked-query contract continues under the
-product-memory query contract.
+**Status:** Accepted C17 contract, amended by CD-0222. The
+launcher rendering of this view retired with the launcher TUI under CD-0219;
+the ranked-query contract continues under the product-memory query contract.
+**Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** ranking reads current rows;
+no fold, event history, or replay exists.
 **Readiness:** see [`floor-readiness.v1.json`](./floor-readiness.v1.json).
 
 This document bound the Product coordination view required by Priority 5 and
@@ -133,11 +133,10 @@ unstable across runs.
 1. **No computed importance score.** Ranking uses the stored explicit priority rank. A
    model-assigned numeric importance is heuristic authority over correctness.
 2. **No activity-derived priority.** Computed importance and activity-derived
-   priority stay prohibited. **Amendment 2026-09-28, vacated 2026-10-09:** the
-   work-list display order this contract carried was the stored ordering rule
-   of CD-0048 D3. That ordering, its stored column, and its fold advance are
-   vacated with the launcher work list under CD-0219. No activity-derived
-   priority replaces them.
+   priority stay prohibited. The launcher work-list display order and its stored
+   column are vacated under CD-0219; no activity-derived priority replaces them,
+   and ranking reads the stored explicit priority rank over current rows
+   ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 3. **No thematic clustering.** Connected work subgraphs come from declared relation edges only.
 4. **No third blocked state.** No stalled, idle, or otherwise inferred category.
 5. **No silent truncation.** A result the query could not fully cover renders

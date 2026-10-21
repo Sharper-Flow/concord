@@ -6,7 +6,7 @@
   live migration or release activation is authorized.
 - **Classification:** Breaking replacement under CD-0036 D2
 - **Planning record:** [Concord (CON) issue 902](https://linear.app/sharper-flow/issue/CON-902/delete-redundant-workflow-ceremony-retain-minimal-authorized-agent)
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D6, D13, D14
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D4, D6, D13, D14
 - **Approval:** The operator approved this successor as designed on 2026-10-09
   at 19:35 Eastern Daylight Time (EDT), relayed through the Snowball
   coordinator. This publication is the isolated candidate only: it does not
@@ -67,54 +67,11 @@ claim, timer service, or new authority for external effects.
 
 ### D2. Fewer calls carry the same enforceable facts
 
-Break-fix records one typed diagnosis with required reproduction, backlog-search,
-and root-cause sections. Missing or inconsistent sections refuse atomically.
-The search retains searched, outcome, and related-ID consistency. Its fold writes
-the existing alignment projection and creates no automatic relation.
-
-Implementation retains proposal, mandatory alignment, typed design, contract
-approval, execution, refinement, delivery, independent acceptance, and closure.
-Its empty discovery action and graph node retire. Source-qualified investigation
-findings remain in typed work context. Alignment precedes analysis and design.
-
-Repair and refinement starts derive once from the first admitted dispatch or
-matching effect-class checkpoint at that step. The first event's resolved actor
-owns the fence. The derived fact preserves the original log order and epoch.
-Context, job, evidence, rejection, and final-delivery records cannot start or
-reset the epoch. Refused actions leave no derived start. Correction re-entry
-uses the existing declared epoch owner. Pre-start verification remains stale.
-
-A terminal failed attempt supplies its workflow failure/correction fact once,
-from the original cause and evidence. A completed result's rejection is
-not a terminal worker failure. Neither fact grants new dispatch authority.
-This successor explicitly extends derivation to retained research. CD-0198's
-implementation/break-fix approval alone does not authorize that extension.
-Research requires a new definition and its own failure/retry/rebuild witnesses.
-
-The actor of a derived `record_worker_failure` is the `actor_ref` of the latest
-matching `dispatch_worker` completion for that attempt. The terminal producer's
-identity does not select the disposer. This actor holds the fenced
-checkpoint-writing authority after disposition until the next dispatch re-pins
-a lane. Other actors, including the disposed lane, cannot write that fenced
-checkpoint.
-
-Result rejection may carry a bounded retry lane. One transaction records the
-rejection and an admitted fresh dispatch intent through the existing dispatch
-owner. Admission refusal records neither. Host launch remains outside SQLite.
-Launch failure retains the committed facts and truthful failure. Lost
-acknowledgement recovers the original attempt rather than spawning another.
-At the retry wall the combined request refuses; rejection-only remains reachable.
-Required operator approval and evidence-backed convergence remain unchanged.
-
-An accepted report may assert producer-step delivery through the existing full
-delivery admission. Local acceptance never substitutes for integration, settling
-review, independent verification, final delivery evidence, or whole-work closure.
-The final delivery gate keeps its coordinator assertion and existing exit.
-
-New verdict authoring carries only a verdicts array. Every entry has its own
-predicate, actor, evidence, and verdict. Duplicate IDs refuse. Omitted predicates
-remain missing. New contract authoring carries only explicit outcome_predicates.
-No default token or synthetic check supplies an omitted approved end-state.
+[CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)
+governs: the live families are implementation, break-fix, and research, rules
+derived from change type and risk set the mandatory stages, break-fix keeps
+diagnosis and regression proof, and no agent waives a mandatory stage or an
+operator approval.
 
 ### D3. Authorization and correction keep their owners
 

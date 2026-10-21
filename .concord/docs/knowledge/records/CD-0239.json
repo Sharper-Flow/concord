@@ -37,7 +37,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9ec0199b9145d550818bfc15365c1def353ee481ddbcc02804af5312ff2e0923",
+  "sha256": "sha256:2fa9f627e8fa862e97aabf2829b4251747a92bda055c86da5877d3558718a56a",
   "status": "accepted",
   "summary": "A same-session landing from a different host process refreshes the recorded occupancy identity, and the caller reads the host lease set before the dispatch transaction opens. Under CD-0242 D6 no host_changed or other convergence basis, escalation wall, or attempt count exists; a recorded process claim or failure attribution authorizes no launch.",
   "tags": [
@@ -47,5 +47,5 @@
     "host",
     "workflow"
   ],
-  "title": "A later process claim permits one bounded host-recovery attempt"
+  "title": "A later process claim refreshes the recorded host identity"
 }

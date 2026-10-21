@@ -38,8 +38,10 @@ current compatibility policy.
 CD-0006 D3 commits Concord to a full workflow coordination engine with native-effect
 preservation. CD-0008 commits to checkpoint-and-resume, attempt fencing, immutable
 evidence binding, typed external conditions, and schema evolution. CD-0215 commits
-research ownership semantics. CD-0012 commits a three-part outcome contract with
-independent evaluator authority and a strengthening-only delivery comparison.
+research ownership semantics. CD-0012 commits a three-part outcome contract
+and a strengthening-only delivery comparison; [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
+governs: Review reports one disposition and Main records its acceptance, with
+no separate final evaluator.
 
 The accepted law already defines:
 
@@ -55,7 +57,7 @@ The accepted law already defines:
 The accepted law does **not** yet:
 
 - name a predicate representation that two workflows can compare for strength;
-- name the actor identity used to enforce evaluator distinctness;
+- name the actor identity that records a review disposition; [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: review reports one disposition and Main records its acceptance;
 - name the durable shape a workflow instance, definition, contract, evidence, and
   checkpoint occupy in SQLite;
 - name how each workflow mutation persists; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current rows, so no event families or replay authority exist;
@@ -80,7 +82,7 @@ the implementation contract the engine needs.
 
 [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: workflow state lives as current rows on the work item, written in one transaction under an expected version; no event-folded projection or replay exists.
 
-### D3. Event families added
+### D3. Each mutation writes current rows
 
 [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the engine records each mutation as a current row in one transaction; no typed event families, payload versions, or upcasters exist.
 
@@ -248,7 +250,7 @@ kind is added and no existing kind changes meaning.
 
 ### D11. Public surface for workflow actions stays reserved
 
-Definitions declaring `approval_policy=consequence_v1` use the following consent contract. Earlier definition pins retain their released approval, actor, evidence, and question rules. Released digests and historical events never change, and active instances do not migrate implicitly.
+Definitions declaring `approval_policy=consequence_v1` use the following consent contract. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source, no released-definition version or pin is retained for history, and the identities active work needs are derived at the integration boundary.
 
 This policy is the workflow-action form of CD-0230 D5. Its approval classes are independent of execution consequence and durability. Its decision-bearing classes are product or preference decisions and UI/UX changes; its destructive class is D5's destructive action on Concord-owned state. Destructive or irreversible effects require exact operator approval, but that approval is necessary, not sufficient. CD-0230 D5 requires a verified recovery route before a destructive action runs and requires the agent to stop without one. This paragraph neither establishes that route nor waives that stop. Routine actions never request operator approval. Law changes follow CD-0230 D4 separately, and D5's listed gaps retain approval until their holding records are amended.
 
@@ -258,13 +260,13 @@ Only `approve_contract` and `confirm_premise` are decision-bearing workflow acti
 
 An authenticated non-worker coordinator declares the field with the contract. Once committed, only attributed contract supersession changes it, with expected predecessor versions, a reason, and audit evidence. A successor invalidates previous premise confirmation. A downgrade does not rewrite prior human authority; a decision-bearing successor requires human premise confirmation before completion.
 
-For this policy, `supersede_contract`, `request_correction`, `record_verdict`, `complete`, failed-worker retry dispatch, and routine acceptance records require no consent. Removed approvals do not remove evidence, version, source, scope, current-step, recovery, or convergence checks. Supersession grants no legislative authority or automatic overlap exemption.
+For this policy, `supersede_contract`, `request_correction`, `record_verdict`, `complete`, failed-worker retry dispatch, and routine acceptance records require no consent. Removed approvals do not remove evidence, version, source, scope, current-step, or recovery checks. Supersession grants no legislative authority or automatic overlap exemption.
 
 [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: Review inspects the accumulated solution and reports one disposition that Main records; workers gain no completion authority.
 
 An engineering premise confirmation records the actual coordinator actor after investigation and acceptance deliverables pass. Decision-bearing confirmation retains the exact human question, choice, digest, and verified operator identity. For `ui_ux`, human premise confirmation records the operator's review and acceptance of the UI/UX change at the current contract version; contract approval alone does not satisfy that acceptance. Completion requires confirmation at the current contract version, with authority appropriate to that contract. D5 and D10's universal operator assertions are qualified by this paragraph for this policy only.
 
-The shared admission derivation owns class-dependent questions and next actions. Every removed consent gate retains an admitted, evidence-backed exit and terminal reachability. Independent evaluation is a real prerequisite, not an assumed verdict. No hold loop or fabricated human actor satisfies liveness.
+The shared admission derivation owns class-dependent questions and next actions. Every removed consent gate retains an admitted, evidence-backed exit and terminal reachability. Review is a real prerequisite, not an assumed verdict. No hold loop or fabricated human actor satisfies liveness.
 
 At the negotiated operation surface, removal, cancellation, outside repair and both reconciliation modes, physical research-pack deletion, authority-expanding Product or client-policy changes, and explicit cross-Product mutations retain their operator approvals. Together with `merged_into` and `supersedes`, these points remain CD-0230 D5 gaps pending classification; this policy neither classifies nor reclassifies them. Governing-requirement scope cuts retain approval as product decisions. Destructive worktree destruction or forced occupancy release retains exact approval and remains subject to D5's verified-recovery precondition and stop. Explicit cross-Product mutations retain their capability checks. No approval grants otherwise absent authorization.
 
@@ -276,7 +278,7 @@ Physical research-pack retirement retains exact operator approval for non-dry-ru
 
 The typed approval summary shows decision domains, work identity, and proposed or active contract version on decision-bearing challenges. These facts bind to the canonical request and consumption checks. The host renders core facts; neither caller prose nor adapter inference supplies authority.
 
-New live-family definition versions declare this policy and require explicit classification. Retired families remain historical and gain no new authoring route. Changed closed contracts follow the major surface and migration rules; preserved old pins remain a declared compatibility obligation, not an implicit reclassification.
+New live-family definition versions declare this policy and require explicit classification. Retired families remain historical and gain no new authoring route. Changed closed contracts follow the major surface and migration rules; [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source, and no released-definition version or pin is retained for history.
 
 `concord_work_transition.workflow_action` already exists in the agent manifest,
 capability map, consequence class, and envelope schema. Until this engine ships,
@@ -313,7 +315,7 @@ introduced.
 
 [CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it) governs: a record is stale exactly when a revision, candidate, or input digest it depended on has changed, checked at the stage's admission. No polling, no timer daemon, no heuristic authority (CD-0008 D5).
 
-### D13. Reconstruction is total from the event log
+### D13. Recovery restores a verified snapshot
 
 [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recovery uses verified snapshots with tested restore and reconciles current rows with Git, worktrees, artifacts, and external effects; no replay or rebuild exists.
 
@@ -525,18 +527,20 @@ The engine admits `request_correction` after a completed and accepted worker
 result leaves a current unhealthy verification verdict. A dispatch alone does
 not satisfy this boundary. The action requires a diagnosis, strategy, affected
 predicate IDs, bound evidence, and exact operator approval. It holds
-the current checkpoint, preserves the verdict and attempt history, and returns
+the current checkpoint, preserves the recorded verdict and results, and returns
 the pinned instance to its declared external-effect step. It does not return to
-`refine`, rewrite the contract, alter a released definition, or delete history.
-The engine refuses a fourth correction attempt. Only a latest comparable healthy
-verdict set for every approved predicate resets the correction sequence. Completion
+`refine`, rewrite the contract, or alter a definition's generated source.
+[CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
+governs: no attempt count, correction count, or correction limit exists, and
+each correction launch is admitted on its own scope and safety checks.
+Completion
 stays fail-closed until the latest approved predicates are healthy.
 
 | Artifact | Change |
 |---|---|
 | `.concord/docs/decisions/CD-0006-concord-root-product-policy.md` | Extends D3, D4, D5, D10 with engine-shaped definitions, rigor, and spec mandate enforcement. |
 | `.concord/docs/decisions/CD-0008-concord-mechanism-hardening.md` | Extends D2, D4, D5, D6 with workflow evidence, checkpoints, conditions, and recovery. |
-| `.concord/docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md` | Collapses deferred items 1–4; preserves the contract, evaluator distinctness, and strengthening-only comparison. |
+| `.concord/docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md` | Collapses deferred items 1–4; preserves the contract, Main-recorded review verdicts, and strengthening-only comparison. |
 | `.concord/docs/decisions/CD-0005-concord-agent-tool-surface.md` | Keeps `workflow_action` reserved; promotes `WorkflowActionAvailable` to registered-engine check. |
 | `.concord/docs/workflows.md` | Resolves the seven-family shape with a single machine contract. |
 | `.concord/docs/architecture-spike.md` | Anchors the architecture-spike family to `outcome` predicate and the decision record schema. |

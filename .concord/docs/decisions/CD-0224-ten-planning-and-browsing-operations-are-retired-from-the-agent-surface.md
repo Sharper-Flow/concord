@@ -4,25 +4,26 @@
 - **Date:** 2026-10-11
 - **Scope:** The retired planning and browsing operations, the surviving
   relation writers, the lesson publication route, the unprocessed-knowledge
-  negative, the surviving Domain reads, and replayable planning history;
+  negative, the surviving Domain reads, and the closed relation kinds;
   [Concord (CON) issue 927](https://linear.app/sharper-flow/issue/CON-927)
 - **Amends:** CD-0018, CD-0026, CD-0048, CD-0052, CD-0053, CD-0106, CD-0114,
   CD-0142, CD-0156, CD-0166, and CD-0179 at the clauses this retirement makes
   false; each amended record states the current rule in place
 - **Preserves:** The PM1.Q4 and PM1.Q5 readiness gates, the relation
-  vocabulary and its fold semantics, every planning event family in the
-  event log, the `domain_observations` store, and contract supersession
-  through `supersede_contract`
+  vocabulary, the `domain_observations` store, and contract supersession
+  through `supersede_contract`; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+  governs: relation writes are current rows in one transaction, not folded
+  events
 - **Related:** CD-0005, CD-0020, CD-0030, CD-0114, CD-0213,
   [CD-0219](CD-0219-the-terminal-launcher-tui-is-retired.md), and
   [CD-0223](CD-0223-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-carries-only-declared-context.md)
 - **Approval:** Operator-delegated law ruling for
   [Concord (CON) issue 927](https://linear.app/sharper-flow/issue/CON-927),
   2026-10-11.
-- **Amended by:** [CD-0237](CD-0237-a-resize-successor-writes-its-own-forward-link-and-supersession.md)
-  at the relation writers and the one-writer Consequences bullet: a size
-  revision that changes a work item's size is a fourth writer, of
-  `forward_link` and `supersedes`.
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
+  D4, D6: no size measurement, production-line cap, or mandatory split
+  applies, so the size-revision relation writer this record listed no longer
+  exists.
 
 ## Context
 
@@ -70,7 +71,7 @@ gone, and nothing replaces the five-group projection. The operator
 question the row answered — which fields a glance row carries — returns to
 [`priorities.md`](../priorities.md) if a future surface needs it.
 
-Four writers create work-to-work relations, each scoped to its own kinds.
+Three writers create work-to-work relations, each scoped to its own kinds.
 
 1. `concord_work_relate.resolve_overlap` writes `compatible_with`,
    `depends_on`, `blocks`, `merged_into`, and `supersedes`. A `supersedes`
@@ -79,13 +80,10 @@ Four writers create work-to-work relations, each scoped to its own kinds.
    requires an operator approval pinned to both work versions and both
    contract versions.
 2. Capture writes `raised_from` through its `raised_from_work_id` input.
-   The `work.created` fold inserts that relation row; the input appends no
-   `relation.added` event and runs no cycle check, because capture knows
+   The capture transaction inserts that relation row with the work item's
+   current rows and runs no cycle check, because capture knows
    both endpoints.
 3. The workflow `link_successor` action writes `forward_link`.
-4. A size revision that changes a work item's effective size writes
-   `forward_link` and `supersedes` from its successor, in the transaction
-   that creates the successor and ends the item (CD-0237).
 
 The `blocks` readiness gates are unchanged: a `blocks` row from
 `resolve_overlap`, and an existing link-made `blocks` row, hold a work item
@@ -111,10 +109,10 @@ bounded open window, an observation satisfies nothing, and promotion out of
 an observation stays the CD-0018 `raised_from` capture path that CD-0068 D4
 left unchanged.
 
-Planning history stays replayable. Stored `relation.added`,
-`relation.removed`, `work.superseded`, `work.reopened_from_superseded`, and
-Domain-observation events fold unchanged, and the relation vocabulary, its
-fold validation, and every stored relation kind stay closed as they are.
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+governs: the store keeps current rows and finite snapshots, not an event log.
+The relation vocabulary and every stored relation kind stay closed as they
+are, and relation changes write current rows in one transaction.
 
 ## Alternatives considered
 
@@ -141,9 +139,8 @@ fold validation, and every stored relation kind stay closed as they are.
 - One record states the retirement, its surviving writers, and its
   preserved history, so the superseded records can keep their original
   text as history.
-- Every relation writer has one stated approval rule. `supersedes` and
-  `forward_link` each have two writers (CD-0237); every other surviving
-  relation has one.
+- Every relation writer has one stated approval rule, and every surviving
+  relation has one writer.
 
 ### Cost
 
@@ -157,10 +154,11 @@ fold validation, and every stored relation kind stay closed as they are.
 
 ## Verification
 
-- `internal/store.TestRetiredPlanningEventsReplay` folds a journal that
-  carries `relation.added`, `relation.removed`, `work.superseded`,
-  `work.reopened_from_superseded`, and Domain-observation events without
-  error after the retirement.
+- `internal/store.TestRetiredPlanningEventsReplay` binds the CD-0242 D2
+  anchor: the store keeps current rows and finite snapshots, not an event
+  log, and the surviving relation kinds stay closed. Until that change lands,
+  `python3 scripts/check-knowledge-index.py` is the executable anchor for
+  this record's law registration.
 - `internal/store.TestOverlapTerminalResolutionRejectsCycle` proves
   `resolve_overlap` refuses a `supersedes` or `merged_into` resolution that
   would close a cycle.

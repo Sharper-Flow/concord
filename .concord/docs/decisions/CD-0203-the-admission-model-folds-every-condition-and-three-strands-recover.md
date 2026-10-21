@@ -9,9 +9,9 @@
 - **Amends:** CD-0172 D1 at its contract count: the complete-step correction
   admits one or more active contracts, so a duplicated projection at that
   step recovers instead of refusing
-- **Preserves:** CD-0201 D2, the liveness law; CD-0115 D1, released
-  definition content and digests; CD-0112 D1, continuity actions never move
+- **Preserves:** CD-0201 D2, the liveness law; CD-0112 D1, continuity actions never move
   the step; every other route refusal keeps its scope (CD-0186)
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
 - **Related:** CD-0090, CD-0133, CD-0166, CD-0173, CD-0186
 - **Amended by:** [CD-0204](CD-0204-the-acceptance-gate-is-one-admission-condition-and-a-missing-verdict-records-late.md) at D2's consequence: a frozen ops runbook that reaches cleanup without a verdict records the verdict there through the late verdict route before it confirms the premise.
 - **Approval:** The operator directed in session chat on 2026-10-02 that the
@@ -46,7 +46,7 @@ the engine:
 
 ## Decision
 
-For `approval_policy=consequence_v1`, CD-0013 D11 determines whether an operator question is required; engineering confirmation and routine correction/supersession have non-consent routes. The same folded admission state owns those routes and preserves investigation, evidence, recovery targets, and non-hold exits. The historical-pin scenarios below retain their operator questions and approval requirements.
+For `approval_policy=consequence_v1`, CD-0013 D11 determines whether an operator question is required; engineering confirmation and routine correction/supersession have non-consent routes. The same folded admission state owns those routes and preserves investigation, evidence, recovery targets, and non-hold exits. The registered-version scenarios below retain their operator questions and approval requirements.
 
 
 ### D1. The contract step and the complete step keep their contract routes
@@ -84,8 +84,10 @@ loaded state with the abstract successor on the fields `workflowAdmit`
 reads. The step-kind checks cover every registered version, frozen ones
 included, and use the same question function as the engine.
 
-No definition version changes. Admission code is not definition content
-(CD-0115 D1), so pinned instances receive the corrected routes on release.
+No definition version changes. Admission code is not definition content;
+[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
+governs: definitions generate from one canonical source, and active work
+receives the corrected admission routes at the integration boundary.
 
 ## Alternatives considered
 
@@ -93,9 +95,11 @@ No definition version changes. Admission code is not definition content
   operator directed that the law holds without exceptions, and an excepted
   strand still strands real work.
 - Publish new definition versions for ops runbook and research. Rejected:
-  items already pinned to the old versions stay stranded (CD-0115 D2).
+  the strand is in admission code, not definition content, so new definition
+  versions leave the refusal in place.
 - Make the ops-runbook cleanup step a human checkpoint at read time.
-  Rejected: that rewrites released definition content in place.
+  Rejected: a read-time rewrite would make runtime behavior diverge from the
+  generated source (CD-0242 D14).
 - Keep the duplicate refusal and require recovery on an earlier step.
   Rejected: the pinned complete step declares no earlier route, so the
   refusal leaves no exit.

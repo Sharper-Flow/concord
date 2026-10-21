@@ -169,17 +169,26 @@ func TestMultiProjectRecoveryKeepsOwnOccupancyProtection(t *testing.T) {
 }
 
 func TestMultiProjectRecoveryRefusesUnresolvedAttemptOwnership(t *testing.T) {
-	f := newMultiProjectRecoveryFixture(t)
-	f.dispatch(t, "attempt-unresolved")
-	if _, err := f.store.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	for _, occupancy := range []string{"none", "legacy", "live"} {
+		t.Run(occupancy, func(t *testing.T) {
+			f := newMultiProjectRecoveryFixture(t)
+			f.occupy(t, "project-sibling", true)
+			f.dispatch(t, "attempt-unresolved")
+			if occupancy != "none" {
+				f.occupy(t, "project", occupancy == "live")
+			}
+			if _, err := f.store.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
 		DELETE FROM worktree_entries WHERE set_id=? AND project_id='project';
 		DELETE FROM fold_guard`, WorktreeSetID(f.seed.workID)); err != nil {
-		t.Fatal(err)
+				t.Fatal(err)
+			}
+			if err := f.abandon("attempt-unresolved"); !hasFailureKind(err, KindWorktreeOwnershipConflict) {
+				t.Fatalf("unresolved bound ownership did not refuse: %v", err)
+			}
+			assertWorkerAttemptState(t, f.store, f.seed.workID, "attempt-unresolved", "in_flight")
+			f.assertSiblingUnchanged(t)
+		})
 	}
-	if err := f.abandon("attempt-unresolved"); !hasFailureKind(err, KindWorktreeOwnershipConflict) {
-		t.Fatalf("unresolved bound ownership did not refuse: %v", err)
-	}
-	assertWorkerAttemptState(t, f.store, f.seed.workID, "attempt-unresolved", "in_flight")
 }
 
 func TestMultiProjectRecoveryAbandonsMissingSymlinkedWorktree(t *testing.T) {

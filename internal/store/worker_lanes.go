@@ -2136,6 +2136,17 @@ func validateNoLiveWorkerSession(ctx context.Context, tx *sql.Tx, workID, attemp
 	if err != nil {
 		return err
 	}
+	// Retained dispatch identity cannot prove the live occupancy projection
+	// exists: an absent entry would disappear from the occupancy join below.
+	if projectID != "" {
+		var present bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_entries WHERE set_id=? AND project_id=?)`, WorktreeSetID(workID), projectID).Scan(&present); err != nil {
+			return wrapFailure(KindUnavailable, "worker_fail", "cannot read worker Project ownership", true, "retry once the database is readable", err)
+		}
+		if !present {
+			return newFailure(KindWorktreeOwnershipConflict, "worker_fail", "worker attempt Project has no recorded worktree entry", false, "restore the attempt's recorded worktree claim before abandonment")
+		}
+	}
 	rows, err := tx.QueryContext(ctx, `
 		SELECT e.set_id, e.project_id, e.claim_op_id, o.session_ref, o.has_process_identity, o.host_pid, o.host_pid_start, o.recorded_at
 		  FROM worktree_entries e

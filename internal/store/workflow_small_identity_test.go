@@ -165,14 +165,14 @@ func TestNativeDispatchIdentityRejectsForeignSealedClaim(t *testing.T) {
 func TestNativeWindowIgnoresPreBoundaryClaimIdentity(t *testing.T) {
 	t.Parallel()
 	db, appendEvent := correctionHistoryFixture(t)
-	if _, err := db.Exec(`ALTER TABLE domain_events ADD COLUMN payload_version INTEGER NOT NULL DEFAULT 5`); err != nil {
-		t.Fatal(err)
-	}
 	appendEvent(WorkflowActionStarted, map[string]any{"action_id": "dispatch_worker", "step_id": "execution", "attempt_epoch": 1})
 	appendEvent(WorkflowActionCompleted, map[string]any{
 		"action_id": "dispatch_worker", "step_id": "execution", "attempt_epoch": 1, "worker_attempt_id": "old-attempt",
 		"worker_project_id": "forged-project", "worker_claim_op_id": "forged-claim",
 	})
+	if _, err := db.Exec(`ALTER TABLE domain_events ADD COLUMN payload_version INTEGER NOT NULL DEFAULT 5`); err != nil {
+		t.Fatal(err)
+	}
 	window, err := findAuthorizedDispatchWindowBefore(context.Background(), db, "work-history", "old-attempt", 0)
 	if err != nil || window.ProjectID != "" || window.ClaimOpID != "" {
 		t.Fatalf("a pre-boundary authorization supplied native claim provenance: %+v, %v", window, err)

@@ -194,8 +194,8 @@ Territory that appears across all six and is an outcome in its own right.
 | Outcome | State | Evidence or reason |
 |---|---|---|
 | Many concurrent agents mutate shared state on one machine with bounded writer admission and no escaped busy failure | Covered | Ten-process conformance harness, `internal/store/conformance_test.go`; invariant stated by CD-0045 |
-| Reconstruct any subject at any point in its history | Excluded | Accepted [CD-0238](./decisions/CD-0238-point-in-time-reconstruction-runs-outside-the-core.md) D1-D2: the core has no point-in-time reconstruction. The operator reconstructs a past state on the operator's machine by folding a prefix of a copy of the retained log. |
-| Rebuild every projection from the event log without loss | Covered | `RebuildFromLog`, `internal/store/operation.go`; rebuild byte-equality scenario in `.concord/scenarios/workflow-engine.v1.json` |
+| Reconstruct any subject at any point in its history | Excluded | [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history): the store keeps current rows and finite verified snapshots, not history; no point-in-time reconstruction, retained log, or fold exists. |
+| Rebuild every projection from the event log without loss | Excluded | [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history): the store keeps current rows and finite verified snapshots, not an event log, so no rebuild-from-log capability exists; the Git-derived knowledge index rebuilds from Git (CD-0242 D1). |
 | Constrain what an agent may do, scoped to a Product or Project | Covered | Per-call authorization and scope validation, `internal/agent/authority.go` |
 | Refuse a mutation whose scope version is stale, while allowing a refreshed read | Covered | `internal/agent/context_freshness_test.go` asserts the split directly: a stale read returns the refreshed scope version with a `context_refreshed` notice and records no domain event, while a stale mutation fails `stale_context` before any effect. Recorded as `fc2-context-freshness` (`satisfied`). |
 | Triage accumulated coordination residue — stale work, drifted worktrees, orphaned state | Covered | Worktree drift reclaims from git facts (`internal/store/worktrees.go`); stale plans are detected by staleness rules and revised through `supersede_contract` (`internal/store/workflow_event_constructors.go`). Concord has no separate residue sweep because residue is resolved where it is produced. |
@@ -207,9 +207,9 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 53 |
+| Covered | 52 |
 | Not covered | 0 |
-| Excluded with reason | 22 |
+| Excluded with reason | 23 |
 
 **Total enumerated outcomes: 75.**
 

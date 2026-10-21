@@ -12,7 +12,7 @@
       "domain_id": "durable-authority",
       "name": "Durable authority",
       "parent_domain_id": "product-root:concord",
-      "purpose": "Owns the durable state envelope: the SQLite authority, the append-only event log, typed projections, migrations, fold guards, and the transactional guarantees that make an acknowledged write durable.",
+      "purpose": "Owns the durable state envelope: the SQLite authority with current rows and finite snapshots (CD-0242 D2), typed projections, migrations, and the transactional guarantees that make an acknowledged write durable.",
       "status": "current"
     },
     {

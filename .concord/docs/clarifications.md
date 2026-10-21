@@ -177,15 +177,17 @@ re-litigate them silently.
 
 ### C2. Storage model for Concord-owned state
 - **✅ RESOLVED 2026-08-05 by [`CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md), PM2, and PM3.**
-  SQLite is Concord's sole durable authority: one global local database, one
-  append-only `domain_events` log, and explicit typed Product-memory projections
+  SQLite is Concord's sole durable authority: one global local database keeping
+  current rows and finite snapshots, plus explicit typed Product-memory projections
   updated in one transaction (`synchronous=NORMAL`, WAL, one writer at a time).
+  No event log or replay exists (CD-0242 D2).
   This was the recommended primary option (A) from the D1 research; it structurally
   prevents the Advance failure cluster via six binding invariants (I1–I6). The
   ranked alternatives (DBOS/Postgres, Restate, LMDB, Temporal-collapsed) remain
   documented in CD-0002 §2 as upgrade/fallback paths. PM2 resolves one global
   local authority; PM3 replaces CD-0003 D1's generic materialized spine with typed
-  projections while retaining its generic authoritative event log and D2/D3.
+  projections; CD-0242 D2 keeps current state and finite snapshots where the
+  generic authoritative event log stood.
 - **Blocks (resolved):** PM1–PM5 authorize storage/core implementation, and CD-0007
   resolves repository and deploy packaging. CD-0089 permits Concord development
   coordination without changing the accepted storage authority.
@@ -492,11 +494,11 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 > **PM2–PM5 are accepted and binding.** Membership may not reintroduce duplicate
 > physical authority, application fan-out, copied work state, or a generic
 > materialized spine without explicit supersession.
-| **PM3 ✅ Accepted 2026-08-05** Product-memory domain schema. *Binding:* [`product-memory-domain-schema.md`](./product-memory-domain-schema.md) narrowly supersedes CD-0003 D1's generic materialized spine. | **Hybrid explicit core:** one generic authoritative `domain_events` log; explicit typed Product/Project/component/work/membership/relation projections; bounded versioned JSON only for rare extensions. | PM1/PM2 + official SQLite/Context7 guarantees + public-source comparisons. Reopen on the accepted falsifiers: repeated schema churn by work kind, bounded generic projection without facet proliferation, non-total folds, per-kind-table need, or misclassified first-class identities. | PM1–PM2 → **PM3 schema + PM4/PM5 input**, operator-approved. |
+| **PM3 ✅ Accepted 2026-08-05** Product-memory domain schema. *Binding:* [`product-memory-domain-schema.md`](./product-memory-domain-schema.md) narrowly supersedes CD-0003 D1's generic materialized spine. | **Hybrid explicit core:** current rows and finite verified snapshots per CD-0242 D2; explicit typed Product/Project/component/work/membership/relation projections; bounded versioned JSON only for rare extensions. | PM1/PM2 + official SQLite/Context7 guarantees + public-source comparisons. Reopen on the accepted falsifiers: repeated schema churn by work kind, bounded generic projection without facet proliferation, non-total folds, per-kind-table need, or misclassified first-class identities. | PM1–PM2 → **PM3 schema + PM4/PM5 input**, operator-approved. |
 
-> **PM3 is accepted and binding.** It keeps one generic authoritative event log,
-> replaces CD-0003 D1's generic materialized spine with explicit typed Product-memory
-> projections, and bounds JSON to versioned extensions. PM4/PM5 are accepted;
+> **PM3 is accepted and binding.** It keeps explicit typed Product-memory
+> projections over current rows and finite snapshots (CD-0242 D2), replaces
+> CD-0003 D1's generic materialized spine, and bounds JSON to versioned extensions. PM4/PM5 are accepted;
 > C15 and TS1–TS9 are now accepted separately.
 > **Amended by CD-0222:** component is not a lasting first-class projection.
 > Follow-up implementation migrates stable component identities one-for-one into

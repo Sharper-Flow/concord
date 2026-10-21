@@ -16,6 +16,7 @@
 - **Amended by:** [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
   D4 (the recorded observer and phase are an eligibility condition of the
   `host_changed` basis)
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
 - **Amended:** 2026-10-19, approved by the operator as exact text for
   [Concord (CON) issue 1221](https://linear.app/sharper-flow/issue/CON-1221).
   D4 adds the checks repair and amends CD-0148 and CD-0164: the escalation
@@ -186,8 +187,7 @@ Execution requires current clean `HEAD`, current core `subject_commit`, and
 the recorded dispatch commit to be nonempty and equal.
 A missing or mismatched value refuses with zero test-program launches.
 A path identity, caller assertion, or current context cannot replace the
-recorded commit. Historical completions without the field refuse execution;
-no upcast, packet-body copy, or candidate inference fills the absence.
+recorded commit. Completions recorded before the field refuse execution; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: a recorded absence stays absent, with no copy or inference filling it.
 The producer rechecks applicability at lease acquisition, before test launch,
 and at release; changed authorization cannot produce qualified pass evidence.
 A finalized native replay returns retained evidence without another launch.
@@ -400,17 +400,10 @@ accept would assert neither a job disposition nor a delivery.
 
 ### D6. Historical pins and histories keep their behavior
 
-The new versions do not change a released definition. No item moves to a new
-version without its own revision. The core never creates a job from a task
-string or from checkpoint prose. A history without a job binding folds and
-counts as it did before. The packet, the report, the dispatch evidence, and
-the completion carry the binding as an optional member, and every reader
-treats its absence as no job.
-
-`workflow.implementation` version 27 and `workflow.break_fix` version 24
-require the oracle through the declared `record_worker_job` payload.
-Released pins retain their oracle-free shape and behavior. Replay never
-invents an oracle or uses today's registry to reinterpret historical content.
+[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
+governs: derived definitions are generated from one canonical source, no
+released workflow-definition version is retained for history, and no
+hand-maintained version, pin, or catalog list duplicates that source.
 
 ### D7. Failure attribution preserves source and authority
 
@@ -435,9 +428,9 @@ Coordinator integration attribution names the failed standalone verification
 run by its verify-lease or operation reference. The core resolves the run's
 observed subject from the lease result, and clean unchanged runs only. The
 lease records, at acquire time and in its own insert transaction, the highest
-committed event sequence then visible. No Git read and no second read path
+committed store sequence then visible. No Git read and no second read path
 supplies it. The input population is exactly the accepted job revisions of
-this work item whose acceptance event sequence is at or below that watermark,
+this work item whose acceptance store sequence is at or below that watermark,
 with their digests and result references. The coordinator supplies only the
 run reference, never a population, a commit, or a sequence. A mutated or
 aborted run, or a run without a clean subject, cannot anchor integration
@@ -465,12 +458,10 @@ only as one eligibility condition of the `host_changed` convergence basis
 conditions of CD-0239 D1, which prove neither host repair nor authenticated
 host identity.
 
-Existing event, attempt, and history reads expose attribution with its source
-version. Released definitions keep their original behavior. Historical
-attribution absence upcasts to an explicit unavailable origin. That origin is
-separate from completion evidence origin. Upcasts invent no job, subject,
-source, or cause. Live and rebuild folds validate the same retained structural
-joins without current-host reads.
+Existing attempt and terminal-record reads expose attribution with its source
+version. An attribution absence reads as an explicit unavailable origin. That
+origin is separate from completion evidence origin. No read invents a job,
+subject, source, or cause; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded facts stay as recorded. Admission validates the same retained structural joins without current-host reads.
 
 ## Alternatives considered
 
@@ -637,7 +628,7 @@ Scenario: Every reachable state stays live on the new versions
   Given each registered definition version
   When the admission model explores local acceptance as a held successor
   Then each reachable state reaches the terminal state
-  And the real fold equals the model after a local acceptance
+  And the recorded state equals the model after a local acceptance
 
 Scenario: A report cannot tie evidence outside its dispatched job
   Given a job-bound dispatch whose parent declares a predicate outside the job
@@ -675,11 +666,10 @@ Scenario: A lease without a watermark reports the population unavailable
   Then the input population reports unavailable
   And no timestamp backfill supplies it
 
-Scenario: Rebuild equals live for attribution joins
-  Given an attribution-bearing event log
-  When the store rebuilds its projections
-  Then recorded source joins and historical unavailable origins equal the
-  live read
+Scenario: Attribution joins read from current rows
+  Given recorded attribution with its source joins
+  When the store reads it back
+  Then recorded source joins and unavailable origins read unchanged, with no rebuild
 ```
 
 - `go test ./internal/store/ -run 'TestWorkerJobDispatchRequiresRecordedRevision|TestWorkerJobRecordingBindsApprovedContractPredicates|TestWorkerJobRecordingAuthorityAndReadinessGates'` proves the first scenario.
@@ -688,7 +678,7 @@ Scenario: Rebuild equals live for attribution joins
 - `go test ./internal/store/ -run 'TestUnrelatedAcceptedJobPreservesCorrectionWindow|TestSatisfyingAcceptedJobResetsCorrectionWindow|TestPartialSatisfactionPreservesOtherUnresolvedJobs'` proves the third scenario's identity half.
 - `go test ./internal/store/ -run 'TestReviewRejectedJobWindow|TestReviewRewrittenRevisionResetsFailedJob|TestReviewWorkerJobPredicateShape|TestReviewUnsatisfiedJobPhaseExit|TestReviewJobAuthoritySurvivesSupersession'` proves the third and fourth scenarios' closure, integration, and authority halves. A rejected result joins the unresolved window. A rewritten revision cannot discharge it. `record_delivery` refuses behind unsatisfied jobs and unbound integration evidence. Stale contract authority refuses dispatch. The predicate grammar admits the report schema's short predicate ids.
 - `go test ./internal/store/ -run 'TestWitnessUnrelatedLocalAcceptHoldsSameStepWall|TestWitnessRewrittenJobKeepsExactRetryBinding|TestWitnessCombinedAcceptRejectsPreResultIntegration'` proves the exact retry-binding half the review probes established: a held local acceptance resets no same-step wall, a rewritten revision consumes no correction authority, and a combined acceptance refuses integration evidence acquired before the final job completed.
-- `go test ./internal/store/ -run 'TestReachableAdmissionStateReachesTerminal|TestWellFormedAdmissionStateHasNonContinuityExit|TestAdmissionConformanceLocalJobAcceptHolds'` proves the liveness scenario. The model folds the worker-job readiness, satisfaction, unresolved-obligation and integration dimensions, and the conformance replay exercises the real delivery admission from the held state: `record_delivery` refuses without integration evidence and admits behind it.
+- `go test ./internal/store/ -run 'TestReachableAdmissionStateReachesTerminal|TestWellFormedAdmissionStateHasNonContinuityExit|TestAdmissionConformanceLocalJobAcceptHolds'` proves the liveness scenario. The model derives the worker-job readiness, satisfaction, unresolved-obligation and integration dimensions, and the conformance check exercises the real delivery admission from the held state: `record_delivery` refuses without integration evidence and admits behind it.
 - `bun test adapter/opencode/packet.test.ts adapter/opencode/dispatch_route_end_to_end.test.ts` proves the adapter selects the one ready revision and that the real route holds the step until delivery.
-- `TestOwnerOracleGraph`, `TestOwnerOracleAuthorAuthorityJoins`, and `TestOwnerOracleImmutableRevisionAndReplay` cover oracle structure, authority, and immutable replay.
+- `TestOwnerOracleGraph`, `TestOwnerOracleAuthorAuthorityJoins`, and `TestOwnerOracleImmutableRevisionAndReplay` cover oracle structure and authority joins; the implementing change binds the current-state anchor for immutable recorded revisions (CD-0242 D2).
 - `TestOwnerOracleRequiredOnOracleCapablePin`, `TestOwnerOracleLegacyPinStaysOracleFree`, and `TestOwnerOracleJobDebt` cover version enforcement and retained obligations.

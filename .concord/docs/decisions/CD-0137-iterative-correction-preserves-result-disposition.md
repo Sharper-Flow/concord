@@ -6,6 +6,7 @@
 - **Related:** CD-0008, CD-0017, CD-0027, CD-0112, CD-0113, CD-0130, CD-0133, CD-0148, CD-0193, CD-0205
 - **Preserves:** Approved contracts, immutable attempt history, and fail-closed completion
 - **Approval:** The Snowball coordinator approved this law change on 2026-10-16 under the operator's delegation.
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 
 ## Context
 
@@ -108,5 +109,7 @@ list. It preserves historical definition digests and all prior attempt records.
 - Original-result rejection after a later same-step review preserves both attempt identities and the review judgment.
 - Forged pairs, prior dispositions, and closed rejection intervals refuse without a durable effect.
 - A stale result cannot advance, and an earlier review cannot bypass an unconsumed rejection correction.
-- Replay, work-pin admission, single-result rejection, and human-checkpoint protections retain the same disposition boundaries.
+- Work-pin admission, single-result rejection, and human-checkpoint protections
+  retain the same disposition boundaries; the implementing change binds the
+  current-state anchor (CD-0242 D2).
 - `TestOwnerOracleConvergence`, `TestOwnerOracleRequestOpenFindingsComparison`, and `TestOwnerOracleEmptyDerivedSetEquality` cover exact correction sets and supported shrinkage.

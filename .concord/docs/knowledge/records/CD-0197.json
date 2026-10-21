@@ -21,9 +21,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fe6174b56a8a9a0331e0bfbfcd640f4498f1255e24a20bd9c2ee32d4bbbb7152",
+  "sha256": "sha256:01c209adbe94eac1a214e4298fd1dbff0bd623707b3d0bbccaf8880e130f7d5c",
   "status": "accepted",
-  "summary": "A dispatch-pinned review report carries ship or no_ship and up to 64 ranked findings with closed severity and confidence. Oracle-bound findings classify delivery blockers, uncovered cases, follow-ups, and oracle defects, with source bindings and canonical event-sequence/ordinal lineage. Closed resolution claims name finding IDs and qualifying evidence. Ship refuses P0 or classified blockers; an outside-scope P0 follow-up remains retained no_ship without becoming repair debt. Worker.completed v6 carries oracle members; worker.failed remains v2 and historical upcasts invent nothing. The shared context exposes reported content without granting workflow verdict or acceptance authority.",
+  "summary": "A dispatch-pinned review report carries ship or no_ship and up to 64 ranked findings with closed severity and confidence. Oracle-bound findings classify delivery blockers, uncovered cases, follow-ups, and oracle defects, with source bindings and canonical event-sequence/ordinal lineage. Closed resolution claims name finding IDs and qualifying evidence. Ship refuses P0 or classified blockers; an outside-scope P0 follow-up remains retained no_ship without becoming repair debt. Recorded terminal results stay as recorded; no payload version, upcast, or replay reinterprets them. The shared context exposes reported content without granting workflow verdict or acceptance authority.",
   "tags": [
     "agent-surface",
     "lanes",

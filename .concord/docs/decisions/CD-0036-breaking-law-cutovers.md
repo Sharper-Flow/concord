@@ -8,6 +8,7 @@
 - **Related:** CD-0006 D5/D10/R3, CD-0012, CD-0013, CD-0015,
   CD-0016, CD-0027, CD-0033
 - **Supersedes:** nothing; amends CD-0015's law-boundary contract
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 
 ## Context
 
@@ -33,9 +34,7 @@ the manifest-authored SHA-256 proof of the law blob. The scanned Git commit stay
 audit context, not identity, because an unrelated commit changes it.
 
 Every new law-aware workflow contract records exactly one revision pin for each
-ID in its `spec_mandate`. The event log is authority. A normalized, rebuildable
-contract-revision projection supports bounded reverse lookup of active
-consumers.
+ID in its `spec_mandate`. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: contract-revision pins are current rows, so no event log or rebuildable projection exists; bounded reverse lookup reads current rows.
 
 Legacy contracts remain readable. They carry law IDs without revision pins and
 use the compatibility rules below.
@@ -94,10 +93,7 @@ contract is stale.
 
 ### D5. Linearizable boundary and deterministic history
 
-Live contract approval validates current Git-derived laws and captures their
-revision pins in the same SQLite transaction that appends the approval event.
-Event folding validates the recorded pin shape; it never consults today's law
-projection during replay.
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: contract approval records its law-revision pins as current rows in one transaction; no approval event, folding, or replay exists.
 
 Every later mutating preflight compares the active contract with the current
 law projection inside its owning `BEGIN IMMEDIATE` transaction. A cutover and a
@@ -129,7 +125,8 @@ changed file.
 
 ## Verification
 
-- Contract pins and reverse-consumer projection rebuild from the event log.
+- The implementing change binds the current-state anchor: contract pins and their
+  consumers read from current rows, with no event log or rebuild (CD-0242 D2).
 - Same-ID amendments remain compatible; new-ID supersession blocks old
   consumers.
 - New actions and old in-flight result acceptance fail after cutover.

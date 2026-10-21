@@ -45,6 +45,7 @@
   rule, and changes no UI/UX. It is not serious under
   [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
   D4.
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D13, D14
 
 ## Context
 
@@ -90,8 +91,7 @@ workflow language. A new size, family, or kind is a new composition and adds
 no step code.
 
 The registry compiles each composition to the canonical definition that
-CD-0013 D1 lists and computes the digest from the compiled definition. An
-instance still pins ref, version, and digest. This amends CD-0013 D1: the
+CD-0013 D1 lists and computes the digest from the compiled definition. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: no released definition version or pin is retained for history. This amends CD-0013 D1: the
 source of a definition is its composition, and the fields D1 lists are its
 compiled result.
 
@@ -104,14 +104,10 @@ Composition across work items stays forward-link only.
 
 ### D3. Released compositions stay frozen
 
-CD-0115 applies to compiled definitions. A composition pins the version of
-each part it uses, so a released version keeps compiling to its released bytes
-and digest. A change to a part's content is a new part version. The release
-that carries it registers a new version of each composition that adopts it and
-adds its pin row.
-
-The registry derives the latest version of each composition. Tests read the
-latest version from the registry, not from a hand-written expectation.
+[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
+governs: derived schemas and compositions are generated from one canonical
+source, and no released workflow-definition version, pin, or catalog list is
+retained for history.
 
 ### D4. Every sized work item has one size from the decision model
 
@@ -193,23 +189,19 @@ target refuses admission until the operator sets one as a gate.
   redefine shared steps, against goal C's measure.
 - Compose by inheritance between definitions. A child that overrides a parent
   step defines that step twice.
-- Recompile released versions from current parts. A part change would move
-  released digests, the failure CD-0115 forbids.
-- Re-pin a running instance to the new size's composition. CD-0008 D4 and D6
-  and CD-0013 D1 keep an active execution on its accepted version; a successor
-  keeps every pin and uses the forward link CD-0006 R1 already accepts.
+- Recompile released versions from current parts. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: derived definitions generate from one canonical source; released versions are not retained for history.
+- Re-pin a running instance to the new size's composition. An active execution
+  continues under its recorded current state, and a resize successor keeps the
+  forward link CD-0006 R1 already accepts.
 
 ## Consequences
 
 The registry gains a part layer and a compiler, and the work record gains a
-size and its model inputs. That needs a store migration and a registry
-rebuild. The size vocabulary needs one machine-readable declaration under
-CD-0077 D2. Instances pinned before the change keep their pins and walk their
-released definitions unchanged.
+size and its model inputs. That needs a store migration; [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) governs: the cutover is one documented migration with a verified snapshot. The size vocabulary needs one machine-readable declaration under
+CD-0077 D2. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: no released definition version is retained for history.
 
 A part change now produces new versions of several compositions in one
-release. The pins table grows faster, and reviewers see each affected
-composition.
+release, and reviewers see each affected composition.
 
 A resize costs one forward-linked successor. The define-start record of the
 first item stays the start of the change for the D7 measure.
@@ -227,8 +219,8 @@ goals.md §2 names. This record does not move that point.
   `python3 scripts/check-knowledge-closure.py` pass when the record is
   registered.
 - `go test ./internal/store` must prove that no step is defined in two parts,
-  that a new composition compiles without new step code, and that every
-  released version compiles to its pinned digest.
+  that a new composition compiles without new step code, and that generated
+  definitions derive from the one canonical source (CD-0242 D14).
 - `go test ./internal/store` must prove that the decision model gives the same
   size for the same inputs and model version, that the record keeps the size,
   model version, and inputs, and that a size an agent proposes is refused.

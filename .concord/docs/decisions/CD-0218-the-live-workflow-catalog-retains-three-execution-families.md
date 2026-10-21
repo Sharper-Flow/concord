@@ -2,11 +2,10 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-09
-- **Scope:** Live workflow catalog, typed authoring, retained historical
-  readers, and authorized cutover. No live migration or release activation
-  is authorized.
+- **Scope:** Live workflow catalog, typed authoring, and authorized cutover.
 - **Classification:** Breaking replacement under CD-0036 D2
 - **Planning record:** [Concord (CON) issue 902](https://linear.app/sharper-flow/issue/CON-902/delete-redundant-workflow-ceremony-retain-minimal-authorized-agent)
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D13, D14
 - **Approval:** The operator approved this successor as designed on 2026-10-09
   at 19:35 Eastern Daylight Time (EDT), relayed through the Snowball
   coordinator. This publication is the isolated candidate only: it does not
@@ -14,9 +13,17 @@
   activate a release.
 - **Candidate supersession set:** CD-0007, CD-0012, CD-0013, CD-0039,
   CD-0077, CD-0115, CD-0156, CD-0198. This set comes from the approved design;
-  the D5 owner must resolve its current successor identities before cutover.
-- **Amends:** CD-0115 (compatible representation clarification only; every
-  existing pin, capture duty, and digest stands)
+  its current successor identities resolve through
+  [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md).
+- **Amends:** CD-0115, which
+  [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
+  supersedes in full;
+  [D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+  keeps current state and finite snapshots instead of retained historical
+  readers, and the cutover follows
+  [D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot):
+  one documented migration with a verified snapshot and the operator's
+  approval of its destructive operation.
 - **Related:** CD-0007, CD-0012, CD-0013, CD-0036, CD-0039, CD-0077,
   CD-0115, CD-0156, CD-0172, CD-0186, CD-0198, CD-0215
 
@@ -24,8 +31,7 @@
 
 The live workflow catalog requires seven families. Four families repeat bounded
 job, independent evidence, and delivery duties that the retained execution owners
-already carry. Their public authoring can retire. Their stored definition pins,
-events, attributed reports, and recovery evidence cannot retire with it.
+already carry. Their public authoring can retire; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) and [D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) govern: the store keeps current state and finite snapshots, and the one documented cutover retires what the migration discards.
 
 This document proposes a replacement, not a same-ID amendment of removed duties.
 The replacement does not make research conclusions into binding Product law.
@@ -33,7 +39,7 @@ The accepted research-pack capability remains independent of workflow selection.
 
 ## Decision
 
-Only the three live execution families receive new `approval_policy=consequence_v1` versions under CD-0013 D11. Retired definitions remain byte-frozen and historical work keeps its pinned consent and attribution rules. New-policy verdicts require independent authenticated evaluators without operator substitution; completion and engineering confirmation use their real authorized coordinators. No old work migrates implicitly and no retired family gains a new authoring route.
+Only the three live execution families receive new `approval_policy=consequence_v1` versions under CD-0013 D11. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current state and finite snapshots, not frozen history, and recorded work keeps its recorded consent and attribution facts. New-policy verdicts require independent authenticated evaluators without operator substitution; completion and engineering confirmation use their real authorized coordinators. No old work migrates implicitly and no retired family gains a new authoring route.
 
 
 ### D1. Three families own new execution
@@ -117,8 +123,7 @@ independent verdict evidence. Immutable job revisions, attempts, subject commits
 packet/report identities, actor/session/Project/worktree bindings, law/research
 pins, and operation/idempotency keys remain executable admission facts.
 
-One folded admission owner serves dispatch, delivery, correction, and closure.
-Transactional event validation and host preauthorization remain at their own
+One admission owner serves dispatch, delivery, correction, and closure; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: admission validates current rows in one transaction, with no folded event validation. Host preauthorization remains at its own
 boundaries. No caller-supplied echo replaces dispatch-owned provenance.
 
 Complete-step contract correction remains confined to implementation and
@@ -143,49 +148,19 @@ no compatible-with approval requirement.
 
 ### D4. Frozen history remains exact and readable
 
-Every released definition retains its original ref, version, digest, graph,
-action payloads, and golden recovery data. Historical contracts and events retain
-their original identities. No upcaster converts a family or fabricates diagnosis,
-approval, native status, independent proof, or oracle content.
-
-The existing registry/read/fold owner may retain definitions as exact frozen data
-rather than reconstructing them through procedural version chains. Every digest
-and recovery tuple must remain equal. Unknown or corrupt pins refuse. Lookup of
-a historical pin does not make it eligible for new capture or dispatch.
-
-Historical native phases, conditions, architecture decisions, scalar verdicts,
-and contract payloads remain readable and reconstructible with their attribution.
-Published migrations remain byte-stable. A projection table remains while a
-supported event needs it. Git history does not replace the installed reader.
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+and
+[D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
+govern: the store keeps current state and verified finite snapshots, not
+frozen history, and derived definitions are generated from one canonical
+source with no released version retained for history.
 
 ### D5. Cutover is an operator-owned boundary
 
-No deletion merge precedes the composed single-work and protected coordination
-witnesses. Breaking candidate source requires operator approval of its exact
-successor delta. Isolated candidate publication does not update a serving
-Product's law projection or authorize activation.
-
-Before live supersession publication, disposition every active consumer of every
-superseded law, not only retired-family or old-authoring pins. Affected work
-finishes before publication or receives a reachable approved recovery,
-cancellation, or supersession route. Once the law projection commits, CD-0036
-quiesces all remaining old-law consumers regardless of their serving binary.
-There is no grandfather path. Release activation follows publication and verified
-disposition. No session termination or live pin backfill is authorized here.
-
-On 2026-10-12, the operator approved a one-time cancellation route at the upgrade
-boundary for every nonterminal item the cutover gate selects. This route requires
-explicit operator input and runs inside the maintenance boundary after the
-verified snapshot. It records an ordinary lifecycle cancellation per item. It
-backfills no pin, ends no session, writes no external tracker, and changes no
-worktree.
-An active outside-repair hold on a selected item refuses the run before the fence
-and the snapshot.
-
-Publication uses new stable law IDs and the existing supersedes relations.
-CD-0036 strict quiescence, transactional stale-consumer checks, and its closed
-recovery paths remain. Compatible revision notices cannot disguise a breaking
-replacement. Cutover never rewrites original evidence or uncertain effect state.
+[CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)
+governs: the cutover is one documented migration that inventories what
+survives, preserves every worktree and its uncommitted files, verifies the
+target, and needs the operator's approval of its destructive operation.
 
 ### D6. Unchanged obligations must survive publication
 
@@ -193,8 +168,8 @@ The candidate supersession set names records, not clause-level runtime overrides
 Before publication, carry every unaffected obligation from those records into
 the accepted successor text or an approved coherent successor set. Retain the
 bootstrap/platform floor, explicit end-state and independent-verdict rules,
-research-pack guarantees, vocabulary ownership, exact historical pins,
-mandatory backlog search, and all CD-0198 evidence/approval/retry floors.
+research-pack guarantees, vocabulary ownership, the identities active work
+needs, mandatory backlog search, and all CD-0198 evidence/approval/retry floors.
 
 Do not publish this draft with only a prose exception to still-accepted rules.
 The publication owner must update old record status, manifest identities,
@@ -223,9 +198,9 @@ than publish competing overrides.
 ```
 
 ```gherkin
-  Given a completed item pins a released retired-family definition
-  When the store rebuilds and reconstructs that item's history
-  Then its definition digest, actor, subject, and evidence remain unchanged
+  Given a completed item recorded under a retired-family definition
+  When the store reads that item back
+  Then its recorded digest, actor, subject, and evidence remain unchanged
 ```
 
 ```gherkin
@@ -255,8 +230,7 @@ than publish competing overrides.
 
 ## Alternatives considered
 
-- Delete historical definitions and recover them manually from Git. The installed
-  reader could no longer open, verify, or replay the store.
+- Delete historical definitions and recover them manually from Git. [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) governs: the one documented cutover migration, not manual recovery, retires what it discards.
 - Remap old families to implementation. The replacement would change authority,
   actors, graph exits, and the meaning of existing evidence.
 - Replace typed records with a progress field bag. Structural admission would
@@ -280,8 +254,8 @@ exists in the manifest for this record.
 Every unaffected obligation in the set keeps its owning record until that
 boundary. CD-0007 keeps the bootstrap, platform, and authority duties.
 CD-0012 keeps explicit end-state, non-vacuity, immutable approval, and
-independent acceptance. CD-0013 keeps event authority, reconstruction, declared
-actions, and independent acceptance. CD-0039 keeps D1 through D4 and D7 through
+independent acceptance. CD-0013 keeps current-state workflow recording,
+declared actions, and independent acceptance. CD-0039 keeps D1 through D4 and D7 through
 D9 for historic attributed reports, failures, and effects.
 
 CD-0077 keeps operator kind separation, stored historical names, and immutable
@@ -290,14 +264,14 @@ evidence, approval, start, and retry floor. CD-0215 owns the research-pack
 guarantees, and this record leaves it standing.
 
 CD-0215 D2 still requires a separate architecture spike decision. Before cutover,
-the D5 owner must resolve that obligation through an approved successor set.
+the approved successor set resolves that obligation.
 This candidate does not change CD-0215.
 
-The CD-0115 amendment is compatible representation only. Every existing pin,
-capture duty, digest, and recovery tuple stands. The D4 distinction of archived
-reads from live capture eligibility is the breaking half; it activates with the
-set at the D5 boundary. That replacement must carry CD-0115's unchanged
-immutability, retention, and digest-proof obligations under D6.
+[CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) supersedes CD-0115 in full and resolves the CD-0115 amendment:
+[D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) keeps current state and finite snapshots, and
+[D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) generates derived definitions from one source.
+Retired families keep no live capture eligibility; that refusal activates with the
+set at the D5 boundary.
 
 ## Verification
 
@@ -323,14 +297,16 @@ immutability, retention, and digest-proof obligations under D6.
 - Criterion 3 keeps its retry anchors:
   `go test ./internal/store/ -run TestCombinedRejectRetryDispatchesThroughTheDispatchOwner`
   and `go test ./internal/store/ -run TestRetryLaunchFailureAfterCommittedIntentStaysTruthful`.
-- Criterion 4 keeps its frozen-history anchors:
-  `go test ./internal/store/ -run TestHistoricalJournalFixturesReplayWithOriginalPins`
-  and `go test ./internal/store/ -run TestWorkflowDefinitionVersionPinsHold`.
+- Criterion 4's recorded-definition reading binds the current-state anchor:
+  recorded definitions and their digests read back unchanged, with no replay
+  (CD-0242 D2, D14). Until that change lands,
+  `python3 scripts/check-knowledge-index.py` is the executable anchor for this
+  record's law registration.
 - Criterion 5 is covered by
   `internal/store.TestCutoverRefusesNonterminalArchivedPinAtReadiness` and
   `internal/store.TestCutoverAllowsTerminalHistoricalPinsAtReadiness`.
-  Readiness refuses the nonterminal archived pin without moving event or migration rows;
-  terminal historical pins remain readable and rebuild with an unchanged projection hash.
+  Readiness refuses the nonterminal archived pin without a live store mutation;
+  terminal recorded items remain readable as current rows (CD-0242 D2).
 - Criterion 6 keeps its completion anchor:
   `go test ./internal/store/ -run TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict`.
 - Criterion 7 keeps its ordinary-recovery anchors:
@@ -344,7 +320,7 @@ immutability, retention, and digest-proof obligations under D6.
   The last two refuse the disposed lane's checkpoint and, after the next dispatch
   re-pins a lane, the former disposer's checkpoint.
 
-Retained research failure derivation, retry and rebuild are covered by
+Retained research failure derivation and recovery are covered by
 `internal/store.TestResearchDerivedFailureRetriesAndRebuilds`.
 These runtime witnesses establish enforcement, not live consumer disposition,
 supersession publication or release activation. D5 still governs those operator actions.

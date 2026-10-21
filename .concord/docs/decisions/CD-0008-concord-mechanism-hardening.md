@@ -12,6 +12,7 @@ needs a Breaking migration and requires each bump to declare its class.
 **Amended:** 2026-10-18 — [CD-0238](CD-0238-point-in-time-reconstruction-runs-outside-the-core.md) amends
 D6's point-in-time reconstruction bullet: reconstruction runs on the operator's
 machine, outside the core.
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D13, D14
 **Scope:** Evidence resolution, unreadable-record isolation, workflow checkpoints,
 attempt fencing, external conditions, worktree topology, schema evolution, and the
 SQLite confirmation and alternative-engine trigger.
@@ -54,7 +55,7 @@ Worktree creation is one durable cross-authority operation:
 1. atomically claim the work operation and pin intended Project/base SHA/branch;
 2. ask the native Git owner to create the worktree;
 3. verify branch, base, path, and repository identity; then
-4. append the verified locator/state. An interruption reconciles the same operation
+4. record the verified locator/state. An interruption reconciles the same operation
    and never starts a second worktree.
 
 Before attempting native creation or retry, reconciliation probes the pinned branch
@@ -156,19 +157,15 @@ Examples:
 
 ### Projection rebuild and quarantine
 
-- Projection-row corruption rebuilds from authoritative events.
-- An unreadable event stops the fold for every affected subject sub-log; the last
-  known-good projection may remain visible only as explicitly degraded/stale.
-- Quarantine is append-only: retain the event, append a quarantine/diagnostic marker,
-  and maintain a typed projection of unreadable records. Never delete history.
-- Distinguish projection corruption from event poison/version skew.
-- Repair follows reconcile → repair/upcast/compensate → rebuild → operator escalation.
-  Redrive is operator-triggered, recorded, and retry-bounded.
+- [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: corrupted rows recover through a verified snapshot restore plus reconciliation of current rows; no fold, replay, or rebuild exists.
+- An unreadable current row contributes unknown and carries a typed quarantine diagnostic; it never silently blocks or clears a safety conclusion.
+- [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded rows stay as recorded, and snapshot cleanup never removes the newest verified snapshot or one an unfinished recovery needs.
+- Distinguish corrupted storage from an unreadable row or schema skew; both fail closed for safety conclusions.
+- Repair follows reconcile → repair/compensate → verified snapshot restore → operator escalation. Redrive is operator-triggered, recorded, and retry-bounded.
 
 ## D4. Workflow checkpoints and execution-attempt fencing
 
-Every work item pins one workflow type/version. Cross-authority and external-effect
-steps append typed checkpoint events containing:
+Every work item pins one workflow type/version. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: cross-authority and external-effect steps record typed checkpoint rows as current state, not appended events. A checkpoint row contains:
 
 ```text
 work_id
@@ -201,7 +198,7 @@ claim:
 complete:
   BEGIN IMMEDIATE
   reject operation_conflict unless supplied epoch == current epoch
-  append step result/checkpoint
+  record step result/checkpoint
   COMMIT
 ```
 
@@ -238,34 +235,7 @@ after checking the owning authority.
 
 ## D6. Event/schema evolution and historical reconstruction
 
-- A typed upcaster registry is keyed by event kind and payload schema version.
-- Every event records payload schema version; every projection schema has its own
-  version.
-- Upcasters are ordered, deterministic, side-effect-free, and covered by complete
-  replay tests.
-- A newer-than-supported event or workflow definition fails closed; no downcast or
-  silent skip.
-- A payload version bump is not a schema migration. A bump that keeps the name,
-  type, and meaning of every field that an admitted older release reads from
-  stored payloads outside the event registry needs no Breaking migration and
-  leaves the compatibility floor (CD-0111 D3) unchanged. An admitted older
-  release is one that the floor in force before the bump ships still lets open
-  the store. After a release writes the new version, an older release's
-  full-log replay (backup verification, restore, and fold-guard recovery)
-  refuses before any mutation; the remedy is a release that reads that version.
-  A bump that removes, renames, retypes, or redefines such a field ships with a
-  Breaking migration. Each bump declares its class: replay-only, or the Breaking
-  migration that raises the floor for it.
-- Projection migration normally rebuilds from the retained event log.
-- Active workflow executions remain pinned to their accepted workflow version; idle
-  work adopts the current version. Completion always records the pinned version even
-  when a newer definition has superseded it, preserving historical reconstruction.
-- Read-only point-in-time reconstruction at an event/version runs on the operator's
-  machine, outside the core (CD-0238). Historical fork creates new linked work; it
-  never rewrites history.
-- Projection snapshots are permitted only after measured replay time requires them.
-  A snapshot is disposable acceleration, carries event watermark/checksum/version,
-  and never replaces retained authority.
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history), [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot), and [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) govern: no event log, fold, upcaster, or replay exists; the cutover is one documented migration with a verified snapshot; definitions derive from one source with no retained history.
 
 ## D7. SQLite is confirmed; alternative engines are falsifier-only
 
@@ -306,7 +276,7 @@ such as network filesystems or multi-machine writes that this local test cannot 
 - Unreadable records neither create false safety nor block unrelated work globally.
 - Interrupted and competing agents resume one durable operation without duplicate or
   stale authoritative completion.
-- Schema evolution and diagnostics are explicit before stable event history ships.
+- [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) governs: schema evolution is one documented cutover migration with a verified snapshot, and diagnostics stay explicit.
 
 ### Cost
 
@@ -325,10 +295,10 @@ such as network filesystems or multi-machine writes that this local test cannot 
    discovery; authoritative evidence resolves them.
 5. An unreadable possible blocker never yields ready/no-conflict/release-safe.
 6. An unrelated unreadable record does not block an independently provable operation.
-7. Projection corruption rebuilds; event poison isolates the affected subject and
-   preserves history.
-8. Older supported events upcast deterministically; newer unsupported events fail
-   before projection mutation.
+7. Corrupted rows restore from the newest verified snapshot and reconcile; an
+   unreadable row yields unknown and never deletes recorded state.
+8. A record whose schema the release does not support fails closed before any
+   mutation, and derived schemas generate from one canonical source.
 9. Evidence bound to one commit cannot authorize a changed commit.
 10. Worktree reclaim succeeds from verified Git merge/cleanliness facts despite a
     stale projection, then reconciles that projection.

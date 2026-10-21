@@ -12,6 +12,7 @@
 > - [`CD-0215-retained-research-context.md`](./CD-0215-retained-research-context.md) (2026-10-09) keeps the sole narrow direct-table exception for research context, retained until explicit retirement.
 > - [`CD-0011-retain-sqlite-after-conformance.md`](./CD-0011-retain-sqlite-after-conformance.md) (2026-08-07) records the post-falsifier review and retains SQLite with explicit future reopen conditions.
 > - [`CD-0238-point-in-time-reconstruction-runs-outside-the-core.md`](./CD-0238-point-in-time-reconstruction-runs-outside-the-core.md) (2026-10-18) moves point-in-time reconstruction out of the core, onto the operator's machine.
+> - **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D1, D2
 > **Decided:** 2026-08-05 (operator decision D1, reopened under the simplicity mandate).
 > **Confirmed by operator:** 2026-08-05, as the *revised* set following stack re-validation (see §2a). The re-validation reversed an earlier single-writer-daemon recommendation to library-in-process.
 > **Resolves:** [`../core-architecture.md`](../core-architecture.md) §2; [`../design-constraints.md`](../design-constraints.md) research backlog #8; [`../clarifications.md`](../clarifications.md) C2.
@@ -19,10 +20,7 @@
 
 ## Decision
 
-**SQLite is Concord's sole durable authority.** An append-only generic event log
-(`domain_events`, originally sketched as `transitions`) is the source of truth;
-explicit typed current-state projections are folds over that log, held
-in the same database, updated in the same transaction. No second store holds
+**SQLite is Concord's sole durable authority.** [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current rows and finite verified snapshots, not an event log; each mutation writes current rows in one transaction. No second store holds
 authoritative state. No separate workflow engine.
 
 This decision is the structural prevention of the Advance failure cluster
@@ -38,7 +36,7 @@ Concord removes the split by construction, not by policy.
 - **Synchronous:** `NORMAL` (not `FULL`). Under WAL, `NORMAL` fsyncs at checkpoint
   rather than at every commit. The database **cannot corrupt**; the only exposure is
   that the most recent un-checkpointed transactions may be lost on power cut — which
-  the append-only log + recovery fold (I5) absorbs. This removes fsync from the hot
+  [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) recovery — a verified snapshot restore plus reconciliation — absorbs. This removes fsync from the hot
   path. `FULL` is available as a per-deployment override *only* if a requirement
   emerges that every individual transition survive an immediate power cut with no
   backstop.
@@ -69,11 +67,11 @@ removes it structurally — so the disease cannot recur by "forgetting" a policy
 | # | Invariant | Advance failure mode it removes |
 |---|---|---|
 | **I1** | **Single authority.** SQLite is the only component whose state is authoritative. No projection, cache, or second store is ever treated as a transition-decision input. | Split state authority (Temporal ↔ disk projection) — `fixAdvStateAuthority`, the central anti-pattern. |
-| **I2** | **Append-only log is Product/work truth.** Every Product/work identity, lifecycle, membership, relation, gate, and archive-linkage change is an immutable row in `domain_events`; current Product/work state is a materialized fold. CD-0215 research context is the sole direct-table exception: it is explicitly retirable work context, never retained history, and no other fact type inherits the exception. | Destructive/in-place mutation of retained Product/work state with no replayable history. |
-| **I3** | **Projections are disposable.** Every retained read model (materialized current-state, indexes, derived views) is rebuildable from the log by a deterministic fold. CD-0215 research tables are authority for their context—not projections—and are deleted only by explicit retirement. | Projection drift — the disk projection became a co-authority that lagged Temporal truth (read-timeout cluster, stale reads). |
-| **I4** | **Terminal transitions are single-statement atomic.** A move to a terminal state is ONE transaction: append the transition row AND update materialized state, committed **atomically together**. Durability follows the configured synchronous mode (under `NORMAL`, the un-checkpointed tail is covered by the recovery fold, I5). No two-phase "mark, then converge." | Terminal-durability gap — `fixArchiveTerminalDurability`; archive proof required signal application + attributable commit evidence, not bare liveness. |
-| **I5** | **Recovery is a deterministic fold.** On any inconsistency, recovery = re-fold the log into a fresh materialized state. No reconciliation between two authorities; no destructive repair. | Destructive-only recovery (postmortem C6); cross-authority reconciliation surfaces. |
-| **I6** | **Error/retry records are first-class, type-valid log rows.** Retry attempts, errors, and recovery actions are schema'd rows in the log — never free-form accumulator state that can become unreadable. | Doom-loop accumulator — `clampDoomLoopAccumulator`; the retry recorder wrote unreadable records and bricked changes. |
+| **I2** | **One owner per kind of state.** [CD-0242 D1](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d1-each-kind-of-state-has-one-owner) governs: each kind of state has one owner, and [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current rows and finite verified snapshots, not an event log. | Destructive/in-place mutation of retained Product/work state with no replayable history. |
+| **I3** | **Recovery restores verified snapshots.** [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recovery restores a verified snapshot and reconciles current rows; no fold or replay rebuild exists. | Projection drift — the disk projection became a co-authority that lagged Temporal truth (read-timeout cluster, stale reads). |
+| **I4** | **Terminal transitions are single-statement atomic.** [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: a move to a terminal state is ONE transaction that writes every affected current row, with no two-phase "mark, then converge." | Terminal-durability gap — `fixArchiveTerminalDurability`; archive proof required signal application + attributable commit evidence, not bare liveness. |
+| **I5** | **Recovery reconciles current state.** [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recovery uses verified snapshots, tested restore, and reconciliation of current rows with Git, worktrees, artifacts, and external effects. | Destructive-only recovery (postmortem C6); cross-authority reconciliation surfaces. |
+| **I6** | **Errors and retries are recorded state.** [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: errors, retries, and recovery actions are current rows written in one transaction, not log rows. | Doom-loop accumulator — `clampDoomLoopAccumulator`; the retry recorder wrote unreadable records and bricked changes. |
 
 An implementation that violates any invariant is not Concord, regardless of
 whether it uses SQLite.
@@ -93,10 +91,9 @@ SQLite single-authority won; the reasoning, condensed:
   deterministic-replay guarantee is meaningful only for steps that can be
   re-executed identically. Concord's workflow steps are LLM calls (non-deterministic
   Activities). Once steps can't replay, replay's value reduces to
-  checkpoint-and-resume — which a bare append-only log already provides.
+  checkpoint-and-resume. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: resumption works from current state and finite snapshots, with no event log or replay.
 - **The scale does not warrant a workflow engine.** ~50 concurrent state machines,
-  one operator, one machine. An append-only `domain_events` log + explicit typed
-  projections in one transaction is the entire mechanism. No worker pool, no task queue, no
+  one operator, one machine. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: one transaction per mutation over current rows is the entire mechanism. No worker pool, no task queue, no
   server process, no version pinning.
 - **Durability is a PRAGMA, not an architecture.** `synchronous=FULL` + WAL gives
   crash-safe committed transactions natively. Concord does not reimplement
@@ -159,20 +156,14 @@ decision:
 Concord has **four tiers**. The first two are authoritative for disjoint live fact
 types; neither duplicates the other:
 
-| Tier | Store | Holds | Lifetime |
-|---|---|---|---|
-| **Live Product/work** | one global local SQLite DB | `domain_events` log + explicit typed projections | event authority retained; eligible projections prunable only through compaction-retention-policy's bounded lazy transition |
-| **Active research context** | direct versioned tables in the same SQLite DB | CD-0215 packs/revisions/findings/sources/consumer bindings only | until explicit retirement of a terminal-owner pack with no active pin |
-| **Durable knowledge** | **git, in the repo** (markdown) | compacted lessons, completed-work notes, decision records | permanent, versioned, diffable |
-| **Process exhaust** | *discarded* | sub-agent reports, briefing digests, traceability dumps, intermediate state | dropped at archive |
+[CD-0242 D1](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d1-each-kind-of-state-has-one-owner) governs the tiers: the local SQLite store owns current state and research, the Git knowledge home owns durable knowledge, the worktree owns code progress, and process exhaust is not stored.
 
 **Archival is a compaction, not a serialization dump.** On reaching terminal state,
-an entity's transition history is distilled into **one human-readable markdown note**
-committed to the repo; verified terminal projections later become eligible for compaction-retention-policy's
-bounded lazy pruning while `domain_events` remains retained authority. Target size is
+an entity's outcome is distilled into **one human-readable markdown note**
+committed to the repo; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current rows and finite snapshots, so no terminal entity's history stays retained as authority. Target size is
 a page, not hundreds of kilobytes.
 
-CD-0215 research is not serialized into that note or retained log. Archive may
+CD-0215 research is not serialized into that note or retained as store history. Archive may
 promote selected reasoning/decisions/specs/lessons through their normal durable forms,
 then deletes the complete active pack only after Git/linkage proof.
 
@@ -189,8 +180,7 @@ then deletes the complete active pack only after Git/linkage proof.
 3. **No duplication with SQLite.** A fact is operational (SQLite, while in-flight) or
    durable knowledge (git, after terminal) — never both as competing copies.
 4. **Process exhaust is not archived.** Sub-agent reports, briefing digests, and
-   traceability artifacts remain producer-owned; accepted PM9 retains no separate
-   receipt because the existing event, approved note, and locator sequence is enough.
+   traceability artifacts remain producer-owned; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: a category of state without a consumer is not stored, so accepted PM9 retains no separate receipt.
 5. **Greppable.** An agent must be able to answer "have we solved this before?" by
    searching the durable tier.
 
@@ -260,10 +250,7 @@ is trivial.
 - **Crash safety for free.** `synchronous=FULL` is a tested, decades-old guarantee.
 
 ### What this costs
-- **Concord owns its recovery model.** Without Temporal's replay, Concord must
-  implement the recovery fold (I5) and the crash-recovery test. This is bounded —
-  it is a fold over one table — but it is real work and the slice (below) validates
-  it first.
+- **Concord owns its recovery model.** [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recovery restores a verified snapshot and reconciles current rows; the crash-recovery test validates that restore first.
 - **No distributed guarantees.** Single-writer, single-machine. If Concord ever
   needs multi-writer or multi-machine, this decision is revisited (DBOS/Postgres is
   the documented upgrade path). For a single-operator local tool this is a feature,
@@ -285,10 +272,9 @@ is trivial.
   committed or did not. On restart, materialized state is either at the pre- or
   post-transition value, never between. The crash-recovery test (slice) asserts
   this falsifiably.
-- **Corrupted/partial write.** WAL + `synchronous=FULL` + the recovery fold (I5):
-  drop the materialized projections, re-fold from `domain_events`. The log is
-  append-only and fsynced; it is the durable survivor.
-- **Schema-invalid log row (unreachable if I6 holds).** Per design-constraints #7
+- **Corrupted/partial write.** WAL + `synchronous=FULL` protect the committed write.
+  [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: verified snapshots and current rows are the durable state, restored through tested recovery; no event log or fold survives recovery.
+- **Schema-invalid current row (unreachable if I6 holds).** Per design-constraints #7
   (validation-failure isolation): isolate to the owning operation; never fail-closed
   across unrelated operations. I6 makes this rare by construction.
 
@@ -301,7 +287,7 @@ The six invariants are language-independent, but the core needs a language.
 removed and SQLite as the core's durable store. Accepted TS6/CD-0005 now selects one
 global `concord.ts` custom-tool adapter; the internal CLI still does not define tools.
 
-- **Go core** holds the SQLite authority, the transition logic, the recovery fold,
+- **Go core** holds the SQLite authority, the transition logic, the recovery path,
   and (eventually) the standalone CLI and admin-panel backend. SQLite access via a
   pure-Go binding ([`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)) — no CGO, single static binary, trivial
   cross-compilation; performance is ample at ~50 state machines.
@@ -322,8 +308,7 @@ daemon that §2b demoted.
 1. **Invocation boundary** — **short-lived CLI invocation** (D2). No persistent server.
 2. **Binding** — **[`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)**, pure Go (D3). `mattn` is the documented fallback.
 3. **Entity shape** — PM3 narrowly supersedes CD-0003 D1's generic materialized
-   spine with **explicit typed Product-memory projections**, while retaining one
-   generic authoritative event log and typed-edge integrity.
+   spine with **explicit typed Product-memory state** and typed-edge integrity; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current rows, not an event log.
 
 The storage-spine slice records the current baseline. PM1–PM3 now fix canonical
 queries, authority scope, domain projection shape, lifecycle/relation semantics,
@@ -334,8 +319,7 @@ and membership scope. PM1–PM5 now authorize storage/core implementation.
 ## 6. Supersession of private pre-public planning
 
 - The earlier private Temporal commitment and its go/no-go proofs are not public
-  authority. The durable lesson retained here is that each Concord subject has an
-  ordered event sub-log within one global local SQLite file.
+  authority. The durable lesson retained here is [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)'s rule: one global local SQLite store keeps each Concord subject's current state.
 - The earlier layering proposal is superseded by the public Go core, SQLite sole
   authority, and thin adapter boundaries recorded by CD-0002 through CD-0006.
 
@@ -343,11 +327,7 @@ and membership scope. PM1–PM5 now authorize storage/core implementation.
 
 ## 7. Deferred questions now resolved
 
-- **Migrations / schema evolution — resolved by CD-0008 D6 (2026-08-06):** typed,
-  ordered, deterministic upcasters; independently versioned projections; complete
-  replay tests; fail-closed newer-than-supported events; pinned active workflow
-  versions; and snapshots only after a measured replay falsifier. CD-0238 moves
-  point-in-time reconstruction out of the core.
+- **Migrations / schema evolution — resolved by CD-0008 D6 (2026-08-06), now amended:** [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) governs: the cutover is one documented migration with a verified snapshot, and [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: derived definitions generate from one source with no retained history.
 
 **Now closed by CD-0003 + PM3 (2026-08-05):** invocation boundary (short-lived
 CLI), SQLite binding ([`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)), generic event authority, and explicit

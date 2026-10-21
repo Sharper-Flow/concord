@@ -8,6 +8,7 @@
 - **Related:** CD-0013, CD-0112, CD-0115, CD-0124
 - **Preserves:** Released definition pins, worker attempt identity, action
   guards, workflow steps, and operator authority
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
 
 ## Context
 
@@ -24,26 +25,20 @@ pin. Failed attempt closure is an engine concern, not a change to step policy.
 
 ### D1. The engine owns failed attempt closure
 
-The engine resolves the current `record_worker_failure` action when the pinned
-definition does not declare it and the current step holds an unrecorded failed
-attempt. The attempt must follow the latest action start for that step.
+[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions are generated from one canonical source, and no released definition version is retained for history.
 
 ### D2. Recovery uses the current action contract
 
-Recovery uses the current closed payload, `work_transition` capability, hold
-execution mode, identity checks, epoch checks, and failed-state check. It does
-not advance the workflow step.
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recovery works from current rows and verified snapshots, not from a retained historical version.
 
 ### D3. Released definition pins stay unchanged
 
-The engine does not add the action to the historical definition. The definition
-version, content, and digest stay unchanged. Work continues under its pinned
-step graph.
+[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: no released workflow-definition version is retained for history and no hand-maintained pin duplicates that source.
 
 ### D4. All action surfaces agree
 
-Action resolution, preflight, event folding, and `next_valid_intents` use the
-same recovery condition. After the failure is recorded, the recovery action is
+Action resolution, preflight, admission, and `next_valid_intents` use the
+same recovery condition; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: every surface reads current rows, with no event folding. After the failure is recorded, the recovery action is
 not available for that attempt.
 
 ### D5. Existing refusals stay active
@@ -59,4 +54,5 @@ actor, duplicate record, stale work version, and terminal work.
 - The work pin advertises recovery before the record and removes it after the
   record.
 - Existing worker-result refusal tests continue to pass.
-- The released definition digest table stays unchanged.
+- The implementing change binds the current-state anchor: definitions generate
+  from one canonical source with no retained released version (CD-0242 D14).

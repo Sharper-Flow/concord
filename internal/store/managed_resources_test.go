@@ -157,7 +157,7 @@ func TestManagedResourceHistoricalUpdateRebuildsAndRecords(t *testing.T) {
 		EventID: "resource-hist-created", ResourceID: "resource-hist", ProductID: "resource-product-hist",
 		DisplayName: "API", Class: "infrastructure", Kind: "service", Purpose: "serves API traffic",
 		StageMaturity: "production", StageAudienceCommitment: "limited", Environments: []string{"production"},
-		MetadataSchemaVersion: "1", Metadata: []byte(`{"kind_detail":"owned test service"}`), OwnerPurpose: "operates API", OwnerEnvironments: []string{"production"},
+		MetadataSchemaVersion: "1", Metadata: []byte(`{"kind_detail":"owned test service","creation_only":true}`), OwnerPurpose: "operates API", OwnerEnvironments: []string{"production"},
 		ExpectedProductVersion: 2, Actor: "operator", OccurredAt: time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC),
 	}); err != nil {
 		t.Fatal(err)
@@ -180,7 +180,7 @@ func TestManagedResourceHistoricalUpdateRebuildsAndRecords(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT metadata_schema_version, metadata, version FROM managed_resources WHERE resource_id='resource-hist'`).Scan(&schema, &metadata, &version); err != nil {
 		t.Fatal(err)
 	}
-	if schema != "1" || !strings.Contains(metadata, "replaced service detail") || version != 2 {
+	if schema != "1" || metadata != `{"kind_detail":"replaced service detail"}` || version != 2 {
 		t.Fatalf("updated resource = (%s, %s, v%d), want the complete replacement at version 2", schema, metadata, version)
 	}
 }

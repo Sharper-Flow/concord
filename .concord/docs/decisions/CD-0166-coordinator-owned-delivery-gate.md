@@ -2,10 +2,11 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-21
-- **Scope:** Built-in workflow definitions, the delivery action, terminal lifecycle folds, and workflow read surfaces
+- **Scope:** Built-in workflow definitions, the delivery action, terminal lifecycle transitions, and workflow read surfaces
 - **Approval:** The operator approved the step-gating route over an additive evidence kind, and set the boundary: the coordinating agent owns the delivery assertion, and no session waits on a merge queue.
 - **Related:** CD-0156, CD-0043
-- **Preserves:** Pinned workflow instances, the ci-wait no-store-write boundary, and the await-health no-prober boundary
+- **Preserves:** Active workflow instances, the ci-wait no-store-write boundary, and the await-health no-prober boundary
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
 
 ## Context
 
@@ -28,7 +29,7 @@ pushed, not merged.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, the evidence-backed corrective return requires no operator consent. Delivery admission, the latest review and its settlement verdict, debt preservation, and the declared return target remain required. Historical pins retain their approval requirement; no unsigned action turns a no_ship review into settlement.
+For `approval_policy=consequence_v1`, the evidence-backed corrective return requires no operator consent. Delivery admission, the latest review and its settlement verdict, debt preservation, and the declared return target remain required. Approval follows each action's declared policy; no unsigned action turns a no_ship review into settlement.
 
 
 ### D1. The delivery action carries an asserted artifact
@@ -46,19 +47,17 @@ between `refine` and the verdict step, using the CD-0156 shape: the step
 declares `record_delivery` plus the two continuity holds and nothing else, so
 its single forward edge cannot be crossed without a recorded delivery. The
 gate amendment adds one declared action to the step: `request_correction`, the
-evidence-bearing corrective return. It is a hold. Its fold returns a parked,
+evidence-bearing corrective return. It is a hold. Its admission returns a parked,
 unreviewed change to the correction target step for a fresh review, so
-`record_delivery` stays the gate's only forward exit. The prior versions of
-both definitions stay registered with their original graphs and payload
-shapes, so pinned in-flight items replay unchanged. The remaining workflow
+`record_delivery` stays the gate's only forward exit; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the return is a current-row write in one transaction. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source, and in-flight items complete under their recorded dispatch requirements. The remaining workflow
 types keep the action at its existing step and gain the payload only, because
 their delivery surface is optional or internal.
 
 ### D3. Terminal reconciliation is split by outcome
 
 A lifecycle transition to `completed` on an item sitting on its delivery gate
-refuses: the fold returns an unreconciled-delivery failure naming
-`record_delivery`. Cancellation and supersession stay legal, because an
+refuses: admission returns an unreconciled-delivery failure naming
+`record_delivery`; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the check reads current rows in the transition's transaction. Cancellation and supersession stay legal, because an
 operator must be able to abandon work whose change will never merge. The
 workflow read projection marks such items `unreconciled`, so the abandoned
 pull request stays visible instead of silently orphaned.
@@ -68,7 +67,7 @@ pull request stays visible instead of silently orphaned.
 The workflow read projection reports a `parked_delivery` object, with the
 step, the resume action, a read-time parked duration, and the unreconciled
 flag. The Product row counts live items sitting on their gate as
-`parked_deliveries`. Both are read-time derivations over the pinned
+`parked_deliveries`. Both are read-time derivations over the current
 definition, in the await-health tradition: elapsed time labels, never
 resolves, and no timer, poller, or background process exists.
 
@@ -86,8 +85,7 @@ release publication, or installation. It does not by itself complete a workflow
 item.
 
 Existing independent-review obligations, acceptance predicates, verdicts, and
-delivery admission remain required. Historical pins retain their recorded
-requirements; no pinned definition or recorded event is rewritten. The installed
+delivery admission remain required. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) and [D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) govern: recorded items keep their recorded requirements, definitions generate from one canonical source, and no recorded fact is rewritten. The installed
 release governs workflow admission throughout the phase. This rule creates no
 new completion action or admission bypass.
 
@@ -108,10 +106,9 @@ change leaves only through the D2 corrective return. That return names the
 rejected result's predicates, or the active contract's predicates, and binds
 durable evidence. It refuses without an outstanding review, with evidence
 nothing durably bound, on a terminal instance, and without the operator
-identity the action policy demands. Instances pinned to the released
-closed-gate versions take the same return: the admission reads the gate
-shape, so the released definition content and the recorded event history stay
-untouched.
+identity the action policy demands. Recorded items on the closed-gate shape
+take the same return: the admission reads the gate shape, so no recorded fact or definition source
+changes (CD-0242 D2, D14).
 
 ## Verification
 
@@ -119,8 +116,10 @@ untouched.
   the effect step into the gate and the gate into the verdict step, under the
   required payload.
 - `TestWorkflowDefinitionVersionPinsHold` and
-  `TestBuiltinDefinitionsCoverExactlyThePinnedVersions` prove prior digests
-  replay unchanged and the version chain covers every pinned definition.
+  `TestBuiltinDefinitionsCoverExactlyThePinnedVersions` prove recorded digests
+  read back unchanged and the generated definitions cover the live families;
+  the implementing change binds the current-state anchor for definitions
+  generated from one source (CD-0242 D2, D14).
 - `TestWorkflowReadParksDeliveryAtGate` proves the read projection parks one
   parked delivery for a gated item and carries its duration; the Product-row
   count retired with the row under CD-0224.
@@ -137,8 +136,8 @@ untouched.
   the repaired result, settles nothing, and the pin advertises only a
   completed settling review's acceptance.
 - `TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn` proves a
-  pinned, parked gate returns to repair with no delivery assertion and no
-  change to the released definition content or the event history.
+  parked gate returns to repair with no delivery assertion and no
+  change to recorded facts or the definition source (CD-0242 D2, D14).
 - `TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent` proves the
   tool-surface admission: the return refuses unauthenticated, then one
   operator approval admits it.

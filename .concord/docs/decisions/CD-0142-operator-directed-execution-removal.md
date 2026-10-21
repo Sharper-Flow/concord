@@ -8,15 +8,17 @@
 - **Related:** PM4, PM6, compaction-retention-policy, CD-0213, CD-0217
 - **Amends:** PM4 lifecycle and reopen semantics; compaction-retention-policy live-query and renewed-work
   boundary; CD-0217 D1 only for explicitly directed nonterminal execution removal
-- **Preserves:** The five-state lifecycle, exact event history, Product and Project
+- **Preserves:** The five-state lifecycle, exact recorded removal receipts, Product and Project
   identity, accepted law, Linear issue identity, and the no-polling boundary
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 keeps removal receipts as current rows
 
 ## Context
 
 Shelving execution does not mean cancellation. Both actions must preserve the
 current findings and remove the Concord execution identity from operational
 projections. A hidden or sixth work state would leave an agent able to select or
-resume the execution. A deleted row without an event would return on replay.
+resume the execution. A deletion without a recorded removal could return in
+recovery; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recovery restores verified snapshots and reconciles current rows.
 
 ## Decision
 
@@ -25,10 +27,10 @@ resume the execution. A deleted row without an event would return on replay.
 Concord keeps the closed lifecycle states `needed`, `in_progress`, `completed`,
 `cancelled`, and `superseded`. Shelving is not a lifecycle state and does not
 emit cancellation. Cancellation uses the same removal machinery with the reason
-`cancelled`, but its reason remains distinct in the durable receipt and event.
+`cancelled`, but its reason remains distinct in the durable receipt it records.
 
-The operation appends `work.removed` and atomically removes the work item plus
-its owned execution projections. The durable receipt and append-only event keep
+The operation records `work.removed` and atomically removes the work item plus
+its owned execution projections; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the removal receipt is a current row, not an appended event. The durable receipt keeps
 the exact audit handoff without exposing an actionable WorkItem.
 
 ### D2. Preparation fences execution and requires a complete handoff
@@ -54,13 +56,13 @@ local removal.
 Non-Linear destinations remain an explicit operator choice. Concord does not
 invent a Git note, GitHub adapter, second database, or generic provider layer.
 
-### D4. Absence survives reads, replay, and renewal
+### D4. Absence survives reads, recovery, and renewal
 
 Operational lists, exact-ID reads, launcher navigation, continuity, work start,
 claims, and overlap computation exclude a removed ID. Audit reads return only
-the explicit historical receipt. Replay, restart, migration, and knowledge
-rebuild preserve the absence. A retry with the original identity returns the
-same committed receipt and does not append another removal event.
+the explicit historical receipt. Snapshot restore, restart, migration, and
+knowledge rebuild preserve the absence; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recovery restores verified snapshots and reconciles current rows. A retry with the original identity returns the
+same committed receipt and records no second removal.
 
 Renewed work starts with a new Concord identity and contract. It may reuse the
 same confirmed Linear issue without creating a duplicate or inheriting old
@@ -68,8 +70,8 @@ approvals, attempts, reservations, or checkpoints.
 
 ### D5. Liveness is read-time evidence
 
-Liveness is derived from worker attempts, bounded waits, failures, and progress
-events. A dispatched attempt is operational evidence, not proof of host process
+Liveness is derived from recorded worker attempts, bounded waits, failures, and
+progress. A dispatched attempt is operational evidence, not proof of host process
 health. A work item without verified active or waiting evidence reports
 `unknown`; liveness never authorizes removal.
 

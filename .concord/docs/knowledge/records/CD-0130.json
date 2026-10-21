@@ -36,7 +36,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:54196fea4127108e11d045c7ae8ec62acaf366a0418cdaf1caa928d53a8010ce",
+  "sha256": "sha256:4555cc456de7177561f36bbed66dce115b7009c9c507daef9537e50f970c0c18",
   "status": "accepted",
   "summary": "Makes failed-attempt closure an engine-owned recovery action, keeps current payload, identity, epoch, authorization, and failed-state checks, and retains no released definition version for history.",
   "tags": [
@@ -46,5 +46,5 @@
     "definition",
     "law"
   ],
-  "title": "Failed worker attempt recovery under a historical definition pin"
+  "title": "Failed worker attempt recovery"
 }

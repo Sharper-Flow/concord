@@ -26,9 +26,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8c84506a4a4c04481816e8a0f6490855490bbf791441c4154e06478bbc708063",
+  "sha256": "sha256:7dae393fce022bdb34253c1e57600c9a73ff7e8b15528bebc307117ed55a34cf",
   "status": "accepted",
-  "summary": "Work-item operator kinds and workflow families remain separate vocabularies. Composition resolves the pinned workflow definition. Work kinds and native-run phase/status pairs each have one contract, generated Go projections, literal immutable SQLite registry rows, database triggers, and closure validators that bind all copies.",
+  "summary": "Work-item operator kinds and workflow families remain separate vocabularies. Composition resolves the successor's derived definition identity. Work kinds and native-run phase/status pairs each have one contract, generated Go projections, literal immutable SQLite registry rows, database triggers, and closure validators that bind all copies.",
   "tags": [
     "workflow",
     "storage",

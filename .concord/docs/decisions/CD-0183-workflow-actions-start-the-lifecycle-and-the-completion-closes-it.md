@@ -10,6 +10,7 @@
 - **Approval:** The operator approved this change in session 2026-09-27 on
   work item `work-4c428253aab7dc64d936e08b`
   ([Concord (CON) issue 158](https://linear.app/sharper-flow/issue/CON-158)).
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 records each action's writes as current rows
 
 ## Context
 
@@ -28,27 +29,24 @@ completion gate, which stranded items whose workflow had already finished
 
 The first workflow_action the store applies to a needed item moves it to
 `in_progress` and enqueues the Linear issue_update in the same transaction.
-Every action fold carries the move, checkpoint and dispatch included. Only a
+Every advancing action carries the move, checkpoint and dispatch included; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the move is a current-row write in the action's one transaction. Only a
 needed item moves, and the move adds no version of its own. The item stops
 reading ready.
 
 ### D2. Execution start is an instance fact
 
-The workflow instance carries `execution_started_at`. The fold that starts a
-workflow action on an external-effect step sets it, and the first start in
-log order wins. The log orders events by sequence and does not require their
-timestamps to rise with it. Migration 107 backfills existing instances from
-the lowest-sequence qualifying start, and RebuildFromLog derives the same
-value. The Domain-overlap peer
+The workflow instance carries `execution_started_at`. The action that starts
+execution on an external-effect step records it, and the first recorded start
+wins. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the value is a current row written in the starting transaction, with no log order, backfill, or rebuild derivation. Migration 107 backfilled existing instances, and recovery restores the recorded value with the instance snapshot. The Domain-overlap peer
 query selects peers by this fact, not by the lifecycle, so an `in_progress`
 item that has not started execution blocks no peer. A subject keeps its
 prospective footprint at its own boundary (CD-0144 D3).
 
 ### D3. The workflow completion closes the lifecycle
 
-The workflow complete action appends `work.transitioned` to the workflow's
-terminal state in the same transaction as `workflow.completed`, so the
-lifecycle and the Linear status follow. The completion gate admits only `ok`
+The workflow complete action records `work.transitioned` and the workflow's
+terminal state in one transaction, so the lifecycle and the Linear status
+follow; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: these are current rows, not appended events. The completion gate admits only `ok`
 verdicts, so that terminal state is `completed`. A completion that names
 `cancelled` or `superseded` refuses before any effect: cancellation keeps the
 lifecycle route, and supersession stays atomic with its relation. The instance keeps its completed
@@ -66,19 +64,18 @@ the target when the instance is already terminal: a completed instance is the
 stranded-item repair, and a cancelled or superseded instance closed before the
 item ended keeps the lifecycle route with its evidence and approval gates. It
 also admits the target when the item carries no instance, which keeps imported
-items completable (CD-0094 D2). A `cancelled` target is unchanged. Replay
-folds historical rows as they stand and rewrites none.
+items completable (CD-0094 D2). A `cancelled` target is unchanged. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded rows read back as they stand, and none is rewritten.
 
 ## Alternatives considered
 
 - Keep the lifecycle as the exclusivity marker and leave the first action from
   moving it. Rejected: D1 stops the lifecycle from naming execution, so the
   marker would keep blocking items that never began external effect.
-- Derive the peer set from the event log at read time. Rejected: the peer
-  query runs inside the claim boundary, and an instance column keeps the check
-  a projection read whose single derivation source is the log.
-- Move the lifecycle at `workflow.completed` without an event. Rejected: a
-  projection write the log does not carry breaks rebuild agreement.
+- Derive the peer set by scanning stored state at read time. Rejected: the peer
+  query runs inside the claim boundary, and the instance column keeps the
+  check a current-row read.
+- Move the lifecycle at `workflow.completed` without a recorded row. Rejected:
+  an unrecorded write breaks agreement between current rows (CD-0242 D2).
 
 ## Consequences
 
@@ -89,7 +86,8 @@ folds historical rows as they stand and rewrites none.
 - A workflow item reaches `completed` through the completion action, through a
   terminal-instance repair, or as an imported item with no instance; each path
   keeps its own evidence and approval gates.
-- Historical rows are not rewritten, and a rebuild reproduces them.
+- Recorded rows are not rewritten; recovery restores them from verified
+  snapshots (CD-0242 D2).
 
 ## Verification
 
@@ -97,8 +95,10 @@ folds historical rows as they stand and rewrites none.
   the lifecycle, enqueues the Linear update, and the item stops reading ready.
 - `TestExecutionStartStepSetMatchesRegistry` pins the migration's
   external-effect step set to the registered definitions.
-  `TestExecutionStartBackfillMatchesFoldDerivation` proves the fold, the
-  backfill SQL, and RebuildFromLog derive the same value.
+  `TestExecutionStartBackfillMatchesFoldDerivation` pins the recorded
+  execution-start fact; the fold, backfill, and rebuild halves retire at the
+  cutover, and the implementing change binds the current-state anchor
+  (CD-0242 D2).
 - `TestUnstartedContractDoesNotBlockAPeer` and
   `TestExecutionStartMovesLifecycleIntoTheClaim` prove the peer marker.
   `TestWorkflowDomainOverlapGuardsLifecycleExecutionEntry` keeps the claim

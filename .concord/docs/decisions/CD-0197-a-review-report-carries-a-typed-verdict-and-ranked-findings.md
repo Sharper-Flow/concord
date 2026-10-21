@@ -108,7 +108,7 @@ revision required, or ready for final proof, and Main records its acceptance;
 an open in-scope blocking finding blocks both a new assignment and leaving
 execution.
 
-### D5. Terminal payload versions preserve recorded content
+### D5. A recorded completion reads back unchanged
 
 [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each terminal result is a recorded current fact, and no payload version, upcast, or replay reinterprets a recorded result.
 

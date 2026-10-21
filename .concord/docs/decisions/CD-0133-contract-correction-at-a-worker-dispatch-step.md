@@ -6,7 +6,8 @@
 - **Approval:** The operator approved the bounded correction route and its refinement review-evidence extension on 2026-10-06.
 - **Related:** CD-0013, CD-0059, CD-0115, CD-0130
 - **Refines:** CD-0128
-- **Preserves:** Released workflow definitions, definition digests, worker attempt identity, and operator authority
+- **Preserves:** Worker attempt identity and operator authority; [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
 
 ## Context
 
@@ -41,10 +42,9 @@ A dispatch authorization closes the pre-dispatch route even before a worker
 report exists. A live worker, an unaccepted result, or an unrecorded failure does
 not become permission to replace the contract.
 
-### D2. Preserve the pinned definition
+### D2. The correction adds no action or step
 
-The route uses the existing contract-correction action. It does not add an
-action, step, or worker route to the pinned workflow definition.
+The route uses the existing contract-correction action; [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source, and the correction adds no action, step, or worker route to the workflow definition.
 
 ### D3. Keep post-dispatch refusals actionable
 
@@ -56,8 +56,9 @@ remediation names both accepted completed attempts and recorded failed attempts.
 The work pin exposes the contract-correction action with the current work
 version, alongside the declared step actions. While a worker dispatch in the
 current attempt holds the step, the pin omits every advancing step action except
-`accept_worker_result`, because the fold refuses those advances. One predicate
-owns that fact for both surfaces, so the pin cannot drift from the fold.
+`accept_worker_result`, because admission refuses those advances. One predicate
+owns that fact for both surfaces, so the pin cannot drift from admission
+(CD-0242 D2).
 
 ### D5. Keep correction reachable when contracts overlap
 
@@ -86,7 +87,8 @@ ordinary overlap checks remain in force.
 
 - The contract-correction checkpoint remains available on human checkpoints.
 - Correction before a fenced start and after a start with no dispatch reaches the public signed-approval route.
-- A worker-dispatch step can expose the correction route without a definition digest change.
+- A worker-dispatch step can expose the correction route without a definition
+  change (CD-0242 D14).
 - A pending dispatch authorization, live worker, or unrecorded worker failure keeps the correction route closed.
 - A changed successor payload cannot reuse an approval, and a stale work version cannot change the contract.
 - A repeated approved request replays without another contract revision or worker attempt.

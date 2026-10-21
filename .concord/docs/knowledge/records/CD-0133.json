@@ -50,9 +50,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fc2663270f0b2b581c0bde227162d4f48d15386a4907a6677f90cbf1be10ba30",
+  "sha256": "sha256:8baba6f32a1931356f2f9706aac0d3fbf45ce9c6b293afaef3d7736e8f1dea07",
   "status": "accepted",
-  "summary": "Admits operator-approved contract correction before dispatch, after recorded failure, or after refinement review evidence acceptance when every current authorization has a terminal disposition. Exact approval, atomic design replacement, frozen definition digests, worker fences, audit history, and overlap checks remain required.",
+  "summary": "Admits operator-approved contract correction before dispatch, after recorded failure, or after refinement review evidence acceptance when every current authorization has a terminal disposition. Exact approval, atomic design replacement, no definition change, worker fences, audit history, and overlap checks remain required.",
   "tags": [
     "workflow",
     "worker",

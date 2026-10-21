@@ -6,9 +6,10 @@
   the research prerequisite for recurrence, and the exploration utility body
 - **Amends:** CD-0149 D2 at its exploration return prose: the generated explore
   body returns a facts-only packet, per D5 below
-- **Preserves:** CD-0122 D2, CD-0115 released pins, CD-0156 D5 relation authority,
+- **Preserves:** CD-0122 D2, CD-0156 D5 relation authority,
   CD-0198 D2 diagnosis consolidation, operator approval, independent verdicts,
-  evidence provenance, and historical event replay
+  and evidence provenance; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded rows read back unchanged
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
 - **Planning record:** Concord (CON) issue [CON-797](https://linear.app/sharper-flow/issue/CON-797/defect-intake-skips-root-cause-analysis-so-a-systemic-workflow-fault),
   `work-b0b08d6e28a8db2bad386ee6`
 - **Approval:** The operator approved this record's obligations on 2026-10-08,
@@ -153,7 +154,7 @@ the capturing item. A classified explicit sibling must carry the same shape.
 The core persists its complete, sorted sibling snapshot beside the capture
 record in the intent projection. It does not create a semantic relation.
 
-The two public routes use the same membership fold inside the capture
+The two public routes use the same membership computation inside the capture
 transaction. A refusal rolls back the operation before a work item, journal,
 claim, or native worktree effect becomes durable. Concurrent captures cannot
 both claim to be the first stored bug of the same shape in that scope.
@@ -204,7 +205,8 @@ Converting research into a bug would bypass recurrence admission. Converting
 a bug into another kind would hide it from the sibling population.
 
 A live revision cannot convert an unclassified non-bug into a bug.
-Historical accepted kind changes still replay. Full-detail work lists and
+Historical accepted kind changes read back as recorded (CD-0242 D2). Full-detail
+work lists and
 scope reads expose the classification and sibling snapshot through the
 existing recorded-intent decoder. Bounded summaries retain their current
 summary policy.
@@ -222,11 +224,7 @@ prove the body contract; they do not prove that a model obeys prose.
 
 ### D6. Historical records and workflow law remain intact
 
-New public captures append `work.created` payload version 3. Versions 1 and 2
-upcast without a retroactive classification obligation. No existing bug is
-automatically reclassified, no prior contract is changed, and no released
-workflow digest or graph changes. Rebuild derives the same classification
-snapshot from the event prefix.
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded captures read back as recorded, with no payload version, upcast, or prefix replay, and no existing bug is reclassified retroactively. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source, so the prerequisite changes no workflow digest or graph.
 
 CD-0198 D2 remains authoritative for future diagnosis consolidation. This
 capture prerequisite does not add another break-fix diagnosis action or

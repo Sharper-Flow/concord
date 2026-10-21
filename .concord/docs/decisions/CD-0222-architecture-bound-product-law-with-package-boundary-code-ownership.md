@@ -30,13 +30,15 @@
   of Product-changing work follows
   [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
   D4.
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D7
 
 ## Context
 
 Concord already treats accepted specifications as human-enacted law. Workflow
 contracts pin exact law revisions, a spec mandate limits authorized amendments,
-breaking supersession strictly quiesces old consumers, and completion refuses
-unresolved law conflicts. Those controls protect work that names the right law.
+breaking supersession marks stale exactly the contracts that consumed the
+superseded revision (CD-0242 D7), and completion refuses unresolved law
+conflicts. Those controls protect work that names the right law.
 
 The Product model beneath them is inverted. `Product -> component` is documented
 as the primary knowledge path, but component is an opaque grouping label rather
@@ -405,12 +407,11 @@ Implementation uses an explicit major migration rather than permanent aliases:
    the new manifest version, whose migration must therefore produce no unhomed
    current law. New writes use `home_domain_id` and
    `applies_to_domain_ids`.
-3. Historical `kind=epic`, `epic.*` events, and `epic_entries` remain readable
-   through versioned upcasters and rebuild logic. History is not rewritten.
-   Legacy active-research and knowledge applicability scopes upcast
-   `component` to `domain` with the retained ID.
+3. Historical `kind=epic` rows and `epic_entries` remain readable as recorded
+   rows; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded rows read back unchanged, with no upcaster or rebuild. History is not rewritten.
+   Recorded `component` applicability scopes read as `domain` with the retained ID.
 4. New writes use neither `kind=epic` nor `kind=initiative`. Historical
-   `initiative.*` events replay and refuse new appends under CD-0213 D8.
+   initiative work reads back unchanged and refuses new writes under CD-0213 D8.
 5. The agent surface carries no Epic or Initiative tool. Removal ships at a
    major contract version; no permanent alias or discovery surface is added.
 6. CD-0024's one-time TS9 exception is not reusable. The normal supported-model
@@ -513,8 +514,8 @@ graph. Product law approval does not authorize live-state cutover.
 6. `depends_on` and `shares_contract_with` Domain relations refuse without a
    current governing law ID; subdomain cycles refuse.
 7. Shared business grouping never satisfies an architecture overlap.
-8. Legacy component/Epic events and manifests rebuild to the canonical
-   Domain projection without event rewriting.
+8. Legacy component/Epic rows and manifests read back through the canonical
+   Domain vocabulary without rewriting (CD-0242 D2).
 9. New clients cannot write legacy component/Epic forms after the major cutover,
    and old clients fail closed after the bounded TS8 window.
 10. The accepted ten-process SQLite correctness, latency-population, backup,
@@ -586,8 +587,9 @@ graph. Product law approval does not authorize live-state cutover.
   Domain home and architecture-bound workflow use.
 - **CD-0024 D1/D2/D4:** the 3.0.0 Epic surface becomes legacy and migrates through
   a normal major-version path; D3 remains historical evidence, not precedent.
-- **CD-0036:** preserved. Breaking law supersession still strictly quiesces old
-  consumers and composes with D7.
+- **CD-0036:** preserved. Breaking law supersession marks stale exactly the
+  contracts that consumed the superseded revision and composes with D7
+  (CD-0242 D7).
 - **CD-0002/CD-0011:** preserved verbatim. SQLite remains sole local live-state
   authority under the existing falsifiers.
 

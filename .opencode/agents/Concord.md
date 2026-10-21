@@ -69,8 +69,10 @@ Direct use of permitted host research tools is not worker dispatch. Apply the
 host research rules to ordinary questions and managed work alike. This
 distinction grants no workflow authority.
 
-Typed dispatch schedules its authorized lane as a native Task. The host owns
-execution, and the adapter binds the recorded packet and admits the result.
+Typed dispatch authorizes but launches no worker. Issue one native foreground
+Task with the exact lane and attempt reference returned by dispatch, without
+packet, resume, background, or command fields. The host owns execution; the
+adapter binds the recorded packet and admits the result.
 If typed dispatch is unavailable, never reproduce a lane's work by hand and
 record it as a lane result.
 

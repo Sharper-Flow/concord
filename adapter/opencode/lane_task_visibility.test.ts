@@ -61,7 +61,10 @@ test("a Task call inside an open dispatch window still binds the recorded packet
     post: async () => { throw new Error("Task admission cannot write host state") },
   })
   dispatchWindows().open("session-lane-window", packet as never, "", process.cwd())
-  const output = { args: { subagent_type: `concord-${lane.id}`, description: "windowed lane call", prompt: JSON.stringify(packet) } as Record<string, unknown> }
+  // The exact native Task selector the coordinator issues after
+  // authorization: the lane, the attempt reference, and no other field. A
+  // stale queued packet prompt refuses instead of binding.
+  const output = { args: { subagent_type: `concord-${lane.id}`, prompt: packet.attempt_id, description: "bounded worker" } as Record<string, unknown> }
   await plugin["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID: "session-lane-window", callID: "call-lane-window" }, output)
   // The window owns the agent selection and the prompt: the bound call names
   // the recorded packet, whatever the caller named.

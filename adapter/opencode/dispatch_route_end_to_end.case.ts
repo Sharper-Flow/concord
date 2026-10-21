@@ -20,8 +20,7 @@ import { agentLanes } from "./generated-agent-lanes"
 import { contractOperations } from "./generated-contracts"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
-import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
-import { dbRows, dbValue, fixturePublicKeyBase64, git, reportText, reportWorkerJob, requiredFields, routeDeclaration, runJSON, runProcess, type JSONRecord } from "./end-to-end.fixture"
+import { dbRows, dbValue, fixturePublicKeyBase64, git, nativeTaskSelector, reportText, reportWorkerJob, requiredFields, routeDeclaration, runJSON, runProcess, type JSONRecord } from "./end-to-end.fixture"
 import { headCommit, jobSizeFields, reportedProductionSize } from "./job-size.fixture"
 
 const PRODUCT_ID = "product-e2e"
@@ -439,7 +438,7 @@ async function dispatchRouteTask(
   expect(dispatchResult.outcome, JSON.stringify(dispatchResult)).toBe("ok")
   expect(dispatchResult.dispatch_state).toBe("awaiting_worker")
   const windowWasOpen = windows.has(context.sessionID)
-  const taskArgs: JSONRecord = { subagent_type: "general", prompt: "model input", description: "model task" }
+  const taskArgs = nativeTaskSelector(dispatchResult)
   await windows.bind(TASK_TOOL_ID, context.sessionID, taskArgs, callID, async () => worktree, worktree)
   const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
   setReadback(packet, `concord-${lane.id}`)
@@ -482,7 +481,7 @@ function bindRouteSessions(worktree: string, coordinatorIDs: string[]) {
       return { response: new Response(null, { status: 200 }) }
     },
     post: async request => {
-      if (request.url === SESSION_MESSAGES_ROUTE) return acknowledgeNativeSubtask(request)
+      if (request.url === SESSION_MESSAGES_ROUTE) throw new Error("dispatch performs zero subtask writes")
       sessionCreates++
       throw new Error("recovery and dispatch must not create a coordinator session")
     },
@@ -767,7 +766,7 @@ routeDeclaration("composes implementation and independent review through one ord
         sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
         return { response: new Response(null, { status: 200 }) }
       },
-      post: acknowledgeNativeSubtask,
+      post: async () => { throw new Error("dispatch performs zero subtask writes") },
     })
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
     const realRunner: DispatchRunner = {
@@ -1419,9 +1418,9 @@ routeDeclaration("G07 retains sourced research pinned by another coordinator acr
     expect(rejection.dispatch_state).toBe("awaiting_worker")
     expect(typeof (rejection.result as JSONRecord).retry_attempt_id).toBe("string")
     expect(dispatchWindows().has(b.sessionID)).toBe(true)
-    // The host Task spawn consumes the launch window the core's own packet
-    // bytes armed; no dispatch_worker authorization ran again.
-    const retryTaskArgs: JSONRecord = { subagent_type: "general", prompt: "model input", description: "model task" }
+    // The native Task consumes the retry window using the returned guidance;
+    // no dispatch_worker authorization runs again.
+    const retryTaskArgs = nativeTaskSelector(rejection)
     await dispatchWindows().bind(TASK_TOOL_ID, b.sessionID, retryTaskArgs, "g07-retry-task", async () => worktree, worktree)
     const retryPacket = JSON.parse(retryTaskArgs.prompt as string) as JSONRecord
     host.opening(b, retryPacket, "concord-implement")
@@ -1592,7 +1591,7 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
           return { data: { id: path?.id, directory: worktree, metadata, ...(path?.id === "worker-session" ? { parentID: SESSION_ID } : {}) }, response: new Response(null, { status: 200 }) }
         },
         patch: async () => { metadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }; return { response: new Response(null, { status: 200 }) } },
-        post: acknowledgeNativeSubtask,
+        post: async () => { throw new Error("dispatch performs zero subtask writes") },
       })
       const calls: Array<{ argv: string[]; input: JSONRecord }> = []
       const baseRunner = realStoreRunner(binary, dbPath, calls, worktree)
@@ -1621,7 +1620,7 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
       const credentials = { async getPrivateKey() { return PRIVATE_SEED } }
       const dispatch = await dispatchLaneWorker({ work_id: workID, expected_version: dispatchVersion, idempotency_key: "recovery-dispatch", lane_id: lane.id }, { context, invoke, credentials, windows })
       expect(dispatch.outcome, JSON.stringify(dispatch)).toBe("ok")
-      const taskArgs: JSONRecord = {}
+      const taskArgs = nativeTaskSelector(dispatch)
       let nativeTaskCalls = 0
       await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, "recovery-task-call", async () => worktree, worktree)
       nativeTaskCalls++
@@ -1759,7 +1758,7 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
         sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
         return { response: new Response(null, { status: 200 }) }
       },
-      post: acknowledgeNativeSubtask,
+      post: async () => { throw new Error("dispatch performs zero subtask writes") },
     })
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
     const realRunner = realStoreRunner(binary, dbPath, realCalls, worktree)
@@ -1782,7 +1781,7 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
     expect(dispatchResult.dispatch_state).toBe("awaiting_worker")
     expect(windows.has(SESSION_ID)).toBe(true)
 
-    const taskArgs: Record<string, unknown> = { subagent_type: "general", prompt: "model input", description: "model task" }
+    const taskArgs = nativeTaskSelector(dispatchResult)
     await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree, worktree)
     const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
     boundPacket = packet
@@ -1866,7 +1865,7 @@ routeDeclaration("records an oversized worker session through the real CLI and s
         sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
         return { response: new Response(null, { status: 200 }) }
       },
-      post: acknowledgeNativeSubtask,
+      post: async () => { throw new Error("dispatch performs zero subtask writes") },
     })
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
     const realRunner = realStoreRunner(binary, dbPath, realCalls, worktree)
@@ -1883,7 +1882,7 @@ routeDeclaration("records an oversized worker session through the real CLI and s
       windows,
     })
     expect(dispatchResult.outcome).toBe("ok")
-    const taskArgs: Record<string, unknown> = { subagent_type: "general", prompt: "model input", description: "model task" }
+    const taskArgs = nativeTaskSelector(dispatchResult)
     await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree, worktree)
     const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
     boundPacket = packet
@@ -1952,7 +1951,7 @@ routeDeclaration("records a refused readback as a durable failed attempt through
         sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
         return { response: new Response(null, { status: 200 }) }
       },
-      post: acknowledgeNativeSubtask,
+      post: async () => { throw new Error("dispatch performs zero subtask writes") },
     })
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
     const realRunner = realStoreRunner(binary, dbPath, realCalls, worktree)
@@ -1969,7 +1968,7 @@ routeDeclaration("records a refused readback as a durable failed attempt through
       windows,
     })
     expect(dispatchResult.outcome).toBe("ok")
-    const taskArgs: Record<string, unknown> = { subagent_type: "general", prompt: "model input", description: "model task" }
+    const taskArgs = nativeTaskSelector(dispatchResult)
     await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree, worktree)
     const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
     refuseWorkerSessionRead = true

@@ -1,9 +1,8 @@
 // CD-0102 D1/D2: the single-use authorization window that binds one typed
 // dispatch to one native Task call.
 //
-// An authorized dispatch schedules a native host subtask. Its Task hook binds
-// the recorded agent and packet and consumes the window once. Caller-authored
-// arguments carry no authority, and a lane Task without a window fails.
+// The coordinator issues the native Task with its exact attempt reference.
+// The hook validates that selector before binding the recorded packet once.
 import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
@@ -271,21 +270,27 @@ export class DispatchWindows {
   // is the final gate before the caller's arguments are touched.
   async bind(tool: string, sessionID: string, args: MutableToolArgs, callID: string | undefined, resolveSessionDirectory: () => Promise<string>, executionDirectory: unknown): Promise<void> {
     if (tool !== TASK_TOOL_ID) return
-    if (dispatchRequiresNextTurn(sessionID)) {
-      this.#open.delete(sessionID)
-      throw new DispatchWindowError(TURN_MOVE_DISPATCH_REFUSAL)
-    }
     const record = this.#open.get(sessionID)
     if (!record) {
       throw new DispatchWindowError(
         `no authorized dispatch window is open for session ${sessionID}; start a worker through dispatch_worker`,
       )
     }
+    if (Object.keys(args).some(key => !["subagent_type", "prompt", "description"].includes(key)) ||
+        args.subagent_type !== LANE_AGENT_PREFIX + record.packet.lane_id ||
+        args.prompt !== record.packet.attempt_id || typeof args.description !== "string") {
+      throw new DispatchWindowError("native lane Task requires the exact authorized lane and attempt reference with only subagent_type, prompt, and description; use the dispatch response, without resume, background, or command fields")
+    }
+    if (dispatchRequiresNextTurn(sessionID)) {
+      this.#open.delete(sessionID)
+      throw new DispatchWindowError(TURN_MOVE_DISPATCH_REFUSAL)
+    }
     let sessionDirectory: string
     try {
       sessionDirectory = await resolveSessionDirectory()
-    } catch {
+    } catch (error) {
       if (this.#open.get(sessionID) === record) this.#open.delete(sessionID)
+      if (error instanceof DispatchWindowError) throw error
       throw new DispatchWindowError("worker dispatch could not resolve the host session directory")
     }
     // The await permits revocation, replacement, or another bind's consumption.
@@ -315,11 +320,7 @@ export class DispatchWindows {
     this.#open.delete(sessionID)
     record.callID = callID
     this.#inFlight.set(sessionID, record)
-    const packet = record.packet
-    Object.assign(args, laneTaskArguments(packet))
-    // A resumed worker session would carry a prior attempt's history into this
-    // attempt. Lane restart is not reachable, so the resume field never survives.
-    delete args.task_id
+    Object.assign(args, laneTaskArguments(record.packet))
   }
 }
 

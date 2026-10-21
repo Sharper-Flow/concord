@@ -218,23 +218,29 @@ JSON-stdin boundary but are not capability-gated agent tools and do not expand T
 The public `concord_work_transition.workflow_action` route accepts
 `action_id: dispatch_worker` with `fields.lane_id`. The adapter builds the
 closed lane packet from recorded state, obtains core authorization, and opens
-one single-use window. After the host permits the Task, the adapter queues a
-native subtask in the calling session. No model-authored Task call is required.
-The plugin binds the host's Task to the authorized packet. OpenCode owns the
-native worker card, child session, progress, and cancellation. See
+one single-use window. Dispatch returns authorization only: its result names
+the exact lane and attempt reference and instructs the coordinator to issue one
+native foreground Task from the requesting session. Dispatch launches no
+worker, queues nothing, and performs no subtask write. The coordinator issues
+that Task with the exact selector: `subagent_type` names the registered
+`concord-<lane>` agent, `prompt` equals the returned attempt identifier, and
+`description` is a short label. No resume, background, command, or other
+execution-control field is admitted. The plugin binds the recorded packet to
+that call only and consumes the window once. A different lane, stale reference,
+or refused execution variant starts no worker and leaves the window usable.
+OpenCode owns the native worker card, child session, progress, cancellation,
+and model and provider selection; core authorization never bypasses a host
+denial. See
 [CD-0102](../../.concord/docs/decisions/CD-0102-lane-dispatch-runs-as-a-native-task.md).
 
-The adapter selects the registered `concord-<lane>` agent. OpenCode resolves
-its model and provider from the operator's host configuration. The
-[native Task queue](move-session.ts) supplies no worker model override.
-If a stale native subtask is replayed, the authorization guard still refuses
-it. [Refusal cleanup](native-subtask-refusal.ts) uses the host part-update API
-to mark the Task failed and replace its executable subtask with visible refusal
-text. The original subtask stays in that text part's metadata. Matching unfinished
-replays are repaired too, so the next prompt does not retry them. A retained
-in-flight worker is left alone. The host may leave the old assistant message
-unfinished; cleanup does not invent a message-completion API or change workflow
-state. A host read or write failure is logged and the original refusal remains.
+There is no separate-session lane route: a lane runs only as the native Task
+child of its authorizing session (CD-0178 D1). An uncertain or failed Task is
+never replayed automatically. A failed native Task with authenticated child
+identity settles through the existing terminal-event route. A failure before
+child creation, including a native permission denial, retains the consumed
+attempt for the existing no-report recovery or
+[reconciliation](#recover-a-retained-completed-task) route; it fabricates no
+child and reopens no window.
 
 The worker returns its closed `agent-lane-report.v1` report as its final text
 part. [Completion](dispatch.ts) reads the child through the host session API,

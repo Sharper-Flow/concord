@@ -24,8 +24,7 @@ import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import type { CredentialStore } from "./credentials"
 import { agentLanes } from "./generated-agent-lanes"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
-import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
-import { dbRows, dbValue, fixturePrivateKey, fixturePublicKeyBase64, git, reportText, reportWorkerJob, requiredFields, routeDeclaration, runJSON, runProcess, type JSONRecord } from "./end-to-end.fixture"
+import { dbRows, dbValue, fixturePrivateKey, fixturePublicKeyBase64, git, nativeTaskSelector, reportText, reportWorkerJob, requiredFields, routeDeclaration, runJSON, runProcess, type JSONRecord } from "./end-to-end.fixture"
 import { jobSizeFields, reportedProductionSize } from "./job-size.fixture"
 import { createWorkerCapabilityGuard } from "./lane_capabilities"
 import { canonicalWorkerControl, workerCheckTool } from "./worker_control"
@@ -480,7 +479,7 @@ async function dispatchNativeTask(
   })
   expect(dispatchResult.outcome, JSON.stringify(dispatchResult)).toBe("ok")
   expect(dispatchResult.dispatch_state).toBe("awaiting_worker")
-  const taskArgs: JSONRecord = { subagent_type: "general", prompt: "model input", description: "model task" }
+  const taskArgs = nativeTaskSelector(dispatchResult)
   await windows.bind(TASK_TOOL_ID, context.sessionID, taskArgs, callID, async () => worktree, worktree)
   const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
   setReadback(packet, `concord-${lane.id}`)
@@ -540,7 +539,7 @@ routeDeclaration("N01 drives one synthetic non-Go target check through native pr
         sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
         return { response: new Response(null, { status: 200 }) }
       },
-      post: acknowledgeNativeSubtask,
+      post: async () => { throw new Error("dispatch performs zero subtask writes") },
     })
     const calls: Array<{ argv: string[]; input: JSONRecord }> = []
     const runner = realStoreRunner(binary, dbPath, calls, worktree)

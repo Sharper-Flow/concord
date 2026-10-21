@@ -13,6 +13,9 @@
   On 2026-10-18, the operator approved the exact D2/D3 text admitting ordinary
   host Tasks beside registered lanes in
   [CON-1189](https://linear.app/sharper-flow/issue/CON-1189/subagent-task-calls-are-refused-in-a-concord-claimed-worktree-for-a).
+  On 2026-10-20, the operator approved this amendment's exact replacement text
+  in
+  [CON-1271](https://linear.app/sharper-flow/issue/CON-1271/use-native-opencode-task-or-separate-sessions-for-concord-worker#comment-c61eaa2b-eb1a-42ec-9458-eced361746cc).
 - **Related:** CD-0059, CD-0088, CD-0092, CD-0093, CD-0096, issue #689
 - **Amends:** CD-0059 D1 for the worker execution route, not for its
   authorize-before-start rule
@@ -25,34 +28,44 @@ Worker execution needs the native Task card, child navigation, progress, and
 cancellation. A detached process or a directly created child session does not
 provide that interface.
 
-An authorized dispatch already determines the lane and its recorded packet.
-Another model-authored launch adds no decision. The program must carry those
-values into native Task execution without gaining model-routing or host
-permission authority.
+An authorized dispatch determines the lane and its recorded packet. The
+coordinator invokes the host's native Task after authorization. The adapter
+binds the recorded packet to that call without scheduling another call,
+selecting a model, or gaining host permission authority.
 
 ## Decision
 
-### D1. Typed dispatch authorizes and schedules one native Task
+### D1. Typed dispatch authorizes one coordinator-issued native Task
 
 `dispatch_worker` keeps its current validation. It resolves the lane, checks the
 packet against the lane digest, records the attempt, and authorizes the action
 against the core before anything starts.
 
-The action then opens exactly one authorization window. The window carries the
-work item, the attempt, the lane identity, and the session that requested it. A
-window authorizes one worker start and no more.
+After the existing packet, directory, provenance and evidence-credential
+prerequisites succeed, the action opens exactly one consumable authorization
+window. No window can bind while a required credential check is still pending
+or has failed. The window carries the work item, the attempt, the lane
+identity, and the requesting session. A window authorizes one worker start and
+no more. An admitted combined rejection and retry reaches the same window owner
+with its recorded authorization; it does not authorize a second dispatch.
 
-Before queueing, the adapter requests the calling agent's native Task
-permission through the host. A core authorization does not bypass that policy.
-The adapter then queues one native subtask in the requesting parent session.
-The host executes it after the dispatching tool returns, without another
-model-authored Task call or a recursive parent prompt loop.
+Dispatch returns authorization, not launch. Its caller-visible result names the
+exact lane and attempt reference and instructs the coordinator to issue one
+native foreground Task from that requesting session. It states that dispatch
+itself launches no worker. The coordinator carries the reference, not an
+authored or reconstructed worker packet.
 
-The queue preserves the parent's existing host-selected model and variant.
-The subtask names the registered lane agent without a model or provider
-override. The host resolves the worker's model from the operator's configuration.
-An unconfirmed queue never causes an automatic second launch. The recorded
-attempt must reconcile or close through the existing recovery routes.
+The adapter does not queue executable subtasks, prompt the parent to cause a
+launch, invoke private Task internals, register a replacement Task tool, or run
+a second worker launcher. The host's native Task enforces its own permission
+policy and owns the card, child session, progress, cancellation, model and
+provider selection. Core authorization never bypasses a host denial.
+
+No worker start is inferred from authorization, an open window, or a posted
+message. An uncertain or failed Task is not replayed automatically. The
+recorded attempt must reconcile or close through the existing recovery routes
+before another execution is admitted. Losing an in-memory window does not
+authorize recreating it or relaunching its attempt.
 
 ### D2. The plugin binds the packet to the next matching call
 
@@ -81,11 +94,24 @@ readback before the Concord operation proceeds. A failed enrollment refuses
 that operation. A later bootstrap or dispatch refusal does not clear recorded
 participation.
 
-The hook binds an authorized window only to a Task selecting a registered
-Concord lane. A registered lane requires an open window belonging to the calling
-session. The hook takes the lane, prompt, and description from the recorded
-packet, removes a resume target, and consumes the window once. The caller cannot
-widen, rename, or re-aim that attempt.
+The hook binds an authorized window only to a Task selecting its exact
+registered Concord lane from its requesting session. It admits only
+`subagent_type`, `prompt`, and `description`; a resume, background, command, or
+other execution-control field refuses. Before any window mutation or
+asynchronous read for lane binding, including ancestry and directory lookup, it
+requires the selected lane to match the captured window and the Task prompt to
+equal that window's exact attempt identifier. This reference selects an
+existing authorization; it grants none. A different lane, stale reference,
+queued packet, or refused execution variant starts no worker and leaves the
+valid window and caller arguments unchanged and usable by its matching call.
+The captured-record identity fence spans every asynchronous binding read. After
+those reads, the hook verifies that the same captured record remains open; a
+revoked, replaced, or concurrently consumed record authorizes nothing. Only
+then does it take the lane, prompt, and description from the recorded packet,
+bind the actual host call identity, and consume the window once. Existing
+execution-directory and turn-move checks remain required. The caller cannot
+widen, rename, resume, or re-aim that attempt. A stale queued subtask cannot
+consume a fresh authorization.
 
 After any resume target passes the checks below, an ordinary host Task from a
 caller with no managed parent retains its arguments and host permission checks,
@@ -154,12 +180,20 @@ and obtains its executing model and agent. The adapter populates the report's
 model identity before validation. Worker-authored model values are neither
 required nor authoritative. CD-0058 D1 and CD-0017 D5 keep their evidence.
 
-Dispatch and completion are consequently two adapter entry points, not one call.
-Dispatch authorizes the attempt, opens the window, and queues the native
-subtask before it returns. Completion receives the result body, reads the worker
-session, resolves the report, signs the dispatch and terminal assertions, and
-records the attempt outcome. A single blocking call cannot span the two,
-because the host runs the worker between them.
+Dispatch and completion remain separate adapter entry points. Dispatch
+authorizes the attempt and opens the window before returning the instruction
+for one native Task call. The coordinator invokes that Task, and the host runs
+the worker between the binding and completion hooks. Completion receives the
+result body, reads the worker session, resolves the report, signs the dispatch
+and terminal assertions, and records the attempt outcome. Raw Task output is
+not workflow acceptance or delivery.
+
+A failed native Task with authenticated child identity uses the existing
+terminal-event settlement when no successful after-hook result exists. Native
+permission denial can occur after binding but before child creation. A failure
+without child identity retains the consumed attempt for the existing no-report
+abandonment or reconciliation route; it neither fabricates a child nor reopens
+the window. Permission denial creates no automatic retry authority.
 
 A failed native subtask may supply no after-hook result before it publishes
 the terminal tool-part event. That event owns failure settlement. Its part
@@ -211,8 +245,11 @@ worker cannot run in a worktree the work item does not own.*
   evidence and carry no Concord workflow authority.
 - Concord no longer parses a child process. One failure class, the detached
   worker, is removed with the route that produced it.
-- The program queues the authorized lane. The window binds one native Task
-  without a second model-authored launch step.
+- The coordinator issues one native Task after typed authorization. The
+  adapter binds the recorded packet and one exact attempt reference without a
+  custom executable queue or a second launcher. Authorization, observed worker
+  execution, recorded report, accepted result, and delivered work remain
+  distinct facts.
 - Unmanaged host sessions retain native Task behavior without Concord workflow
   authority. Managed participation survives changes to the selected agent.
 - The host must persist session metadata and expose parent identity. Enrollment
@@ -245,8 +282,9 @@ authorization has nothing to bind.
 - `TestDispatchOpensSingleUseAuthorizationWindow` proves D1: one action opens one
   window, and a second worker start finds none.
 - `adapter/opencode/dispatch-window.test.ts` proves D2 window binding: a call
-  with no window refuses, and an open window replaces caller arguments with
-  the recorded packet once.
+  without the exact session, lane and attempt reference refuses, and one
+  matching call consumes the window and replaces caller arguments with the
+  recorded packet once.
 - `adapter/opencode/session-scope.test.ts` exercises D2 through the plugin hook:
   ordinary Tasks from enrolled and unmanaged callers, registered-lane refusal
   without a window, window non-interference, nested-Task refusal, parent
@@ -261,11 +299,17 @@ authorization has nothing to bind.
 - `adapter/opencode/lane_dispatch.test.ts` verifies that failed enrollment cannot
   authorize dispatch. `adapter/opencode/dispatch_route_end_to_end.test.ts` checks
   enrollment before real core dispatch and preserves the completion route.
-- `adapter/opencode/native-subtask.test.ts` checks exact queued bytes and the
-  parent's host-selected model. `scripts/probe-native-subtask-host.ts` exercises
-  that queue against a real isolated host without a model request.
-- `adapter/opencode/lane_dispatch.test.ts` checks the host Task permission
-  boundary and refuses an unconfirmed launch without a queue retry.
+- The adapter dispatch and hook regressions prove that ordinary dispatch and
+  combined rejection/retry issue no executable subtask write. Their serialized
+  responses say authorization only and identify the next native Task call. A
+  stale queued packet, wrong lane or attempt reference, replayed call, resume
+  target, background request, or command variant cannot start a worker or
+  acquire a fresh authorization. Refused stale, wrong-lane and
+  execution-control calls leave the valid window usable. A suspended or failing
+  credential probe admits no concurrent Task. Native permission denial before
+  child creation retains its exact attempt for no-report recovery without
+  reopening it. The existing single-use, directory, evidence, native-permission
+  and terminal-event tests retain their obligations.
 - `adapter/opencode/lane_completion.test.ts` checks native failure-part identity
   and leaves an absent after-hook result for the terminal event to settle.
 - The adapter test `lane report resolves from the worker result body` proves D5,

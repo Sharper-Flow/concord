@@ -2645,6 +2645,12 @@ async function openAuthorizedDispatchWindow(
       return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the dispatch is authorized for the claimed worktree ${JSON.stringify(launch.authorizedWorktree)} whose tool context has not landed (${durableUnresolved});${contextRuns} replay work_start or worktree_claim once the session's tool context runs in the claimed worktree, then dispatch again`, "reconcile_operation")
     }
   }
+  // A native Task can bind concurrently, so evidence readiness must precede
+  // the consumable window. The attempt reference is not a secret.
+  const credentialFailure = await probeWorkerEvidenceCredential(launch.credentials ?? defaultCredentials)
+  if (credentialFailure) {
+    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "error", `credential probe failed before worker execution: ${credentialFailure}`, "contact_operator")
+  }
   const windows = launch.windows ?? dispatchWindows()
   try {
     windows.open(sessionID, packet, launch.packetDigest ?? "", launch.workerDirectory, launch.canonicalWorkerDirectory, launch.provenance)
@@ -2652,20 +2658,9 @@ async function openAuthorizedDispatchWindow(
     const detail = error instanceof DispatchWindowError ? error.message : String(error)
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "error", detail.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
   }
-  // The credential is an admission dependency of execution, not of dispatch.
-  // Every refusal above returns without a worker, and the window itself still
-  // validates the packet and the claimed worktree, so those refusals keep their
-  // own diagnosis. Once the window is open the host may spawn, which makes this
-  // the last point where an unreadable credential costs nothing. A failed probe
-  // closes the window so no spawn can follow it. Signing is unchanged and still
-  // binds the readback after the run; this checks availability alone.
-  const credentialFailure = await probeWorkerEvidenceCredential(launch.credentials ?? defaultCredentials)
-  if (credentialFailure) {
-    windows.close(sessionID)
-    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "error", `credential probe failed before worker execution: ${credentialFailure}`, "contact_operator")
-  }
   const directive = baseEnvelope(lane, packet, "ok")
   directive.dispatch_state = "awaiting_worker"
+  directive.output = `Authorized only: dispatch launches no worker. From this requesting session, issue one native foreground Task with exactly ${JSON.stringify({ subagent_type: `concord-${packet.lane_id}`, prompt: packet.attempt_id, description: "Run authorized worker" })}. The adapter binds the recorded packet; do not supply a packet, resume target, background, command, or other fields. A failed or uncertain Task requires reconciliation or no-report abandonment before another dispatch; never replay it automatically.`
   if (launch.workPins) directive.work_pins = launch.workPins
   return directive
 }

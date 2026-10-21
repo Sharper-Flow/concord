@@ -214,7 +214,7 @@ the D6 label duty as a gap.
 - Keep operator approval for every law change. R3 replaces that rule.
 - Treat every change to a `legislated` record as serious. That adds a fifth
   test P12 does not hold.
-- Reclassify every operator approval point outside the four classes at once,
+- Reclassify every operator approval point outside the five classes at once,
   without amending the records that hold them. An unnamed amendment cannot be
   checked, and it would remove approvals no review has seen.
 - Keep the follow-up ledger in the store. CD-0213 keeps planning facts in

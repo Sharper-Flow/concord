@@ -110,11 +110,7 @@ const (
 // workflowRecoveryLiveVersions names the versions the live journeys run
 // on: each family's timed authoring head, plus the implementation family's
 // small composition, which serves small work. The store's live-authoring
-// and size owners resolve the same versions. The small composition's
-// journeys are required and currently refused by the small ship review's
-// native-dispatch identity requirement (the small proof reads the
-// identity-stamped completions only the native dispatch boundary
-// records); they stay red until the native fixture boundary is repaired.
+// and size owners resolve the same versions.
 var workflowRecoveryLiveVersions = map[string][]int64{
 	"workflow.implementation": {38, 39},
 	"workflow.break_fix":      {35},
@@ -836,9 +832,7 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 		// completion-submission catalogs (v5 engineering, v4 research) pin
 		// the sized-timing close part. The small composition's execution
 		// produces the delivery and its review rides the acceptance
-		// checkpoint; its two journeys are required live rows and fail only
-		// on the native ship-review fixture gap (see
-		// workflowRecoveryLiveVersions).
+		// checkpoint; both are required live journeys.
 		{
 			Ref: "workflow.implementation", Version: 39,
 			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
@@ -1321,8 +1315,7 @@ func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 	// retained-family released pins plus every retained predecessor-head
 	// row (v37/v34/v22, v36/v33/v21, v35/v32, v34/v31, v33/v30/v20 now
 	// among them) as recorded history, and the 32 retired-family rows as
-	// archived-refusal coverage. The small composition's journeys stay
-	// required: they are red only on the native ship-review fixture gap.
+	// archived-refusal coverage.
 	if live != 8 || history != 78 || refusals != 32 {
 		t.Fatalf("journey table dispositions: live=%d history=%d refusals=%d, want 8/78/32", live, history, refusals)
 	}
@@ -2413,8 +2406,7 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 		// routes beside the completion-submission catalogs and the
 		// inherited consequence_v1 and obligation-satisfaction policies:
 		// the full head v39 and the small composition v38, and the
-		// break-fix head v35. The small supersede journey is required and
-		// fails only on the native ship-review fixture gap.
+		// break-fix head v35.
 		{
 			Ref: "workflow.implementation", Version: 39,
 			Step: "release", Target: "execution",

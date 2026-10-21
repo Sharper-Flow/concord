@@ -270,9 +270,8 @@ func workflowActionCatalogV5() workflowActionCatalog {
 
 func withCompletionSubmission(catalog workflowActionCatalog, version int) workflowActionCatalog {
 	catalog.Version = version
-	catalog.revisions["complete"] = []workflowActionRevision{func(action WorkflowActionDefinition) WorkflowActionDefinition {
-		action.Payload.Fields = append(slices.Clone(action.Payload.Fields), actionRefField("delivery_artifact", false), actionEnumField("delivery_state", false, "asserted"))
-		return action
-	}}
+	catalog.revisions["complete"] = []workflowActionRevision{withAppendedPayloadFields(func() []WorkflowPayloadField {
+		return []WorkflowPayloadField{actionRefField("delivery_artifact", false), actionEnumField("delivery_state", false, "asserted")}
+	})}
 	return catalog
 }

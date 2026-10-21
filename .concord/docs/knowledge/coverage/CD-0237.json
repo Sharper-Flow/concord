@@ -1,10 +1,5 @@
 {
-  "evidence": [
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestResizeSuccessorSupersedesWithoutCompletion"
-    }
-  ],
   "id": "CD-0237",
-  "state": "satisfied"
+  "reason": "Superseded in full by CD-0242 D6: no resize lineage or size-driven successor exists, so the retired mechanism has no current behavior to prove.",
+  "state": "out_of_scope"
 }

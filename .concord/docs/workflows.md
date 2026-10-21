@@ -4,7 +4,7 @@
 > [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)
 > and
 > [CD-0229](./decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md).
-> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D4, D6, and D14:** definitions are generated from one canonical source, and the store keeps current state and finite snapshots.
+> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D4, D6, D13, and D14:** definitions are generated from one canonical source, and the store keeps current state and finite snapshots.
 > Companion to [`README.md`](./README.md),
 > [`feature-inventory.md`](./feature-inventory.md),
 > [`specs-as-laws.md`](./specs-as-laws.md),
@@ -267,10 +267,11 @@ status.
 3. **Size:** one programmed, versioned decision model sets `small`, `larger`,
    or `crucial` from the recorded inputs; the size selects the composition,
    and rules derived from change type and risk set its mandatory stages
-   (CD-0229 D4, D5; CD-0242 D4). A task that proves bigger than its size
-   reruns the model, adds the newly required steps, and continues without
-   redoing completed work; no production-line cap, size measurement, or
-   mandatory split applies (CD-0242 D6). A sized workflow records its define
+   (CD-0229 D4, D5; CD-0242 D4). The operator may move a size, and an agent
+   may only request a rerun or add steps (CD-0229 D4). A task that proves
+   bigger than its size reruns the model, adds the newly required steps, and
+   continues without redoing completed work (CD-0242 D4); no production-line
+   cap, size measurement, or mandatory split applies (CD-0242 D6). A sized workflow records its define
    start and its merge-queue entry (CD-0229 D7).
 
 ---

@@ -5,9 +5,9 @@
 > amended only by a later accepted CD-NNNN.
 > **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
 > D2, D4, D6, and D14:** the engine keeps current workflow state and finite
-> snapshots with no event log, fold, replay, or rebuild; attempts carry their
-> own authority with no escalation wall; families compose shared stages under
-> the decision-model minimum; generated definitions derive from one source.
+> snapshots with no event log, fold, replay, or rebuild. Attempts carry their
+> own authority with no escalation wall. Families compose shared stages under
+> the decision-model minimum, and generated definitions derive from one source.
 > **Scope:** Go registry, current workflow state, outcome evaluation,
 > completion, conditions, impact propagation, and the reserved `workflow_action`
 > dispatch path.
@@ -29,9 +29,6 @@ checks the accepted Git-derived `law_subjects` and `law_relations` projection;
 an explicit conflict may pass planning only when the endpoint whose record
 declares it is in `law_modifies`. Completion reruns the check without that
 exception, so only a Git-authorized law delta can resolve the conflict.
-[CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-governs: contracts are generated from one source, and no released definition
-version is retained for history.
 
 CD-0036 records each current contract's bounded `law_revisions` pins as
 `(law_id, content_hash)`. A changed hash under the same accepted ID is a
@@ -95,11 +92,6 @@ payloads are typed objects, never free-form maps; unknown keys are refused
 | candidate list | unique array, 1–100 items |
 | `actor_ref` | `actor:` plus lower-case content-hash reference |
 | `payload_version` | integer exactly `1` for v1 emission |
-
-[CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-governs: each workflow mutation writes current rows in one transaction, checked
-by an expected version and recorded by its idempotency key; no event log or
-typed event envelope exists.
 
 ## 2. Definition registry
 
@@ -204,7 +196,8 @@ Recoverable failures leave the instance in `running` or `blocked` according to t
 definition edge. A completed, cancelled, or superseded instance is immutable.
 Internal SQLite-only actions are one domain transaction.
 Cross-authority and external-effect actions claim an epoch in
-`durable_operations`; [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+`durable_operations`, then record start, checkpoint, and result under the
+current epoch; [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
 governs: each mutation writes current rows in one transaction checked by an
 expected version and recorded by its idempotency key.
 
@@ -212,9 +205,46 @@ expected version and recorded by its idempotency key.
 
 [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
 governs: the store keeps current state and finite snapshots, not an append-only
-workflow history; no workflow event log, event family, upcaster, or replay
-exists. Each mutation writes current rows in one transaction checked by an
-expected version and recorded by its idempotency key.
+workflow history; no workflow event log, upcaster, or replay exists. Each
+mutation writes current rows in one transaction checked by an expected version
+and recorded by its idempotency key. The names below identify the typed
+mutation records that §12.1 maps actions to; omitted and unknown keys are
+refused. Only `CompleteWorkflowTxWithRegistry` records `workflow.completed`,
+after the ordered gate in §7; every other mutation route refuses it
+structurally. `workflow.staleness_observed` records an external observation
+and does not advance the work-item version.
+
+`workflow.condition_cancelled` is the typed representation required by
+CD-0013 D10's “resolved or canceled” completion clause. It adds no await type
+or authority: operator cancellation is explicit, evidenced, and recorded
+beside the two resolver states.
+
+| Record | Exact payload fields and bounds |
+|---|---|
+| `workflow.definition_selected` | `work_id`, `ref`, `version`, `digest`, `work_kind` (closed family enum) |
+| `workflow.contract_approved` | `work_id`, `contract_version`, `premise` (1–4096), `outcome_kind`, `outcome_payload` (strict outcome schema), `required_evidence` (0–7 unique), `route_conventions` (0–16 unique refs), `spec_mandate` (0–32 unique refs), `law_revisions` (one `{law_id, content_hash}` pin per mandated ID ), `rigor_class` (1–64), `consequence_class` (`internal_sqlite`, `cross_authority`, or `external_effect`) |
+| `workflow.contract_superseded` | `work_id`, `previous_contract_version`, optional unique `predecessor_contract_versions` (1–32), `new_contract_version`, `supersede_reason` (1–4096), `audit_evidence` (1–32 evidence refs), optional `approval_ref` with the exact `approval_operation_digest`, `approval_scope_json`, `approval_versions_json`, and `approval_consequence` binding, and optional `successor_contract` containing the fully validated contract fields and one current `law_revisions` pin per mandated law; recovery installs this successor and marks every named predecessor superseded in one transaction |
+| `workflow.candidate_set_revised` | `work_id`, `contract_version`, `candidate_kind` (exactly `work_item`, `product`, or `project`), `candidate_ref`, `added` (0–100 refs), `removed` (0–100 refs); `added` and `removed` are disjoint and not both empty |
+| `workflow.actor_recorded` | `work_id`, `actor_ref`, `principal_ref`, `client_ref`, `agent_ref`, `session_ref`, `actor_class` (`agent` or `operator`) |
+| `workflow.action_started` | `work_id`, `step_id`, `action_id`, `attempt_epoch`, `accepted_inputs_digest`, `idempotency_identity` (2–128), `actor_ref` |
+| `workflow.action_checkpointed` | `work_id`, `step_id`, `step_kind` (`internal_sqlite`, `cross_authority`, `external_effect`, or the existing definition-schema `human_checkpoint`), `attempt_epoch`, `checkpoint_payload` (typed action checkpoint, max 16 KiB), `resume_cursor` (0–2048), `actor_ref`, `request_id` |
+| `workflow.action_completed` | `work_id`, optional `action_id`, `step_id`, `attempt_epoch`, `result_evidence_refs` (0–32), `changed_refs` (0–32), `actor_ref`, optional `worker_attempt_id`. `worker_attempt_id` is allowed only for `accept_worker_result`, `record_worker_failure`, and `dispatch_worker`. It rejects undeclared current-step actions and invalid worker-result records. |
+| `workflow.proposal_recorded` | `work_id`, `problem` (1–4096), `affected` (1–16 unique entries of 1–256), `stakes` (1–2048), `user_outcomes` (1–16 unique entries of 1–512), `constraints` (0–16 unique entries of 1–512, omitted when absent), `open_questions` (0–16 unique entries of 1–512, omitted when absent), `out_of_scope` (0–16 unique entries of 1–512, omitted when absent; CD-0202) |
+| `workflow.design_recorded` | `work_id`, `approach` (2–4096), `decisions` (1–16 typed decisions with `id`, `question` (1–512), `choice` (1–1024), `rationale` (1–1024), and `rejected` (0–8 strings)), `touched_refs` (1–64 references) |
+| `workflow.backlog_alignment_recorded` | `work_id`, `searched` (2–4096, the search performed and its scope), `outcome` (`related_found` or `none_found`), `related_ids` (1–64 unique work ids, present only when `outcome` is `related_found`; the mutation refuses `related_found` with no ids and `none_found` with ids, and every id must name a real work item) |
+| `workflow.action_failed` | `work_id`, `step_id`, `attempt_epoch`, `failure_kind` (closed TS7 error kind), `recoverable` (boolean), `actor_ref` |
+| `workflow.evidence_bound` | `work_id`, `evidence_kind` (verification/review/approval/commit/durable_note/native_run/artifact), `immutable_subject_ref`, `producer_id`, `producer_run_ref`, `producer_watermark`, `observed_at`. For `evidence_kind=native_run` the `immutable_subject_ref` is the record's `xobs:` observation and the attributed record must be verified: an unverified report stays readable but cannot satisfy completion (CD-0040 D9), so the binding fails closed until a verification record answers the observation. |
+| `workflow.staleness_observed` | `rule_id`, `severity` (`warning` or `block`), `drifted` (boolean), `observed_at` (RFC3339), `accepted_inputs_digest` (SHA-256); the latest record for each rule is the staleness authority used by completion and reads, and exact action retries retain the first observation time |
+| `workflow.native_run_recorded` | `work_id`, `run_id` (1–128), `native_subject_ref` (1–2048 opaque non-secret), `subject_digest` (core-derived), `phase` (`start`/`health`/`rollback`/`cleanup`, fixed by the action ID), `status` (closed per-phase vocabulary), `evidence_ref`, `evidence_digest`, `asserted_at` (RFC3339, within the two-minute report skew bound), `reporting_authority_ref` (the authenticated actor's client, never caller input), `actor_ref`, and the embedded CD-0040 capture component: `capture_method`, the closed `observed_universe` structure (one item, exactly scoped, complete by closed-structure digest — validated by the shared D4 rules when recorded and read), the derived content-hashed `freshness_policy_ref`/`divergence_policy_ref` from the reviewed per-kind register, and the `observation_id` the run's phases share. The mutation registers that observation in `external_observations` as its shared provenance home, so one verification record answers every phase row and the attributed read (`NativeRunReport`) carries the derived verification state. |
+| `workflow.verdict_recorded` | `work_id`, `contract_version`, `predicate_id`, `verdict_kind` (`ok`, `outcome_mismatch`, `insufficient_evidence`), `verdict_actor_ref`, `evaluation_evidence` (1–32), `incomparable_with_approved` (boolean) |
+| `workflow.premise_confirmed` | `work_id`, `contract_version`, `confirming_actor_ref` |
+| `workflow.successor_linked` | `work_id`, `successor_work_id`, `relation_kind` (`forward_link`) |
+| `workflow.impact_declared` | `work_id`, `edge_id`, `edge_kind` (`modifies`, `depends_on`, `forward_link`), `edge_class` (`hard`, `soft`, `none`), `target_work_id`, `target_kind` (exactly `work_item`, matching the target-work foreign key), `severity` (`breaking`, `non-breaking`, `informational`) |
+| `workflow.impact_notice_recorded` | `work_id`, `notice_id`, `source_contract_version`, `entity_kind`, `entity_ref`, `target_work_id`, `edge_owner_work_id`, `edge_id`, `old_hash` (nullable digest), `new_hash` (nullable digest), `severity` |
+| `workflow.condition_added` | `work_id`, `condition_id`, `await_type` (`pr_merge`, `ci_result`, `timer`, `human_approval`, `remote_work_state`), `await_ref`, `resolution_authority` |
+| `workflow.condition_resolved` | `work_id`, `condition_id`, `resolution_evidence` (1–32 evidence refs), `resolved_by_event`; the stored `resolution_authority` is exactly `durable_operation:<op_id>`, and every evidence ref must be present in that completed operation's authoritative `evidence_refs` for this work item |
+| `workflow.condition_cancelled` | `work_id`, `condition_id`, `cancellation_authority` (`operator`), `cancellation_evidence` (1–32 evidence refs), `cancelled_by_event`; the recording actor must resolve to an `operator` actor tuple, and every cancellation evidence ref must be present in the stored durable authority operation |
+| `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`, `superseded`), `final_verdict_kind`, `verdict_actor_ref`, `premise_confirmed` (boolean), `evidence_count` (non-negative, derived from the item's bound evidence history), `changed_refs_digest` (digest), `impact_verdict` (`breaking` or `non-breaking`), `warnings` (0–16 staleness-rule IDs) |
 
 ## 5. V15 projections, constraints, and folds
 
@@ -222,7 +252,9 @@ The tables below are the workflow engine's current-state tables.
 [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
 governs: each mutation writes current rows in one transaction checked by an
 expected version and recorded by its idempotency key, and no fold or
-rebuild-from-log route exists. `work_id` references the
+rebuild-from-log route exists. Direct writes are refused; only
+`ApplyOperationTx` and `CompleteWorkflowTxWithRegistry` mutate these tables.
+`work_id` references the
 existing `work_items(id)` key; actor references point to `workflow_actors`.
 
 ### 5.1 Tables
@@ -348,9 +380,28 @@ lease and its streams; worktree reclamation alone does not erase access.
 
 [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
 governs: workflow state is current rows written by each mutation in one
-transaction; no fold rule, fold table, or rebuild-from-log exists, and recovery
-uses verified snapshots plus reconciliation of current rows with Git,
-worktrees, artifacts, and external effects.
+transaction; no fold or rebuild-from-log exists, and recovery uses verified
+snapshots plus reconciliation of current rows with Git, worktrees, artifacts,
+and external effects.
+
+| Record | Current-row effect |
+|---|---|
+| definition selected | upsert the one instance definition pin; reject a change once an action has started |
+| contract approved/superseded | insert the immutable contract version and its recorded law and definition pins; mark every exact predecessor named by a recovery record superseded |
+| candidate set revised | insert added candidates and delete only the named removed candidates for that contract; premise and outcome bytes are untouched |
+| backlog alignment recorded | insert the declaration row and, when the outcome is `related_found`, one row per named work id; the alignment action records the candidate set only and creates no relation, so work-to-work relation creation stays with `resolve_overlap`, capture's `raised_from` provenance, and the workflow `link_successor` action |
+| actor recorded | insert once; a different tuple for an existing `actor_ref` is refused |
+| action started/checkpointed/completed/failed | update current step/state/checkpoint timestamps and insert/update checkpoint rows; `record_decision` extracts its typed decision-record checkpoint into `workflow_decision_records`; a repeated idempotency key returns the stored result without a second effect |
+| evidence bound | write to the existing evidence authority and make the binding visible to completion; it is not copied into a workflow-only authority |
+| verdict recorded | retain the verdict for the subject and expose it through the instance's verification view |
+| premise confirmed | insert operator confirmation |
+| successor linked | write the existing `forward_link` relation; workflow state remains independent |
+| impact declared/notice recorded | insert or deduplicate typed edge/notice rows |
+| condition added | insert an `open` condition with its owning `resolution_authority` |
+| condition resolved | transition `open → resolved`; require a work-item-bound durable operation authority and verify every evidence ref belongs to its completed authoritative result before filling resolution fields |
+| condition cancelled | transition `open → cancelled`; require the recording actor to resolve to an operator actor tuple, not merely a payload string, and verify every cancellation evidence ref against the stored durable authority operation; a resolved or cancelled condition cannot transition again |
+| completed | set terminal state and completed timestamp only after the completion transaction's prior clauses pass |
+| work item terminal (`work.transitioned` to `completed` or `cancelled`, `work.superseded`) | close a live instance in the same transaction: `superseded` mirrors the lifecycle, `cancelled` and completed-by-lifecycle both record `cancelled` because the completion gate never ran; an instance already terminal keeps its record |
 
 ## 6. Outcome evaluation and strength
 
@@ -662,10 +713,10 @@ action execution modes. The
 on each dispatchable, non-terminal step. The generated lane-step join decides
 which step kinds receive that set. `record_delivery` remains the session exit
 after a fenced start with no later dispatch. The table lists family actions;
-definition composition adds the worker-action set. Implementation and
-break-fix carry a mandatory `refine` external-effect step between the
-producing step and its verdict step
-([CD-0242 D4](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
+definition composition adds the worker-action set. Break-fix, and the `larger`
+and `crucial` implementation compositions, carry a mandatory `refine`
+external-effect step between the producing step and its verdict step
+(CD-0138 D1; CD-0229 D5).
 The refine step requires an artifact
 evidence binding and records the scope, report, and evidence supplied by an
 external analysis authority. Concord does not implement the scanner.
@@ -681,17 +732,15 @@ whitespace-split invocation of at least one declared tool; the manifest is read
 from the default ref outside the store transaction, never from the working
 tree. A Project that declares no manifest passes on any green run. The refusal
 names the declared tool ids and invocations, or states that the Project
-declares none. Generated definitions derive from one source, and no released
-definition version is retained for history
-([CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+declares none.
 The tooling schema and `scripts/check-project-tooling.py` forbid
 shell quoting and shell operators in an invocation, so the whitespace split is
 the exact argv.
 
 | Family and source | Ordered graph and family actions at each step |
 |---|---|
-| **Implementation** — [`workflows.md` §1](./workflows.md#1-the-shift-from-one-workflow-to-a-plurality) and [`feature-inventory.md` §1.6](./feature-inventory.md#16-durable-execution-safety-substrate) | `proposal[record_proposal] → alignment[record_alignment] → discovery[record_discovery] → design[record_design] → planning[approve_contract] → execution[start_execution, checkpoint_execution, bind_evidence, declare_impact, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → acceptance[record_verdict, confirm_premise] → release[complete]`. Refine is mandatory and requires artifact evidence at that step ([CD-0242 D4](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)). The CD-0156 alignment step follows proposal: record_alignment is the step's only advance exit, so the backlog search cannot be skipped, and the worker-action set stays off the step so no dispatched attempt can accept its way past the search. |
-| **Break-fix / RCA** — [`workflows.md` §3](./workflows.md#3-complete-work-kind-taxonomy) and §4 | `reproduce[record_reproduction] → alignment[record_alignment] → diagnose[record_root_cause] → planning[approve_contract] → repair[start_repair, checkpoint_repair, bind_evidence, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → verify[bind_evidence, record_verdict, confirm_premise] → complete[complete]`. Refine is mandatory and requires artifact evidence at that step ([CD-0242 D4](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)). Verify carries the hold-mode `bind_evidence` route (CD-0124), so a green verify-tier run at `worktree_verify:sha256:<digest>` can be named as the verification producer. The CD-0156 alignment step follows reproduce on the same terms. |
+| **Implementation** — [`workflows.md` §1](./workflows.md#1-the-shift-from-one-workflow-to-a-plurality) and [`feature-inventory.md` §1.6](./feature-inventory.md#16-durable-execution-safety-substrate) | `proposal[record_proposal] → alignment[record_alignment] → discovery[record_discovery] → design[record_design] → planning[approve_contract] → execution[start_execution, checkpoint_execution, bind_evidence, declare_impact, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → acceptance[record_verdict, confirm_premise] → release[complete]`. Refine is mandatory at the `larger` and `crucial` sizes and requires artifact evidence at that step (CD-0138 D1; CD-0229 D5); the `small` composition walks define, implement, review, and ship. The CD-0156 alignment step follows proposal: record_alignment is the step's only advance exit, so the backlog search cannot be skipped, and the worker-action set stays off the step so no dispatched attempt can accept its way past the search. |
+| **Break-fix / RCA** — [`workflows.md` §3](./workflows.md#3-complete-work-kind-taxonomy) and §4 | `reproduce[record_reproduction] → alignment[record_alignment] → diagnose[record_root_cause] → planning[approve_contract] → repair[start_repair, checkpoint_repair, bind_evidence, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → verify[bind_evidence, record_verdict, confirm_premise] → complete[complete]`. Refine is mandatory and requires artifact evidence at that step (CD-0138 D1). Verify carries the hold-mode `bind_evidence` route (CD-0124), so a green verify-tier run at `worktree_verify:sha256:<digest>` can be named as the verification producer. The CD-0156 alignment step follows reproduce on the same terms. |
 | **Research / investigation** — [`workflows.md` §4](./workflows.md#4-example-workflow-types) and CD-0215 D3 | `frame[frame_research, approve_contract] → investigate[record_finding, revise_candidates, bind_evidence] → findings[record_report, link_successor] → conclude[record_conclusion, record_verdict, confirm_premise] → complete[complete]`. Completion verb: findings recorded; `no_change` is valid. |
 | **Architecture spike** — [`architecture-spike.md` §2](./architecture-spike.md#2-shape) | `frame[frame_question, approve_contract] → research[record_research, bind_evidence] → options[record_option] → poc_optional[start_poc, checkpoint_poc, discard_poc, record_delivery] → decision_record[record_decision] → review[record_verdict, accept_decision] → acceptance[confirm_premise] → complete[complete]`. The optional POC edge skips only `poc_optional`; completion still requires the accepted decision record, verdict, premise confirmation, and `complete`. |
 | **Ops runbook** — [`workflows.md` §4](./workflows.md#4-example-workflow-types) and [`managed-resource-inventory.md` §3](./managed-resource-inventory.md#3-stage-rule) | `plan[approve_contract, resolve_condition, cancel_condition] → approval[approve_operation, resolve_condition, cancel_condition] → execute[start_run, checkpoint_run, bind_evidence, add_condition, resolve_condition, cancel_condition, record_delivery] → health[record_health, record_verdict, resolve_condition, cancel_condition] → rollback_optional[rollback_run, resolve_condition, cancel_condition, record_delivery] → cleanup[cleanup_run, confirm_premise, resolve_condition, cancel_condition] → complete[complete, resolve_condition, cancel_condition]`. Rollback is optional recovery, not a second completion path. |
@@ -755,9 +804,7 @@ and runner inputs. Exact dependency pins, cached-byte integrity, input
 digests, and runtime policy remain the producer's obligations under CD-0205 D1.
 Its shared evidence limits apply to every recipe family.
 Unsupported or unavailable inputs refuse without a worker attempt or a
-readiness exception. Generated definitions derive from one source, and no
-released definition version is retained for history
-([CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+readiness exception.
 `worker.completed` v6 admits oracle receipts, ranked-finding ties, and closed
 resolution claims; no worker record invents them after the fact.
 `worker.failed` remains v2.
@@ -772,9 +819,7 @@ governs: each launch is one admitted request with its own scope, assignment,
 and subject bindings; no attempt count, correction count, convergence basis,
 escalation wall, or reset exists. A launch confirmed never started leaves the
 assignment and its valid proof unchanged, and a launch with an unknown effect
-is reconciled before another launch for that assignment. Main sizes each
-assignment by complexity and relatedness; no production-line cap, size
-measurement, or mandatory split applies.
+is reconciled before another launch for that assignment.
 
 `action_definitions` carry closed payload field definitions and execution modes
 for each ID. Every registered definition declares an explicit `execution_mode`

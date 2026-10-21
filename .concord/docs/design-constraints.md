@@ -68,7 +68,7 @@ This supports Priority 2 (Data governance, reliability, and safe evolution) and 
 
 ---
 
-## 4. Bounded writer admission, no history to repair
+## 4. Bounded writer admission, no history repair
 
 **Requirement.** Concord-owned writes queue behind one writer and are admitted within the accepted bound, never surfacing an escaped `SQLITE_BUSY`, a lost effect, an unexpected duplicate, or an invariant violation. Reads are lock-free. Acknowledged consequential operations are durable across power loss and OS crash via the CD-0050 checkpoint barrier; ordinary writes are durable through the last consequential boundary. The store keeps current state and finite snapshots, not history, so there is no history to repair ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
@@ -306,7 +306,7 @@ traceability and implementation conformance, not as active blockers.
 3. **Read-path implementation language** (§5, §7). Resolved — Go; see [`core-architecture.md`](./core-architecture.md).
 4. **Ambient Product context propagation** (§13). **Resolved by TS5/CD-0005:** trusted hidden call envelope, core re-resolution, explicit cross-scope intent, and inherited Product/workspace context.
 5. **Recovery-path taxonomy** (§19). **Resolved by PM10 and CD-0008 D3/D4/D6:**
-   PM10 defines verified backup/restore; CD-0008 adds dependency-aware unreadable
+   PM10 defines verified backup/restore and operator escalation; CD-0008 adds dependency-aware unreadable
    isolation and durable-operation checkpoints/attempt fencing. Recovery
    reconciles current rows and restores finite verified snapshots; no
    rebuild-from-log ladder, append-only quarantine, or upcaster recovery exists
@@ -333,7 +333,7 @@ traceability and implementation conformance, not as active blockers.
 | §1 concurrency | 2, 5 | [`product-data-model.md`](./product-data-model.md) |
 | §2 law/architecture impact | 1, 3, 4, 5 | [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) |
 | §3 idle-boundary updates | 2, 6 | [`workflows.md`](./workflows.md) |
-| §4 bounded writer admission / no history to repair | 2 | [`clarifications.md`](./clarifications.md) C2 |
+| §4 bounded writer admission / no history repair | 2 | [`clarifications.md`](./clarifications.md) C2 |
 | §5 fast read-path | 4 | [`rollout-plan.md`](./rollout-plan.md) |
 | §6 lightweight interface | Operating envelope | [`priorities.md`](./priorities.md) |
 | §7 language choice | 2, 4 | [`core-architecture.md`](./core-architecture.md) |

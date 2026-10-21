@@ -643,7 +643,7 @@ func TestLiveDispatchRequiresSealedPreparation(t *testing.T) {
 
 // qualifiedSubjectRunner answers the delivery probe without touching the
 // filesystem: HEAD is the work's qualified verify subject, the tree is
-// clean, and the measured-delta probe answers an empty numstat — the clean
+// clean, and the changed-path probe answers no names — the clean
 // zero-delta observation. Every other git call — the declared-reading
 // resolution's committed proofs — runs against the real fixture
 // repositories. A preparation over a subject-less view probes nothing.
@@ -656,7 +656,7 @@ func (r qualifiedSubjectRunner) Run(ctx context.Context, dir string, args ...str
 	if len(args) > 0 && args[0] == "rev-parse" {
 		return []byte(r.head), nil
 	}
-	if slices.Contains(args, "--numstat") {
+	if slices.Contains(args, "--name-only") {
 		return nil, nil
 	}
 	return ExecGitRunner{}.Run(ctx, dir, args...)
@@ -695,7 +695,6 @@ func seedAcceptedImplementationDelivery(t *testing.T, s *Store, workID string, o
 	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
-		ProductionSize: completionProductionSizeForTest(t, s, workID, &job, subject),
 	})}
 	prepared, prepErr := PrepareWorkerTerminalDelivery(ctx, s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attemptID, EventID: completion.EventID, Runner: qualifiedSubjectRunner{head: subject}})
 	if prepErr != nil {

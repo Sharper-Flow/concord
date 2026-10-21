@@ -44,6 +44,7 @@ type workerTerminalDeliveryProof struct {
 	windowEpoch            int64
 	windowPacketDigest     string
 	windowWorktreeIdentity string
+	windowSubjectCommit    string
 	frontier               int64
 	frontierPresent        bool
 
@@ -194,6 +195,7 @@ func PrepareWorkerTerminalDelivery(ctx context.Context, s *Store, request Prepar
 	proof.windowEpoch = sample.window.AttemptEpoch
 	proof.windowPacketDigest = sample.window.PacketDigest
 	proof.windowWorktreeIdentity = sample.window.WorktreeIdentity
+	proof.windowSubjectCommit = sample.window.SubjectCommit
 	proof.frontier, proof.frontierPresent = sample.window.ContextFrontier, sample.window.ContextFrontierPresent
 	if sample.attempt.CapabilityClass != "implementation" {
 		// Only the implementation lane is the delivery producer; other
@@ -215,7 +217,7 @@ func PrepareWorkerTerminalDelivery(ctx context.Context, s *Store, request Prepar
 	if runner == nil {
 		runner = ExecGitRunner{}
 	}
-	observation, err := observeWorkerDelivery(ctx, runner, proof.probePath)
+	observation, err := observeWorkerDelivery(ctx, runner, proof.probePath, sample.window.SubjectCommit)
 	if err != nil {
 		return nil, err
 	}
@@ -246,9 +248,12 @@ func selectWorkerClaimEntry(entries []WorktreeEntry, identity string) (WorktreeE
 }
 
 // observeWorkerDelivery runs the read-only Git observation of one claimed
-// worktree under the single fixed probe deadline — status and HEAD. A failed
-// command or the deadline produces a typed refusal.
-func observeWorkerDelivery(ctx context.Context, runner GitRunner, path string) (*WorkerObservedDelivery, error) {
+// worktree under the single fixed probe deadline — status, HEAD, and, for a
+// clean tree whose dispatch recorded a subject commit, the changed-path set
+// between that subject and HEAD under the shared diff flags. A dirty tree
+// or a subject-less dispatch records no delta. A failed command or the
+// deadline produces a typed refusal.
+func observeWorkerDelivery(ctx context.Context, runner GitRunner, path, subject string) (*WorkerObservedDelivery, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, workerTerminalObservationDeadline)
 	defer cancel()
 	status, err := runner.Run(probeCtx, path, "status", "--porcelain=v1", "-z", "--untracked-files=all")
@@ -263,7 +268,21 @@ func observeWorkerDelivery(ctx context.Context, runner GitRunner, path string) (
 	if !worktreeSHAPattern.MatchString(commit) {
 		return nil, newFailure(KindGitUnreachable, workerTerminalObservationOp, "the worktree's HEAD is not one raw commit OID", true, "retry once the worktree resolves a commit")
 	}
-	return &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}, nil
+	observation := &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}
+	if subject == "" || observation.State != "clean" {
+		return observation, nil
+	}
+	names, err := runner.Run(probeCtx, path, append(workerDiffSharedDiffArgs(), "--name-only", "-z", subject, commit)...)
+	if err != nil {
+		return nil, workerDeliveryProbeFailure("changed paths", probeCtx, err)
+	}
+	observation.Base = subject
+	for _, name := range strings.Split(string(names), "\x00") {
+		if name != "" {
+			observation.ChangedPaths = append(observation.ChangedPaths, name)
+		}
+	}
+	return observation, nil
 }
 
 func observedDeliveryState(status []byte) string {
@@ -396,7 +415,7 @@ func enrichWorkerObservedDeliveryTx(ctx context.Context, tx *sql.Tx, event Event
 	if err != nil {
 		return err
 	}
-	if liveWindow.StartSeq != proof.windowStartSeq || liveWindow.AttemptEpoch != proof.windowEpoch || liveWindow.PacketDigest != proof.windowPacketDigest || liveWindow.WorktreeIdentity != proof.windowWorktreeIdentity || liveWindow.ContextFrontier != proof.frontier || liveWindow.ContextFrontierPresent != proof.frontierPresent {
+	if liveWindow.StartSeq != proof.windowStartSeq || liveWindow.AttemptEpoch != proof.windowEpoch || liveWindow.PacketDigest != proof.windowPacketDigest || liveWindow.WorktreeIdentity != proof.windowWorktreeIdentity || liveWindow.SubjectCommit != proof.windowSubjectCommit || liveWindow.ContextFrontier != proof.frontier || liveWindow.ContextFrontierPresent != proof.frontierPresent {
 		return newFailure(KindProjectionConflict, workerTerminalObservationOp, "the dispatch authorization changed under the terminal observation", true, "prepare the same completion again against the current authorization")
 	}
 	if attempt.LifecycleState != proof.attemptState || attempt.LaneID != proof.laneID || attempt.LaneVersion != proof.laneVersion || attempt.LaneDigest != proof.laneDigest {
@@ -427,9 +446,11 @@ func enrichWorkerObservedDeliveryTx(ctx context.Context, tx *sql.Tx, event Event
 	if proof.observation == nil {
 		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared delivery proof carries no observation for an implementation completion", false, "prepare the completion against a reachable claimed worktree")
 	}
-	// The delivery observation is the core's own clean-or-dirty reading of
-	// the claimed worktree at the observed commit. The retired measurement
-	// surface recorded no base and no paths (CD-0242 D6).
+	// The observed delta is measured from the authorization's own subject
+	// commit, or recorded absent for a subject-less authorization.
+	if proof.observation.Base != "" && proof.observation.Base != liveWindow.SubjectCommit {
+		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared delivery observation names base "+proof.observation.Base+", not the dispatch's recorded subject commit", false, "prepare the completion against the recorded authorization")
+	}
 	payload.ObservedDelivery = proof.observation
 	return nil
 }

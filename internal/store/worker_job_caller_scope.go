@@ -462,9 +462,9 @@ func WorkerAttemptIDFromRejectionPayload(payload json.RawMessage) string {
 // workerJobPathsIntersect reports whether a path sits inside a path-scope
 // entry: equal to it or under it with a trailing slash, in either direction,
 // so a scope entry can name a file and a path can name a scope directory.
-func workerJobPathsIntersect(pathScope []string, measuredPath string) bool {
+func workerJobPathsIntersect(pathScope []string, path string) bool {
 	for _, scope := range pathScope {
-		if measuredPath == scope || strings.HasPrefix(measuredPath, scope+"/") || strings.HasPrefix(scope, measuredPath+"/") {
+		if path == scope || strings.HasPrefix(path, scope+"/") || strings.HasPrefix(scope, path+"/") {
 			return true
 		}
 	}
@@ -515,44 +515,51 @@ func workerAttemptCapabilityTx(ctx context.Context, tx *sql.Tx, attemptID string
 	return capability, nil
 }
 
-// readWorkerCompletedRepairsTx reads the direct-caller repairs the attempt's
-// worker.completed report carries, or nil when the attempt carried none or
-// recorded no completion.
-func readWorkerCompletedRepairsTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) ([]WorkerDirectCallerRepair, error) {
+// readWorkerCompletedDeliveryTx reads the direct-caller repairs and the
+// core's delivery observation the attempt's worker.completed report
+// carries; both are absent when the attempt recorded no completion.
+func readWorkerCompletedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) ([]WorkerDirectCallerRepair, *WorkerObservedDelivery, error) {
 	var raw string
 	err := tx.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerCompleted, attemptID).Scan(&raw)
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read the accepted attempt's completion", true, "retry once the event log is readable", err)
+		return nil, nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read the accepted attempt's completion", true, "retry once the event log is readable", err)
 	}
 	var payload struct {
 		DirectCallerRepairs []WorkerDirectCallerRepair `json:"direct_caller_repairs"`
+		ObservedDelivery    *WorkerObservedDelivery    `json:"observed_delivery"`
 	}
 	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-		return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "the accepted attempt's completion payload is not readable", false, "rebuild the worker events from the authoritative log")
+		return nil, nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "the accepted attempt's completion payload is not readable", false, "rebuild the worker events from the authoritative log")
 	}
-	return payload.DirectCallerRepairs, nil
+	return payload.DirectCallerRepairs, payload.ObservedDelivery, nil
 }
 
-// admitWorkerCallerRepairContainmentTx holds CD-0227 D2/D3's acceptance
-// containment (CD-0242 D6 keeps scope and ownership checks): a report that
-// carries direct-caller repairs claims them under the dispatched job's
-// recorded allowance, so every repair's owner is a mechanism of that
-// allowance, no repaired path falls under the dispatch's caller exclusions —
-// the recorded paths of the work's other corrections — and every repaired
-// path outside the job's recorded path scope stays free of another work
-// item's recorded job scope or held path claim in the allowance's Project.
-// The retired measurement recorded no observed delta, so the containment
-// basis is the repairs' own declared changed paths; the review lane and the
-// coordinator's integration evidence own that no unreported change exists.
-func admitWorkerCallerRepairContainmentTx(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, job *WorkerJobBinding, attemptID string) error {
+// admitWorkerDeliveredPathsTx holds CD-0227 D2/D3's acceptance containment
+// (CD-0242 D6 keeps scope and ownership checks) over the delta the core
+// observed between the attempt's dispatched subject commit and its
+// delivered commit. Every observed changed path inside the job's recorded
+// path scope is contained. Every other changed path belongs to exactly one
+// reported direct-caller repair whose owner is a mechanism of the dispatched
+// revision's recorded allowance, stays off the dispatch's caller exclusions
+// — the recorded paths of the work's other corrections — and stays free of
+// another work item's recorded job scope or held path claim in the
+// allowance's Project. Every repair path is a path of the observed delta. A
+// job without the allowance cannot claim a repair, and a job with the
+// allowance cannot be accepted without an observed delta to hold. The check
+// compares path sets only; it counts no lines.
+func admitWorkerDeliveredPathsTx(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, job *WorkerJobBinding, attemptID string) error {
 	if job == nil || !workflowCallerScopeActive(definition) {
 		return nil
 	}
-	repairs, err := readWorkerCompletedRepairsTx(ctx, tx, workID, attemptID)
-	if err != nil || len(repairs) == 0 {
+	refuse := func(detail, recovery string) error {
+		return newFailure(KindInvalidOperation, "workflow_action", "accept_worker_result: worker job "+job.JobID+" "+detail, false, recovery)
+	}
+	const reconcile = "reconcile the path through the coordinator, then reject the result with reject_worker_result or record a revision with the needed scope through record_worker_job"
+	repairs, observed, err := readWorkerCompletedDeliveryTx(ctx, tx, workID, attemptID)
+	if err != nil {
 		return err
 	}
 	allowances, err := readWorkerJobAllowancesTx(ctx, tx, workID)
@@ -560,19 +567,38 @@ func admitWorkerCallerRepairContainmentTx(ctx context.Context, tx *sql.Tx, workI
 		return err
 	}
 	allowance := allowances[*job]
-	if allowance == nil {
-		return newFailure(KindInvalidOperation, "workflow_action",
-			"accept_worker_result: worker job "+job.JobID+"'s report carries direct-caller repairs, but its dispatched revision records no direct-caller allowance",
-			false, "reject the result with reject_worker_result; a job without the allowance cannot acquire one from a worker report")
+	if len(repairs) > 0 && allowance == nil {
+		return refuse("reports direct-caller repairs, but its dispatched revision records no direct-caller allowance",
+			"reject the result with reject_worker_result; a job without the allowance cannot acquire one from a worker report")
 	}
 	capability, err := workerAttemptCapabilityTx(ctx, tx, attemptID)
 	if err != nil {
 		return err
 	}
 	if capability != "implementation" {
-		return newFailure(KindInvalidOperation, "workflow_action",
-			"accept_worker_result: worker job "+job.JobID+"'s report carries direct-caller repairs on a "+capability+" attempt; the caller boundary follows the implementation class",
-			false, "reject the result with reject_worker_result; a repair claim belongs to an implementation attempt")
+		if len(repairs) > 0 {
+			return refuse("reports direct-caller repairs on a "+capability+" attempt; the caller boundary follows the implementation class",
+				"reject the result with reject_worker_result; a repair claim belongs to an implementation attempt")
+		}
+		return nil
+	}
+	if observed == nil || observed.State != "clean" || observed.Base == "" {
+		if allowance == nil {
+			return nil
+		}
+		return newFailure(KindMissingEvidence, "workflow_action",
+			"accept_worker_result: worker job "+job.JobID+" records a direct-caller allowance, but its completion carries no clean delta observed from the dispatched subject commit, so its changed paths cannot be held to its path scope",
+			false, "reject the result with reject_worker_result and dispatch a correction from a qualified subject that delivers a clean committed tree")
+	}
+	// A stored v8 completion observed its delta as the retired measured
+	// paths; their names are the same changed-path set.
+	delta := observed.ChangedPaths
+	for _, measured := range observed.Paths {
+		delta = append(delta, measured.Path)
+	}
+	changed := map[string]bool{}
+	for _, path := range delta {
+		changed[path] = true
 	}
 	pathScope, err := workerJobPathScopeTx(ctx, tx, workID, *job)
 	if err != nil {
@@ -587,34 +613,34 @@ func admitWorkerCallerRepairContainmentTx(ctx context.Context, tx *sql.Tx, workI
 		if !slices.ContainsFunc(allowance.Mechanisms, func(mechanism OracleMechanism) bool {
 			return mechanism.Path == repair.Owner.Path && mechanism.EntryPoint == repair.Owner.EntryPoint
 		}) {
-			return newFailure(KindInvalidOperation, "workflow_action",
-				"accept_worker_result: worker job "+job.JobID+" reports a caller repair of owner "+repair.Owner.Path+" "+repair.Owner.EntryPoint+", which is not a mechanism of its direct-caller allowance",
-				false, "reject the result with reject_worker_result, then record a revision whose allowance names the real owner mechanism")
+			return refuse("reports a caller repair of owner "+repair.Owner.Path+" "+repair.Owner.EntryPoint+", which is not a mechanism of its direct-caller allowance",
+				"reject the result with reject_worker_result, then record a revision whose allowance names the real owner mechanism")
 		}
 		for _, path := range repair.ChangedPaths {
 			switch {
+			case !changed[path]:
+				return refuse("reports caller-repair path "+path+", which is not a path of its observed delta", reconcile)
 			case repaired[path]:
-				return newFailure(KindInvalidOperation, "workflow_action",
-					"accept_worker_result: worker job "+job.JobID+" reports caller-repair path "+path+" in two repairs",
-					false, "reject the result with reject_worker_result; one changed path joins one evidenced repair")
+				return refuse("reports caller-repair path "+path+" in two repairs", reconcile)
 			case workerJobPathsIntersect(exclusions, path):
-				return newFailure(KindInvalidOperation, "workflow_action",
-					"accept_worker_result: worker job "+job.JobID+" repaired caller path "+path+", which its dispatch excluded as another correction's recorded path",
-					false, "reconcile the caller path through the coordinator, then reject the result with reject_worker_result")
+				return refuse("repaired caller path "+path+", which its dispatch excluded as another correction's recorded path", reconcile)
 			}
 			repaired[path] = true
-			if workerJobPathsIntersect(pathScope, path) {
-				continue
-			}
-			owner, err := workerCallerPathForeignOwnerTx(ctx, tx, workID, allowance.ProjectID, path)
-			if err != nil {
-				return err
-			}
-			if owner != "" {
-				return newFailure(KindInvalidOperation, "workflow_action",
-					"accept_worker_result: worker job "+job.JobID+" repaired caller path "+path+", which "+owner,
-					false, "reconcile the caller path through the coordinator, then reject the result with reject_worker_result")
-			}
+		}
+	}
+	for _, path := range delta {
+		if workerJobPathsIntersect(pathScope, path) {
+			continue
+		}
+		if !repaired[path] {
+			return refuse("changed path "+path+" outside its path_scope without an evidenced direct-caller repair", reconcile)
+		}
+		owner, err := workerCallerPathForeignOwnerTx(ctx, tx, workID, allowance.ProjectID, path)
+		if err != nil {
+			return err
+		}
+		if owner != "" {
+			return refuse("repaired caller path "+path+", which "+owner, reconcile)
 		}
 	}
 	return nil

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -70,218 +71,256 @@ func TestValidateWorkerJobPacketExclusionsBounds(t *testing.T) {
 	})
 }
 
-// callerRepairAllowanceFields authors one worker-job recording with a
-// minimal direct-caller allowance whose single mechanism is the job's own
-// recorded scope entry, so a contained repair names the recorded mechanism
-// and a claimed different owner refuses.
-func callerRepairAllowanceFields(t *testing.T, s *Store, workID, jobID string, withAllowance bool) map[string]any {
-	t.Helper()
-	var project string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
-		t.Fatalf("read primary Project for %s: %v", workID, err)
-	}
-	inventory := "internal/store/" + jobID
-	fields := map[string]any{
-		"job_id": jobID, "objective": "bounded caller-scope objective for " + jobID,
-		"stopping_condition":   "the recorded checks pass with no unresolved reference",
-		"checks":               []string{"go test ./internal/store/"},
-		"reserved_integration": "integration evidence binds at the parent effect step",
-		"ready":                true, "readiness_evidence": []string{"evidence:coordinator-ready"},
-		"path_scope": []string{inventory},
-	}
-	if !withAllowance {
-		return fields
-	}
-	domain := acceptanceOracleFieldsWithoutPreparationsForTest(t, s, workID)["owners"].([]map[string]any)[0]["domain_id"].(string)
-	fields["direct_caller_allowance"] = map[string]any{
-		"project_id":   project,
-		"mechanisms":   []map[string]any{{"project_id": project, "path": inventory, "entry_point": "recorded job"}},
-		"domain_ids":   []string{domain},
-		"law_bindings": []map[string]any{},
-	}
-	return fields
+// observedDeltaRunner answers the terminal delivery probe without touching
+// the filesystem: the tree is clean, HEAD is the delivered commit, and the
+// changed-path probe answers the named delta between the dispatch subject
+// and HEAD.
+type observedDeltaRunner struct {
+	head    string
+	changed []string
 }
 
-// completeJobBoundAttemptWithRepairs appends the worker.completed report of
-// the named attempt carrying the caller repairs under test, then returns so
-// the caller drives the acceptance.
-func completeJobBoundAttemptWithRepairs(t *testing.T, s *Store, workID, attemptID string, job *WorkerJobBinding, repairs []WorkerDirectCallerRepair) {
-	t.Helper()
-	var directory string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active' ORDER BY project_id LIMIT 1`, WorktreeSetID(workID)).Scan(&directory); err != nil {
-		t.Fatalf("read the work's active worktree: %v", err)
+func (r observedDeltaRunner) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
+	switch {
+	case len(args) > 0 && args[0] == "status":
+		return nil, nil
+	case len(args) > 0 && args[0] == "rev-parse":
+		return []byte(r.head + "\n"), nil
+	case slices.Contains(args, "--name-only"):
+		if args[len(args)-1] != r.head {
+			return nil, fmt.Errorf("changed-path probe ends at %s, want the delivered HEAD", args[len(args)-1])
+		}
+		return []byte(strings.Join(r.changed, "\x00") + "\x00"), nil
 	}
-	var laneID string
-	var laneVersion int64
-	var laneDigest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT lane_id,lane_version,lane_digest FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&laneID, &laneVersion, &laneDigest); err != nil {
-		t.Fatalf("read the attempt's lane: %v", err)
-	}
-	lane, err := LookupLane(laneID, laneVersion, laneDigest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	completed := jobBoundCompletionEvent(workID, "caller-completed-"+attemptID, attemptID, lane, time.Unix(16, 0).UTC(), job, directory)
-	var payload WorkerCompletedPayload
-	if err := json.Unmarshal(completed.Payload, &payload); err != nil {
-		t.Fatal(err)
-	}
-	payload.DirectCallerRepairs = repairs
-	completed.Payload = mustJSONValue(payload)
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
-		t.Fatalf("record completed caller-repair report %s: %v", attemptID, err)
-	}
+	return nil, fmt.Errorf("unexpected git invocation: %v", args)
 }
 
-func acceptCallerAttempt(t *testing.T, s *Store, workID, attemptID string, acceptor WorkflowActor) error {
-	t.Helper()
-	return runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor)
-}
-
-// TestWorkerJobCallerRepairContainmentAtAcceptance holds the acceptance
-// containment (CD-0227 D2/D3): a reported repair binds to the dispatched
-// job's recorded allowance, stays off the dispatch's caller exclusions, and
-// keeps its outside-scope paths free of another work item's recorded scope;
-// a job without the allowance cannot acquire one from a worker report. Each
-// scenario seeds its own work, so the sibling correction that produces the
-// caller exclusions stays that scenario's only open window.
-func TestWorkerJobCallerRepairContainmentAtAcceptance(t *testing.T) {
-	worker := func(workID string) WorkflowActor {
-		return WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID + "-worker", ActorClass: ActorAgent}
-	}
-	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/acceptor", SessionRef: "session/caller-repair-acceptor", ActorClass: ActorAgent}
-
-	seedScenarioWork := func(t *testing.T, workID string) (*Store, WorkflowActor) {
-		t.Helper()
-		fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 34, "repair")
-		if !testWorkPinCallerCapable(t, fixture.store, workID) {
-			t.Fatal("the fixture pinned no caller-capable definition")
-		}
-		// A sibling job dispatched and failed first: its recorded scope is
-		// the correction this work's implementation dispatches carry as
-		// caller exclusions.
-		sibling := &WorkerJobBinding{JobID: "job:caller-sibling", Revision: 1}
-		recordWorkerJobRevisionForTest(t, fixture.store, workID, fixture.owner, sibling)
-		siblingAttempt := "attempt:caller-sibling"
-		dispatchJobBoundAttempt(t, fixture.store, workID, "repair", siblingAttempt, nil, worker(workID), issue1013Pin(t, fixture.store, workID).Version, "caller-sibling-dispatch-"+workID, sibling)
-		s2WorkerFailedAttributedLive(t, fixture.store, workID, siblingAttempt, "lane fallback blocked before the model ran")
-		return fixture.store, fixture.owner
-	}
-
-	dispatchScenarioJob := func(t *testing.T, s *Store, workID string, coordinator WorkflowActor, jobID string, withAllowance bool) (*WorkerJobBinding, string) {
-		t.Helper()
-		fields := callerRepairAllowanceFields(t, s, workID, jobID, withAllowance)
-		if err := recordWorkerJobFieldsForTest(t, s, workID, coordinator, fields); err != nil {
-			t.Fatalf("record job %s: %v", jobID, err)
-		}
-		job := &WorkerJobBinding{JobID: jobID, Revision: 1}
-		views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, view := range views {
-			if view.Binding.JobID == jobID {
-				*job = view.Binding
-			}
-		}
-		attempt := "attempt:" + jobID
-		dispatchJobBoundAttempt(t, s, workID, "repair", attempt, issue1013Pin(t, s, workID).Correction, worker(workID), issue1013Pin(t, s, workID).Version, "caller-dispatch-"+jobID, job)
-		return job, attempt
-	}
-
-	repairs := func(owner, caller, changed string) []WorkerDirectCallerRepair {
-		return []WorkerDirectCallerRepair{{
-			Owner:  WorkerCallerMechanism{Path: owner, EntryPoint: "recorded job"},
-			Caller: WorkerCallerMechanism{Path: caller, EntryPoint: "recorded job"},
-			Edge:   "Use invokes Value", Exposing: "go test ./internal/store/ on the owner-only change",
+// TestWorkerJobDeliveredPathContainmentAtAcceptance holds the acceptance
+// containment (CD-0227 D2/D3, CD-0242 D6) over the delta the core observed
+// between the dispatched subject commit and the delivered commit: in-scope
+// paths are contained; every other observed path needs exactly one evidenced
+// repair under the dispatched revision's allowance, off the dispatch's caller
+// exclusions and free of another work item's scope or held claim. Each
+// scenario seeds its own work.
+func TestWorkerJobDeliveredPathContainmentAtAcceptance(t *testing.T) {
+	const delivered = "2222222222222222222222222222222222222222"
+	repair := func(owner, changed string) WorkerDirectCallerRepair {
+		return WorkerDirectCallerRepair{
+			Owner:  WorkerCallerMechanism{Path: owner, EntryPoint: "Value"},
+			Caller: WorkerCallerMechanism{Path: changed, EntryPoint: "Use"},
+			Edge:   "Use invokes Value", Exposing: "go test ./... on the owner-only change",
 			ChangedPaths: []string{changed},
 			Checks: WorkerCallerRepairChecks{
 				BaselinePass:  WorkerCallerRepairCheck{Observed: "ok"},
 				OwnerOnlyFail: WorkerCallerRepairCheck{Observed: "compile error", InferredCause: "Use still passes no argument"},
 				CombinedPass:  WorkerCallerRepairCheck{Observed: "ok"},
 			},
-		}}
+		}
+	}
+	// recordJob records one ready oracle job scoped to owner/, with or
+	// without the direct-caller allowance naming owner/value.go Value.
+	recordJob := func(t *testing.T, f oracleRepairFixture, workID, jobID string, scope string, withAllowance bool) WorkerJobBinding {
+		t.Helper()
+		oracle := twoPathOracleFields(t, f.store, workID, nil)
+		overrides := map[string]any{"path_scope": []string{scope}}
+		if withAllowance {
+			domain := oracle["owners"].([]map[string]any)[0]["domain_id"].(string)
+			overrides["direct_caller_allowance"] = map[string]any{
+				"project_id":   "project",
+				"mechanisms":   []map[string]any{{"project_id": "project", "path": "owner/value.go", "entry_point": "Value"}},
+				"domain_ids":   []string{domain},
+				"law_bindings": []map[string]any{},
+			}
+		}
+		return recordOracleJobRevisionWith(t, f.store, workID, f.owner, jobID, oracle, overrides)
+	}
+	// deliver dispatches the job's implementation attempt at the qualified
+	// subject, then records its completion through the terminal preparation
+	// with the named observed delta and reported repairs.
+	deliver := func(t *testing.T, f oracleRepairFixture, workID string, job WorkerJobBinding, changed []string, repairs []WorkerDirectCallerRepair) string {
+		t.Helper()
+		attempt := "attempt:" + job.JobID
+		subject := dispatchChangeAcceptanceAttempt(t, f, workID, attempt, job)
+		completion := oracleCompletionEvent(t, f.store, workID, attempt, "delivered", func(payload *WorkerCompletedPayload) {
+			payload.DirectCallerRepairs = repairs
+		})
+		prepared, err := PrepareWorkerTerminalDelivery(context.Background(), f.store, PrepareWorkerTerminalDeliveryRequest{
+			WorkID: workID, AttemptID: attempt, EventID: completion.EventID, Runner: observedDeltaRunner{head: delivered, changed: changed},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), prepared), f.store, completion)
+		var raw []byte
+		if err := f.store.db.QueryRow(`SELECT json_extract(payload,'$.observed_delivery') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerCompleted, attempt).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		var observed WorkerObservedDelivery
+		if err := json.Unmarshal(raw, &observed); err != nil {
+			t.Fatal(err)
+		}
+		if observed.Base != subject || observed.Commit != delivered || !slices.Equal(observed.ChangedPaths, changed) {
+			t.Fatalf("observed delivery = %+v, want base %s, commit %s, changed %v", observed, subject, delivered, changed)
+		}
+		return attempt
+	}
+	seed := func(t *testing.T, workID string) oracleRepairFixture {
+		t.Helper()
+		f := oracleRepairFixtureFrom(t, workID, seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 34, "repair"))
+		if !testWorkPinCallerCapable(t, f.store, workID) {
+			t.Fatal("the oracle repair fixture pinned no caller-capable definition")
+		}
+		return f
+	}
+	refused := func(t *testing.T, f oracleRepairFixture, workID, attempt string, kind FailureKind, want string) {
+		t.Helper()
+		before := maxEventSeq(t, f.store, workID)
+		err := acceptChangeTestAttempt(t, f, workID, attempt)
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != kind || !strings.Contains(failure.Detail, want) {
+			t.Fatalf("acceptance = %v, want %s %q", err, kind, want)
+		}
+		if after := maxEventSeq(t, f.store, workID); after != before {
+			t.Fatalf("refused acceptance changed the event log: before=%d after=%d", before, after)
+		}
 	}
 
-	t.Run("contained repair accepts", func(t *testing.T) {
-		workID := "caller-repair-contained"
-		s, coordinator := seedScenarioWork(t, workID)
-		defer s.Close()
-		job, attempt := dispatchScenarioJob(t, s, workID, coordinator, "job:caller-contained", true)
-		completeJobBoundAttemptWithRepairs(t, s, workID, attempt, job, repairs("internal/store/job:caller-contained", "internal/store/job:caller-contained", "internal/store/job:caller-contained/worker.go"))
-		if err := acceptCallerAttempt(t, s, workID, attempt, acceptor); err != nil {
-			t.Fatalf("contained caller acceptance refused: %v", err)
+	t.Run("contained delta and evidenced repair accept", func(t *testing.T) {
+		workID := "delivered-contained"
+		f := seed(t, workID)
+		defer f.store.Close()
+		job := recordJob(t, f, workID, "job:contained", "owner", true)
+		attempt := deliver(t, f, workID, job, []string{"caller/use.go", "owner/value.go"}, []WorkerDirectCallerRepair{repair("owner/value.go", "caller/use.go")})
+		if err := acceptChangeTestAttempt(t, f, workID, attempt); err != nil {
+			t.Fatalf("contained acceptance refused: %v", err)
 		}
+	})
+
+	t.Run("unreported out-of-scope path refuses", func(t *testing.T) {
+		workID := "delivered-out-of-scope"
+		f := seed(t, workID)
+		defer f.store.Close()
+		job := recordJob(t, f, workID, "job:out-of-scope", "owner", true)
+		attempt := deliver(t, f, workID, job, []string{"owner/value.go", "unrelated/extra.go"}, nil)
+		refused(t, f, workID, attempt, KindInvalidOperation, "changed path unrelated/extra.go outside its path_scope without an evidenced direct-caller repair")
+	})
+
+	t.Run("repair path outside the observed delta refuses", func(t *testing.T) {
+		workID := "delivered-missing-repair-path"
+		f := seed(t, workID)
+		defer f.store.Close()
+		job := recordJob(t, f, workID, "job:missing-repair-path", "owner", true)
+		attempt := deliver(t, f, workID, job, []string{"owner/value.go"}, []WorkerDirectCallerRepair{repair("owner/value.go", "caller/use.go")})
+		refused(t, f, workID, attempt, KindInvalidOperation, "caller-repair path caller/use.go, which is not a path of its observed delta")
 	})
 
 	t.Run("wrong owner mechanism refuses", func(t *testing.T) {
-		workID := "caller-repair-wrong-owner"
-		s, coordinator := seedScenarioWork(t, workID)
-		defer s.Close()
-		job, attempt := dispatchScenarioJob(t, s, workID, coordinator, "job:caller-wrong-owner", true)
-		bad := repairs("internal/store/job:caller-wrong-owner", "internal/store/job:caller-wrong-owner", "internal/store/job:caller-wrong-owner/worker.go")
-		bad[0].Owner.EntryPoint = "AnotherOwner"
-		completeJobBoundAttemptWithRepairs(t, s, workID, attempt, job, bad)
-		err := acceptCallerAttempt(t, s, workID, attempt, acceptor)
-		var failure *Failure
-		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "which is not a mechanism of its direct-caller allowance") {
-			t.Fatalf("wrong-owner acceptance = %v, want the allowance-mechanism refusal", err)
-		}
+		workID := "delivered-wrong-owner"
+		f := seed(t, workID)
+		defer f.store.Close()
+		job := recordJob(t, f, workID, "job:wrong-owner", "owner", true)
+		bad := repair("owner/value.go", "caller/use.go")
+		bad.Owner.EntryPoint = "AnotherOwner"
+		attempt := deliver(t, f, workID, job, []string{"caller/use.go", "owner/value.go"}, []WorkerDirectCallerRepair{bad})
+		refused(t, f, workID, attempt, KindInvalidOperation, "which is not a mechanism of its direct-caller allowance")
 	})
 
 	t.Run("excluded path refuses", func(t *testing.T) {
-		workID := "caller-repair-excluded"
-		s, coordinator := seedScenarioWork(t, workID)
-		defer s.Close()
-		job, attempt := dispatchScenarioJob(t, s, workID, coordinator, "job:caller-excluded", true)
-		completeJobBoundAttemptWithRepairs(t, s, workID, attempt, job, repairs("internal/store/job:caller-excluded", "internal/store/job:caller-sibling", "internal/store/job:caller-sibling/worker.go"))
-		err := acceptCallerAttempt(t, s, workID, attempt, acceptor)
-		var failure *Failure
-		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "excluded as another correction's recorded path") {
-			t.Fatalf("excluded-path acceptance = %v, want the caller-exclusions refusal", err)
-		}
-	})
-
-	t.Run("repairs without an allowance refuse", func(t *testing.T) {
-		workID := "caller-repair-no-allowance"
-		s, coordinator := seedScenarioWork(t, workID)
-		defer s.Close()
-		job, attempt := dispatchScenarioJob(t, s, workID, coordinator, "job:caller-no-allowance", false)
-		completeJobBoundAttemptWithRepairs(t, s, workID, attempt, job, repairs("internal/store/job:caller-no-allowance", "internal/store/job:caller-no-allowance", "internal/store/job:caller-no-allowance/worker.go"))
-		err := acceptCallerAttempt(t, s, workID, attempt, acceptor)
-		var failure *Failure
-		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "records no direct-caller allowance") {
-			t.Fatalf("no-allowance acceptance = %v, want the missing-allowance refusal", err)
-		}
+		workID := "delivered-excluded"
+		f := seed(t, workID)
+		defer f.store.Close()
+		// A sibling job dispatched and failed first: its recorded scope is
+		// the correction this job's implementation dispatch excludes.
+		sibling := recordJob(t, f, workID, "job:sibling", "sibling", false)
+		siblingAttempt := "attempt:" + sibling.JobID
+		dispatchChangeAcceptanceAttempt(t, f, workID, siblingAttempt, sibling)
+		s2WorkerFailedAttributedLive(t, f.store, workID, siblingAttempt, "lane fallback blocked before the model ran")
+		job := recordJob(t, f, workID, "job:excluded", "owner", true)
+		attempt := deliver(t, f, workID, job, []string{"owner/value.go", "sibling/use.go"}, []WorkerDirectCallerRepair{repair("owner/value.go", "sibling/use.go")})
+		refused(t, f, workID, attempt, KindInvalidOperation, "repaired caller path sibling/use.go, which its dispatch excluded as another correction's recorded path")
 	})
 
 	t.Run("foreign-owned path refuses", func(t *testing.T) {
-		workID := "caller-repair-foreign"
-		s, coordinator := seedScenarioWork(t, workID)
-		defer s.Close()
+		workID := "delivered-foreign"
+		f := seed(t, workID)
+		defer f.store.Close()
 		// Another work item in the same Project holds a path claim over the
-		// path this item's repair claims.
-		const otherWork = "caller-repair-foreign-owner"
-		seedWork(t, s, otherWork)
-		ctx := context.Background()
-		foreignPath := "internal/store/foreign-scope/worker.go"
-		version := readWorkVersion(t, s, otherWork)
+		// caller path this job's repair changes.
+		const otherWork = "delivered-foreign-owner"
+		seedWork(t, f.store, otherWork)
+		version := readWorkVersion(t, f.store, otherWork)
 		resulting := version + 1
-		claim := resourceClaimedPayload{ResourceKey: "path:" + foreignPath, Reason: "another item's held path claim", HolderAgent: "agent/other", HolderSession: "session/other"}
+		claim := resourceClaimedPayload{ResourceKey: "path:caller/use.go", Reason: "another item's held path claim", HolderAgent: "agent/other", HolderSession: "session/other"}
 		claim.WorkflowVersionFields = WorkflowVersionFields{WorkID: otherWork, ExpectedVersion: &version, ResultingVersion: &resulting}
-		event := Event{EventID: "claim-foreign-scope", Kind: "work.resource_claimed", SubjectType: SubjectWorkItem, SubjectID: otherWork, Actor: "worker:test", OccurredAt: time.Unix(19, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(claim)}
-		if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, otherWork): version}}); err != nil {
+		event := Event{EventID: "claim-foreign-caller", Kind: "work.resource_claimed", SubjectType: SubjectWorkItem, SubjectID: otherWork, Actor: "worker:test", OccurredAt: time.Unix(19, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(claim)}
+		if err := applyWorkflowTestOperation(context.Background(), f.store, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, otherWork): version}}); err != nil {
 			t.Fatalf("record the foreign item's path claim: %v", err)
 		}
+		job := recordJob(t, f, workID, "job:foreign", "owner", true)
+		attempt := deliver(t, f, workID, job, []string{"caller/use.go", "owner/value.go"}, []WorkerDirectCallerRepair{repair("owner/value.go", "caller/use.go")})
+		refused(t, f, workID, attempt, KindInvalidOperation, "holds through claim path:caller/use.go over")
+	})
 
-		job, attempt := dispatchScenarioJob(t, s, workID, coordinator, "job:caller-foreign", true)
-		claimed := repairs("internal/store/job:caller-foreign", foreignPath, foreignPath)
-		claimed[0].Caller.EntryPoint = "Use"
-		completeJobBoundAttemptWithRepairs(t, s, workID, attempt, job, claimed)
-		err := acceptCallerAttempt(t, s, workID, attempt, acceptor)
-		var failure *Failure
-		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "holds through claim path:") {
-			t.Fatalf("foreign-path acceptance = %v, want the foreign-owner refusal", err)
+	t.Run("repairs without an allowance refuse", func(t *testing.T) {
+		workID := "delivered-no-allowance"
+		f := seed(t, workID)
+		defer f.store.Close()
+		job := recordJob(t, f, workID, "job:no-allowance", "owner", false)
+		attempt := deliver(t, f, workID, job, []string{"caller/use.go", "owner/value.go"}, []WorkerDirectCallerRepair{repair("owner/value.go", "caller/use.go")})
+		refused(t, f, workID, attempt, KindInvalidOperation, "records no direct-caller allowance")
+	})
+
+	t.Run("out-of-scope path without an allowance refuses", func(t *testing.T) {
+		workID := "delivered-no-allowance-extra"
+		f := seed(t, workID)
+		defer f.store.Close()
+		job := recordJob(t, f, workID, "job:no-allowance-extra", "owner", false)
+		attempt := deliver(t, f, workID, job, []string{"owner/value.go", "unrelated/extra.go"}, nil)
+		refused(t, f, workID, attempt, KindInvalidOperation, "changed path unrelated/extra.go outside its path_scope")
+	})
+
+	t.Run("historical measured delta stays contained", func(t *testing.T) {
+		workID := "delivered-historical-measured"
+		f := seed(t, workID)
+		defer f.store.Close()
+		job := recordJob(t, f, workID, "job:historical-measured", "owner", true)
+		attempt := deliver(t, f, workID, job, []string{"owner/value.go"}, nil)
+		// A completion stored before the changed-path observation carries
+		// its delta as the retired measured paths instead.
+		tx, err := f.store.DatabaseForTesting().Begin()
+		if err != nil {
+			t.Fatal(err)
 		}
+		defer tx.Rollback()
+		var trigger string
+		if err := tx.QueryRow(`SELECT sql FROM sqlite_master WHERE type='trigger' AND name='domain_events_no_update'`).Scan(&trigger); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(`DROP TRIGGER domain_events_no_update`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(`UPDATE domain_events SET payload=json_set(json_remove(payload,'$.observed_delivery.changed_paths'),'$.observed_delivery.paths',json('[{"path":"owner/value.go","added":1,"deleted":0},{"path":"unrelated/extra.go","added":1,"deleted":0}]')) WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerCompleted, attempt); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(trigger); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+		refused(t, f, workID, attempt, KindInvalidOperation, "changed path unrelated/extra.go outside its path_scope without an evidenced direct-caller repair")
+	})
+
+	t.Run("allowance without an observed delta refuses", func(t *testing.T) {
+		workID := "delivered-unobserved"
+		f := seed(t, workID)
+		defer f.store.Close()
+		job := recordJob(t, f, workID, "job:unobserved", "owner", true)
+		attempt := "attempt:" + job.JobID
+		dispatchChangeAcceptanceAttempt(t, f, workID, attempt, job)
+		if err := completeJobBoundAttemptForTest(f.store, workID, attempt, reviewGateLane(t, "implementation"), &job); err != nil {
+			t.Fatal(err)
+		}
+		refused(t, f, workID, attempt, KindMissingEvidence, "carries no clean delta observed from the dispatched subject commit")
 	})
 }

@@ -110,14 +110,14 @@ const (
 )
 
 // workerCompletedJobSizeVersion is the payload version at which
-// worker.completed may first carry the job's measured size surface: the
-// observed delivery's base and per-path counts when the dispatched job
-// records a measurement basis, and the report's production-size members. A
-// stored event whose recorded source version sits below the boundary cannot
-// carry those members: the store never observed or folded them when that
-// version was released, so any bytes that name them are fabricated size
-// content no store ever recorded. Historical payloads replay with no base or
-// counts, never invented ones.
+// worker.completed may first carry an observed delta — its base and either
+// the retired per-path counts or the changed paths — and the report's
+// production-size and direct-caller-repair members. A stored event whose
+// recorded source version sits below the boundary cannot carry those
+// members: the store never observed or folded them when that version was
+// released, so any bytes that name them are fabricated content no store
+// ever recorded. Historical payloads replay with no base or paths, never
+// invented ones.
 const workerCompletedJobSizeVersion = 8
 
 // workerFailedAttributionVersion and workerDispatchedAttributionVersion are
@@ -416,21 +416,20 @@ type WorkerCompletedPayload struct {
 	ConsumedContextFrontier *int64 `json:"consumed_context_frontier,omitempty"`
 	// ObservedDelivery is the closed delivery observation the core took
 	// itself: one raw commit OID plus the clean or dirty state of
-	// the attempt's authorized worktree at completion. Only a completed
+	// the attempt's authorized worktree at completion, and the changed
+	// paths since the dispatched subject commit. Only a completed
 	// implementation-lane attempt carries one, and only the store's own
 	// read-only Git observation can produce it; a report, request, or
 	// adapter value can neither supply nor alter it.
 	ObservedDelivery *WorkerObservedDelivery `json:"observed_delivery,omitempty"`
-	// ProductionSize is the report's declared production size (CD-0225 D2):
-	// the counted delta between the dispatched job's recorded base and the
-	// delivered tree. Required on a capped implementation job's completed
-	// report and refused everywhere else; the fold binds both commits to
-	// the recorded basis and the observed delivery before acceptance.
+	// ProductionSize decodes the retired production-size report member a
+	// stored v8 completion may carry (CD-0242 D6); no live completion
+	// records it.
 	ProductionSize *WorkerProductionSize `json:"production_size,omitempty"`
 	// DirectCallerRepairs are the evidenced direct-caller repairs the
 	// worker made under the dispatched job's allowance (CD-0227 D2).
-	// Reserved for a capped implementation job's report; every other
-	// completion refuses the member.
+	// Acceptance holds every observed changed path outside the job's
+	// path scope to one of them.
 	DirectCallerRepairs []WorkerDirectCallerRepair `json:"direct_caller_repairs,omitempty"`
 }
 
@@ -494,10 +493,9 @@ type WorkerDirectCallerRepair struct {
 	GeneratorRef []string                 `json:"generator_ref,omitempty"`
 }
 
-// WorkerObservedPath is one observed path's measured delta between the
-// dispatched job's recorded base and the observed commit. Rename detection
-// stays off, so a rename is one deletion entry beside one addition entry.
-// Numstat's `-\t-` marks a binary path.
+// WorkerObservedPath decodes one entry of the retired measured delta a
+// stored v8 observation may carry (CD-0242 D6): per-path line counts no
+// live observation records.
 type WorkerObservedPath struct {
 	Path    string `json:"path"`
 	Added   int64  `json:"added"`
@@ -509,16 +507,18 @@ type WorkerObservedPath struct {
 // State is clean or dirty only; dirty-but-reachable records
 // dirty and cannot qualify a review subject. There is no unavailable state:
 // a Git failure or deadline refuses the completion with zero effects
-// instead of recording an observation. When the completed attempt's
-// dispatched job records a measurement basis, Base is that recorded
-// base_commit and Paths carries the observed per-path counts; a dirty
-// observation records no paths and cannot establish a size, and a
-// basis-free job records neither member.
+// instead of recording an observation. When the attempt's dispatch recorded
+// a subject commit and the tree is clean, Base is that subject and
+// ChangedPaths is the changed-path set between Base and Commit with rename
+// detection off: the delta acceptance holds to the job's path scope
+// (CD-0227 D2). Paths decodes the retired measured delta of a stored v8
+// observation and is never recorded live.
 type WorkerObservedDelivery struct {
-	Commit string               `json:"commit"`
-	State  string               `json:"state"`
-	Base   string               `json:"base,omitempty"`
-	Paths  []WorkerObservedPath `json:"paths,omitempty"`
+	Commit       string               `json:"commit"`
+	State        string               `json:"state"`
+	Base         string               `json:"base,omitempty"`
+	ChangedPaths []string             `json:"changed_paths,omitempty"`
+	Paths        []WorkerObservedPath `json:"paths,omitempty"`
 }
 
 var workerObservedDeliveryStates = map[string]bool{"clean": true, "dirty": true}
@@ -536,11 +536,21 @@ func validateWorkerObservedDelivery(delivery *WorkerObservedDelivery) error {
 	if delivery.Base != "" && !worktreeSHAPattern.MatchString(delivery.Base) {
 		return invalidWorkerPayload("worker.completed observed_delivery.base must be one raw commit OID")
 	}
-	if delivery.Base == "" && delivery.Paths != nil {
-		return invalidWorkerPayload("worker.completed observed_delivery paths require the dispatched job's recorded base_commit")
+	if delivery.Base == "" && (delivery.Paths != nil || delivery.ChangedPaths != nil) {
+		return invalidWorkerPayload("worker.completed observed_delivery paths require the base they were observed from")
 	}
-	if delivery.State == "dirty" && delivery.Paths != nil {
+	if delivery.State == "dirty" && (delivery.Paths != nil || delivery.ChangedPaths != nil) {
 		return invalidWorkerPayload("worker.completed observed_delivery of a dirty tree records no paths")
+	}
+	if delivery.Paths != nil && delivery.ChangedPaths != nil {
+		return invalidWorkerPayload("worker.completed observed_delivery carries either the retired measured paths or the changed paths, never both")
+	}
+	changed := map[string]bool{}
+	for _, path := range delivery.ChangedPaths {
+		if path == "" || changed[path] {
+			return invalidWorkerPayload("worker.completed observed_delivery changed paths must be nonempty and unique")
+		}
+		changed[path] = true
 	}
 	seen := map[string]bool{}
 	for _, path := range delivery.Paths {
@@ -1839,15 +1849,13 @@ func validateWorkerCompletedSourceVersion(event Event, payload WorkerCompletedPa
 	if (payload.ConsumedContextFrontier != nil || payload.ObservedDelivery != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedTerminalDeliveryVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.completed consumed_context_frontier and observed_delivery are reserved for payload version >= 7", false, "record the terminal delivery identity on the current completion payload")
 	}
-	// The job's measured size surface is reserved for the size payload
-	// version: the observed delivery's base and per-path counts, and the
-	// report's production-size members beside them. A replayed event whose
-	// recorded source version sits below the boundary cannot carry those
-	// members — the store never observed a measured delta or folded a
-	// production-size report when that version was released, so any bytes
-	// that name them are fabricated size content no store ever recorded.
-	if payload.ObservedDelivery != nil && (payload.ObservedDelivery.Base != "" || payload.ObservedDelivery.Paths != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedJobSizeVersion {
-		return newFailure(KindInvalidPayload, "fold_event", "worker.completed observed_delivery base and paths are reserved for payload version >= 8", false, "record the measured delta on the current completion payload")
+	// The observed delta and the report's job-bound members are reserved
+	// for payload version 8: a replayed event whose recorded source version
+	// sits below the boundary cannot carry them — the store never observed
+	// a delta or folded those members when that version was released, so
+	// any bytes that name them are fabricated content no store ever recorded.
+	if payload.ObservedDelivery != nil && (payload.ObservedDelivery.Base != "" || payload.ObservedDelivery.Paths != nil || payload.ObservedDelivery.ChangedPaths != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedJobSizeVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "worker.completed observed_delivery base and paths are reserved for payload version >= 8", false, "record the observed delta on the current completion payload")
 	}
 	if (payload.ProductionSize != nil || payload.DirectCallerRepairs != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedJobSizeVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.completed production_size and direct_caller_repairs are reserved for payload version >= 8", false, "record the size report on the current completion payload")

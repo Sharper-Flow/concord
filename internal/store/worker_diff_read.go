@@ -244,12 +244,12 @@ func checkWorkerDiffSubject(ctx context.Context, runner GitRunner, before worker
 }
 
 // workerDiffSharedDiffArgs is the one owner of the diff argument list both
-// editing-surface readers share (CD-0225 D2): the global flags, the diff
+// editing-surface readers share: the global flags, the diff
 // subcommand, and the closed flag set that disables rename detection,
 // external diffs, and text conversion under the Myers algorithm. The review
-// diff read appends its patch-shaping flags; the terminal size observation
-// appends --numstat -z and the two commits. No second reader copies these
-// flags.
+// diff read appends its patch-shaping flags; the terminal delivery
+// observation appends --name-only -z and the two commits. No second reader
+// copies these flags.
 func workerDiffSharedDiffArgs() []string {
 	return []string{"--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames", "--diff-algorithm=myers", "--no-indent-heuristic"}
 }

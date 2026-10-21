@@ -408,10 +408,17 @@ type oracleRepairFixture struct {
 
 func seedOracleRepairFixture(t *testing.T, workID string) oracleRepairFixture {
 	t.Helper()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	return oracleRepairFixtureFrom(t, workID, seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair"))
+}
+
+// oracleRepairFixtureFrom completes an oracle repair fixture over a seeded
+// return-route fixture: the recorded worker actor, a claimed worktree, and a
+// qualified candidate subject.
+func oracleRepairFixtureFrom(t *testing.T, workID string, fixture workflowReturnRouteFixture) oracleRepairFixture {
+	t.Helper()
 	s := fixture.store
 	if !oracleCapablePinForWork(t, s, workID) {
-		t.Fatal("the newest break-fix pin is not oracle-capable")
+		t.Fatal("the break-fix pin is not oracle-capable")
 	}
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/oracle-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
@@ -546,6 +553,14 @@ func twoPathOracleFields(t *testing.T, s *Store, workID string, mutation func(or
 // shares, so obligation-key comparisons in the debt tests isolate the oracle.
 func recordOracleJobRevision(t *testing.T, s *Store, workID string, actor WorkflowActor, jobID string, oracle map[string]any) WorkerJobBinding {
 	t.Helper()
+	return recordOracleJobRevisionWith(t, s, workID, actor, jobID, oracle, nil)
+}
+
+// recordOracleJobRevisionWith records the oracle job revision with the named
+// fields replacing the shared base fields, such as a job's own path scope
+// and direct-caller allowance.
+func recordOracleJobRevisionWith(t *testing.T, s *Store, workID string, actor WorkflowActor, jobID string, oracle map[string]any, overrides map[string]any) WorkerJobBinding {
+	t.Helper()
 	raw, err := json.Marshal(oracle)
 	if err != nil {
 		t.Fatal(err)
@@ -563,6 +578,9 @@ func recordOracleJobRevision(t *testing.T, s *Store, workID string, actor Workfl
 		"reserved_integration": "integration evidence binds at the parent effect step",
 		"ready":                true, "readiness_evidence": []string{"evidence:coordinator-ready"},
 		"acceptance_oracle": &graph,
+	}
+	for name, value := range overrides {
+		fields[name] = value
 	}
 	if err := recordWorkerJobActionForTest(t, s, workID, actor, fields); err != nil {
 		t.Fatalf("record oracle job %s: %v", jobID, err)
@@ -696,9 +714,6 @@ func oracleCompletionEvent(t *testing.T, s *Store, workID, attemptID, eventKey s
 		}
 	}
 	event := Event{EventID: eventKey + "-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
-	if err := attachCompletedReportSizeForTest(context.Background(), s, workID, attemptID, dispatched, &event); err != nil {
-		t.Fatal(err)
-	}
 	return event
 }
 

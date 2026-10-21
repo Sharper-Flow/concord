@@ -156,7 +156,7 @@ func recordReadyRetryJobForWork(t *testing.T, s *store.Store, service *Service, 
 		"checks":            []string{"go vet ./..."},
 		"acceptance_oracle": agentOracleFieldsForWork(t, s, workID),
 	}
-	addAgentJobSizeMembers(t, s, workID, fields)
+	addAgentJobCallerMembers(t, s, workID, fields)
 	raw, err := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "action_id": "record_worker_job", "idempotency_key": "record-ready-" + jobID,
 		"fields": fields,
@@ -214,11 +214,11 @@ func agentPinRecordsJobField(t *testing.T, s *store.Store, workID, name string) 
 	return false
 }
 
-// addAgentJobSizeMembers authors the direct-caller allowance (CD-0227 D1 as
+// addAgentJobCallerMembers authors the direct-caller allowance (CD-0227 D1 as
 // amended by CD-0242 D6) an editing job carries on a caller-capable pin: a
 // per-job path scope and an allowance inside the oracle owner's Project and
 // Domain. The oracle fields must already be present.
-func addAgentJobSizeMembers(t *testing.T, s *store.Store, workID string, fields map[string]any) {
+func addAgentJobCallerMembers(t *testing.T, s *store.Store, workID string, fields map[string]any) {
 	t.Helper()
 	if !agentPinRecordsJobField(t, s, workID, "direct_caller_allowance") {
 		return
@@ -432,11 +432,29 @@ func deliverAgentFixtureChange(t *testing.T, s *store.Store, workID, attemptID s
 	}
 }
 
-// The delivery fixture delivers at the root: the retired measurement basis no
-// longer moves an edit into an inventoried path (CD-0242 D6).
+// recordedJobDeliveryPath delivers inside the authorized job's recorded path
+// scope, so acceptance holds a contained delta instead of an unscoped path
+// with no evidenced caller repair. An attempt without a scoped job delivers
+// at the root.
 func recordedJobDeliveryPath(t *testing.T, s *store.Store, workID, attemptID string) string {
 	t.Helper()
-	return "delivery.txt"
+	binding := authorizedWorkerJobFor(t, s, workID, attemptID)
+	if binding == nil {
+		return "delivery.txt"
+	}
+	var raw []byte
+	err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=?`, workID, store.WorkerJobRecorded, binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
+	if err != nil {
+		t.Fatalf("read the authorized worker job %+v: %v", binding, err)
+	}
+	var job store.WorkerJobRecordedPayload
+	if err := json.Unmarshal(raw, &job); err != nil {
+		t.Fatal(err)
+	}
+	if len(job.PathScope) == 0 {
+		return "delivery.txt"
+	}
+	return job.PathScope[0] + "/delivery.txt"
 }
 
 // seedOraclePreparationReceiptForWork records the exact native preparation
@@ -773,7 +791,7 @@ func recordReadyRetryJobWithChecks(t *testing.T, s *store.Store, service *Servic
 		return
 	}
 	fields["acceptance_oracle"] = agentOracleFieldsForTest(t, s)
-	addAgentJobSizeMembers(t, s, workID, fields)
+	addAgentJobCallerMembers(t, s, workID, fields)
 	raw, err := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "action_id": "record_worker_job", "idempotency_key": "record-ready-" + jobID,
 		"fields": fields,

@@ -626,29 +626,7 @@ func completeJobBoundAttemptForTest(s *Store, workID, attemptID string, _ LaneDe
 		return err
 	}
 	completed := jobBoundCompletionEvent(workID, "job-window-completed-"+attemptID, attemptID, lane, time.Unix(16, 0).UTC(), job, directory)
-	if err := attachCompletedReportSizeForTest(context.Background(), s, workID, attemptID, job, &completed); err != nil {
-		return err
-	}
 	return ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}})
-}
-
-// attachCompletedReportSizeForTest carries the folded size binding on a
-// completed report whose dispatched job is capped (CD-0225 D2): the
-// production size between the job's recorded base and the observed tree.
-// The generic append route owns no delivery observation, so the fixture
-// authors the observation the terminal ingest derives on the live route,
-// with the job's recorded base as the observed tree.
-func attachCompletedReportSizeForTest(ctx context.Context, s *Store, workID, attemptID string, job *WorkerJobBinding, event *Event) error {
-	// The retired size binding records nothing (CD-0242 D6); the helper
-	// keeps its call sites and carries no member.
-	return nil
-}
-
-// completionProductionSizeForTest returns nil: the retired production_size
-// member records nothing (CD-0242 D6).
-func completionProductionSizeForTest(t *testing.T, s *Store, workID string, job *WorkerJobBinding, treeCommit string) *WorkerProductionSize {
-	t.Helper()
-	return nil
 }
 
 // attachReadyWorkerJobIfJobCapable records one ready worker-job revision on

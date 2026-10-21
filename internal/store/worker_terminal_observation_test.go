@@ -137,15 +137,15 @@ func workerFixtureDirectory(t *testing.T, s *Store, workID string) string {
 
 // stubbedDeliveryRunner answers the delivery probe without touching the
 // filesystem: the frontier subtests attribute the authorization frontier,
-// and the real Git behavior is the CLI tests' subject. The measured-delta
-// probe answers with an empty numstat, the clean zero-delta observation.
+// and the real Git behavior is the CLI tests' subject. The changed-path
+// probe answers with no names, the clean zero-delta observation.
 type stubbedDeliveryRunner struct{}
 
 func (stubbedDeliveryRunner) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
 	switch {
 	case len(args) > 0 && args[0] == "status":
 		return nil, nil
-	case slices.Contains(args, "--numstat"):
+	case slices.Contains(args, "--name-only"):
 		return nil, nil
 	}
 	return []byte(strings.Repeat("a", 40)), nil
@@ -278,12 +278,9 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 			evidence = append(evidence, WorkerReportEvidence{Obligation: obligation, Detail: "discharged " + obligation})
 		}
 		boundJob := job
-		// The stubbed runner answers HEAD with the synthetic a-OID, so the
-		// capped job's folded size report binds that observed tree.
 		completion := Event{EventID: "complete-frontier-f", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 			AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 			EvidenceOrigin: WorkerEvidenceReported, Evidence: evidence, WorkerJob: &boundJob,
-			ProductionSize: completionProductionSizeForTest(t, s, fixture.workID, &boundJob, strings.Repeat("a", 40)),
 		})}
 		workerTerminalEventThroughSeamCtx(t, prepareWorkerTerminalDelivery(t, s, fixture.workID, attemptID, completion.EventID), s, completion)
 		consumed, consumedPresent := rawTerminalFrontier(t, s, "complete-frontier-f")

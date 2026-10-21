@@ -225,4 +225,42 @@ func TestHistoricalWitnessRecordsOnlyAdmittedRows(t *testing.T) {
 		t.Fatalf("early worker corpus recorded %d rows (completions=%d plain=%d dir=%d cmp=%d pred=%d failure=%d), want one per released generation",
 			len(early), completions, plainV1, directory, comparison, predicates, basicFailure)
 	}
+	// The outside-repair history records its emitted disposition, reconciled
+	// and resumed rows; the reconciled row must carry the complete receipt.
+	repair := witnessRowsOf(t, "TestOutsideRepairHistoryRecordsCorpusWitnesses")
+	var dispositions, reconciled, resumed int
+	for _, row := range repair {
+		switch {
+		case strings.Contains(row, `"kind":"workflow.outside_repair_disposition_set"`):
+			dispositions++
+		case strings.Contains(row, `"kind":"workflow.outside_repair_reconciled"`):
+			reconciled++
+			if !strings.Contains(row, "required_checks") || !strings.Contains(row, "check_run_id") {
+				t.Fatalf("reconciled row lacks the complete receipt members: %s", row)
+			}
+		case strings.Contains(row, `"kind":"workflow.outside_repair_resumed"`):
+			resumed++
+		}
+	}
+	if dispositions != 2 || reconciled != 1 || resumed != 1 {
+		t.Fatalf("outside repair corpus recorded %d rows (dispositions=%d reconciled=%d resumed=%d), want 2/1/1", len(repair), dispositions, reconciled, resumed)
+	}
+	// The retired planning journal records the two Domain-observation rows,
+	// the recorded one with nonempty refs and tags.
+	domains := witnessRowsOf(t, "TestRetiredPlanningEventsReplay")
+	var observedRow, dismissedRow int
+	for _, row := range domains {
+		switch {
+		case strings.Contains(row, `"kind":"domain.observation_recorded"`):
+			observedRow++
+			if !strings.Contains(row, "historical") || !strings.Contains(row, "replay-link-a") {
+				t.Fatalf("recorded observation row lacks nonempty refs/tags: %s", row)
+			}
+		case strings.Contains(row, `"kind":"domain.observation_dismissed"`):
+			dismissedRow++
+		}
+	}
+	if observedRow != 1 || dismissedRow != 1 {
+		t.Fatalf("domain observation corpus recorded %d rows (recorded=%d dismissed=%d), want one each", len(domains), observedRow, dismissedRow)
+	}
 }

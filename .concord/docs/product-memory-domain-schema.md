@@ -65,7 +65,7 @@ PM4/PM5/C15 semantics (now settled separately).
 | `labels` / tagging | typed many-to-many categorical extension | Q3/Q9 tags | exact label governance |
 | `external_refs` | opaque typed locator for PR/commit/upstream/URL | Q8/Q10 links | provider-specific validation |
 | Managed-resource identity | first-class typed canonical identity need for infra/SaaS resources because stage and sharing attach | Q1 ownership and Product context | C15 selects resource-first identity, one owner plus consumers, typed locators and work links; exact subtype/index DDL remains implementation design |
-| store state | current rows and finite verified snapshots; no event log, fold, upcaster, or replay exists (CD-0242 D2) | Q2–Q8 current-state reads | the CD-0242 cutover retires the log's migration and upcast design |
+| store state | current rows and finite verified snapshots; no event log, fold, upcaster, or replay exists (CD-0242 D2) | Q2–Q8 current-state reads | none |
 | active research context | CD-0215 direct SQLite tables for packs/revisions/findings/sources/consumers; never Git knowledge | work context | delete only by explicit retirement; PM8 still excludes blobs |
 | `artifacts` | other small structured/markdown content only | work context | PM8 excludes a v1 blob/evidence store |
 
@@ -89,8 +89,7 @@ restore with reconciliation
 
 ### 3.1a Retention-bounded active-context exception
 
-CD-0215 D4 keeps research-pack content out of retained store categories and Git
-knowledge.
+CD-0215 D4 makes direct pack tables the sole authority for research-pack content.
 Research packs are WIP context, not Product/work history: one versioned transactional
 operation surface owns direct SQLite pack tables while the owner is nonterminal, and
 proof-backed archive deletes those rows. Product/work identity, lifecycle,
@@ -98,16 +97,14 @@ membership, relations, archive linkage, and every normal table remain current ro
 under [CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history). No other fact type inherits this exception by
 analogy.
 
-This shape is validated by Fossil's generic ticket-change artifacts plus
-reconstructable typed ticket projections. Bugzilla's mutable `bugs` + activity-log
-shape is useful audit evidence but does not satisfy Concord's stronger
-verified-snapshot recovery requirement (CD-0242 D2).
+
 
 ### 3.1b Historical worktree occupancy replay
 
 Worktree occupancy recovery reconciles current occupancy rows with Git and
-worktree references during verified-snapshot restore, treating existing rows as
-evidence rather than authority; no replay of retained occupancy events exists
+worktree references during verified-snapshot restore. A row recovery cannot
+reconcile causes a typed refusal naming its worktree and session; no replay of
+retained occupancy events exists
 ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### 3.2 No typed-log explosion

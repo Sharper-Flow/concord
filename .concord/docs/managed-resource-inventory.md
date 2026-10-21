@@ -102,7 +102,7 @@ project/account ref, service-unit name, URL, or provider slug.
 - Uniqueness/resolution uses `(authority_kind, authority_id, namespace, kind,
   normalized value)`. A locator may omit namespace only when that authority/kind
   guarantees uniqueness within `authority_id`; no value is assumed globally unique.
-- A locator rename or move adds a new locator row without changing the resource ID.
+- A locator rename or move replaces that locator row without changing the resource ID.
 - One resource may have several locators or none only with typed
   `planned|not_addressable` reason.
 - No credential, token, data source name (DSN) secret, connection string, or provider response body.
@@ -162,15 +162,14 @@ authoritative input and forbids a consumer Product from lowering it.
 - **Transfer ownership:** replace owner atomically; prior owner may become consumer in
   the same operation or be removed explicitly.
 - **Update inventory:** replace one closed metadata/stage/environment block with
-  expected version; locator operations remain typed and add a new locator row.
+  expected version; locator operations remain typed and replace the affected locator row.
 - **Link work:** create one work-resource edge after both endpoint/version/scope
   checks.
 - **Delete:** physical deletion blocked while Product/work references require
   identity.
 
 All accepted operations write current rows in one transaction ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-No copied Product-resource rows, reconciliation jobs, or direct
-projection writes.
+No copied Product-resource rows or reconciliation jobs.
 
 ## 5. Query contract
 

@@ -33,7 +33,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:02c241b5bffa1c3383e3c3edcbd4c5be3eee2224f762785033595efc811b44bd",
+  "sha256": "sha256:ea4466cd548168e1cbfcad3e9594d15d8236a3364f4128e50492aea38c22c6ff",
   "status": "accepted",
   "summary": "Declares no separate process-exhaust store, audit receipt, or deletion attestation; closure publishes one completion receipt (CD-0242 D9).",
   "tags": [

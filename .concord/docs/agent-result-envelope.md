@@ -185,8 +185,8 @@ An adapter-origin `session_vacate` error with reason `unknown_effect` and
 effect `possible` reports the possible effect with a working recovery, per
 [CD-0190 D3](./decisions/CD-0190-cd-0179-d1-and-d4-release-at-the-verified-vacate-landing.md#d3-every-refusal-after-the-committed-request-reports-a-possible-effect-with-a-working-recovery).
 [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-governs recovery: the verb reconciles against current stored state, and no
-replay exists. [CD-0242 D12](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)
+governs recovery: `session_vacate` reconciles against current stored state, and
+no event replay exists. [CD-0242 D12](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)
 requires the refusal to state that action: `retry_same_request`, or
 `contact_operator` when reconciliation cannot run. Core-origin errors and
 other operations keep reconciliation.

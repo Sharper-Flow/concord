@@ -176,8 +176,7 @@ The operation may produce a cross-Product scope set; its result must surface tha
 
 A Product-membership edit is one atomic operation over the complete resulting set.
 It may change `Products(W)` for every work item attached to that Project; the result
-must return a bounded impact summary/count and a durable reference to the recorded
-operation. No copied
+must return a bounded impact summary/count and a reference to the recorded operation. No copied
 work rows or reconciliation job is created.
 
 Removing the Project from its last Product is rejected. Removing it from one Product

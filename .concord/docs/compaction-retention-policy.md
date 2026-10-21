@@ -136,7 +136,7 @@ Authorized owner reopen before retirement removes eligibility without reconstruc
 | Data | Treatment | Authority |
 |---|---|---|
 | canonical Git note | retain | distilled knowledge |
-| current state rows and finite verified snapshots | retain within documented limits | current state and verified recovery snapshots ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) |
+
 | PM6 compaction linkage | retain | verified linkage rows |
 | live terminal work and membership/relation rows | retain; pruning deferred | current state rows ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) |
 | historical index and scope edges | retain or rebuild | verified Git-derived projections |
@@ -164,7 +164,7 @@ Snapshot aging, `VACUUM`, and backup topology remain PM10 concerns; this specifi
 
 A fixed calendar sweep is rejected because no measured window supports it.
 Immediate projection pruning during PM6 publication is rejected because it couples durable publication to destructive cleanup.
-The event log is rejected: the store keeps current rows and finite verified snapshots, with no event log, fold, upcaster, or replay ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+
 Restoration of the same pruned work ID is rejected; a note is not a verified recovery snapshot ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 Copied historical status on membership edges is rejected because terminal state belongs once on the historical work projection.
 

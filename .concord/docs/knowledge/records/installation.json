@@ -13,7 +13,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5e4630fde53ac72972d298bbfd2dc3411692c4efe21f69c38d0ec25b8a8eba84",
+  "sha256": "sha256:7945d7eebb0f491cfe7bdb729447083c8baad84e0d8aae707d7fca48e68c9d7a",
   "status": "published",
   "summary": "Operational installation guide describing what the shipped installer does: prerequisites it checks, release artifacts, upgrade, prepare-migrate-activate for an incompatible store migration, the maintenance boundary that excludes session admission across the final lease check, migration, and activation, repair, and uninstall behavior. Descriptive, not prescriptive — the installer's behavior is proved by scripts/test-installer.py and the release pipeline, so under the procedure's prescription rule the document is reference material, not law.",
   "tags": [

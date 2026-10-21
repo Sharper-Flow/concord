@@ -254,8 +254,7 @@ The JSON corpus is executable through a candidate adapter implementing
 ### Q7. Explain work history
 
 The store answers this from current state: current lifecycle and relation rows
-plus the recorded stage exits, evidence receipts, and completion receipt that
-justify them; no event log, fold, or replay exists to query
+plus the recorded stage exits and evidence receipts that justify them; no event log, fold, or replay exists to query
 ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### Q8. Dependencies and supersession

@@ -337,7 +337,7 @@ unrelated configuration are outside the managed paths and are never touched.
 
 ## Fold-guard recovery
 
-Recovery restores a verified snapshot or reconciles current rows, and a refusal to open the authority database states the recovery action the caller may take ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history), [CD-0242 D12](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)); the store keeps no append-only event log to rebuild from.
+Recovery restores a verified snapshot and reconciles current rows, and a refusal to open the authority database states the recovery action the caller may take ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history), [CD-0242 D12](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)); the store keeps no append-only event log to rebuild from.
 
 ## Uninstall
 

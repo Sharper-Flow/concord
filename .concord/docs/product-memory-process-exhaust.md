@@ -43,9 +43,8 @@ completion receipt in the canonical knowledge home, linking the delivered
 subject, the accepted outcome, consequential decisions, and the proof that
 substantiates acceptance
 ([CD-0242 D9](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)).
-Verification evidence is captured by its producer—the tool records what ran, the
-subject commit and tree, the outcome, the producer, and the artifact digest—and
-agents never re-enter those facts
+Verification evidence is captured by its producer and bound to its subject, and
+agents never re-enter it
 ([CD-0242 D8](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d8-evidence-is-captured-by-its-producer-and-bound-to-its-subject)).
 The store keeps current state and finite verified snapshots, with no event log,
 fold, or replay

@@ -50,8 +50,9 @@ Restore results distinguish source-snapshot inventory from the verified restored
 inventory after migration and verification. Neither inventory is authority.
 
 Recovery restores a verified snapshot and reconciles current rows with Git,
-worktrees, artifacts, and external effects, treating existing worktree occupancy
-as evidence rather than authority; no replay of retained events exists
+worktrees, artifacts, and external effects. A worktree occupancy row recovery
+cannot reconcile causes a typed refusal naming its worktree and session; no
+replay of retained events exists
 ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ## 2. Restore protocol

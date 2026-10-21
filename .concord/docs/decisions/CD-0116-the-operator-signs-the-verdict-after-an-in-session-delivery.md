@@ -32,7 +32,7 @@ different facts.
 
 ## Decision
 
-D1 and D2's operator-substitution route applies to exits recorded under the consequence approval policy. [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) governs: no separate evaluator or model distinctness exists; the executing coordinator's verdict still needs the operator approval D1 and D2 bind, and D3's worker boundary and D4's evidence gates stand.
+D1 and D2's operator-substitution route applies only to definitions that do not declare `approval_policy=consequence_v1`. Under that policy, no host approval is requested for a verdict or completion: Main records them against Review's accepted ready disposition and passing receipts ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls), [D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)), and a host approval never substitutes for missing proof. D3's worker boundary and D4's evidence gates stand.
 
 
 ### D1. Verified operator authority is available after a definition-backed exit

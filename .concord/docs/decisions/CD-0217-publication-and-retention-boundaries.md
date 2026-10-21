@@ -28,7 +28,7 @@ No terminal-work prune eligibility predicate, storage-pressure threshold, or mai
 Terminal work remains in live typed projections indefinitely.
 `work_projection_pruned` and `archived_work_linked` remain reserved; introducing either requires a successor to this deferral.
 CD-0142 remains a separate operator-directed nonterminal execution-removal boundary after verified handoff and reconciliation.
-It is not terminal pruning and removes no recorded current row; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current state and finite snapshots, with retention and cleanup under its documented rules.
+It is not terminal pruning: it removes one nonterminal work item and its owned execution projections and keeps the removal receipt as a current row under [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history).
 
 ### D2. Authority guarantees remain in force
 
@@ -69,7 +69,7 @@ Research retirement does not delete earlier backup copies.
 ### D5. Deliberate absences stay absent
 
 There is no core-row pruning outside [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)'s documented rules, no WIP-byte content-addressed store, separate process-exhaust receipt, calendar expiration, or fixed sweep.
-The research aggregate remains outside retained store history and historical work projections.
+The research aggregate remains outside historical work projections.
 Work publication and read inspection cannot become alternate retirement routes.
 Owner removal must preserve retained research or refuse before a foreign-key cascade can destroy it.
 

@@ -204,8 +204,8 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.resource_claimed":                   registerEventKind[resourceClaimedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldResourceClaimed, nil),
 	"work.message_sent":                       registerEventKind[messageSentPayload](1, 1, nil, EventAppendAuthorityGeneric, foldMessageSent, nil),
 	WorkObservationRecorded:                   registerEventKind[workObservationRecordedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkObservationRecorded, nil),
-	WorkSized:                                 registerEventKind[workSizedPayload](2, 1, map[int]Upcaster{1: upcastWorkSizedV1}, EventAppendAuthorityRetired, foldRetiredWorkSized, nil),
-	WorkSizeOverridden:                        registerEventKind[workSizeOverriddenPayload](1, 1, nil, EventAppendAuthorityRetired, foldRetiredWorkSizeOverridden, nil),
+	WorkSized:                                 registerEventKind[workSizedPayload](2, 1, map[int]Upcaster{1: upcastWorkSizedV1}, EventAppendAuthorityGeneric, foldWorkSized, nil),
+	WorkSizeOverridden:                        registerEventKind[workSizeOverriddenPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkSizeOverridden, nil),
 	WorkConflictApplied:                       registerEventKind[ConflictApplication](2, 1, map[int]Upcaster{1: upcastConflictApplicationV1}, EventAppendAuthorityGeneric, foldWorkConflictApplied, validateWorkConflictAppliedPayload),
 	EventExternalObservationCaptured:          registerEventKind[externalObservationCapturedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldExternalObservationCaptured, nil),
 	EventExternalObservationVerified:          registerEventKind[externalObservationVerifiedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldExternalObservationVerified, nil),
@@ -799,7 +799,7 @@ var replayProjectionClearTables = []string{
 	// work-referencing RESTRICT-FK tables clear before work_items:
 	// observations (CD-0030), messages (CD-0029), claims (CD-0028),
 	// outside-repair reconciliations and dispositions.
-	"work_observations", "work_messages", "resource_claims",
+	"work_observations", "work_size_overrides", "work_size_assessments", "work_messages", "resource_claims",
 	"outside_repair_reconciliations", "outside_repair_dispositions",
 	// Worktree entries fold purely from the worktree events; clearing them
 	// lets the replay rebuild every claim generation instead of upserting

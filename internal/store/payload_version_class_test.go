@@ -32,9 +32,9 @@ var payloadVersionClasses = map[string]map[int]payloadVersionClass{
 	"project.locator_updated": {2: breakingAt(128)},
 	"work.created":            {2: replayOnly, 3: replayOnly, 4: replayOnly},
 	WorkConflictApplied:       {2: replayOnly},
-	// The retired size and split kinds stay registered at v2 so a stored
-	// log still replays; no route appends either kind (CD-0242 D6).
-	WorkSized:                          {2: replayOnly},
+	// Size snapshots at v2 add complete footprint checks for later readers.
+	WorkSized: {2: replayOnly},
+	// The retired split kind stays registered so stored logs still replay.
 	WorkerJobSplit:                     {2: replayOnly},
 	"work.worktree_occupancy_released": {2: replayOnly},
 	"work.session_vacated":             {2: replayOnly},

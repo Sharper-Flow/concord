@@ -6,22 +6,17 @@ import (
 	"encoding/json"
 )
 
-// CD-0242 D6 retires the work-size system: no production-line cap, size
+// CD-0242 D6 retires assignment caps and resize lineage: no production-line cap, size
 // measurement, or mandatory split applies. domain_events is append-only and
 // replay refuses an unregistered kind, so each retired kind stays registered:
 // its payload still decodes and its fold still advances the subject version,
 // so later historical events on the same subject fold at the version they
-// were written against. The retired folds write no size, override, lineage,
+// were written against. The retired folds write no lineage
 // or split state, and appendEvent refuses every new append of a retired kind.
 // The split folds keep advancing the workflow version, which the split events
-// advanced when they were written; the work-size folds never advanced a
-// version, so theirs are content-free.
+// advanced when they were written; the resize fold never advanced a version.
 
 const (
-	// WorkSized records one size decision for a work item (retired).
-	WorkSized = "work.sized"
-	// WorkSizeOverridden records the operator's size (retired).
-	WorkSizeOverridden = "work.size_overridden"
 	// WorkResized records one resize (retired).
 	WorkResized = "work.resized"
 	// WorkerJobSplit records one atomic split of a worker-job revision (retired).
@@ -34,33 +29,6 @@ const (
 // Deeply nested members decode as raw JSON: the retired folds read none of
 // them, and a raw member keeps the registered decode from re-implementing a
 // retired nested schema.
-
-// upcastWorkSizedV1 reads a first-release record unchanged: it carries no
-// complete law and check set, and its checks_complete member stays absent.
-func upcastWorkSizedV1(event Event) (Event, error) {
-	event.PayloadVersion = 2
-	return event, nil
-}
-
-type workSizedPayload struct {
-	ModelVersion int             `json:"model_version"`
-	Size         string          `json:"size"`
-	Inputs       json.RawMessage `json:"inputs"`
-	Footprint    json.RawMessage `json:"footprint"`
-	ReviewBasis  []string        `json:"review_basis,omitempty"`
-}
-
-type workSizeOverriddenPayload struct {
-	ModelSequence           int    `json:"model_sequence"`
-	Size                    string `json:"size"`
-	Reason                  string `json:"reason"`
-	ApprovalRef             string `json:"approval_ref"`
-	ApprovalOperationDigest string `json:"approval_operation_digest"`
-	ApprovalScopeJSON       string `json:"approval_scope_json"`
-	ApprovalVersionsJSON    string `json:"approval_versions_json"`
-	ApprovalConsequence     string `json:"approval_consequence"`
-	CarriedFromEventID      string `json:"carried_from_event_id,omitempty"`
-}
 
 type workResizeEvidenceSource struct {
 	WorkID     string `json:"work_id"`
@@ -98,28 +66,37 @@ type WorkerJobSplitDischargedPayload struct {
 	Integration json.RawMessage `json:"integration"`
 }
 
-func foldRetiredWorkSized(ctx context.Context, tx *sql.Tx, event Event) error {
-	if err := checkSubject(event, SubjectWorkItem); err != nil {
-		return err
-	}
-	var payload workSizedPayload
-	return decodePayload(event, &payload)
-}
-
-func foldRetiredWorkSizeOverridden(ctx context.Context, tx *sql.Tx, event Event) error {
-	if err := checkSubject(event, SubjectWorkItem); err != nil {
-		return err
-	}
-	var payload workSizeOverriddenPayload
-	return decodePayload(event, &payload)
-}
-
 func foldRetiredWorkResized(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
 	}
 	var payload workResizedPayload
 	return decodePayload(event, &payload)
+}
+
+// retiredResizeSizeBasisTx reads the immutable source snapshot of a historical
+// successor's first size record. It restores no lineage projection or writer.
+func retiredResizeSizeBasisTx(ctx context.Context, q queryer, event Event) ([]string, error) {
+	var raw string
+	err := q.QueryRowContext(ctx, `SELECT s.payload FROM domain_events r
+		JOIN domain_events s ON s.event_id=json_extract(r.payload,'$.source_model_event_id')
+		AND s.kind=? AND s.subject_type='work_item' AND s.subject_id=r.subject_id AND s.seq<r.seq
+		WHERE r.kind=? AND r.subject_type='work_item' AND r.seq<?
+		AND json_extract(r.payload,'$.successor_work_id')=?
+		AND json_extract(r.payload,'$.successor_model_event_id')=?`, WorkSized, WorkResized, event.Seq, event.SubjectID, event.EventID).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "fold_event", "cannot read the historical size snapshot", true, "retry once the event log is readable", err)
+	}
+	var source struct {
+		ReviewBasis []string `json:"review_basis"`
+	}
+	if err := json.Unmarshal([]byte(raw), &source); err != nil {
+		return nil, wrapFailure(KindInvariantViolation, "fold_event", "historical size snapshot is malformed", false, "repair the recorded history", err)
+	}
+	return source.ReviewBasis, nil
 }
 
 func foldRetiredWorkerJobSplit(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -144,14 +121,14 @@ func foldRetiredWorkerJobSplitDischarged(ctx context.Context, tx *sql.Tx, event 
 func retireSizeEventAppendRefused(kind string) error {
 	return newFailure(KindInvalidOperation, "apply_operation",
 		"event kind "+kind+" is retired by CD-0242 D6: no production-line cap, size measurement, or mandatory split applies", false,
-		"capture, revise, or record without size inputs; Main sizes each assignment by complexity and relatedness")
+		"revise the work size in place; Main sizes each assignment by complexity and relatedness")
 }
 
 // retiredEventAppendRefused routes each retired kind to the refusal that
 // names the decision that retired it.
 func retiredEventAppendRefused(kind string) error {
 	switch kind {
-	case WorkSized, WorkSizeOverridden, WorkResized, WorkerJobSplit, WorkerJobSplitDischarged:
+	case WorkResized, WorkerJobSplit, WorkerJobSplitDischarged:
 		return retireSizeEventAppendRefused(kind)
 	}
 	return planningRetiredEventAppendRefused(kind)

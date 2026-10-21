@@ -10,7 +10,7 @@ import (
 
 // A recorded settlement must be readable through the public
 // concord_work_trace.history surface as an optional typed conflict_application
-// payload on its work.conflict_applied event, carrying the recorded pair and
+// payload on its work.conflict_applied event, carrying the recorded trio and
 // the frozen binding, with the authenticated principal as the actor. Every
 // assertion reads the serialized public page.
 
@@ -18,7 +18,7 @@ func TestConflictSettlementHistoryPublishesThePublicTrio(t *testing.T) {
 	t.Parallel()
 	s, service, grant, scopeVersion := conflictDispatchFixture(t)
 	settlement, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{
-		"work_id":         "work-a",
+		"work_id":         "work-sized",
 		"idempotency_key": "conflict-history-1",
 		"conflict":        map[string]any{"rule_id": "R1", "outcome": "settled: rule R1 applied, the slice stays out of scope"},
 	})
@@ -28,7 +28,7 @@ func TestConflictSettlementHistoryPublishesThePublicTrio(t *testing.T) {
 	history := dispatchRead(t, s, service, InvokeRequest{
 		Tool:      "concord_work_trace",
 		Operation: "history",
-		Input:     json.RawMessage(`{"work_id":"work-a","event_kinds":["` + store.WorkConflictApplied + `"]}`),
+		Input:     json.RawMessage(`{"work_id":"work-sized","event_kinds":["` + store.WorkConflictApplied + `"]}`),
 	}, mutationEnvelope(grant, scopeVersion))
 	if history.Outcome != OutcomeOK || history.Error != nil {
 		t.Fatalf("conflict history = %+v, want an ok page; a refusal here also means the generated result schema does not accept the page", history.Error)
@@ -47,14 +47,23 @@ func TestConflictSettlementHistoryPublishesThePublicTrio(t *testing.T) {
 	if !ok {
 		t.Fatalf("public history event %v carries no conflict_application payload; the persisted trio is hidden from readers", event)
 	}
-	if len(payload) != 5 {
-		t.Fatalf("conflict_application payload carries %d fields; the closed shape has exactly 5: %v", len(payload), payload)
+	if len(payload) != 8 {
+		t.Fatalf("conflict_application payload carries %d fields; the closed v1 shape has exactly 8: %v", len(payload), payload)
 	}
 	if got := payload["rule_id"]; got != "R1" {
 		t.Fatalf("published rule_id %v, want R1", got)
 	}
+	if got := payload["size"]; got != string(store.WorkSizeSmall) {
+		t.Fatalf("published size %v, want the recorded %q", got, store.WorkSizeSmall)
+	}
 	if got := payload["outcome"]; got != "settled: rule R1 applied, the slice stays out of scope" {
 		t.Fatalf("published outcome %v, want the dispatched outcome", got)
+	}
+	if got := payload["size_assessment_sequence"]; got != float64(1) {
+		t.Fatalf("published size_assessment_sequence %v, want 1", got)
+	}
+	if got := payload["model_version"]; got != float64(store.WorkSizeModelVersion) {
+		t.Fatalf("published model_version %v, want %d", got, store.WorkSizeModelVersion)
 	}
 	ref, ok := payload["settlement_ref"].(string)
 	if !ok || ref == "" || len(ref) > 256 {
@@ -86,21 +95,21 @@ func TestConflictSettlementLeavesOrdinaryHistoryPagesUnchanged(t *testing.T) {
 	t.Parallel()
 	s, service, grant, scopeVersion := conflictDispatchFixture(t)
 	settlement, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{
-		"work_id":         "work-a",
+		"work_id":         "work-sized",
 		"idempotency_key": "conflict-ordinary-1",
 		"conflict":        map[string]any{"rule_id": "R1", "outcome": "settled"},
 	})
 	if err != nil || settlement.Error != nil || settlement.Outcome != OutcomeOK {
 		t.Fatalf("conflict settlement = %+v err = %v, want ok", settlement, err)
 	}
-	statement, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{"work_id": "work-a", "idempotency_key": "conflict-ordinary-statement", "statement": "ordinary progress note"})
+	statement, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{"work_id": "work-sized", "idempotency_key": "conflict-ordinary-statement", "statement": "ordinary progress note"})
 	if err != nil || statement.Error != nil || statement.Outcome != OutcomeOK {
 		t.Fatalf("statement observation = %+v err = %v, want ok", statement, err)
 	}
 	defaults := dispatchRead(t, s, service, InvokeRequest{
 		Tool:      "concord_work_trace",
 		Operation: "history",
-		Input:     json.RawMessage(`{"work_id":"work-a"}`),
+		Input:     json.RawMessage(`{"work_id":"work-sized"}`),
 	}, mutationEnvelope(grant, scopeVersion))
 	if defaults.Outcome != OutcomeOK || defaults.Error != nil {
 		t.Fatalf("default history = %+v, want an unchanged ok page", defaults.Error)
@@ -125,7 +134,7 @@ func TestConflictSettlementLeavesOrdinaryHistoryPagesUnchanged(t *testing.T) {
 	created := dispatchRead(t, s, service, InvokeRequest{
 		Tool:      "concord_work_trace",
 		Operation: "history",
-		Input:     json.RawMessage(`{"work_id":"work-a","event_kinds":["work.created"]}`),
+		Input:     json.RawMessage(`{"work_id":"work-sized","event_kinds":["work.created"]}`),
 	}, mutationEnvelope(grant, scopeVersion))
 	if created.Outcome != OutcomeOK || created.Error != nil {
 		t.Fatalf("ordinary filtered history = %+v, want an ok page", created.Error)

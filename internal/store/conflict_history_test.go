@@ -9,12 +9,10 @@ import (
 
 // The recorded work.conflict_applied event must surface through the public
 // PM1.Q7 history as an optional typed conflict_application payload with the
-// recorded pair (rule_id, outcome) and its frozen source hash, catalog
-// generation, and settlement reference. The v1 payload's size members are
-// retired history (CD-0242 D6): a v2 event, the only version a live write
-// produces, publishes none. Every assertion reads the serialized public
-// event; the recorder tests pin the stored record, and these own only the
-// public read.
+// recorded trio (rule_id, size, outcome) and its frozen source hash, catalog
+// generation, assessment sequence, model version, and settlement reference.
+// Every assertion reads the serialized public event; the recorder tests pin
+// the stored record, and these own only the public read.
 
 // conflictHistoryAllowedEventKeys is the closed serialized TimelineEvent key
 // set: the ordinary public fields plus the one optional conflict_application
@@ -44,12 +42,12 @@ func conflictHistoryEventJSON(t *testing.T, event TimelineEvent) map[string]any 
 }
 
 // conflictHistoryPayload returns the published conflict_application payload
-// of one serialized history event, failing while the record is hidden.
+// of one serialized history event, failing while the trio is hidden.
 func conflictHistoryPayload(t *testing.T, event map[string]any) map[string]any {
 	t.Helper()
 	payload, ok := event["conflict_application"].(map[string]any)
 	if !ok {
-		t.Fatalf("public history event %v carries no conflict_application payload; the persisted record is hidden from readers", event)
+		t.Fatalf("public history event %v carries no conflict_application payload; the persisted trio is hidden from readers", event)
 	}
 	return payload
 }
@@ -73,19 +71,22 @@ func conflictHistoryNumber(t *testing.T, payload map[string]any, field string) f
 }
 
 // conflictHistoryAssertShape checks one published payload against the closed
-// v2 event shape and one recorded settlement.
-func conflictHistoryAssertShape(t *testing.T, payload map[string]any, ruleID, outcome string) {
+// v1 event shape and one recorded settlement.
+func conflictHistoryAssertShape(t *testing.T, payload map[string]any, ruleID, size, outcome string, assessmentSequence, modelVersion int) {
 	t.Helper()
-	if len(payload) != 5 {
-		t.Fatalf("conflict_application payload carries %d fields; the closed v2 shape has exactly 5: %v", len(payload), payload)
+	if len(payload) != 8 {
+		t.Fatalf("conflict_application payload carries %d fields; the closed v1 shape has exactly 8: %v", len(payload), payload)
 	}
-	for _, field := range []string{"rule_id", "rule_source_hash", "catalog_generation", "outcome", "settlement_ref"} {
+	for _, field := range []string{"rule_id", "rule_source_hash", "catalog_generation", "size_assessment_sequence", "model_version", "size", "outcome", "settlement_ref"} {
 		if _, ok := payload[field]; !ok {
 			t.Fatalf("conflict_application payload is missing %q: %v", field, payload)
 		}
 	}
 	if got := conflictHistoryString(t, payload, "rule_id"); got != ruleID {
 		t.Fatalf("published rule_id %q, want %q", got, ruleID)
+	}
+	if got := conflictHistoryString(t, payload, "size"); got != size {
+		t.Fatalf("published size %q, want the recorded %q", got, size)
 	}
 	if got := conflictHistoryString(t, payload, "outcome"); got != outcome {
 		t.Fatalf("published outcome %q, want the recorded %q", got, outcome)
@@ -96,6 +97,12 @@ func conflictHistoryAssertShape(t *testing.T, payload map[string]any, ruleID, ou
 	hash := conflictHistoryString(t, payload, "rule_source_hash")
 	if len(hash) != len("sha256:")+64 || hash[:len("sha256:")] != "sha256:" {
 		t.Fatalf("published rule source hash %q is not a sha256 digest", hash)
+	}
+	if got := conflictHistoryNumber(t, payload, "size_assessment_sequence"); got != float64(assessmentSequence) {
+		t.Fatalf("published size_assessment_sequence %v, want %d", got, assessmentSequence)
+	}
+	if got := conflictHistoryNumber(t, payload, "model_version"); got != float64(modelVersion) {
+		t.Fatalf("published model_version %v, want %d", got, modelVersion)
 	}
 	if got := conflictHistoryNumber(t, payload, "catalog_generation"); got < 1 {
 		t.Fatalf("published catalog_generation %v, want the live table generation", got)
@@ -116,9 +123,9 @@ func conflictHistorySingle(t *testing.T, s *Store, workID string) map[string]any
 	return conflictHistoryPayload(t, conflictHistoryEventJSON(t, result.Events[0]))
 }
 
-func TestConflictHistoryPublishesTheRecordedPair(t *testing.T) {
+func TestConflictHistoryPublishesTheRecordedTrio(t *testing.T) {
 	s := openTemp(t)
-	seedWork(t, s, "public")
+	seedSizedWork(t, s, "public")
 	if _, err := recordConflictApplication(t, s, conflictApplicationRequest("public", "public-1", nil)); err != nil {
 		t.Fatalf("record the conflict application: %v", err)
 	}
@@ -133,12 +140,29 @@ func TestConflictHistoryPublishesTheRecordedPair(t *testing.T) {
 	if got := event["actor"]; got != "operator" {
 		t.Fatalf("published actor %v, want the authenticated settlement actor", got)
 	}
-	conflictHistoryAssertShape(t, conflictHistoryPayload(t, event), "R1", "settled: rule R1 applied through the recorder")
+	conflictHistoryAssertShape(t, conflictHistoryPayload(t, event), "R1", string(WorkSizeSmall), "settled: rule R1 applied through the recorder", 1, WorkSizeModelVersion)
+}
+
+// The synthetic later work.sized event is a fold fixture, not a public resize
+// route: the published copy must stay the assessment the event references,
+// never the current size.
+func TestConflictHistoryKeepsTheFrozenAssessmentAfterALaterFold(t *testing.T) {
+	s := openTemp(t)
+	seedSizedWork(t, s, "frozen")
+	if _, err := recordConflictApplication(t, s, conflictApplicationRequest("frozen", "frozen-1", nil)); err != nil {
+		t.Fatalf("record the conflict application: %v", err)
+	}
+	later := workSizeInputsFixture()
+	later.Declared.EstimatedProductionLines = 61
+	if err := applyWorkEvent(t, s, workSizedEvent("frozen-later", "frozen", WorkSizeModelVersion, WorkSizeLarger, later), nil); err != nil {
+		t.Fatalf("record the later assessment: %v", err)
+	}
+	conflictHistoryAssertShape(t, conflictHistorySingle(t, s, "frozen"), "R1", string(WorkSizeSmall), "settled: rule R1 applied through the recorder", 1, WorkSizeModelVersion)
 }
 
 func TestConflictHistoryLeavesOrdinaryHistoryUnchanged(t *testing.T) {
 	s := openTemp(t)
-	seedWork(t, s, "ordinary")
+	seedSizedWork(t, s, "ordinary")
 	if _, err := recordConflictApplication(t, s, conflictApplicationRequest("ordinary", "ordinary-1", nil)); err != nil {
 		t.Fatalf("record the conflict application: %v", err)
 	}
@@ -160,9 +184,9 @@ func TestConflictHistoryLeavesOrdinaryHistoryUnchanged(t *testing.T) {
 	}
 }
 
-func TestConflictHistoryPagesTheFilteredRecordWithUnchangedCursors(t *testing.T) {
+func TestConflictHistoryPagesTheFilteredTrioWithUnchangedCursors(t *testing.T) {
 	s := openTemp(t)
-	seedWork(t, s, "paged")
+	seedSizedWork(t, s, "paged")
 	firstIDs, err := recordConflictApplication(t, s, conflictApplicationRequest("paged", "paged-1", nil))
 	if err != nil {
 		t.Fatalf("record the first application: %v", err)
@@ -202,7 +226,8 @@ func TestConflictHistoryPagesTheFilteredRecordWithUnchangedCursors(t *testing.T)
 	}
 }
 
-// The published record must survive rebuild and reopen unchanged.
+// The published trio must survive rebuild and reopen against the frozen
+// assessment, not the later one.
 func TestConflictHistorySurvivesRebuildAndReopen(t *testing.T) {
 	ctx := context.Background()
 	path := copyTestDatabase(t)
@@ -210,11 +235,16 @@ func TestConflictHistorySurvivesRebuildAndReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	seedWork(t, s, "durable-read")
+	seedSizedWork(t, s, "durable-read")
 	if _, err := recordConflictApplication(t, s, conflictApplicationRequest("durable-read", "durable-read-1", nil)); err != nil {
 		t.Fatalf("record the conflict application: %v", err)
 	}
 	before := conflictHistorySingle(t, s, "durable-read")
+	later := workSizeInputsFixture()
+	later.Declared.EstimatedProductionLines = 61
+	if err := applyWorkEvent(t, s, workSizedEvent("durable-read-later", "durable-read", WorkSizeModelVersion, WorkSizeLarger, later), nil); err != nil {
+		t.Fatalf("record the later assessment: %v", err)
+	}
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
@@ -234,5 +264,5 @@ func TestConflictHistorySurvivesRebuildAndReopen(t *testing.T) {
 	if !reflect.DeepEqual(before, again) {
 		t.Fatalf("reopened store publishes %+v, want %+v", again, before)
 	}
-	conflictHistoryAssertShape(t, again, "R1", "settled: rule R1 applied through the recorder")
+	conflictHistoryAssertShape(t, again, "R1", string(WorkSizeSmall), "settled: rule R1 applied through the recorder", 1, WorkSizeModelVersion)
 }

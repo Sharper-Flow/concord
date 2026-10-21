@@ -2124,7 +2124,7 @@ def validate_work_start_host_tool(tool: dict) -> None:
     # The projection preserves the authored declaration order, so the
     # published capture surface is pinned in exactly the contract's own
     # (lexicographic) property order.
-    capture = ["defect_intake", "external_ref", "governing_requirements", "idempotency_key", "kind", "priority", "raised_from_work_id", "ref", "tags", "task", "title", "urgency", "value_statement", "workflow_type_ref"]
+    capture = ["defect_intake", "external_ref", "governing_requirements", "idempotency_key", "kind", "priority", "raised_from_work_id", "ref", "size_inputs", "tags", "task", "title", "urgency", "value_statement", "workflow_type_ref"]
     resume_required = ["work_id"]
     resume_properties = ["work_id"]
     branches = args.get("oneOf")

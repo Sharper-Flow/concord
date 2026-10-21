@@ -118,15 +118,16 @@ migration or manual repair. The data model can grow, shrink, and reshape
 without corrupting in-flight work or historical records.
 
 - Agent-facing writes queue behind one writer and are admitted within the accepted bound: no escaped busy failure, no lost or duplicated effect, no retry storm. Reads are lock-free. See CD-0045.
-- No hand-repair of history; corrections are appended, not destructive.
+- [CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current state and finite verified snapshots, not an event log or replay, and each correction writes the corrected current rows.
 - Acknowledged consequential operations — approvals, workflow dispatch
   and terminal transitions, cross-authority step claims, and worker evidence —
   are durable across power loss and OS crash (CD-0050); ordinary writes are
   durable through the last consequential boundary and never corrupt the store.
 - Workflow and schema changes must be safe for in-flight work.
-- Storage and IO are a founding design decision, not an afterthought. State
-  authority is **SQLite sole authority** per CD-0002 (invariants I1–I6) and
-  remains subject to CD-0011's accepted falsifiers.
+- [CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+  governs: state authority stays **SQLite sole authority** — each mutation writes current rows in one
+  transaction, checked by an expected version and recorded by its idempotency key — subject to
+  CD-0011's accepted falsifiers.
 
 ### Quality (goal E)
 
@@ -138,11 +139,12 @@ attributes, not by a fixed gate count.
 - End-to-end traceability — from need to law to evidence to artifact.
 - Evidence-backed completion — completion claims are supported by recorded proof.
 - Independent challenge — a party other than the author reviews every change.
+  A reviewer's own corrective edits are verified, not reviewed again.
 - No silent drift — deviations from spec, architecture binding, or plan are surfaced, not papered over.
 - Required-obligation blocking — unmet blocking obligations halt the work.
 - Human authority at consequence boundaries — the operator decides UI/UX, product, and serious law changes (U, R3, P12).
 - Durable proof — evidence is retained and inspectable after the work is finished.
-- Proportional rigor — the size the decision model gives a change (goal B) sets its steps, proof, and testing.
+- Proportional rigor — [CD-0242 D4](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum) governs: rules derived from change type and risk set each execution's mandatory stages, and no agent may waive a mandatory stage or an operator approval.
 
 **What scales proportional rigor.** One input to the decision model is the
 **declared lifecycle stage** of the thing being worked on (`maturity` and
@@ -198,9 +200,9 @@ they become blockers or contradictory Product truth.
 
 Goal C in [`goals.md`](./goals.md) §2 defines a workflow as a combination of
 shared parts.
-[`CD-0229`](./decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md)
-owns how definitions compose those parts and how the decision model sets each
-work item's size.
+[CD-0242 D4](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)
+governs: families compose shared stages, and rules derived from change type and risk set each
+execution's mandatory stages.
 
 - Concord owns a full workflow coordination engine: progression, branching,
   retries, evidence, recovery, and the accepted composition model. Native

@@ -11,6 +11,7 @@
 - **Approval:** The operator approved the work item contract that carries this
   record on 2026-09-30
   ([Concord (CON) issue 767](https://linear.app/sharper-flow/issue/CON-767/decide-which-coordinator-workflow-actions-merge-or-become-core-derived)).
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D6, D14
 
 ## Context
 
@@ -37,14 +38,20 @@ per adopted candidate.
 
 Four floors bound every candidate. Contract approval stays an approved,
 operator-signed act. Evidence stays durably bound before the gates that require
-it. The verdict stays independent of the executing agent under CD-0012 D7. The
-human checkpoint at the verdict step stays. Removing any of the four is out of
-scope, as are the tool-schema refusal fixes that CON-408 owns.
+it. The verdict cannot come from the executing agent: Implement cannot accept
+its own result
+([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
+The human checkpoint at the verdict step stays. Removing any of the four is out
+of scope, as are the tool-schema refusal fixes that CON-408 owns.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, the contract remains mandatory but human signature follows recorded decision domains under CD-0013 D11. Batched verdict recording still requires independent evaluator authority and evidence; engineering premise confirmation uses its real coordinator identity. A combined action cannot convert an executing coordinator into its own evaluator or silently omit a predicate.
-
+For `approval_policy=consequence_v1`, the contract remains mandatory but human signature follows recorded decision domains under CD-0013 D11. Batched verdict recording still requires recorded verdict authority and evidence.
+[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)
+governs: Implement cannot accept its own result, and no separate final
+evaluator exists beyond that rule. Engineering premise confirmation uses its
+real coordinator identity, and a combined action cannot accept its own result
+or silently omit a predicate.
 
 This record adopts all five candidates. None removes one of the four floors,
 and each names one implementation item here.
@@ -54,13 +61,16 @@ and each names one implementation item here.
 The `record_verdict` payload gains a batched form that carries one or more
 verdict objects. Each object names one approved predicate of the active contract
 and carries its own `verdict_kind`, its own evaluation evidence, and its own
-incomparable flag. Duplicate predicate ids refuse. The fold appends one typed
-verdict event per predicate in the same transaction.
+incomparable flag. Duplicate predicate ids refuse. One call records one verdict
+per approved predicate in one transaction
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
-The evidence floor holds against CD-0012 D7 because the batch changes how many
+The evidence floor holds because the batch changes how many
 calls carry verdicts, not who produces them. Every verdict in the batch carries
-its recorded actor, and the completion transition still refuses a verdict whose
-actor is the executing actor of the item. The batch records evaluations of
+its recorded actor, and completion still refuses a verdict the executing actor
+recorded: Implement cannot accept its own result
+([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
+The batch records evaluations of
 predicates the approving authority authored at planning, and authors nothing, so
 authorship fencing is untouched. The completion gate keeps demanding a verdict
 for every approved predicate, so a predicate the call omits stays missing and
@@ -68,17 +78,18 @@ named, never silently excused.
 
 Implementation item: [CON-772](https://linear.app/sharper-flow/issue/CON-772/batch-per-predicate-verdicts-in-one-atomic-record-verdict-call),
 `work-bd63058d9040b113a411577d`. Extend the `record_verdict` payload contract to the
-batched form, and raise every workflow family that declares the action to its
-next definition version with prior versions pinned.
+batched form in the one canonical source, so generated contracts derive from
+one source and identities active work needs derive at the integration boundary
+([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ### D2. The three diagnosis records merge into one typed action on break_fix
 
-`record_reproduction`, `record_alignment`, and `record_root_cause` fold into one
+`record_reproduction`, `record_alignment`, and `record_root_cause` merge into one
 advance action, `record_diagnosis`. Its payload carries a reproduction section,
 an alignment-search section, and a root-cause section. Each section is required
 and carries the payload fields and consistency guards its source action carried,
 including the CD-0156 D3 `searched`, `outcome`, and `related_ids` fields with
-their guards. The reproduce, alignment, and diagnose steps fold into one
+their guards. The reproduce, alignment, and diagnose steps merge into one
 diagnosis step whose advance actions admit `record_diagnosis` alone, so its
 single forward edge cannot be crossed without all three sections recorded.
 
@@ -87,9 +98,11 @@ alignment step leaves the break_fix graph, and the step-shape obligations of
 CD-0156 narrow to `workflow.implementation`, which keeps the alignment step and
 `record_alignment` unchanged. The floor holds against CD-0156 D3 because
 passing the diagnosis step stays the proof the search happened, and the section
-enum still separates checked-and-found-nothing from never-checked. The
-projection fold writes the same `workflow_backlog_alignment` rows from the
-alignment section, and CD-0156 D5 keeps its force: the merged action records the
+enum still separates checked-and-found-nothing from never-checked. The merged
+action writes the same `workflow_backlog_alignment` rows from its alignment
+section
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)),
+and CD-0156 D5 keeps its force: the merged action records the
 candidate set and creates no relation.
 
 CD-0156 D2 placed the search before the analysis so a duplicate is found before
@@ -100,31 +113,35 @@ effort saving of an earlier search narrows, and this record accepts that cost
 because the evidence floor and the mandatory record both survive.
 
 Implementation item: [CON-776](https://linear.app/sharper-flow/issue/CON-776/merge-break-fix-reproduction-alignment-and-root-cause-into-record),
-`work-3d04acde6b5f5f90debdcc91`. Fold the reproduce, alignment, and diagnose steps of
+`work-3d04acde6b5f5f90debdcc91`. Merge the reproduce, alignment, and diagnose steps of
 `workflow.break_fix` into one diagnosis step with `record_diagnosis` as its only
-advance action, on the next definition version with prior versions pinned.
+advance action, in the one canonical source the generated contracts derive from
+([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ### D3. The start of repair and refine derives from the first action at the step
 
-`start_repair` and `start_refine` stop being callable actions. The fold that
-applies the first workflow action at the `repair` or `refine` step derives the
-step-start fact in the same transaction, and the first start in log order wins.
-This follows the mechanism CD-0183 D2 accepted for `execution_started_at`, so
-the change extends an accepted derivation instead of inventing a second start
-fact, and RebuildFromLog derives the same value.
+`start_repair` and `start_refine` stop being callable actions. Recording the
+first workflow action at the `repair` or `refine` step derives the step-start
+fact in the same transaction, and the first action recorded at the step wins
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+This extends the derivation mechanism CD-0183 D2 accepted for
+`execution_started_at`, so the change invents no second start fact, and the
+same derivation answers from current rows.
 
 The derived start keeps every duty the callable start carried. It opens the step
 epoch. It binds the step fence from the first action's own actor. The delivery
 admission guard keeps requiring a start at the delivery-bearing step, and the
 CD-0192 D2 epoch bound reads the derived refine start, so a verify run acquired
-before it stays stale. Live instances backfill from the lowest-sequence
-qualifying action, the migration pattern CD-0183 D2 used.
+before it stays stale. The one documented cutover migrates live instances and
+derives each retained start fact there
+([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
 Implementation item: [CON-773](https://linear.app/sharper-flow/issue/CON-773/derive-repair-and-refine-start-facts-from-their-first-workflow-action),
-`work-2126c8ce04a66f64f73d0cbd`. Derive the step-start fact in the action fold on both
-families, remove the two callable starts, and repoint the delivery admission and
-refine-proof guards at the derived fact, on the next definition version with
-prior versions pinned.
+`work-2126c8ce04a66f64f73d0cbd`. Derive the step-start fact when the first workflow action
+at the step records, on both families, remove the two callable starts, and
+repoint the delivery admission and refine-proof guards at the derived fact, in
+the one canonical source
+([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ### D4. An accepted report that carries the delivery artifact records the delivery
 
@@ -132,9 +149,11 @@ prior versions pinned.
 delivery-bearing step carries `delivery_artifact`, it first reuses the complete
 delivery-admission mechanism that `record_delivery` uses. The admission checks
 the fenced step start, the refine-exit proof, and the post-rejection review gate
-before any acceptance, delivery event, or step advance. The fold appends the same
-typed delivery event a `record_delivery` call appends, with `delivery_state`
-`asserted`, and advances the step, so the separate call at that step disappears.
+before any acceptance, delivery record, or step advance. The acceptance records
+the same delivery a `record_delivery` call records, with `delivery_state`
+`asserted`, and advances the step in the same transaction, so the separate call
+at that step disappears
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 CD-0192 D1 holds because both entry routes run the same refine-exit proof guard.
 An acceptance that exits refine requires bound verification evidence in the
@@ -144,43 +163,52 @@ tracked-file change. When the default ref declares tooling, the run's argv must
 match a declared invocation. Both routes resolve tooling from the same default
 ref and use the same admission implementation. A missing, stale, failed, or
 undeclared run refuses the whole acceptance-and-delivery operation without
-acceptance, delivery, or advance. Appending a delivery event alone is not proof
-that admission ran.
+acceptance, delivery, or advance. Recording the delivery alone is not proof
+that admission ran
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 The floor holds against CD-0166 because the assertion changes its entry route,
 not its owner. CD-0166 D1 holds because `accept_worker_result` is a coordinator
 action, so the coordinating agent still owns the truth of the assertion, and the
 core still observes nothing. CD-0166 D2 holds because the delivery gate keeps
 `record_delivery` as its declared exit and runs no accept. CD-0166 D3 holds
-because the unreconciled refusal and the parked read read delivery events, and
-the derived event is one. The CD-0166 D6 post-rejection refusal names the
+because the unreconciled refusal and the parked read read the recorded
+delivery, and the derived record is one
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+The CD-0166 D6 post-rejection refusal names the
 recorded delivery of a step, and a delivery derived at the refused step refuses
 with it.
 
 Implementation item: [CON-774](https://linear.app/sharper-flow/issue/CON-774/let-accepted-worker-results-assert-delivery-through-the-existing),
-`work-f052c024a1075d56e030cade`. Extend the `accept_worker_result` payload and fold on both
-families, reusing the complete delivery-admission mechanism on the new entry
+`work-f052c024a1075d56e030cade`. Extend the `accept_worker_result` payload and its
+recording on both families,
+reusing the complete delivery-admission mechanism on the new entry
 route. Regression checks on both routes must prove refusal for missing, stale,
 failed, dirty, and undeclared verification runs, and for a missing start or
 unsatisfied post-rejection review. A valid bound run permits the combined route
-and records acceptance, delivery, and advance atomically. Raise the definition
-version with prior versions pinned.
+and records acceptance, delivery, and advance atomically. Generated contracts
+derive from the one canonical source
+([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ### D5. The worker-failure record derives, and a rejection can carry its retry dispatch
 
 Two reductions share the correction route. First, when a dispatched attempt
-reaches its terminal failed lifecycle at a workflow step, the fold records the
-workflow failure record from the attempt's own terminal event. The correction
+reaches its terminal failed lifecycle at a workflow step, recording the
+terminal result derives the workflow failure record from the attempt's own
+terminal result
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+The correction
 diagnosis fills from the failure detail the attempt already carries, and the
 strategy fills from the standing default, which are the values the correction
 context applies today when the caller omits them. The record stops being a
 callable action and the coordinator call disappears.
 
-On attribution-capable versions, the terminal event owns the typed
+Where an attempt carries typed attribution, the terminal result owns the typed
 observation. Its existing derived workflow failure fact references that
 attribution. Derivation neither copies a second causal record nor creates
-another correction event. Live application commits the existing pair once.
-Rebuild folds that retained pair without another derivation.
+another correction record. Recording commits the existing pair once, and no
+rebuild or second derivation exists
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 Born-failed dispatch and abandonment keep their existing terminal
 representations and liveness gates. Attribution does not fabricate model
@@ -189,63 +217,75 @@ remains a refusal with its actual effect state. No successful attribution
 write or replacement window is inferred.
 
 Rejection and retry still share the sole dispatch admission. Attribution
-changes no count, limit, approval, convergence, fence, or rejection-only
-escape. The correction diagnosis and strategy retain their existing source and
+changes no approval, fence, or rejection-only escape; no attempt count, limit,
+or convergence basis exists
+([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
+The correction diagnosis and strategy retain their existing source and
 defaults.
 
 Second, `reject_worker_result` gains an optional retry dispatch in its payload.
-The fold appends the rejection and the dispatch in one transaction. The retry
-mints a fresh fenced attempt identity, and the dispatch binds the same packet
-rules every dispatch binds. When the rejection is the attempt that reaches the
-CD-0173 escalation wall, the combined call refuses and a rejection without the
-dispatch payload still records, so the wall keeps its operator-owned escape.
+The rejection records the dispatch in the same transaction
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+The retry mints a fresh fenced attempt identity, and the dispatch binds the
+same packet rules every dispatch binds. No escalation wall exists, each launch
+carries its own authority, and its scope and safety checks remain, so a
+rejection may carry the dispatch and one without the dispatch payload still
+records
+([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
-The floor holds because the correction context, the attempt count, the limit,
-and the wall read the derived record exactly as they read the recorded one, and
+The floor holds because the correction context reads the derived record exactly
+as it reads a recorded one, and
 the dispatch rules keep their single source in the dispatch packet.
 
 Implementation item: [CON-775](https://linear.app/sharper-flow/issue/CON-775/derive-worker-failure-records-and-combine-result-rejection-with-retry),
-`work-1b0708f1de8cd8328b920e38`. Derive the failure record in the attempt terminal fold, and
-extend `reject_worker_result` with the optional dispatch, on the next definition
-version of the families that declare the actions, with prior versions pinned.
+`work-1b0708f1de8cd8328b920e38`. Derive the failure record when the attempt terminal result
+records, and
+extend `reject_worker_result` with the optional dispatch, in the one canonical
+source of the families that declare the actions
+([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ## Alternatives considered
 
 - Remove contract approval or the verdict checkpoint to save the most calls.
-  Refused: the objective bounds both out, and CD-0012 D7 and D9 make them
-  load-bearing.
+  Refused: the objective bounds both out, and [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)
+  and CD-0012 D9 make them load-bearing.
 - Replace the small records with one free-form progress action. Refused: a
   generic call cannot carry typed payloads, so every per-action guard weakens
   into prose, and the verb dilution CD-0012 D3 refuses follows.
 - Let confirm_premise carry the verdicts beside the operator confirmation.
-  Refused: it blurs the independent verdict into the approval act and hides
-  which actor produced which verdict.
+  Refused: it blurs the verdict into the approval act and hides which actor
+  recorded it, and the executor cannot accept its own result
+  ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 - Derive the delivery assertion from an observed merge instead of the
   coordinator's accept. Refused: CD-0166 D1 sets the boundary that the
   coordinating agent owns the assertion and the core observes nothing.
 - Derive the worker-failure record with no correction context at all. Refused:
-  the escalation wall and the retry fences read that context, and dropping it
-  deletes validation rather than a call.
+  the retry fences read that context, and dropping it deletes validation rather
+  than a call
+  ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ## Consequences
 
 - A small break_fix item spends about 6 to 9 fewer coordinator calls, and no
   accepted floor loses a check.
-- The verdict, delivery, and failure events keep their kinds and payload
-  fields, so projections, receipts, and read surfaces fold unchanged.
+- The verdict, delivery, and failure records keep their fields, so receipts
+  and read surfaces read them unchanged
+  ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - Each implementation item changes an agent-visible typed action surface, so
   each carries the generated-manifest, digest, schema, scenario, and
-  classification cost that agent-tool-surface-evolution attaches, plus a
-  definition version bump with prior versions pinned per CD-0115.
+  classification cost that agent-tool-surface-evolution attaches, and the
+  generated contracts derive from the one canonical source
+  ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 - The alignment step leaves the break_fix graph: a reader that navigates steps
   must use the merged diagnosis step, and the CD-0156 step-shape tests narrow to
   `workflow.implementation`.
 - The start of repair and refine becomes a derived fact, so a derivation defect
   would misplace the fence or the refine epoch. The implementation item must
-  prove the derived start matches the old event order under rebuild.
+  prove the derived start matches the first recorded action at the step
+  ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - The batched verdict payload and the merged diagnosis payload grow, and the
-  fold is one transaction, so a malformed section refuses the whole call and the
-  caller retries the call rather than one section.
+  recording is one transaction, so a malformed section refuses the whole call
+  and the caller retries the call rather than one section.
 - Each implementation item named above carries its own verification contract
   when its work dispatches. This record decides and implements nothing.
 
@@ -254,10 +294,10 @@ version of the families that declare the actions, with prior versions pinned.
 ```gherkin
 Scenario: One derived failure fact references the terminal attribution
   Given one terminal attempt with a typed attribution record
-  When the store applies it live and rebuilds its log
+  When the store records the attempt's derived failure fact
   Then exactly one derived workflow failure fact references the same
   attribution
-  And correction count and escalation equal the live projection
+  And the correction context reads that one derived record
 ```
 
 - `python3 scripts/check-doc-contract.py` proves this record carries the current

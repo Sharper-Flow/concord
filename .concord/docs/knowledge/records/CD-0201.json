@@ -44,9 +44,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c6c504002b9b73dd5e2223f65456cba59e33c57266b6551e9be857ada736fede",
+  "sha256": "sha256:c3b5661aed562a7fe33cc8b00f1f1d6025147104a832e57fe79f4051df875f58",
   "status": "accepted",
-  "summary": "One tx-scoped history loader and pure workflowAdmit function own admission across all sites; payload and identity checks stay at existing boundaries. Oracle histories consume one ranked-finding lineage, fold its open count, and expose canonical IDs and retained receipts through shared correction/context readers. Dispatch refuses above 32 blockers without truncation. Readiness, oracle defects, and uncovered cases retain declared preparation, correction, supersession, or stop recovery without resetting retries. Every registered version keeps the liveness law and conformance checks over modeled dimensions. Only fresh accepted ship or legacy absent reviews settle review debt.",
+  "summary": "One tx-scoped loader and pure workflowAdmit function own admission across all sites, derived from current rows; payload and identity checks stay at existing boundaries. Oracle work consumes one ranked-finding lineage, counts its open findings, and exposes canonical IDs and retained receipts through shared correction/context readers. Dispatch refuses above 32 blockers without truncation. Readiness, oracle defects, and uncovered cases retain declared preparation, correction, supersession, or stop recovery without erasing open blockers. The registered definitions keep the liveness law and conformance checks over modeled dimensions. Only fresh accepted ship or legacy absent reviews settle review debt.",
   "tags": [
     "workflow",
     "workflow-engine",

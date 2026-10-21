@@ -19,6 +19,7 @@
   [Concord (CON) issue 430](https://linear.app/sharper-flow/issue/CON-430)
 - **Approval:** The operator accepted the work item CON-430 contract that
   carries this record on 2026-09-28.
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D13
 
 ## Context
 
@@ -42,38 +43,40 @@ release order name different moments, and the unsafe one is the shipped one.
 
 ### D1. The vacate commit records the relocation request and releases nothing
 
-session_vacate appends one `work.session_vacated` event of payload version 2
-that names the work item, the Project, the session, the source directory, and
-the core-derived registered main checkout, and records no landing. The commit
-leaves every occupancy row standing.
+session_vacate records the relocation request — the work item, the Project,
+the session, the source directory, and the core-derived registered main
+checkout — as current rows in one transaction and records no landing
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+The commit leaves every occupancy row standing.
 
 CD-0179 D1 says: "A verified landing of a session, or a session_vacate of that
 session, therefore proves every other occupancy row of the same session stale,
 in any work item, and releases all of them." That sentence reads instead: the
 release a vacate produces happens at its verified landing, which the
 adapter-only vacate-landing verb records after the host readback names the
-committed destination. A recorded version 1 event still releases on fold, so a
-projection rebuild from an existing log performs the same releases it
-performed when the writer recorded it.
+committed destination. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+governs: recovery restores a verified snapshot and reconciles current rows, so
+the release always belongs to the readback-verified landing.
 
 ### D2. The verified vacate landing releases the session's rows in one transaction
 
 The adapter moves the host session to the derived destination, reads the
 session directory back, and records the landing through the adapter-only
 vacate-landing verb only when the readback names the registered main checkout
-the committed request names. The landing event's fold releases every occupancy
-row of that session, in any work item, in the transaction that records the
-landing. A landing anywhere else refuses, records nothing, and leaves the
+the committed request names. Recording the verified landing releases every
+occupancy row of that session, in any work item, in the same transaction
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+A landing anywhere else refuses, records nothing, and leaves the
 source occupancy standing.
 
 The landing binds to the pending request it completes. The core records a
 landing only while the latest committed request for that work item and session
-stands with no recorded landing after it, and only a version 2 request can
-stand pending. A request its recorded landing already completed replays as
-already recorded with no event while the session holds no rows. Once a later
-claim's occupancy rows stand, the same landing call refuses and releases
-nothing: those rows belong to the later claim, whose own verified landing or
-vacate releases them.
+stands with no recorded landing after it
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+A request its recorded landing already completed replays as already recorded
+with no event while the session holds no rows. Once a later claim's occupancy
+rows stand, the same landing call refuses and releases nothing: those rows
+belong to the later claim, whose own verified landing or vacate releases them.
 
 ### D3. Every refusal after the committed request reports a possible effect with a working recovery
 
@@ -125,16 +128,19 @@ adapter restart) resolves its Project from the directory the session sits in
 and refuses before the replay; that refusal reports contact_operator, never a
 retry the session cannot reach.
 
-The replay resolves a pending request only: a payload version 2 request with
-no recorded landing after it. The replay re-reads the committed state on every
-call, so the idempotency response cache never answers a vacate replay from the
-recorded success. A request its recorded landing already completed
-resolves as a completed replay with no event while the session holds no
-occupancy rows, so an uncertain landing result recovers; once a later claim's
-occupancy rows stand, the same replay refuses and appends nothing, because the
-rows belong to the later claim, whose own verified landing or vacate releases
-them. A version 1 request that released on fold refuses the replay and appends
-nothing.
+The replay resolves a pending request only: a recorded request with no
+recorded landing after it
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+The replay re-reads the committed state on every call, so the idempotency
+response cache never answers a vacate replay from the recorded success. A
+request its recorded landing already completed resolves as a completed replay
+with no event while the session holds no occupancy rows, so an uncertain
+landing result recovers; once a later claim's occupancy rows stand, the same
+replay refuses and appends nothing, because the rows belong to the later
+claim, whose own verified landing or vacate releases them. The one documented
+cutover migrates recorded vacate requests to current rows, so no legacy
+request shape or release on fold survives
+([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
 ### D4. The replay resolves from the registered main checkout
 
@@ -157,10 +163,10 @@ session_vacate from the verified destination.
 
 ## Alternatives considered
 
-- Record the landing in the core vacate commit, the version 1 payload shape.
-  Rejected: the core cannot prove the host move, so a refused move, a
-  destination mismatch, or an unreadable landing recorded a landing that never
-  happened and released rows under a live session.
+- Record the landing in the core vacate commit. Rejected: the core cannot
+  prove the host move, so a refused move, a destination mismatch, or an
+  unreadable landing recorded a landing that never happened and released rows
+  under a live session.
 - Release the rows when the adapter move call returns. Rejected: the move call
   is the host's report, not proof. The readback is the proof, and the release
   must share one transaction with the evidence that earns it.
@@ -182,20 +188,22 @@ verified landing of any work item, or a lease-set rule releases them. The
 recorded vacate count stays the ordinal of relocation requests, not confirmed
 moves, and the recorded landing count is the ordinal of confirmed releases.
 
-Projections rebuilt from event logs recorded before this record perform the
-same releases they performed when recorded, because a recorded version 1 event
-still releases on fold.
+The store keeps current state and finite verified snapshots, not event logs or
+rebuilt projections; the release always belongs to the readback-verified
+landing
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ## Verification
 
-- `go test ./internal/store/ -run SessionVacate` proves the version 2 request
-  records no landing and leaves occupancy standing, a recorded version 1
-  event still releases on fold, the landing releases the session's rows in
-  one transaction, and the replay target resolves to the committed request.
-  The same run proves the replay of a completed request resolves while the
-  session holds no rows and refuses once a later claim's occupancy row
-  stands, a landing call against a completed request refuses while that row
-  stands, and a version 1 request refuses the replay.
+- `go test ./internal/store/ -run SessionVacate` proves the vacate records
+  the relocation request, records no landing, and leaves occupancy standing,
+  the landing releases the session's rows in one transaction, and the replay
+  target resolves to the committed request. The same run proves the replay of
+  a completed request resolves while the session holds no rows and refuses
+  once a later claim's occupancy row stands, and a landing call against a
+  completed request refuses while that row stands. These proofs bind the
+  [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+  anchor: current rows and the readback-verified landing own the release.
 - `go test ./internal/agent/ -run SessionVacate` proves the replay from the
   verified destination resolves the pending request and appends nothing, and
   a main-checkout vacate with no committed request still refuses. The same

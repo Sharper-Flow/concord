@@ -2653,7 +2653,6 @@ func runWorkflowRecoveryRouteSupersede(t *testing.T, tuple workflowRecoveryRoute
 		t.Fatalf("seed contract at complete step %q: %v", tuple.Step, err)
 	}
 	runWorkflowRecoveryRouteSupersedeSeeded(t, tuple, s, service, grant, privateKey, env, invoke, version, definition)
-	return
 }
 
 // runWorkflowRecoveryRouteSupersedeSeeded continues the supersede journey

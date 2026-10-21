@@ -11,6 +11,8 @@
 > (TS3/TS4), context and authorization (TS5), transport (TS6), result envelopes
 > (TS7), current manifest identity/change evidence (TS8), or change evidence for the
 > surface (TS9).
+> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** recorded workflow
+> effects are current-row mutations; no event log or replay exists.
 
 ## Context
 
@@ -91,7 +93,7 @@ later choose their concrete request/result schemas.
     falsely presented as one transaction with SQLite. Steps are ordered, attributed,
     retry-safe, and expose partial outcomes with an idempotent reconciliation path.
 11. **Stable authority:** in-flight work remains interpretable under its recorded
-    workflow/event formats; surface changes do not rewrite history.
+    workflow and record formats; surface changes do not rewrite history.
 
 ## 4. Evaluation corpus contract
 
@@ -213,7 +215,7 @@ external-system knowledge, and C15 §6 named one closed read on
 with an owner and a consumer, dispatches `resources` from the owner's ambient
 scope, and asserts the resource set, the owner, the consumers, the
 documentation locator, authoritative authority, and two probed absences: no
-vendor content in the response and no event appended to the log. AJ9 is the
+vendor content in the response and no recorded write. AJ9 is the
 ninth job. The corpus holds 23 scenarios after the CD-0213 planning
 retirement.
 
@@ -244,9 +246,9 @@ replacement in the same expected-version envelope as intent revision, lifecycle,
 relations, and [CD-0008](./decisions/CD-0008-concord-mechanism-hardening.md) makes the
 version the optimistic-concurrency fence for the work.
 
-The unit charged is the event, not the project. `work.memberships_replaced` carries a
+The unit charged is the recorded mutation, not the project. `work.memberships_replaced` carries a
 whole membership set and consumes one version however many projects it names, while
-`work_project.added` consumes one version per event. Production
+`work_project.added` consumes one version per record. Production
 `concord_work_define.capture` emits `work.created` plus one
 `work.memberships_replaced`, so a capture yields version 2 for any project count. The
 PM1 fixture seeds membership as one `work_project.added` per project, so there the
@@ -261,7 +263,7 @@ a side effect of binding mutation scenarios. It does not weaken these scenarios,
 because the fixture-independent increment assertion below is what carries the law.
 
 The accounting explains every PM1 work version exactly. `work-cross` is version 4
-because it is the cross-Project item: two `work_project.added` events plus one
+because it is the cross-Project item: two `work_project.added` records plus one
 transition. Only `AJ4-stale-version` was accidentally correct, because
 `work-ready-low` has one membership and no transitions, making its true current
 version 2 as declared.
@@ -314,7 +316,7 @@ job or a tenth tool. Operator approval for the current manifest change is record
 **2026-08-28, issue #169 — PM1 seeds membership through the contract path.**
 
 The 2026-08-17 entry left one question open: whether the complete-set-replacement
-rule governs fixture seeding, or whether per-event `work_project.added` stays
+rule governs fixture seeding, or whether per-record `work_project.added` stays
 legitimate for a fixture. The rule governs every writer.
 [`agent-mutation-tool-contract.md`](./agent-mutation-tool-contract.md) §2.3 now
 states it. A fixture is not exempt, because the divergence it creates is not

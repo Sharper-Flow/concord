@@ -59,18 +59,18 @@ CD-0016, and CD-0036, the typed carriers it names, and the scenario corpus
 with the two schemas it cites. This record fills the implementation boundary
 CD-0013 left open: the common representation, the definition registry and
 digest check, the instance state machine, current workflow state, outcome
-evaluation, the ordered completion gate, actor
-distinctness, impact edges and notices, external condition refusal,
+evaluation, the ordered completion gate, the actor tuple and verdict
+authority, impact edges and notices, external condition refusal,
 dispatch, and the built-in family graphs.
 
 ## Contract
 
-For definitions declaring `approval_policy=consequence_v1`, CD-0013 D11 qualifies every operator-only contract, premise, verdict, correction, supersession, and completion clause in this contract, including their actor mappings. Engineering records a valid contract and coordinator confirmation; independent evaluators record verdicts without consent; coordinators record completion against those verdicts. No synthetic operator or approval evidence is created. Decision-bearing checkpoints retain human authority. [CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: generated definitions derive from one source with no retained released version, and every evidence, recovery, source, and liveness obligation remains required.
+For definitions declaring `approval_policy=consequence_v1`, CD-0013 D11 qualifies every operator-only contract, premise, verdict, correction, supersession, and completion clause in this contract, including their actor mappings. Engineering records a valid contract and coordinator confirmation; review records verdicts without consent, and Implement cannot accept its own result ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)); coordinators record completion against those verdicts. No synthetic operator or approval evidence is created. Decision-bearing checkpoints retain human authority. [CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: generated definitions derive from one source with no retained released version, and every evidence, recovery, source, and liveness obligation remains required.
 
 The binding contract is sections 1 through 12: the common representation and
 bounds, the definition registry, the instance state machine, current workflow
 state, outcome evaluation and strength, the
-ordered completion gate, the actor tuple and evaluator distinctness, impact
+ordered completion gate, the actor tuple and verdict authority, impact
 edges and notices, external condition refusal, dispatch, and the built-in
 family graphs and actions. Section 13 records implementation-deferred items
 and carries no obligation.
@@ -199,7 +199,7 @@ Cross-authority and external-effect actions claim an epoch in
 `durable_operations`, then record start, checkpoint, and result under the
 current epoch.
 
-## 4. Event families
+## 4. Typed mutation records
 
 [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
 governs: the store keeps current state and finite snapshots, not an append-only
@@ -248,7 +248,7 @@ beside the two resolver states.
 | `workflow.condition_cancelled` | `work_id`, `condition_id`, `cancellation_authority` (`operator`), `cancellation_evidence` (1–32 evidence refs), `cancelled_by_event`; the recording actor must resolve to an `operator` actor tuple, and every cancellation evidence ref must be present in the stored durable authority operation |
 | `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`, `superseded`), `final_verdict_kind`, `verdict_actor_ref`, `premise_confirmed` (boolean), `evidence_count` (non-negative, derived from the item's bound evidence history), `changed_refs_digest` (digest), `impact_verdict` (`breaking` or `non-breaking`), `warnings` (0–16 staleness-rule IDs) |
 
-## 5. V15 projections, constraints, and folds
+## 5. V15 projections, constraints, and state tables
 
 The tables below are the workflow engine's current-state tables.
 [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
@@ -378,7 +378,7 @@ data within the unchanged response envelope. The read creates no mutation,
 lease, native effect, or idempotency page record. Work removal deletes the
 lease and its streams; worktree reclamation alone does not erase access.
 
-### 5.2 Fold rules and rebuild
+### 5.2 Current-row effects
 
 [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
 governs: workflow state is current rows written by each mutation in one
@@ -407,8 +407,12 @@ and external effects.
 
 ## 6. Outcome evaluation and strength
 
-The approved predicate is immutable. The verdict actor, distinct from the
-executing actor, is the evaluator (CD-0235 D1). For each approved predicate it
+The approved predicate is immutable. The verdict is recorded through the loop's
+review acceptance: Implement cannot accept its own result, and no separate
+final evaluator or further actor distinctness exists
+([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls),
+which governs [CD-0235](./decisions/CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md) D1).
+For each approved predicate it
 applies the rules below to the delivery and its bound evidence, and records
 `verdict_kind` and `incomparable_with_approved`.
 
@@ -478,7 +482,7 @@ are stable:
 | 1 | Every required evidence binding exists, resolves to its immutable subject, and belongs to the approved contract | `missing_evidence` | `provide_evidence` |
 | 2 | Every declared condition is resolved or explicitly cancelled by its owning authority | `not_terminal` | `reread_entities` |
 | 3 | Every `modifies` edge is within the declared scope and the spec mandate is satisfied | `invariant_violation` | `reread_entities` |
-| 4 | Verdict is present, its actor tuple is complete, and it is distinct from the executing actor | `unauthorized` for same/partial actor; `missing_evidence` for absent verdict | `contact_operator` / `provide_evidence` |
+| 4 | Verdict is present, its actor tuple is complete, and it is recorded by an actor other than the executing Implement actor ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)) | `unauthorized` for same/partial actor; `missing_evidence` for absent verdict | `contact_operator` / `provide_evidence` |
 | 5 | Premise is confirmed by an operator-typed actor | `approval_required` | `request_approval` |
 | 6 | Every approved predicate's latest verdict is `ok` and comparable, and no declared blocking staleness rule drifted | `outcome_mismatch` or `stale_requires_review` | `contact_operator` / `refresh_context` |
 | 7 | Contract, verdict, evidence bindings, impact notices, terminal metadata, and the completion record commit atomically | `operation_conflict` | `reconcile_operation` |
@@ -507,7 +511,7 @@ version where predicate identity, kind, and canonical payload are unchanged.
 Prior premise confirmations and verdicts for changed or removed predicates do not
 satisfy the successor contract.
 
-## 8. Actor tuple and evaluator distinctness
+## 8. Actor tuple and verdict recording
 
 The authenticated mutation context supplies `(principal_ref, client_ref, agent_ref,
 session_ref)`. The engine validates all four are nonempty, canonicalizes each as a
@@ -517,10 +521,12 @@ bounded reference, and hashes these exact UTF-8 bytes with SHA-256:
 actor row stores the tuple once; later records carry only
 `actor_ref`.
 
-`principal_ref` alone never establishes distinctness. A verdict is refused when its
-`agent_ref` and `session_ref` both equal the executing actor's values. An operator
-verdict is distinct from an agent executor but must still carry a complete tuple.
-Any empty or partial tuple is refused. Actor rows and tuple fields cannot be
+`principal_ref` alone never establishes authority. Implement cannot accept its
+own result: a verdict is refused when its
+`agent_ref` and `session_ref` both equal the executing actor's values
+([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
+No other actor distinctness is required. Every verdict actor must still carry a
+complete tuple; any empty or partial tuple is refused. Actor rows and tuple fields cannot be
 updated or deleted; a changed tuple receives a new actor reference.
 
 Every new `record_verdict` call supplies an explicit `verdict_kind` for each
@@ -773,7 +779,7 @@ No result record is invented for a graph step.
 | `revise_candidates` | `workflow.candidate_set_revised` |
 | `declare_impact` | `workflow.impact_declared` |
 | `link_successor` | `workflow.successor_linked` and the existing forward-link relation event |
-| `record_verdict` | `workflow.verdict_recorded`; the verdict actor is the submitting session, distinct from every executor (CD-0013 D5, CD-0109), or the operator's signed identity strictly when the item exited an external-effect step through `record_delivery` (CD-0116) |
+| `record_verdict` | `workflow.verdict_recorded`; the verdict is recorded by an actor other than the executing Implement actor (CD-0242 D5; CD-0109), or by the operator's signed identity strictly when the item exited an external-effect step through `record_delivery` (CD-0116) |
 | `confirm_premise` | `workflow.premise_confirmed` |
 | `complete` | `workflow.completed`, only after the ordered gate in §7 |
 | `frame_question` | `workflow.action_completed`; the framed question is part of the action result and later decision-record evidence |
@@ -791,8 +797,8 @@ No result record is invented for a graph step.
 | `run_analysis` | fenced `workflow.action_started` → `workflow.action_completed`/`workflow.action_failed`; report evidence follows in `record_report` |
 | `record_report` | `workflow.action_completed` plus `workflow.evidence_bound` for the report's immutable subject |
 | `dispatch_worker` | fenced `workflow.action_started` then `workflow.action_completed` v2, bound to the authorized attempt and canonical worker-packet digest |
-| `accept_worker_result` | `workflow.evidence_bound` naming the accepted attempt as its `immutable_subject_ref`, with the lane's capability class as the evidence kind, then `workflow.action_completed` v2 bound to the exact completed attempt and current step epoch; admission rechecks dispatch order, work ownership, lifecycle, model readback, and actor distinctness before advancing. The verdict on the next step cites the attempt id. |
-| `record_worker_failure` | `workflow.action_completed` v2 in hold mode, bound to the exact failed attempt and current step epoch; admission rechecks dispatch order, work ownership, failed lifecycle, actor distinctness, and prior recording. A fresh fenced start opens the recovery attempt. |
+| `accept_worker_result` | `workflow.evidence_bound` naming the accepted attempt as its `immutable_subject_ref`, with the lane's capability class as the evidence kind, then `workflow.action_completed` v2 bound to the exact completed attempt and current step epoch; admission rechecks dispatch order, work ownership, lifecycle, model readback, and non-self-acceptance (CD-0242 D5) before advancing. The verdict on the next step cites the attempt id. |
+| `record_worker_failure` | `workflow.action_completed` v2 in hold mode, bound to the exact failed attempt and current step epoch; admission rechecks dispatch order, work ownership, failed lifecycle, non-self-acceptance (CD-0242 D5), and prior recording. A fresh fenced start opens the recovery attempt. |
 
 `record_worker_job` requires the immutable owner/case/control oracle in the
 recorded job digest (CD-0205 D1). Every admitted dispatch carries that same
@@ -811,10 +817,10 @@ readiness exception.
 resolution claims; no worker record invents them after the fact.
 `worker.failed` remains v2.
 Local job acceptance holds the step. Whole-work delivery still requires the
-complete parent admission, integration evidence, independent verdicts, and
+complete parent admission, integration evidence, review verdicts, and
 operator confirmation; an oracle pass supplies none of those authorities.
 
-### 12.1 Correction escalation wall
+### 12.2 Action definitions and composition
 
 [CD-0242 D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
 governs: each launch is one admitted request with its own scope, assignment,
@@ -875,15 +881,16 @@ values; approval checks their grammar and the verdict actor interprets them
   Then the engine refuses with invariant_violation and the instance remains
   planned.
 
-- Given an approved outcome over two capabilities and an independent verdict
+- Given an approved outcome over two capabilities and a review verdict
   that records a delivery over one of them as weaker
   When complete is dispatched
   Then the engine refuses with outcome_mismatch and records no
   completion.
 
-- Given a completion verdict whose actor equals the executing actor
+- Given a completion verdict recorded by the executing Implement actor
   When record_verdict is dispatched
-  Then the engine refuses the verdict for missing actor distinctness.
+  Then the engine refuses the verdict: Implement cannot accept its own
+  result ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 - Given a workflow action whose pinned definition digest is absent from the
   registry
@@ -907,11 +914,11 @@ executed against production dispatch by
   scenario, which dispatches approve_contract without an end-state and asserts
   an invariant_violation refusal with the instance still planned.
 - Criterion 2 is proved by the bound `WF04-weaker-delivery` scenario, whose
-  independent verdict records the delivery as `outcome_mismatch` and which
+  review verdict records the delivery as `outcome_mismatch` and which
   asserts an outcome_mismatch refusal with no completion record (CD-0235 D2).
 - Criterion 3 is proved by the bound `WF13-verdict-actor-distinctness`
-  scenario, whose verdict actor equals the executing actor and asserts the
-  refusal.
+  scenario, whose verdict is recorded by the executing Implement actor and
+  asserts the refusal (CD-0242 D5).
 - Criterion 4 is proved by the bound `WF37-action-availability-before-register`
   scenario, which dispatches before the definition is registered and asserts
   an invariant_violation refusal with no fallback.

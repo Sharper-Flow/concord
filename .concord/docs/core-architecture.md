@@ -13,8 +13,8 @@
 ## 0. SQLite execution authority and Linear planning authority
 
 The storage-engine authority question is **resolved.** SQLite is Concord's sole
-durable local execution authority: transactional state + durable event history,
-`synchronous=NORMAL`, WAL, and `busy_timeout=5000`; six binding invariants I1–I6
+durable local execution authority: transactional current state and finite
+verified snapshots, `synchronous=NORMAL`, WAL, and `busy_timeout=5000`; six binding invariants I1–I6
 map 1:1 to the Advance failure modes. **PM2 selects one global local SQLite
 authority per Concord installation/operator-machine; Product/Project remain logical
 scopes.** Full records:

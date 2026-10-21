@@ -303,8 +303,8 @@
   {
    "id": "fc3-reviewer-model-distinctness",
    "condition": "fc3",
-   "title": "Reviewer and implementation cannot resolve to the same model where distinctness is declared",
-   "requirement": "CD-0017 D6 requires structural rejection when implementation and review share a readback model identity. The distinctness check compares the readback executing model against the verdict model wherever a definition declares evaluator independence, and fails closed when either model is absent.",
+   "title": "Review records the completion verdict and recorded readback identity stays bound evidence",
+   "requirement": "CD-0242 D5 governs: no reviewer/model distinctness is required; review records the verdict and Implement cannot accept its own result. The recorded readback model remains bound evidence of what executed, and the check fails closed when either identity is absent.",
    "state": "satisfied",
    "evidence": [
     {
@@ -465,8 +465,8 @@
   {
    "id": "fc5-append-only-authority",
    "condition": "fc5",
-   "title": "One append-only event log is the sole state authority",
-   "requirement": "Domain events are the authority and typed projections are derived in the same transaction. Corrections append; history is not hand-repaired.",
+   "title": "One current-state store is the sole state authority",
+   "requirement": "CD-0242 D2 governs: each mutation writes current rows in one transaction checked by an expected version and recorded by its idempotency key; typed projections derive in the same transaction, and a correction is a recorded mutation, not a hand repair.",
    "state": "satisfied",
    "evidence": [
     {

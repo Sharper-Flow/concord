@@ -29,7 +29,7 @@ choices remain binding.
 ## Contract
 
 The binding contract is sections 1 through 4: the explicit typed core decision,
-the stable conceptual object set, the authority and event-history pattern
+the stable conceptual object set, the authority and current-state pattern
 including the retention-bounded active-context exception, and the extension
 rule with its forbidden patterns. Sections 5 through 10 record rejected
 alternatives, external validation, deferred scope, falsifiers, supersession
@@ -77,9 +77,9 @@ ownership, work kind, lifecycle projection, priority, terminal time, versions, a
 relation/membership endpoints. PM4/PM5 supply semantics; exact columns follow
 implementation design.
 
-## 3. Authority and event-history pattern
+## 3. Authority and current-state pattern
 
-### 3.1 One generic log remains authoritative
+### 3.1 One current-state store remains authoritative
 
 The store keeps current state and finite verified snapshots: each mutation
 writes current rows in one transaction checked by an expected version, no event
@@ -97,7 +97,7 @@ membership, relations, archive linkage, and every normal table remain current ro
 under [CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history). No other fact type inherits this exception by
 analogy.
 
-### 3.1b Historical worktree occupancy replay
+### 3.1b Worktree occupancy reconciliation
 
 Worktree occupancy recovery reconciles current occupancy rows with Git and
 worktree references during verified-snapshot restore. When recovery cannot reconcile an occupancy row, it refuses with a typed
@@ -137,8 +137,9 @@ tables indirectly—with weaker discoverability and integrity.
 
 ### Per-kind tables and typed logs — rejected
 
-The rejected extreme creates one table/log/rebuild path per work kind, ossifying
-the system and multiplying migrations. This is not a rejection of typed
+The rejected extreme creates one table and migration path per work kind,
+ossifying the system and multiplying migrations; no per-kind history exists
+([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). This is not a rejection of typed
 projections: C deliberately uses a shared typed work core. Work kinds are
 behavior discriminators over that core, not separate storage domains.
 

@@ -2,6 +2,9 @@
 
 > **Status:** Living doc. Companion to [`README.md`](./README.md) and the others.
 > **Amended:** 2026-10-18.
+> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md):** the rows below state the
+> current rules that decision governs; the store keeps current state and finite
+> verified snapshots, and no event log, fold, or replay exists.
 > **Purpose:** The unresolved decisions and ambiguities that need operator
 > direction before Concord moves from vision to build, plus resolved directions
 > that already have an answer and must be honored by the document set.
@@ -186,8 +189,8 @@ re-litigate them silently.
   ranked alternatives (DBOS/Postgres, Restate, LMDB, Temporal-collapsed) remain
   documented in CD-0002 §2 as upgrade/fallback paths. PM2 resolves one global
   local authority; PM3 replaces CD-0003 D1's generic materialized spine with typed
-  projections; CD-0242 D2 keeps current state and finite snapshots where the
-  generic authoritative event log stood.
+  projections; CD-0242 D2 keeps current state and finite snapshots with no event
+  log or replay.
 - **Blocks (resolved):** PM1–PM5 authorize storage/core implementation, and CD-0007
   resolves repository and deploy packaging. CD-0089 permits Concord development
   coordination without changing the accepted storage authority.
@@ -476,7 +479,7 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 | PM6 | Canonical git-note placement | git markdown | completed-work compaction |
 | compaction-retention-policy | Compaction, retention, and historical index | SQLite + git | archive/prune behavior |
 | PM8 | WIP evidence/blob scope | none — producer-owned output | excludes v1 byte store |
-| PM9 | Exhaust salvage and audit receipt | none — existing event/note/locator sequence | excludes v1 receipt |
+| PM9 | Exhaust salvage and audit receipt | none — existing record/note/locator sequence | excludes v1 receipt |
 | PM10 ✅ | Backup, restore, and garbage collection | SQLite + git authorities | recovery policy accepted |
 
 ### PM1–PM10 — decisions at a glance
@@ -494,7 +497,7 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 > **PM2–PM5 are accepted and binding.** Membership may not reintroduce duplicate
 > physical authority, application fan-out, copied work state, or a generic
 > materialized spine without explicit supersession.
-| **PM3 ✅ Accepted 2026-08-05** Product-memory domain schema. *Binding:* [`product-memory-domain-schema.md`](./product-memory-domain-schema.md) narrowly supersedes CD-0003 D1's generic materialized spine. | **Hybrid explicit core:** current rows and finite verified snapshots per CD-0242 D2; explicit typed Product/Project/component/work/membership/relation projections; bounded versioned JSON only for rare extensions. | PM1/PM2 + official SQLite/Context7 guarantees + public-source comparisons. Reopen on the accepted falsifiers: repeated schema churn by work kind, bounded generic projection without facet proliferation, non-total folds, per-kind-table need, or misclassified first-class identities. | PM1–PM2 → **PM3 schema + PM4/PM5 input**, operator-approved. |
+| **PM3 ✅ Accepted 2026-08-05** Product-memory domain schema. *Binding:* [`product-memory-domain-schema.md`](./product-memory-domain-schema.md) narrowly supersedes CD-0003 D1's generic materialized spine. | **Hybrid explicit core:** current rows and finite verified snapshots per CD-0242 D2; explicit typed Product/Project/component/work/membership/relation projections; bounded versioned JSON only for rare extensions. | PM1/PM2 + official SQLite/Context7 guarantees + public-source comparisons. Reopen on the accepted falsifiers: repeated schema churn by work kind, bounded generic projection without facet proliferation, non-total current-state writes, per-kind-table need, or misclassified first-class identities. | PM1–PM2 → **PM3 schema + PM4/PM5 input**, operator-approved. |
 
 > **PM3 is accepted and binding.** It keeps explicit typed Product-memory
 > projections over current rows and finite snapshots (CD-0242 D2), replaces
@@ -515,13 +518,13 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 > **PM6 is accepted and binding.** It fixes canonical durable-note placement. Accepted
 > compaction-retention-policy supplies the bounded lazy pruning transition; PM8 excludes WIP-byte storage; PM9
 > rejects a separate receipt; PM10 fixes recovery. C15 and TS1–TS9 are now accepted.
-| **compaction-retention-policy ✅ Accepted 2026-10-09** Compaction, retention, historical index. *Binding:* [`compaction-retention-policy.md`](./compaction-retention-policy.md) amends PM6. | Terminal compaction plus verified git proof makes a work item eligible; only explicit or measured-pressure bounded lazy maintenance may prune its live projections. Retain authoritative `domain_events`; keep a git-rebuildable historical index with frozen compaction scope. Pruned IDs never reopen; renewed work has a new ID and typed `archived_work_linked` cross-tier link. | Reopen if retained core events are the growth problem, needed history is absent from git/events, linked successor work repeatedly fails legitimate jobs, combined live/historical Q2/Q3 misses target, historical front matter becomes a dump, maintenance burdens operators, measured pressure needs another trigger, or PM9/PM10 provides a simpler replay authority. | PM4, PM6 → **PM6 amendment**, operator-approved. |
-> **compaction-retention-policy is accepted and binding.** It rejects a fixed 30-day sweep, preserves v1
-> event authority, makes the prune transition atomic and foreign key (FK) clean, and fixes immutable
+| **compaction-retention-policy ✅ Accepted 2026-10-09** Compaction, retention, historical index. *Binding:* [`compaction-retention-policy.md`](./compaction-retention-policy.md) amends PM6. | Terminal compaction plus verified git proof makes a work item eligible; only explicit or measured-pressure bounded lazy maintenance may prune its live projections. Retain current rows and finite verified snapshots ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2); keep a git-rebuildable historical index with frozen compaction scope. Pruned IDs never reopen; renewed work has a new ID and typed `archived_work_linked` cross-tier link. | Reopen if retained receipts and snapshots are the growth problem, needed history is absent from git, linked successor work repeatedly fails legitimate jobs, combined live/historical Q2/Q3 misses target, historical front matter becomes a dump, maintenance burdens operators, measured pressure needs another trigger, or PM9/PM10 provides a simpler recovery authority. | PM4, PM6 → **PM6 amendment**, operator-approved. |
+> **compaction-retention-policy is accepted and binding.** It rejects a fixed 30-day sweep, keeps current rows and finite verified
+> snapshots as the state authority (CD-0242 D2), makes the prune transition atomic and foreign key (FK) clean, and fixes immutable
 > pruned identity plus separate cross-tier follow-up links. PM8 excludes WIP-byte storage;
 > PM9 rejects a separate receipt; PM10 fixes recovery. TS1–TS9 are accepted.
 | **PM8 ✅ Accepted 2026-08-06** WIP evidence/blob scope. *Binding:* [`product-memory-evidence-store.md`](./product-memory-evidence-store.md) narrows CD-0002 §2d. | No CAS, hashing, external-byte path references, or generic screenshot requirement. WIP output stays with its producer; Concord retains bounded state, concise notes, and ordinary external refs only. | Reopen only for a measured recurring job with a named reader, exact-byte need after WIP is gone, explicit retention/restore promise, and value sufficient to justify storage complexity. | PM1–PM6, compaction-retention-policy → **CD-0002 §2d amendment**, operator-approved. |
-| **PM9 ✅ Accepted 2026-08-06** Process-exhaust salvage + audit receipt. *Binding:* [`product-memory-process-exhaust.md`](./product-memory-process-exhaust.md) amends CD-0002. | No receipt object: existing terminal event, approved note, verified PM6 locator, and optional compaction-retention-policy prune event are sufficient. Material lessons enter reviewed note/decision text; raw exhaust stays producer-owned. | Reopen only for a recurring named reader whose needed fact cannot be answered by existing event/note/locator/link state and whose proposal states proof, retention, restore promise, and why concise knowledge is insufficient. | PM1–PM8 → **CD-0002 amendment**, operator-approved. |
+| **PM9 ✅ Accepted 2026-08-06** Process-exhaust salvage + audit receipt. *Binding:* [`product-memory-process-exhaust.md`](./product-memory-process-exhaust.md) amends CD-0002. | No receipt object: existing terminal record, approved note, verified PM6 locator, and optional compaction-retention-policy prune record are sufficient. Material lessons enter reviewed note/decision text; raw exhaust stays producer-owned. | Reopen only for a recurring named reader whose needed fact cannot be answered by existing event/note/locator/link state and whose proposal states proof, retention, restore promise, and why concise knowledge is insufficient. | PM1–PM8 → **CD-0002 amendment**, operator-approved. |
 | **PM10 ✅ Accepted 2026-08-06** Backup, restore, GC. *Binding:* [`product-memory-recovery.md`](./product-memory-recovery.md). | Online SQLite snapshots plus canonical git; clean staging restore, verification, rebuild, then atomic swap. No WIP/CAS/receipt input. | Reopen on unmet measured recovery objectives, omitted authority, required continuous replication, or a deletion job outside this policy. | PM1–PM9 → **recovery amendment**, operator-approved. |
 
 ---
@@ -557,7 +560,7 @@ fewest tools that complete canonical jobs reliably**, with bounded schemas.
 
 ### TS1–TS9 — decisions at a glance
 
-The current AJ5 overlap binding follows CD-0013 D11: routine dependency, blocking, and compatibility answers need no operator consent; merger and supersession retain exact operator approval as listed gaps without a new class assignment. Both endpoint versions and judged contract content remain bound. The table's original approval-consumption account does not impose consent on those routine answers. Workflow approval scenarios distinguish the new policy from retained historical pins.
+The current AJ5 overlap binding follows CD-0013 D11: routine dependency, blocking, and compatibility answers need no operator consent; merger and supersession retain exact operator approval as listed gaps without a new class assignment. Both endpoint versions and judged contract content remain bound. The table's original approval-consumption account does not impose consent on those routine answers. Workflow approval scenarios bind the one generated current definition ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14).
 
 
 | ID | Decision boundary + current binding | Non-authorizing lean | Evidence / falsifier | Depends → artifact |

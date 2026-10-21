@@ -10,6 +10,8 @@
 > **Does not decide:** transport/adapter implementation (TS6), result/error field
 > layout (TS7), manifest identity/change evidence (TS8), measurement evidence (TS9), user-interface
 > rendering, or C15.
+> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** idempotent
+> request replay returns the committed result; no event replay exists.
 
 ## Context
 
@@ -270,8 +272,8 @@ and approval-bound consequence content.
   for renewed authorization when those no longer apply, never start a second
   publication/external effect.
 
-Idempotency identity remains reconstructable for as long as the referenced domain
-event or durable operation remains authoritative. No short time to live (TTL) may make a valid
+Idempotency identity remains reconstructable for as long as the referenced
+recorded mutation or durable operation remains authoritative. No short time to live (TTL) may make a valid
 retry duplicate a durable effect.
 
 The replay window is the lifetime of that authority, not a calendar duration.
@@ -283,7 +285,7 @@ Every replay path reads the same authoritative result owner.
 ## 8. Request identity and audit
 
 `request_id` is unique per transport attempt and links logs/metrics. It does not
-deduplicate. Domain events and durable operations record principal, client,
+deduplicate. Recorded mutations and durable operations record principal, client,
 request ID, idempotency identity, approval reference when applicable, resolved
 scope/version, and resulting entity versions.
 

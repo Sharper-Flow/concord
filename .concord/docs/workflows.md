@@ -120,7 +120,7 @@ revision authority:
 |---|---|---|
 | **Premise** | Why this work exists, in the operator's terms. | Operator only; revision supersedes rather than edits. |
 | **Required end-state** | Falsifiable postconditions carrying the operative verb. | Operator only, at planning approval. |
-| **Candidate set** | The specific instances the end-state ranges over. | The executing agent, during execution, by appended event. |
+| **Candidate set** | The specific instances the end-state ranges over. | The executing agent, during execution, by a recorded revision. |
 
 The required end-state is approved at planning beside CD-0006 D10's spec mandate,
 and verified at completion. A delivered end-state may only be stronger than the
@@ -202,7 +202,7 @@ matures into a break-fix workflow, which may become an implementation change.
 
 | Family | Captures | Shape |
 |---|---|---|
-| **`workflow.implementation`** | Tasks default here | Composes shared parts at the size the decision model sets: `small` walks define, implement, review, and ship; `larger` adds research, architect, and refine; `crucial` adds repeated implement steps and repeats review and refine (CD-0229 D5; CD-0242 D4). The outcome contract, independent acceptance, and closure hold at every size. |
+| **`workflow.implementation`** | Tasks default here | Composes shared parts at the size the decision model sets: `small` walks define, implement, review, and ship; `larger` adds research, architect, and refine; `crucial` adds repeated implement steps and repeats review and refine (CD-0229 D5; CD-0242 D4). The outcome contract, review acceptance, and closure hold at every size. |
 | **`workflow.break_fix`** | Bugs default here | One typed diagnosis with required reproduction, backlog-search, and root-cause sections, then repair, the mandatory refine pass, and verification (CD-0242 D4; CD-0138 D1). |
 | **`workflow.research`** | Research defaults here | Records findings, conclusions, and recommendations; may conclude `no_change`; outcome predicates only (CD-0218 D1). [CD-0215](./decisions/CD-0215-retained-research-context.md) owns the research-pack capability. |
 

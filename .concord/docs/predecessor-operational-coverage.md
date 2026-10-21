@@ -5,6 +5,9 @@
 > [`priorities.md`](./priorities.md) (canonical floor definition) and
 > [`floor-readiness.md`](./floor-readiness.md) (authorizing readiness record).
 > **Issue:** [#78](https://github.com/Sharper-Flow/concord/issues/78).
+> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5:** review records the
+> verdict and Implement cannot accept its own result; no separate final evaluator
+> or other executing-actor distinctness exists.
 > **Predecessor:** the public [Advance](https://github.com/Sharper-Flow/Advance)
 > repository. Citations below name public predecessor documents, never private
 > history or local state.
@@ -122,7 +125,7 @@ The spec-driven lifecycle from confirmed intent to released, evidenced change.
 |---|---|---|
 | Drive a unit of implementation work through a staged lifecycle with required evidence at each stage | Covered | `implementation` workflow definition, `internal/store/workflow_registry.go` |
 | Bind completion to recorded proof rather than assertion | Covered | `bind_evidence`, `RequiredEvidenceKinds`, `internal/store/workflow_completion.go` |
-| Require an evaluator distinct from the author on high-risk work | Covered | `EvaluatorIndependence`; verdict-actor distinctness in `internal/store/workflow_completion.go` |
+| Require an evaluator distinct from the author on high-risk work | Covered | `EvaluatorIndependence`; review records the verdict and the engine refuses a verdict recorded by the executing Implement actor ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)), enforced in `internal/store/workflow_completion.go` |
 | Reject a delivered end-state weaker than the approved one | Covered | CD-0012; completion clause 6 in `internal/store/workflow_completion.go` refuses a weaker or incomparable recorded verdict (WF04, WF50) |
 | Absorb a mid-execution discovery without discarding completed work or silently substituting scope | Covered | `link_successor` forward composition, `internal/store/workflow_dispatch.go` |
 | Resume interrupted work without losing workflow position or repeating external effects | Covered | Attempt epochs, claim/checkpoint/complete fencing in `internal/store/fence.go` |
@@ -138,7 +141,7 @@ The spec-driven lifecycle from confirmed intent to released, evidenced change.
 | Run quality scanners over a change — code smell, architectural inconsistency, competitive comparison, optimization survey | Excluded | [`capability-placement.md`](./capability-placement.md) §3: analysis tooling is an external native authority. Concord coordinates such work through the `static_analysis` workflow type and records its verdict; it does not implement scanners. |
 | Obtain an acceptance verdict from an authority the implementing agent cannot read or influence | Covered | CD-0013 D5 and CD-0017 D4 hold the influence half; CD-0023 read-scopes the recorded verdict so every session except the recorded executing actor audits it (`internal/agent/verdict_scope_test.go`). |
 | Track a small, well-understood durable change without the full spec-driven lifecycle | Covered | `generic_one_off` workflow definition (`define` → `execute` → `verify` → `complete`), `internal/store/workflow_registry.go` |
-| Obtain a review verdict on rendered visual or frontend output | Covered | `record_verdict` and the `EvidenceReview` requirement carry a review verdict regardless of which surface the reviewer inspected, `internal/store/workflow_registry.go`; evaluator distinctness is enforced in `internal/store/workflow_completion.go`. Which surface a reviewer examines is lane methodology, host-owned under [CD-0043](./decisions/CD-0043-host-owned-lane-methodology.md) D1–D2: it reaches a dispatch only through the enumerated `CONCORD_HOST_INSTRUCTIONS` provenance surface and is never durable coordination state. Concord owes no skill here — the same coordination/analysis split this section applies to quality scanners. |
+| Obtain a review verdict on rendered visual or frontend output | Covered | `record_verdict` and the `EvidenceReview` requirement carry a review verdict regardless of which surface the reviewer inspected, `internal/store/workflow_registry.go`; the refusal of a verdict recorded by the executing Implement actor is enforced in `internal/store/workflow_completion.go` ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). Which surface a reviewer examines is lane methodology, host-owned under [CD-0043](./decisions/CD-0043-host-owned-lane-methodology.md) D1–D2: it reaches a dispatch only through the enumerated `CONCORD_HOST_INSTRUCTIONS` provenance surface and is never durable coordination state. Concord owes no skill here — the same coordination/analysis split this section applies to quality scanners. |
 
 ## 4. Research and investigation
 

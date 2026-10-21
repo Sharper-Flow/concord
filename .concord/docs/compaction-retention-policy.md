@@ -12,7 +12,7 @@
 
 ## Context
 
-This complete successor preserves work-history authority, canonical note proof, historical scope, query populations, and deferred terminal projection pruning.
+This complete successor preserves canonical note proof, historical scope, query populations, and deferred terminal projection pruning.
 Research retention changes at a separate explicit boundary.
 
 ## Contract
@@ -27,7 +27,7 @@ Publication does not itself remove live work projections or research.
 
 CD-0217 defers terminal-projection pruning, its eligibility predicate, pressure threshold, maintenance cursor, and execution mechanism.
 Terminal work stays in live typed projections indefinitely.
-`work_projection_pruned` and `archived_work_linked` remain reserved; this record does not introduce those events or their projections.
+`work_projection_pruned` and `archived_work_linked` remain reserved names; this record introduces neither mutation nor projection.
 Reintroduction requires an accepted decision that supersedes the deferral and preserves the authority guarantees here.
 The three revisit triggers are measurable degradation of authoritative operations, deployment beyond one operator, or snapshot-size recovery risk.
 
@@ -48,7 +48,7 @@ An in-flight compaction or canonical-home mutation and unresolved recovery preve
 A future run must declare hard item or time bounds and return an explicit continuation.
 No unmeasured default pressure threshold or calendar sweep is accepted.
 Each work item must move atomically between live and historical projections, with replay returning the committed idempotent result.
-Core events remain available for history and replay.
+Retention removal follows each retained category's documented removal condition and never removes a receipt or verified snapshot a consumer needs ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 These guarantees constrain a future accepted mechanism; they do not activate the deferred one.
 
 ### 3. Minimum Git-rebuildable historical projection
@@ -100,10 +100,10 @@ Q9/Q10 retain PM6 locator proof, canonical note identity, current Git authority,
 
 Before any accepted committed prune boundary, PM4 reopen rules remain available.
 A projection-pruned ID cannot reopen; renewed need uses a new canonical work identity linked to the old one.
-The old note, terminal state, and event history remain unchanged.
+The old note and recorded terminal state remain unchanged.
 Cross-tier follow-up must not invent mutable lifecycle, hierarchy, supersession, or blocker authority on historical edges.
 It must not pretend that a removed projection is a live foreign-key endpoint.
-The cross-tier event and projection remain deferred under CD-0217.
+The cross-tier record and projection remain deferred under CD-0217.
 
 ### 6. Protected research retirement
 
@@ -168,12 +168,12 @@ Copied historical status on membership edges is rejected because terminal state 
 
 ### 9. Cutover and falsifiers
 
-This successor does not decide a future pressure threshold, work-prune command, backup topology, or alternate authoritative replay source.
+This successor does not decide a future pressure threshold, work-prune command, backup topology, or alternate authoritative recovery source.
 This offline edit provides no live consumer enumeration or completed re-contracting evidence.
 
-Reconsider this policy if retained events drive measured growth, real investigations require unavailable projection data, or linked renewed identities fail legitimate work.
+Reconsider this policy if retained receipts and snapshots drive measured growth, real investigations require unavailable projection data, or linked renewed identities fail legitimate work.
 Other falsifiers are unmet PM1 query targets, unbounded historical front matter, excessive explicit maintenance burden, or evidence for a different measured trigger.
-A simpler PM10 authority must preserve exact history before it can replace this split.
+A simpler PM10 authority must preserve the canonical note, retained receipts, and verified snapshots before it can replace this split.
 
 ## Acceptance criteria
 

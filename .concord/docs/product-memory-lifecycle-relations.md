@@ -14,8 +14,11 @@
 > **Amended by CD-0222, CD-0042, CD-0142, and CD-0213:** business grouping lives in Linear, and
 > Concord stores no grouping kind or membership; architecture-overlap resolutions extend the
 > work-pair grammar.
+> **Amended by [CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** every
+> transition and relation change is one recorded current-row mutation; no event
+> log or retained event history exists.
 > CD-0142 adds operator-directed removal of nonterminal execution projections
-> without adding a lifecycle state. The planning record and exact event history remain.
+> without adding a lifecycle state. The planning record remains.
 > Issues #196/#197 replace obsolete pre-go-live forms directly, without aliases,
 > upcasters, or compatibility windows.
 
@@ -83,10 +86,11 @@ needed | in_progress | completed | cancelled
 superseded  → needed       (only after removing/replacing its supersession edge)
 ```
 
-- Every transition is an append to `domain_events` plus projection update in one
-  SQLite transaction (CD-0002 I4).
-- Reopen is an explicit event with actor, reason, expected version, and prior
-  terminal state. It never edits or deletes terminal history.
+- Every transition is one recorded current-row mutation in one
+  SQLite transaction (CD-0002 I4;
+  [CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+- Reopen is an explicit recorded transition with actor, reason, expected version, and prior
+  terminal state. It never edits or deletes the terminal record it reopens.
 - `in_progress → needed` means intentionally paused/returned to the queue; it is
   not a hidden blocked state.
 - Terminal reason/evidence fields required by the accepted operation commit in the
@@ -95,8 +99,8 @@ superseded  → needed       (only after removing/replacing its supersession edg
   accepted, but they do not create additional Product-memory lifecycle states.
 
 CD-0142 defines a separate operator-directed removal operation for nonterminal
-execution. It preserves the planning handoff and exact `domain_events` history,
-then removes the WorkItem and its owned execution projections atomically. The
+execution. It preserves the planning handoff, then removes the WorkItem and its
+owned execution projections in one recorded mutation. The
 removal reason is `shelved` or `cancelled`; shelving never emits cancellation.
 The removed identity is audit-only and cannot reopen. Renewed work receives a
 new identity from the surviving planning record.
@@ -139,7 +143,7 @@ read names are part of the contract; callers never create mirrored rows.
 
 CD-0222's work-pair grammar adds version-pinned `compatible_with`, `merged_into`, and
 architecture-sequencing use of `blocks`/`depends_on`/`supersedes`; its
-implementation issue must update this table, schemas, events, and conformance in
+implementation issue must update this table, schemas, records, and conformance in
 one major rather than partially accepting new relation strings.
 
 `depends_on` is not a second stored relation kind. “A depends on B” is stored once
@@ -161,7 +165,7 @@ link. Add it only through a future demonstrated query need.
 
 Before inserting `parent`, `blocks`, or `supersedes`, Concord evaluates the
 **resulting graph** inside the same transaction. A cycle-creating operation fails
-closed with typed `invariant_violation`; no event or projection row commits.
+closed with typed `invariant_violation`; no row commits.
 
 Evaluating the resulting graph—not only the incremental edge—allows an accepted
 operation to reverse a dependency without falsely detecting the outgoing edge that
@@ -173,8 +177,8 @@ acceptance work at Concord's measured scale.
 `supersede(successor=A, predecessor=B)` is one domain operation:
 
 1. validate same Product scope, expected versions, edge uniqueness, and acyclicity;
-2. append the supersession relation event and B's lifecycle transition event;
-3. project the edge and `B.lifecycle_state = superseded` atomically;
+2. record the supersession edge and B's terminal transition in one transaction;
+3. commit the edge and `B.lifecycle_state = superseded` atomically;
 4. return A as B's canonical direct successor.
 
 Following a chain yields the current canonical successor. A predecessor has at most
@@ -193,12 +197,12 @@ supersession semantics to resources or other entity types.
 An external dependency is represented as a canonical `work_item` with kind
 `external_blocker`. CD-0008 D5 amends its typed `external_ref` into a closed condition
 carrying `await_type`, `await_ref`, `resolution_authority`, resolution evidence, and
-the resolving lifecycle event. Supported initial conditions are PR merge, CI result,
+the resolving lifecycle record. Supported initial conditions are PR merge, CI result,
 timer, human approval, and remote-work state. It participates in the same foreign key (FK) enforced
 `blocks` relation as every other blocker.
 
 - External state is not silently treated as Concord authority.
-- Resolution is an accepted Concord lifecycle event backed by the applicable
+- Resolution is an accepted recorded Concord lifecycle transition backed by the applicable
   evidence/actor contract.
 - Conditions are evaluated only on explicit request or consequential boundaries;
   no polling/timer daemon or heuristic resolution is introduced.
@@ -216,8 +220,9 @@ timer, human approval, and remote-work state. It participates in the same foreig
    disagree at a committed version.
 5. **Acyclic governing graphs:** parent, `blocks`, and supersession cycles are
    rejected before commit.
-6. **Explainability:** every lifecycle/edge change has an ordered `domain_events`
-   record with actor, reason, expected version, and resulting version.
+6. **Explainability:** every lifecycle/edge change is one recorded mutation with
+   actor, reason, expected version, and resulting version
+   ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 7. **No partial terminality:** terminal state and required terminal metadata commit
    together or not at all.
 
@@ -274,7 +279,7 @@ PM4 does not decide:
   target;
 - compaction-retention-policy's accepted post-prune immutability boundary: before pruning, PM4 reopen rules
   apply; after `work_projection_pruned`, renewed need creates a new work ID through
-  an `archived_work_linked` event and `archived_work_links` read model. This is not a
+  an `archived_work_linked` record and `archived_work_links` read model. This is not a
   PM4 live `relations` row and cannot use an archived ID as an FK endpoint;
 - PM10 recovery shape or external-system observation/polling;
 - agent tool names, schemas, or transport.
@@ -318,8 +323,7 @@ jobs/oracles, CD-0002 invariants, and the falsifiers above remain controlling.
 
 - Given a relation insertion that would create a cycle
   When the operation is attempted
-  Then it fails closed with typed invariant_violation and no event or
-  projection row commits.
+   Then it fails closed with typed invariant_violation and no record commits.
 
 - Given a valid supersession of predecessor by successor
   When the supersede operation commits
@@ -328,8 +332,8 @@ jobs/oracles, CD-0002 invariants, and the falsifiers above remain controlling.
 
 - Given superseded work
   When it is reopened
-  Then the reopen removes or replaces the supersession edge and transitions
-  the state in one composite event, never a direct superseded-to-needed edit.
+   Then the reopen removes or replaces the supersession edge and transitions
+   the state in one recorded operation, never a direct superseded-to-needed edit.
 
 - Given ready work ranked against a blocked higher-priority item
   When Q5 selects work

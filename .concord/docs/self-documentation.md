@@ -12,6 +12,8 @@
 > optimal IO/storage/memory model for them.
 > **Primary surface:** Terminal-first tools; an optional admin panel is a
 > projection, not the operating center.
+> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** doc storage keeps
+> current rows and finite snapshots; no event log or replay exists.
 > **Origin:** User direction, 2026-07-25.
 
 ## TL;DR
@@ -132,8 +134,9 @@ in Linear through the Linear MCP server under CD-0213 and never clears that stat
    all three?
 3. **Versioning granularity** — per-document versions, or per-change snapshots?
 4. **Memory-bounding strategy** — lazy loading, cursor pagination, streaming?
-5. **Staleness signal source** — derived from orchestrator events, or computed
-   on read from base-branch / dependency timestamps?
+5. **Staleness signal source** — computed
+   on read from base-branch / dependency timestamps, or derived from another
+   current-state signal?
 
 ---
 

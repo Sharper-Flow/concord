@@ -38,7 +38,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0881e66d9ddf00de42ffda57d9588f1c1956e2f47f4876d66c050a3b1af73a70",
+  "sha256": "sha256:8fcbf6d5df2bfef1398d49c1c693457e8769bac9bf5a673f7bd666717f6e1afc",
   "status": "accepted",
   "summary": "Defines the typed Product-memory schema boundary: current state and finite verified snapshots per CD-0242 D2, explicit typed current-state tables, and JSON only for rare versioned extension metadata.",
   "tags": [

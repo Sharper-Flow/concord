@@ -13,6 +13,9 @@
 > CD-0042 requires #197 to replace component filters/context directly with Domain
 > on the pre-go-live primary path. Component inputs are not a compatibility
 > contract; new Domain writes remain unauthorized until #197 lands.
+> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** the `history` read
+> serves recorded mutations within the store's finite retained categories; no
+> event history or replay exists.
 
 ## Context
 
@@ -38,7 +41,7 @@ Concord exposes **four always-visible read tools**:
    snapshot;
 2. `concord_work_browse` — inspect current/actionable work sets, readiness,
    blockage, and cross-Project scope;
-3. `concord_work_trace` — explain one work item's event history and relation graph;
+3. `concord_work_trace` — explain one work item's recorded changes and relation graph;
 4. `concord_knowledge` — search durable Product knowledge or resolve one canonical
    note locator.
 
@@ -100,12 +103,12 @@ related to other work—not when it wants a current work list.
 
 | Operation | PM1 | Required/optional inputs | Typed payload |
 |---|---|---|---|
-| `history` | Q7 | `work_id`; direction; optional event kinds; cursor/limit | `work_event_page`: ordered atomic events with versions, actor, reason, and evidence references |
+| `history` | Q7 | `work_id`; direction; optional record kinds; cursor/limit | `work_event_page`: recorded mutations within the store's finite retained categories, with versions, actor, reason, and evidence references ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) |
 | `relations` | Q8 | `work_id`; closed relation kinds; direction; depth 1–3 | `work_relation_graph`: bounded canonical nodes/edges, inverses, archived-work links, and replacement state |
 
 History and relation traversal share singular work scope, explanatory intent,
 bounded graph/sequence behavior, and provenance-oriented recovery. They remain
-discriminated payloads; callers never infer an event from an edge or vice versa.
+discriminated payloads; callers never infer a recorded mutation from an edge or vice versa.
 
 ### 2.4 `concord_knowledge`
 
@@ -118,7 +121,7 @@ the one canonical locator for a known terminal work/knowledge item.
 | `resolve_note` | Q10 | exactly one work or knowledge reference | `canonical_note_result`: one locator or typed not-compacted/missing/ambiguous outcome; a canonical answer may add law `status` and `successor_id`, never altering `state` |
 
 Search never returns an unbounded artifact body. Bounded text may match a
-fold-only projected law body, but that match remains ranked discovery data and
+projected law body in the index, but that match remains ranked discovery data and
 never law authority. A canonical locator identifies the Git authority; the
 accepted client may then read that authority through its normal bounded
 file/resource path. Index lag and canonical-Git reachability remain explicit.

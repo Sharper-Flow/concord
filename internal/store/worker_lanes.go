@@ -442,9 +442,8 @@ const (
 	WorkerCallerRepairPathsMax = 64
 )
 
-// WorkerProductionSize is the report's declared production size (CD-0225
-// D2): the added-plus-deleted production lines between the dispatched job's
-// recorded base and the delivered tree.
+// WorkerProductionSize decodes the retired production-size report member a
+// stored v8 completion may carry (CD-0242 D6).
 type WorkerProductionSize struct {
 	Base  string `json:"base"`
 	Tree  string `json:"tree"`

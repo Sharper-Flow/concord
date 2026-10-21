@@ -170,7 +170,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:17c23164d508afe45d8019465e53478c5eca58adccebe2bf821dd06b4dc3ce74",
+  "sha256": "sha256:7c45990c3154375eef53cb219e1efbbca4b3e0c31001696ddaf7fa0239eca2ae",
   "status": "accepted",
   "summary": "Product knowledge and completion receipts hold durable outcomes and a shared local store holds resumable current work. Each mutation writes current rows checked by an expected version and its idempotency key; no event log or replay exists. Stage exits are the unit of enforcement, families compose shared stages, and Main controls the execution loop. Attempts carry their own authority instead of budgets, revisions invalidate only dependents, and receipts bind evidence to subjects. Completion needs proof, approvals, delivery, and publication. Fresh sessions resume from current state, and refusals name admitted actions. The cutover is one documented migration with a verified snapshot, and generated contracts derive from one source. The record supersedes seven records in full and amends the listed decisions and specifications.",
   "tags": [

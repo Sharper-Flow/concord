@@ -289,6 +289,13 @@ This record supersedes these records in full:
 Each listed clause is replaced by one sentence that states the current rule
 and cites the governing decision here. The rest of each record stands.
 
+Any other clause or heading, in any record, that states an event log, fold,
+upcaster, or replay of history; a retained released-definition version or
+in-flight pin; an attempt count, escalation wall, production-line cap, or
+mandatory split; a separate final evaluator or executor distinctness beyond D5;
+or strict quiescence, is replaced by one sentence that states the current rule
+and cites the governing decision here.
+
 | Record | Replaced clauses | Governing decision |
 |---|---|---|
 | CD-0002 | I2, I3, I5, I6; tier table; section 4 log survivor | D1, D2 |

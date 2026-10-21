@@ -89,7 +89,7 @@ restore with reconciliation
 
 ### 3.1a Retention-bounded active-context exception
 
-CD-0215 D4 makes direct pack tables the sole authority for research-pack content.
+CD-0215 D4 makes direct pack tables the sole authority for research-pack content and consumer links.
 Research packs are WIP context, not Product/work history: one versioned transactional
 operation surface owns direct SQLite pack tables while the owner is nonterminal, and
 proof-backed archive deletes those rows. Product/work identity, lifecycle,
@@ -97,14 +97,12 @@ membership, relations, archive linkage, and every normal table remain current ro
 under [CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history). No other fact type inherits this exception by
 analogy.
 
-
-
 ### 3.1b Historical worktree occupancy replay
 
 Worktree occupancy recovery reconciles current occupancy rows with Git and
-worktree references during verified-snapshot restore. A row recovery cannot
-reconcile causes a typed refusal naming its worktree and session; no replay of
-retained occupancy events exists
+worktree references during verified-snapshot restore. When recovery cannot reconcile an occupancy row, it refuses with a typed
+refusal that names the worktree, the session, and the caller's action
+([CD-0242 D11](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d11-a-fresh-session-resumes-from-current-state), [CD-0242 D12](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)); no replay of retained events exists
 ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### 3.2 No typed-log explosion

@@ -2,7 +2,7 @@
 
 > **Status:** Accepted and binding until superseded.
 > **Decision:** TS8, amended by CD-0042.
-> **Amended by [CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D8:** surface-change evidence is bound to its subject.
+> **Amended by [CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 and D8:** no replay evidence exists; surface-change evidence is bound to its subject.
 > **Current boundary:** Concord is pre-go-live. The current agent surface has one
 > generated manifest and one identity: its exact manifest digest.
 

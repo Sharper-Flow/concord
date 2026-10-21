@@ -1,6 +1,6 @@
 # CD-0115: A released workflow definition never changes content in place
 
-- **Status:** Accepted
+- **Status:** Superseded by [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
 - **Date:** 2026-09-06
 - **Scope:** the versioning discipline of the builtin workflow definitions:
   what a release may do to a definition an instance has pinned

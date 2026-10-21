@@ -1,6 +1,6 @@
 # CD-0225: Worker-job size overruns split without raising the cap
 
-- **Status:** Accepted
+- **Status:** Superseded by [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
 - **Date:** 2026-10-15
 - **Scope:** Production-size bounds on editing jobs, result measurement, split lineage, and acceptance.
 - **Amends:** [CD-0205](CD-0205-worker-jobs-bind-dispatch-and-separate-local-acceptance-from-delivery.md) D1-D4 for size-bound jobs and split debt; [CD-0137](CD-0137-iterative-correction-preserves-result-disposition.md) D1 for the replaced-overrun disposition; [CD-0164](CD-0164-correction-attempt-counting-population.md) D1-D2 and D4 for overrun accounting; and [CD-0148](CD-0148-approved-fresh-worker-retries.md) for split progress.

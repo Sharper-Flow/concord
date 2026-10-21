@@ -1,6 +1,6 @@
 # CD-0238: Point-in-time reconstruction runs outside the core
 
-- **Status:** Accepted
+- **Status:** Superseded by [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
 - **Date:** 2026-10-18
 - **Scope:** Reading one subject's state at a past event sequence
 - **Amends:** [CD-0008](CD-0008-concord-mechanism-hardening.md) D6 (point-in-time

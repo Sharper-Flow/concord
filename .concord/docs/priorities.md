@@ -124,10 +124,10 @@ without corrupting in-flight work or historical records.
   are durable across power loss and OS crash (CD-0050); ordinary writes are
   durable through the last consequential boundary and never corrupt the store.
 - Workflow and schema changes must be safe for in-flight work.
-- [CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-  governs: state authority stays **SQLite sole authority** — each mutation writes current rows in one
-  transaction, checked by an expected version and recorded by its idempotency key — subject to
-  CD-0011's accepted falsifiers.
+- **SQLite sole authority** for operational state (CD-0002 I1), subject to CD-0011's accepted
+  falsifiers. [CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+  governs each mutation: it writes current rows in one transaction, checked by an expected version
+  and recorded by its idempotency key.
 
 ### Quality (goal E)
 
@@ -144,7 +144,7 @@ attributes, not by a fixed gate count.
 - Required-obligation blocking — unmet blocking obligations halt the work.
 - Human authority at consequence boundaries — the operator decides UI/UX, product, and serious law changes (U, R3, P12).
 - Durable proof — evidence is retained and inspectable after the work is finished.
-- Proportional rigor — [CD-0242 D4](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum) governs: rules derived from change type and risk set each execution's mandatory stages, and no agent may waive a mandatory stage or an operator approval.
+- Proportional rigor — the decision model (goal B) sets each change's minimum steps, proof, and testing; [CD-0242 D4](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum) governs its mandatory stages, and no agent may waive a mandatory stage or an operator approval.
 
 **What scales proportional rigor.** One input to the decision model is the
 **declared lifecycle stage** of the thing being worked on (`maturity` and
@@ -201,8 +201,8 @@ they become blockers or contradictory Product truth.
 Goal C in [`goals.md`](./goals.md) §2 defines a workflow as a combination of
 shared parts.
 [CD-0242 D4](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)
-governs: families compose shared stages, and rules derived from change type and risk set each
-execution's mandatory stages.
+governs: families compose shared stages, and the decision model sets each execution's mandatory
+stages. Parts define their steps once, and a definition composes parts (CD-0229 D1, D2).
 
 - Concord owns a full workflow coordination engine: progression, branching,
   retries, evidence, recovery, and the accepted composition model. Native

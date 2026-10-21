@@ -410,22 +410,8 @@
         "decision_model",
         "coordinator"
       ],
-      "state": "satisfied",
-      "mechanism": "programmed_check",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestWorkSizeProofStopsTheWorkflowUntilARerun"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestWorkSizeRerunSizesKeepsOrResizes"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestReviseIntentSizeRevisionsResizeTheWork"
-        }
-      ]
+      "state": "outstanding",
+      "issue": "CON-1275"
     },
     {
       "row": 9,

@@ -339,15 +339,16 @@ verified, not reviewed again."
 
 ## Verification
 
-- The implementing runtime change binds the executable anchors for D2 to D13:
-  the stage admission refusal tests, the resume-without-history and
-  reviewer-repair-to-delivery acceptance fixtures, the administrative-recovery
-  fixture, and the cutover interruption and snapshot-restore tests. Until that
-  change lands, `python3 scripts/check-knowledge-index.py` is the executable
+- The implementing runtime change binds the executable anchors for D2 to D13.
+  Planned anchors include the stage admission refusal tests, the
+  resume-without-history and reviewer-repair-to-delivery acceptance fixtures,
+  the administrative-recovery fixture, and the cutover interruption and
+  snapshot-restore tests. Until that change lands, `python3 scripts/check-knowledge-index.py` is the executable
   anchor for this record's law registration.
 - `python3 scripts/check-knowledge-index.py` composes the record shards and
   checks the accepted record's `supersedes` relation to each superseded
-  record, each superseded record's `successor` pointer, and every shard hash.
+  record, each superseded record's `successor` pointer, and each shard's recorded document sha256
+  against the document bytes.
 - `python3 scripts/check-knowledge-closure.py --strict` proves this document
   is registered and leaves no knowledge document unprocessed.
 - `python3 scripts/check-doc-contract.py` checks the required decision

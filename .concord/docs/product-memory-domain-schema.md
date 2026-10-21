@@ -6,39 +6,47 @@
 > **Binding inputs:** accepted PM1 query contract, accepted PM2 global SQLite authority, CD-0002 invariants I1–I6.
 > **Research basis:** Exa-discovered/public source models (Plane, Bugzilla, Beads, Fossil, Linear public model), official SQLite/Context7 docs, and accepted Concord Product invariants. No benchmark or PoC is part of this decision.
 > **Supersedes narrowly:** CD-0003 D1's generic `entities` materialized spine;
-> CD-0003 D2/D3 and the generic authoritative event log remain binding.
+> CD-0003 D2/D3 remain binding, and the generic event log is retired
+> ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 > **Amended by CD-0222 and CD-0213:** `domains` replace `components` as canonical
 > Product-internal architecture; business grouping lives in Linear; typed
-> architecture relation families and bounded compatibility upcasters are required.
+> architecture relation families are required.
+> **Amended by CD-0242 D2:** the store keeps current state and finite verified
+> snapshots; no event log, fold, upcaster, or replay exists. Sections 1, 3.1,
+> and 3.1b state the current rule.
 
 ## Context
 
 PM2's global SQLite authority needs a schema boundary. The binding inputs are
 the accepted PM1 query contract, PM2 global authority, and CD-0002 invariants
-I1 through I6. This record decides the hybrid explicit core: one generic
-append-only authoritative domain-event log, a small set of explicit typed
-relational projection tables, and JSON only for rare versioned extension
-metadata. It supersedes CD-0003 D1's generic entities spine narrowly; D2, D3,
-and the generic log remain binding.
+I1 through I6. This record decides the explicit typed core: current state and
+finite verified snapshots under
+[CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history),
+a small set of explicit typed relational tables, and JSON only for rare
+versioned extension metadata. It supersedes CD-0003 D1's generic entities spine
+narrowly; CD-0003's typed-edge integrity, short-lived CLI, and SQLite engine
+choices remain binding.
 ## Contract
 
-The binding contract is sections 1 through 4: the hybrid core decision, the
-stable conceptual object set, the authority and event-history pattern
+The binding contract is sections 1 through 4: the explicit typed core decision,
+the stable conceptual object set, the authority and event-history pattern
 including the retention-bounded active-context exception, and the extension
 rule with its forbidden patterns. Sections 5 through 10 record rejected
 alternatives, external validation, deferred scope, falsifiers, supersession
 scope, and sources, and carry no obligation.
 ## 1. Decision
 
-Concord uses a **hybrid explicit Product-memory core**:
+Concord uses an **explicit typed Product-memory core**:
 
-1. one generic append-only **authoritative domain-event log**,
-2. a small set of explicit typed, relational **materialized projection tables**,
+1. current state and finite verified snapshots—no event log, fold, upcaster, or
+   replay exists ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)),
+2. a small set of explicit typed, relational **current-state tables**,
 3. JSON only for rare, per-kind versioned extension metadata—not identity, joins,
    lifecycle, relations, membership, or PM1 filters.
 
-This preserves CD-0002's one-log/rebuild model while rejecting CD-0003's generic
-`entities(type, current_state JSON)` projection for the stable Product-memory core.
+This keeps CD-0003's typed-edge integrity rule and SQLite engine choices while
+rejecting CD-0003's generic `entities(type, current_state JSON)` projection for
+the stable Product-memory core.
 
 ## 2. Stable conceptual core
 
@@ -57,8 +65,8 @@ PM4/PM5/C15 semantics (now settled separately).
 | `labels` / tagging | typed many-to-many categorical extension | Q3/Q9 tags | exact label governance |
 | `external_refs` | opaque typed locator for PR/commit/upstream/URL | Q8/Q10 links | provider-specific validation |
 | Managed-resource identity | first-class typed canonical identity need for infra/SaaS resources because stage and sharing attach | Q1 ownership and Product context | C15 selects resource-first identity, one owner plus consumers, typed locators and work links; exact subtype/index DDL remains implementation design |
-| `domain_events` | generic append-only authoritative log (`payload_version`, kind, subject, actor, time, payload) | Q7 and all rebuilds | PM4 supplies lifecycle/relation event semantics; migration/upcasting and event-subject representation remain implementation design |
-| active research context | CD-0215 direct SQLite tables for packs/revisions/findings/sources/consumers; never retained events or Git knowledge | work context | delete only by explicit retirement; PM8 still excludes blobs |
+| store state | current rows and finite verified snapshots; no event log, fold, upcaster, or replay exists (CD-0242 D2) | Q2–Q8 current-state reads | the CD-0242 cutover retires the log's migration and upcast design |
+| active research context | CD-0215 direct SQLite tables for packs/revisions/findings/sources/consumers; never Git knowledge | work context | delete only by explicit retirement; PM8 still excludes blobs |
 | `artifacts` | other small structured/markdown content only | work context | PM8 excludes a v1 blob/evidence store |
 
 ### Minimum typed fields
@@ -73,102 +81,40 @@ implementation design.
 
 ### 3.1 One generic log remains authoritative
 
-`domain_events` (CD-0002 `transitions`) is the sole live-state authority. Typed
-tables are the deterministic fold output. This is not a mutable-row + audit-log
-design.
-
-- One accepted domain operation appends event(s) and updates all affected typed
-  projections in **one SQLite transaction** (I4).
-- Projection tables have no independent mutation path.
-- `rebuild_from_log` drops/rebuilds every live projection (I3/I5).
-- Implementation acceptance must demonstrate that a fresh rebuild agrees with the
-  live projections; PM3 does not choose the check's cadence or comparison mechanism.
-- Event payloads carry `payload_version`; rebuild must handle every accepted event
-  version through explicit upcasters when shapes evolve. This concretizes—without
-  fully resolving—CD-0002's migration question.
-- When released shapes share a payload version, replay strictly recognizes the
-  recorded schema before upcasting. Historical recognition does not admit new writes
-  under an obsolete schema and never changes retained event bytes.
-  A released shape that no supported migration carried forward is not replayable;
-  replay refuses it as unrecognized.
-- Replay preserves the effects of supported released writers, including when
-  their payload schemas are identical. Different effects require an authoritative
-  discriminator retained with the event or its preceding authority.
-  A definition pin identifies immutable content, not a writer era.
-- Without such a discriminator, correction replay may use a finite compatibility
-  table keyed by the verified definition pin and recorded source step.
-  A writer rule applies to a key only where that writer's admission accepted
-  a correction at that key.
-  Every supported writer rule applicable to a shared key must yield the same
-  target. An unrecognized or conflicting key refuses replay.
-  The historical graph walk may prove table entries but must not run during replay.
-  Historical interpretation never admits obsolete live operations or changes
-  retained event bytes.
-
-The generic event header is not a domain-relation table. PM3 therefore requires
-referential integrity for typed domain edges, but does not choose a universal
-identity registry or a polymorphic foreign key (FK) scheme merely to store an event subject.
-The accepted append/fold contract must validate each subject reference; its exact
-storage representation remains implementation design.
+The store keeps current state and finite verified snapshots: each mutation
+writes current rows in one transaction checked by an expected version, no event
+log, fold, upcaster, or replay exists, and recovery uses verified snapshot
+restore with reconciliation
+([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### 3.1a Retention-bounded active-context exception
 
-CD-0215 D4 excludes research-pack content from `domain_events`.
+CD-0215 D4 keeps research-pack content out of retained store categories and Git
+knowledge.
 Research packs are WIP context, not Product/work history: one versioned transactional
 operation surface owns direct SQLite pack tables while the owner is nonterminal, and
 proof-backed archive deletes those rows. Product/work identity, lifecycle,
-membership, relations, archive linkage, and every normal projection remain governed
-by the append/fold contract above. No other fact type inherits this exception by
+membership, relations, archive linkage, and every normal table remain current rows
+under [CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history). No other fact type inherits this exception by
 analogy.
 
 This shape is validated by Fossil's generic ticket-change artifacts plus
 reconstructable typed ticket projections. Bugzilla's mutable `bugs` + activity-log
-shape is useful audit evidence but does not satisfy Concord's stronger I3/I5
-rebuild requirement.
+shape is useful audit evidence but does not satisfy Concord's stronger
+verified-snapshot recovery requirement (CD-0242 D2).
 
 ### 3.1b Historical worktree occupancy replay
 
-Worktree occupancy is a projection. Rebuild clears occupancy with worktree
-entries and derives it only from retained events. Existing occupancy rows are
-comparison evidence, not an independent recovery authority.
-
-Migrations 89 and 104 carried occupancy that no retained occupancy-producing
-payload recorded. For a historical release, the governing creation is the latest
-preceding `work.worktree_created` with the same `claim_op_id`.
-Only the presence of its `occupant_session_ref` member distinguishes recorded
-occupancy from a claim whose creation did not record occupancy.
-An empty member is present. A missing creation grants no exception.
-The marker comes only from retained creation bytes, never from a caller field.
-Live creation payloads always emit this member, including an empty value.
-
-During replay of supported v1 occupancy releases, an absent target is a no-op
-only when the governing creation lacks that member and the following bounds hold:
-
-- The claim has at most one distinct unrecorded released session, as determined
-  from retained events. A second different unrecorded session refuses replay.
-- A scalar release refuses when rebuilt occupancy records a different session
-  for that worktree. Repeating the same absent scalar release remains a no-op.
-- A row-set release refuses a repeated release of the same absent session.
-
-Strict recognition covers scalar and row-set schemas, each with and without
-`claim_incarnation`. The same creation marker and bounds govern a recorded v1
-session vacate when its release path encounters an unrecorded session.
-All other release refusals remain in force. Live admission and live writes do
-not use this exception.
-
-Replay never invents an occupancy row, session identity, process identity, or
-liveness observation to satisfy a release. Activity, dates, sequence thresholds,
-identifier formats, and prose do not identify a historical occupancy era.
-For a claim whose log never recorded an occupant, this bounded exception cannot
-detect corruption of the unrecorded occupant identity.
-An existing occupancy row that replay cannot reproduce causes a typed refusal
-naming its worktree and session. The rebuild rolls back without changing the store.
+Worktree occupancy recovery reconciles current occupancy rows with Git and
+worktree references during verified-snapshot restore, treating existing rows as
+evidence rather than authority; no replay of retained occupancy events exists
+([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### 3.2 No typed-log explosion
 
-There is **one generic event table**, not one event table per Product/work kind.
-Typed projection tables do not imply typed histories or multiple recovery folds;
-one deterministic event fold owns all projections.
+Typed tables stay shared across work kinds; no per-kind history table, recovery
+fold, or event table exists
+([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ## 4. Extension rule
 
@@ -179,7 +125,7 @@ one deterministic event fold owns all projections.
 | JSON field becomes a repeated PM1 filter | promote to typed/generated indexed projection field |
 | New work kind | discriminator/registry + typed handler; no new core table |
 | Category/tag | labels + join table |
-| Endpoint-specific relation family | dedicated typed table/columns with FK endpoints and closed kind rules; generic event headers are not architecture relations |
+| Endpoint-specific relation family | dedicated typed table/columns with FK endpoints and closed kind rules |
 | External system reference | opaque `external_refs`; external object is not Concord authority |
 
 **Forbidden:** EAV core, JSON-everything, unbounded JSON scans, table-per-work-kind,
@@ -198,14 +144,15 @@ tables indirectly—with weaker discoverability and integrity.
 
 The rejected extreme creates one table/log/rebuild path per work kind, ossifying
 the system and multiplying migrations. This is not a rejection of typed
-projections: C deliberately uses a shared typed work core with one generic log.
-Work kinds are behavior discriminators over that core, not separate storage domains.
+projections: C deliberately uses a shared typed work core. Work kinds are
+behavior discriminators over that core, not separate storage domains.
 
 ### Mutable rows + audit log — rejected
 
-This is simpler for systems that only need current state + history, but an audit
-log cannot necessarily reconstruct corrupted current rows. It would weaken
-CD-0002 I2/I3/I5 and recreate a second state authority.
+Concord keeps current rows mutated in one transaction
+([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history));
+a parallel audit log would recreate a second state authority without recovery
+value.
 
 ## 6. External validation
 
@@ -230,7 +177,6 @@ PM3 did **not** decide:
   supersession semantics—now settled by accepted PM4;
 - membership roles/cardinality/scope—now settled by accepted PM5;
 - C15 managed-resource sharing shape—now settled by accepted resource-first registry;
-- event-subject storage/FK strategy or a universal identity registry;
 - C16 evidence/stage mapping;
 - tool names/counts/transport, plugin/MCP, or CLI operations;
 - exact DDL, migration files, or performance indexes (implementation acceptance).
@@ -243,7 +189,7 @@ Reopen PM3 if research or implementation evidence shows:
    metadata rule (generic spine may be simpler),
 2. PM1 filters can remain bounded/indexed using a generic entity projection with
    very few generated fields and no facet proliferation,
-3. the typed projection fold cannot remain deterministic/total across work kinds,
+3. the typed current-state writes cannot remain total across work kinds,
 4. a repeated accepted PM1 job requires a per-kind table,
 5. Components or owned members prove to be labels/opaque refs rather than
     stateful/shareable identities.
@@ -251,12 +197,15 @@ Reopen PM3 if research or implementation evidence shows:
 ## 9. Narrow CD supersession
 
 - **CD-0003 D1 is superseded narrowly:** replace generic `entities` materialized
-  state with the explicit typed projection set in §2. Keep D1's typed-edge
+  state with the explicit typed table set in §2. Keep D1's typed-edge
   integrity rule; generalize its facet principle into §4's typed-core/extension
-  boundary. Keep one generic event log, D2 short-lived CLI, and D3
-  [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite).
-- **CD-0002 I2/I3 do not change.** Clarify operationally that `domain_events` is
-  generic authority and typed tables are total deterministic projections.
+  boundary. CD-0003's D2 short-lived CLI and D3
+  [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite) remain binding;
+  the event log is retired
+  ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+- **CD-0002 I2/I3:** [CD-0242 D1](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d1-each-kind-of-state-has-one-owner)
+  and D2 govern; each kind of state has one owner, and typed tables are current
+  state written in one transaction.
 - PM4/PM5 are accepted; the PM1–PM5 storage design sequence is complete.
 
 ## 10. Primary sources
@@ -277,10 +226,11 @@ caveated, and no private SaaS storage internals are inferred.
 
 ## Acceptance criteria
 
-- Given the authoritative domain-event log
-  When projections are rebuilt from the log
-  Then every work and relation projection is restored byte for byte, including
-  messages and resource claims.
+- Given the store's current rows and finite verified snapshots
+  When recovery opens the store after an interruption
+  Then current rows and derived indexes are reconciled against Git, worktrees,
+  and artifacts, with no replay
+  ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 - Given the typed relational core
   When the store opens
@@ -295,15 +245,12 @@ caveated, and no private SaaS storage internals are inferred.
 ## Verification
 
 The corpus scenarios are query-shaped and prove no schema-boundary claim, so
-every criterion carries a typed exemption in the record naming the store test
-that proves the guarantee. `python3 scripts/check-doc-contract.py` validates
+every criterion carries a typed exemption naming its proof. `python3 scripts/check-doc-contract.py` validates
 those recorded exemptions.
 
-- Criterion 1 is proved by
-  `TestRebuildRestoresWorkAndRelationProjectionsByteForByte`
-  and `TestRebuildSurvivesMessagesAndClaims`
-  (`internal/store/lifecycle_relations_test.go`,
-  `internal/store/rebuild_msg_test.go`).
+- Criterion 1 states CD-0242 D2 as law; until the cutover binds its runtime
+  anchors, `python3 scripts/check-knowledge-index.py` proves this record's
+  accepted registration of that law.
 - Criterion 2 is proved by `TestOpenEnforcesForeignKeysBehaviorally`
   (`internal/store/store_test.go`).
 - Criterion 3 is proved by `TestOpenAppliesSchemaManifest` and

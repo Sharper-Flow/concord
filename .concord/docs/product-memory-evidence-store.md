@@ -11,6 +11,9 @@
 > **Related accepted boundary:** PM9 rejects a separate process-exhaust receipt.
 > **Does not decide:** PM10 backup/restore/GC,
 > C15, TS1–TS9, artifact encryption, or external-system retention.
+> **Amended by CD-0242 D2:** the store keeps current state and finite verified
+> snapshots, not an event log or replay; event-history wording in this record
+> states the store's current state.
 
 ## Context
 
@@ -51,7 +54,8 @@ the existing decision; durable markdown knowledge remains PM6 and compaction-ret
 is a general binary-evidence store.
 
 CD-0215 narrows one structured-artifact case further: research-pack text lives
-only in SQLite pack tables until explicit retirement. It never enters retained `domain_events` or Git as a research pack and is
+only in SQLite pack tables until explicit retirement. It never enters Git as a
+research pack and is
 deleted after proof-backed archive. Selected durable decisions/specs/lessons/reasoning
 are promoted to their existing PM6/CD-0006 homes before deletion; that promotion is
 not pack retention.
@@ -105,8 +109,9 @@ promises**:
   bytes;
 - Concord avoids a second filesystem durability, corruption, recovery, backup, and
   deletion subsystem whose value is not currently named;
-- compaction-retention-policy keeps event history and PM6 keeps concise reviewed knowledge, which are the
-  current post-hoc needs—not exact WIP byte replay.
+- the store keeps current state and PM6 keeps concise reviewed knowledge
+  ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)),
+  which are the current post-hoc needs—not exact WIP byte replay.
 
 Except for section 1.1, the boundary is structural: Concord's v1 schema and domain-event registry contain no
 blob descriptor, evidence-reference, file-path, digest, content-addressed-store, or
@@ -120,7 +125,7 @@ an optional metadata field.
 | generic test/build/log output | producer/CI retains or discards it under its own policy; section 1.1 alone owns native oracle streams | ingestion, hashing, mirroring, or backup beyond section 1.1 |
 | task fails | record only the bounded state/outcome needed by its owning Product-memory event | storing full command output as evidence |
 | terminal compaction | PM6 note distills outcome, decision, lesson, and normal links | copying raw WIP files into git/SQLite |
-| compaction-retention-policy projection pruning | retains authoritative `domain_events` and durable note/index behavior | preserving raw WIP bytes |
+| compaction-retention-policy projection pruning | retains authoritative current rows and durable note/index behavior (CD-0242 D2) | preserving raw WIP bytes |
 | producer output disappears | surface only an external-link failure if a user tries to follow a normal link | recovery/substitution of a Concord-held blob |
 
 No operation may report an unavailable WIP blob as an integrity incident, because
@@ -136,8 +141,10 @@ large outputs are not scanned, hashed, copied, or enrolled into Product memory.
 Outside the lease/work deletion rule in section 1.1, there is no Concord blob retention period, refcount, quarantine, backup inventory, or
 garbage collector. PM10 therefore backs up the accepted SQLite/git authority only; it
 does not inherit a CAS subtree from PM8. Accepted PM9 keeps process findings in concise
-durable knowledge when material and rejects a separate receipt—not automatic retention
-of raw WIP bytes.
+durable knowledge when material and rejects a separate process-exhaust receipt—closure's
+one completion receipt answers
+([CD-0242 D9](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)),
+not automatic retention of raw WIP bytes.
 
 ## 5. Structural invariants
 
@@ -164,7 +171,7 @@ of raw WIP bytes.
    remains with the producing environment.
 3. PM6 compaction creates a concise note with outcome/lesson/ordinary links and no raw
    output copy or generated evidence attachment.
-4. compaction-retention-policy prunes an eligible work projection while Q7 event history and the note/index
+4. compaction-retention-policy prunes an eligible work projection while current state and the note/index
    remain valid without requiring any external blob.
 5. Schema and event-registry validation reject attempts to introduce blob descriptors,
    content hashes, arbitrary filesystem paths, or raw output payloads through generic

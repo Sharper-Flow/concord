@@ -37,7 +37,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:200dd111e08c978dc42c829f2d04d244eff17ddd3409e3ee9598e21195386b03",
+  "sha256": "sha256:f402636358006d85b3f863da042a47de169f39821c7f071499a43c8860f607b5",
   "status": "accepted",
   "summary": "Concord Product-memory membership law: one canonical work item with typed membership edges, Product scope derived through joins and never copied, at-least-one membership with optional singular primary, atomic membership operations, and duplicate-free Product-scoped reads. The first spec record formalized under the full doc contract: Context, Contract, bound acceptance criteria, and Verification.",
   "tags": [

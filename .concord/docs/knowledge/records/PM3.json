@@ -9,7 +9,7 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "exemption": "The corpus scenarios are query-shaped and prove no schema-boundary claim. The guarantee is proved by TestRebuildRestoresWorkAndRelationProjectionsByteForByte (internal/store/lifecycle_relations_test.go) and TestRebuildSurvivesMessagesAndClaims (internal/store/rebuild_msg_test.go)."
+      "exemption": "The corpus scenarios are query-shaped and prove no schema-boundary claim. Criterion 1 states CD-0242 D2; until the cutover binds its runtime anchors, python3 scripts/check-knowledge-index.py proves this record's accepted registration of that law."
     },
     {
       "criterion": 2,
@@ -38,9 +38,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b887ee0353d345e3dbfbaa8ddf600355bdd59b198e58481a81fad7dee9f8a0f5",
+  "sha256": "sha256:a8fe2d9942890d7920098725f849d2122d60ab89b08a1c831b3741c0dcccf89f",
   "status": "accepted",
-  "summary": "Defines the authoritative event log and typed Product-memory projections.",
+  "summary": "Defines the typed Product-memory schema boundary: current state and finite verified snapshots per CD-0242 D2, explicit typed current-state tables, and JSON only for rare versioned extension metadata.",
   "tags": [
     "pm3",
     "schema"

@@ -21,6 +21,10 @@ export default class NativeLaneProvider {
 
   id() { return `native-${this.agent}` }
 
+  taskMessage(prompt) {
+    return { type: "text", text: `Invoke the native Task tool exactly once with these arguments, then return its result:\n${JSON.stringify({ subagent_type: this.agent, description: `Advisory ${this.agent} eval`, prompt })}` }
+  }
+
   async callApi(prompt) {
     const loopback = Object.values(networkInterfaces()).flat().find(address => address?.internal && address.family === "IPv4")?.address
     if (!loopback) throw new Error("native eval requires an IPv4 loopback interface")
@@ -69,7 +73,7 @@ export default class NativeLaneProvider {
       reader = events.body.getReader()
       await call(`/session/${parent.id}/prompt_async`, {
         agent: parentAgent,
-        parts: [{ type: "subtask", agent: this.agent, description: `Advisory ${this.agent} eval`, prompt }],
+        parts: [this.taskMessage(prompt)],
       })
       const decoder = new TextDecoder()
       let buffer = ""

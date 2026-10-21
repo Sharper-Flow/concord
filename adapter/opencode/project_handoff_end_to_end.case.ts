@@ -17,8 +17,7 @@ import { completeDispatchedWorker } from "./lane_completion"
 import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
-import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
-import { dbValue, fixturePublicKeyBase64, type JSONRecord } from "./end-to-end.fixture"
+import { dbValue, fixturePublicKeyBase64, nativeTaskSelector, type JSONRecord } from "./end-to-end.fixture"
 import { headCommit, jobSizeFields, reportedProductionSize } from "./job-size.fixture"
 
 // The Project-session handoff acceptance runs on the real boundary: a real
@@ -137,8 +136,8 @@ async function fakeHostControlPlane(seed: Array<[string, string]>, runner: Dispa
           if (url === SESSION_MESSAGES_ROUTE) return { data: session.messages, response: new Response("[]", { status: 200 }) }
           return { data: { id, ...session }, response: new Response(null, { status: 200 }) }
         },
-        post: async ({ url, path, body }: { url: string; path?: Record<string, unknown>; body?: unknown }) => {
-          if (url === SESSION_MESSAGES_ROUTE) return acknowledgeNativeSubtask({ url, path, body })
+        post: async ({ url, body }: { url: string; path?: Record<string, unknown>; body?: unknown }) => {
+          if (url === SESSION_MESSAGES_ROUTE) throw new Error("dispatch performs zero subtask writes")
           expect(url).toBe(MOVE_SESSION_ROUTE)
           const { sessionID, destination } = body as { sessionID: string; destination: { directory: string } }
           host.sessions[sessionID].directory = destination.directory
@@ -758,7 +757,7 @@ routeDeclaration(RESTART_WITNESS, async () => {
     expect(job.outcome, JSON.stringify(job)).toBe("ok")
     const dispatched = await dispatchLaneWorker({ work_id: workID, expected_version: version(), idempotency_key: "handoff-receiver-dispatch", lane_id: "implement" }, { context, invoke, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, windows: dispatchWindows() })
     expect(dispatched.outcome, JSON.stringify(dispatched)).toBe("ok")
-    const args: JSONRecord = { subagent_type: "concord-implement" }
+    const args = nativeTaskSelector(dispatched)
     await plugin["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID: RECEIVE_SESSION, callID: "handoff-original-task" }, { args })
     host.taskCalls++
     const packet = JSON.parse(args.prompt)

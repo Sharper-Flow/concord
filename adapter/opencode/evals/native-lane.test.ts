@@ -28,3 +28,11 @@ test("native eval admits only registered lane targets", () => {
   expect(new NativeLaneProvider({ config: { lane: "review" } }).id()).toBe("native-concord-review")
   expect(() => new NativeLaneProvider({ config: { lane: "build" } })).toThrow()
 })
+
+test("native eval asks its parent to invoke Task instead of injecting an executable subtask", () => {
+  const provider = new NativeLaneProvider({ config: { lane: "review" } })
+  const part = provider.taskMessage("Evaluate the synthetic report.")
+  expect(part.type).toBe("text")
+  expect(part.text).toContain("Invoke the native Task tool exactly once")
+  expect(JSON.parse(part.text.split("\n")[1])).toEqual({ subagent_type: agent, description: `Advisory ${agent} eval`, prompt: "Evaluate the synthetic report." })
+})

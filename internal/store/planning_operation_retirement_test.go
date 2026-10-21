@@ -90,19 +90,21 @@ func TestRetiredPlanningEventsReplay(t *testing.T) {
 		seedWork(t, s, id)
 	}
 	seedCurrentDomain(t, s, "product", "replay-domain")
+	observed := operationEvent("replay-observation-recorded", "domain.observation_recorded", SubjectProduct, "product", map[string]any{
+		"observation_id": "dob:9270000000000001", "product_id": "product", "domain_id": "replay-domain",
+		"statement": "historical observation recorded by the retired route", "refs": []string{"work:replay-link-a"}, "tags": []string{"historical"},
+	})
+	dismissed := operationEvent("replay-observation-dismissed", "domain.observation_dismissed", SubjectProduct, "product", map[string]any{
+		"observation_id": "dob:9270000000000001", "product_id": "product", "domain_id": "replay-domain",
+	})
 	journal := []Event{
 		relationAddedEvent("replay-link-kept", "blocks", "replay-link-a", "replay-link-b", 2, 3),
 		relationAddedEvent("replay-link-removed", "blocks", "replay-link-c", "replay-link-d", 2, 3),
 		relationRemovedEvent("replay-link-unlinked", "blocks", "replay-link-c", "replay-link-d", 3, 4),
 		workSupersededEvent("replay-superseded", "replay-successor", "replay-predecessor", 2, 3),
 		workReopenedFromSupersededEvent("replay-reopened", "replay-predecessor", "replay-successor", 3, 4),
-		operationEvent("replay-observation-recorded", "domain.observation_recorded", SubjectProduct, "product", map[string]any{
-			"observation_id": "dob:9270000000000001", "product_id": "product", "domain_id": "replay-domain",
-			"statement": "historical observation recorded by the retired route", "refs": []string{}, "tags": []string{},
-		}),
-		operationEvent("replay-observation-dismissed", "domain.observation_dismissed", SubjectProduct, "product", map[string]any{
-			"observation_id": "dob:9270000000000001", "product_id": "product", "domain_id": "replay-domain",
-		}),
+		observed,
+		dismissed,
 	}
 	db := s.DatabaseForTesting()
 	insertHistoricalEvents(t, db, journal)
@@ -113,6 +115,10 @@ func TestRetiredPlanningEventsReplay(t *testing.T) {
 	if after := planningEventCount(t, db); after != before {
 		t.Fatalf("replay changed the log: %d events after rebuild, want %d", after, before)
 	}
+	// The retired Domain-observation pair records as corpus witnesses: the
+	// passing replay above proves the candidate folds both rows unchanged.
+	recordHistoricalWitness(t, s, observed.EventID, observed.Kind, observed.PayloadVersion, observed.Payload)
+	recordHistoricalWitness(t, s, dismissed.EventID, dismissed.Kind, dismissed.PayloadVersion, dismissed.Payload)
 	// The kept link edge survives; the removed edge and the supersession edge
 	// the reopen deleted stay gone.
 	assertTableCount(t, s, "relations", 1)

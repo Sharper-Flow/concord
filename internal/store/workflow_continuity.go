@@ -194,7 +194,7 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 		req.Limit = 20
 	}
 	if req.Limit > 20 {
-		return out, newFailure(KindInvalidOperation, "C19.Continuity", "continuity history page exceeds 20", false, "reduce the history page")
+		return out, newFailure(KindInvalidOperation, "C19.Continuity", "continuity limit/page.limit exceeds maximum 20", false, "correct_request")
 	}
 	offset, err := continuityOffset(req.Cursor, req.Work)
 	if err != nil {

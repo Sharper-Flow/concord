@@ -152,7 +152,14 @@ func witnessRowsOf(t *testing.T, test string) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return strings.Fields(string(data))
+	// One row per line: a recorded payload may itself contain spaces.
+	var rows []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if line != "" {
+			rows = append(rows, line)
+		}
+	}
+	return rows
 }
 
 // A row is a witness only when the candidate admits it: a passing test whose
@@ -169,5 +176,94 @@ func TestHistoricalWitnessRecordsOnlyAdmittedRows(t *testing.T) {
 		if rows := witnessRowsOf(t, refusal); len(rows) != 0 {
 			t.Fatalf("%s asserts a replay refusal but recorded %q", refusal, rows)
 		}
+	}
+	// The retired planning kinds are corpus witnesses: their rows predate the
+	// retirement, and the passing replay proves the candidate still folds
+	// every one unchanged.
+	retired := witnessRowsOf(t, "TestRetiredPlanningEventsReplayWithoutInitiativeState")
+	kinds := map[string]bool{}
+	for _, row := range retired {
+		for _, kind := range []string{"product.planning_mode_set", "initiative_entry.added", "initiative_entry.reordered",
+			"initiative_entry.requiredness_changed", "initiative.narrative_revised", "initiative_entry.removed"} {
+			if strings.Contains(row, `"kind":"`+kind+`"`) {
+				kinds[kind] = true
+			}
+		}
+	}
+	if len(retired) != 6 || len(kinds) != 6 {
+		t.Fatalf("retired planning corpus test recorded %d rows covering %v, want one row per retired kind", len(retired), kinds)
+	}
+	// The early worker terminal history records one row per released
+	// generation: five completions (v1 and the four v2 shapes) and the basic
+	// v1 failure, whose honest form predates the observed-directories member.
+	early := witnessRowsOf(t, "TestRecordedEarlyWorkerTerminalHistoryRebuildsAndRecords")
+	var completions, plainV1, directory, comparison, predicates, basicFailure int
+	for _, row := range early {
+		switch {
+		case strings.Contains(row, `"kind":"worker.completed"`):
+			completions++
+			// The generation members live inside the row's embedded payload
+			// string, so the markers are bare member names, not quoted keys.
+			switch {
+			case !strings.Contains(row, "evidence_origin"):
+				plainV1++
+			case strings.Contains(row, "base_comparison"):
+				comparison++
+			case strings.Contains(row, "predicate_ids"):
+				predicates++
+			case strings.Contains(row, "worker_directory"):
+				directory++
+			}
+		case strings.Contains(row, `"kind":"worker.failed"`):
+			if strings.Contains(row, "observed_session_directories") {
+				t.Fatalf("basic failure row carries observed_session_directories: %s", row)
+			}
+			basicFailure++
+		}
+	}
+	if completions != 5 || plainV1 != 1 || directory != 1 || comparison != 1 || predicates != 1 || basicFailure != 1 {
+		t.Fatalf("early worker corpus recorded %d rows (completions=%d plain=%d dir=%d cmp=%d pred=%d failure=%d), want one per released generation",
+			len(early), completions, plainV1, directory, comparison, predicates, basicFailure)
+	}
+	// The outside-repair history records its emitted disposition, reconciled
+	// and resumed rows; the reconciled row must carry the complete receipt.
+	repair := witnessRowsOf(t, "TestOutsideRepairHistoryRecordsCorpusWitnesses")
+	var dispositions, reconciled, resumed int
+	for _, row := range repair {
+		switch {
+		case strings.Contains(row, `"kind":"workflow.outside_repair_disposition_set"`):
+			dispositions++
+		case strings.Contains(row, `"kind":"workflow.outside_repair_reconciled"`):
+			reconciled++
+			if !strings.Contains(row, "required_checks") || !strings.Contains(row, "check_run_id") {
+				t.Fatalf("reconciled row lacks the complete receipt members: %s", row)
+			}
+		case strings.Contains(row, `"kind":"workflow.outside_repair_resumed"`):
+			resumed++
+		}
+	}
+	if dispositions != 2 || reconciled != 1 || resumed != 1 {
+		t.Fatalf("outside repair corpus recorded %d rows (dispositions=%d reconciled=%d resumed=%d), want 2/1/1", len(repair), dispositions, reconciled, resumed)
+	}
+	// The retired planning journal records the two Domain-observation rows,
+	// the recorded one with nonempty refs and tags.
+	domains := witnessRowsOf(t, "TestRetiredPlanningEventsReplay")
+	var observedRow, dismissedRow int
+	for _, row := range domains {
+		switch {
+		case strings.Contains(row, `"kind":"domain.observation_recorded"`):
+			observedRow++
+			// Pin the markers to the embedded array forms: the statement also
+			// contains the word "historical", so a bare name would pass on an
+			// empty tags list.
+			if !strings.Contains(row, `refs\":[\"work:replay-link-a\"]`) || !strings.Contains(row, `tags\":[\"historical\"]`) {
+				t.Fatalf("recorded observation row lacks nonempty refs/tags: %s", row)
+			}
+		case strings.Contains(row, `"kind":"domain.observation_dismissed"`):
+			dismissedRow++
+		}
+	}
+	if observedRow != 1 || dismissedRow != 1 {
+		t.Fatalf("domain observation corpus recorded %d rows (recorded=%d dismissed=%d), want one each", len(domains), observedRow, dismissedRow)
 	}
 }

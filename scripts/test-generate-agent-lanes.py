@@ -43,6 +43,61 @@ def bound_worker_tools(capabilities):
     return granted
 
 
+class InvestigationGuidanceTests(unittest.TestCase):
+    def test_lookup_delegation_requires_investigation(self):
+        manifest, _ = generator.load_manifest()
+        lookup = next(item for item in manifest["utilities"] if item["id"] == "lookup")
+        self.assertIn("adaptive external investigation", lookup["purpose"])
+        normalized = " ".join(generator.utility_projection(lookup).split())
+        for fragment in (
+            "use direct tools for targeted retrieval",
+            "discovering and following evidence paths",
+            "known URL",
+            "API detail",
+        ):
+            self.assertTrue(fragment in normalized, fragment)
+
+    def test_lookup_returns_an_answer_first_reusable_briefing(self):
+        manifest, _ = generator.load_manifest()
+        lookup = next(item for item in manifest["utilities"] if item["id"] == "lookup")
+        normalized = " ".join(generator.utility_projection(lookup).split())
+        for fragment in (
+            "Lead with the answer",
+            "retrieval handles",
+            "section, symbol, or search term",
+            "version or date",
+            "disagreements",
+            "gaps",
+            "not a search transcript",
+        ):
+            self.assertTrue(fragment in normalized, fragment)
+
+    def test_research_guidance_stays_inside_its_report_and_tool_boundary(self):
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            projection = lane_projection(lane)
+            if lane["id"] != "research":
+                self.assertNotIn("## Investigation method", projection)
+                continue
+            normalized = " ".join(generator.research_method_instructions(lane).split())
+            self.assertNotIn("`summary`", normalized)
+            for fragment in (
+                "## Investigation method",
+                "packet-bound source access",
+                "Lead with the answer in the first `evidence` entry's `detail`",
+                "retrieval handles",
+                "existing `evidence` entries",
+                "packet's `assigned_result`",
+                "Keep the required",
+                "not completion of other results",
+                "source_citations",
+                "bounded_findings",
+                "uncertainties",
+                "no new fields or prose outside the report",
+            ):
+                self.assertTrue(fragment in normalized, fragment)
+
+
 class CapabilityToolProjectionTests(unittest.TestCase):
     def test_opaque_code_mode_is_denied_for_every_lane(self):
         manifest, _ = generator.load_manifest()
@@ -102,11 +157,29 @@ class SubagentMethodProjectionTests(unittest.TestCase):
         utility = next(item for item in manifest["utilities"] if item["id"] == "explore")
         text = " ".join(generator.utility_projection(utility).split())
         self.assertIn("Answer the bounded question first", text)
-        self.assertIn("complete requested inventory or report, not a summary of it", text)
+        self.assertIn("When an inventory is requested, return the complete requested set", text)
         self.assertIn("smallest caller -> owner -> consumer map", text)
         self.assertIn("`path:line` for each observed connection", text)
         self.assertIn("Mark unverified connections as unknown", text)
         self.assertIn("Do not infer a root cause", text)
+
+    def test_explore_distinguishes_adaptive_investigation_from_targeted_retrieval(self):
+        manifest, _ = generator.load_manifest()
+        utility = next(item for item in manifest["utilities"] if item["id"] == "explore")
+        text = " ".join(generator.utility_projection(utility).split())
+        self.assertIn("discovering and following evidence paths", utility["purpose"])
+        self.assertIn("direct tools for targeted retrieval", utility["purpose"])
+        self.assertIn("bounded question limits the investigation; it need not name the files", text)
+        self.assertIn("Choose each next search from the evidence already found", text)
+
+    def test_explore_handoff_is_a_source_backed_briefing_with_retrieval_handles(self):
+        manifest, _ = generator.load_manifest()
+        utility = next(item for item in manifest["utilities"] if item["id"] == "explore")
+        text = " ".join(generator.utility_projection(utility).split())
+        self.assertIn("right-sized briefing, not a search transcript", text)
+        self.assertIn("exact symbols, search strings, test names, or commands", text)
+        self.assertIn("confirm or expand each finding without repeating the investigation", text)
+        self.assertIn("Do not repeat the same fact in several sections", text)
 
     def test_explore_marks_an_incomplete_inventory_and_names_its_coverage(self):
         manifest, _ = generator.load_manifest()

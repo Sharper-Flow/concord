@@ -2,9 +2,11 @@
 // whose core result carries the derived retry dispatch routes through the one
 // post-commit launch owner: the adapter arms the same single-use window the
 // dispatch_worker route arms, from the core's own admitted packet bytes, and
-// never calls dispatch_worker again. The host Task spawn is the plugin's
-// tool.execute.before body — windows.bind — so every test here ends at the
-// exact hook that spawns the worker.
+// never calls dispatch_worker again. The coordinator then issues the one
+// native foreground Task named by the directive, and the plugin's
+// tool.execute.before body — windows.bind — validates that exact selector,
+// overwrites the caller's arguments with the recorded packet, and consumes the
+// window once, so every test here ends at the exact hook that arms the worker.
 import { test, expect, mock, beforeEach, afterEach } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -13,7 +15,7 @@ import { manifestDigest } from "./generated-contracts"
 import { configureCoreBinary } from "./dispatch"
 import { dispatchWindows, serializeLanePacket, TASK_TOOL_ID } from "./dispatch-window"
 import { resetClaimedWorktrees } from "./claimed-worktree"
-import { hostControlPlane, SESSION_MESSAGES_ROUTE } from "./move-session"
+import { hostControlPlane } from "./move-session"
 import { abandonWorkerAttempt, type DispatchRunner } from "./dispatch"
 import type { CredentialStore } from "./credentials"
 import { agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
@@ -47,9 +49,9 @@ const retryPacket = () => ({
 })
 
 let workspace = "/reject-retry-unset"
-let queuedSubtasks: unknown[] = []
+let transcriptWrites = 0
 
-const contextFor = (directory = workspace): any => ({ sessionID: SESSION, messageID: "message-1", agent: "agent-1", worktree: directory, directory, abort: new AbortController().signal, ask: () => {} })
+const contextFor = (directory = workspace): any => ({ sessionID: SESSION, messageID: "message-1", agent: "agent-1", worktree: directory, directory, abort: new AbortController().signal, ask: async () => { throw new Error("the adapter must not raise a permission ask") } })
 
 const rejectCall = () => ({ request: { operation: "workflow_action", input: { work_id: "work-retry", expected_version: 8, action_id: "reject_worker_result", idempotency_key: "reject-retry-1", fields: { attempt_id: "attempt-1", diagnosis: "the bounded change failed its check", strategy: "repair the failing check", retry: { lane_id: lane.id } } } } })
 
@@ -104,16 +106,12 @@ const invokeCalls = (calls: string[]) => calls.filter(command => command === "in
 
 beforeEach(async () => {
   workspace = await mkdtemp(join(tmpdir(), "reject-retry-launch-"))
-  queuedSubtasks = []
+  transcriptWrites = 0
   hostControlPlane().bind({
     get: async () => ({ data: { id: SESSION, directory: workspace }, response: new Response(null, { status: 200 }) }),
-    post: async request => {
-      expect(request.url).toBe(SESSION_MESSAGES_ROUTE)
-      const body = request.body as { agent: string; noReply: boolean; parts: unknown[] }
-      expect(body.noReply).toBe(true)
-      queuedSubtasks.push(...body.parts)
-      return { data: { info: { id: "queued-message", sessionID: SESSION, agent: body.agent }, parts: body.parts }, response: new Response(null, { status: 200 }) }
-    },
+    // The launch queues no subtask (CD-0102 D1): every transcript write fails
+    // this run, and the counter proves the route stayed at zero writes.
+    post: async () => { transcriptWrites++; throw new Error("the adapter must not write a native subtask") },
   })
   resetClaimedWorktrees()
   dispatchWindows().close(SESSION)
@@ -126,24 +124,36 @@ afterEach(async () => {
   await rm(workspace, { recursive: true, force: true })
 })
 
+// The directive's exact native foreground Task selector for the armed retry
+// window: the registered lane, the recorded attempt reference, nothing else.
+const exactSelector = () => ({ subagent_type: `concord-${lane.id}`, prompt: RETRY_ATTEMPT, description: "Run authorized worker" })
+
 const bindTaskArgs = () => {
-  const args: Record<string, unknown> = { subagent_type: "unbound", prompt: "unbound", description: "unbound" }
+  const args: Record<string, unknown> = exactSelector()
   return { args, bind: () => dispatchWindows().bind(TASK_TOOL_ID, SESSION, args, "call-1", async () => workspace, workspace) }
 }
 
-test("a combined rejection arms one window and the host Task spawn consumes the core's own packet", async () => {
+test("a combined rejection arms one window, writes no subtask, and the exact native selector consumes the core's own packet", async () => {
   const { calls, result } = await runTransition([() => ({ exitCode: 0, stdout: JSON.stringify(combinedOkEnvelope()), stderr: "" })])
   // The rejection rode the one workflow_action call; no dispatch_worker
   // authorization ran again.
   expect(invokeCalls(calls)).toHaveLength(1)
   expect(result.outcome).toBe("ok")
   expect(result.dispatch_state).toBe("awaiting_worker")
-  expect(queuedSubtasks).toHaveLength(1)
-  // The acknowledged envelope preserves the committed rejection's mutation
-  // receipt beside the Task directive: the rejection's changed_refs and next
-  // intents under their core names, and the core result receipt with the
-  // retry identity, digest, and claimed worktree. The packet itself stays off
-  // the receipt: the launch consumed those exact bytes into the armed window.
+  expect(transcriptWrites).toBe(0)
+  // The serialized directive is authorization, not launch: it instructs the
+  // coordinator to issue one native foreground Task with the exact selector.
+  const selector = exactSelector()
+  expect(result.output).toContain("Authorized only")
+  expect(result.output).toContain("launches no worker")
+  expect(result.output).toContain("one native foreground Task")
+  expect(result.output).toContain(`exactly ${JSON.stringify(selector)}`)
+  expect(JSON.parse(result.output.slice(result.output.indexOf("{"), result.output.lastIndexOf("}") + 1))).toEqual(selector)
+  // The receipt preserves the committed rejection's mutation receipt beside
+  // the Task directive: the rejection's changed_refs and next intents under
+  // their core names, and the core result receipt with the retry identity,
+  // digest, and claimed worktree. The packet itself stays off the receipt:
+  // the launch consumed those exact bytes into the armed window.
   expect(result.changed_refs).toEqual(okMembers.changed_refs)
   expect(result.next_valid_intents).toEqual([])
   expect(result.result?.operation_id).toBe(REJECT_OPERATION_ID)
@@ -152,28 +162,30 @@ test("a combined rejection arms one window and the host Task spawn consumes the 
   expect(result.result?.worker_worktree).toBe(workspace)
   expect(result.result?.retry_worker_packet).toBeUndefined()
   expect(dispatchWindows().has(SESSION)).toBe(true)
-  // The host Task spawn is the plugin hook body: the window binds the Task
-  // call to the retry packet and consumes itself.
+  // The coordinator issues the exact selector from the directive; the window
+  // binds the Task call to the retry packet, overwrites the caller's
+  // arguments, and consumes itself once.
   const { args, bind } = bindTaskArgs()
   await bind()
   expect(args.subagent_type).toBe(`concord-${lane.id}`)
   expect(args.prompt).toBe(serializeLanePacket(retryPacket() as any))
   expect(args.description).toContain(RETRY_ATTEMPT)
   expect(dispatchWindows().has(SESSION)).toBe(false)
+  await expect(bindTaskArgs().bind()).rejects.toThrow("no authorized dispatch window")
 })
 
 test("a replayed combined response never launches twice and names the exact original identity", async () => {
   const answer = () => ({ exitCode: 0, stdout: JSON.stringify(combinedOkEnvelope()), stderr: "" })
   const first = await runTransition([answer])
   expect(first.result.dispatch_state).toBe("awaiting_worker")
-  expect(queuedSubtasks).toHaveLength(1)
+  expect(transcriptWrites).toBe(0)
   expect(dispatchWindows().has(SESSION)).toBe(true)
   // The first response was lost after the window armed; the coordinator
   // reconciles and the combined response replays. The open window must not
   // be duplicated and the committed attempt identity must surface.
-  const replay = await runTransition([answer])
+  const replay = await runTransition([() => ({ exitCode: 0, stdout: JSON.stringify({ ...combinedOkEnvelope(), replayed: true }), stderr: "" })])
   expect(replay.result.outcome).toBe("error")
-  expect(queuedSubtasks).toHaveLength(1)
+  expect(transcriptWrites).toBe(0)
   expect(replay.result.error?.message).toContain(RETRY_ATTEMPT)
   expect(dispatchWindows().has(SESSION)).toBe(true)
   // The window the first response armed is still the original one: the next
@@ -183,11 +195,87 @@ test("a replayed combined response never launches twice and names the exact orig
   expect(args.prompt).toBe(serializeLanePacket(retryPacket() as any))
   // Once the host is running the worker, a further replay names the in-flight
   // attempt and cannot launch a second worker.
-  const third = await runTransition([answer])
+  const third = await runTransition([() => ({ exitCode: 0, stdout: JSON.stringify({ ...combinedOkEnvelope(), replayed: true }), stderr: "" })])
   expect(third.result.outcome).toBe("error")
-  expect(queuedSubtasks).toHaveLength(1)
+  expect(transcriptWrites).toBe(0)
   expect(third.result.error?.message).toContain(RETRY_ATTEMPT)
   expect(dispatchWindows().has(SESSION)).toBe(false)
+})
+
+test.each(["open", "in-flight"] as const)("a replay cannot recreate a lost %s retry authorization", async state => {
+  const first = await runTransition([() => ({ exitCode: 0, stdout: JSON.stringify(combinedOkEnvelope()), stderr: "" })])
+  expect(first.result.dispatch_state).toBe("awaiting_worker")
+  if (state === "in-flight") await bindTaskArgs().bind()
+  dispatchWindows().close(SESSION)
+  dispatchWindows().takeInFlight(SESSION)
+  const replay = await runTransition([() => ({ exitCode: 0, stdout: JSON.stringify({ ...combinedOkEnvelope(), replayed: true }), stderr: "" })])
+  expect(replay.result.outcome).toBe("error")
+  expect(replay.result.error?.kind).toBe("unauthorized_dispatch")
+  expect(replay.result.error?.retry_safe).toBe(false)
+  expect(replay.result.error?.message).toContain(RETRY_ATTEMPT)
+  expect(replay.result.dispatch_state).toBeUndefined()
+  expect(replay.result.output).toBeUndefined()
+  expect(replay.result.changed_refs).toEqual(okMembers.changed_refs)
+  expect(replay.result.result?.retry_attempt_id).toBe(RETRY_ATTEMPT)
+  expect(replay.result.result?.retry_worker_packet).toBeUndefined()
+  expect(dispatchWindows().has(SESSION)).toBe(false)
+  expect(dispatchWindows().inFlightAttempt(SESSION)).toBeNull()
+  await expect(bindTaskArgs().bind()).rejects.toThrow("no authorized dispatch window")
+})
+
+test("stale, full-packet, wrong-lane, and execution-control seeds leave the armed retry window usable; the matching selector binds the core's packet once", async () => {
+  const { result } = await runTransition([() => ({ exitCode: 0, stdout: JSON.stringify(combinedOkEnvelope()), stderr: "" })])
+  expect(result.outcome).toBe("ok")
+  expect(transcriptWrites).toBe(0)
+  const otherLane = agentLanes.find((candidate) => candidate.id !== lane.id)!
+  const seeds: Array<[string, Record<string, unknown>]> = [
+    ["stale attempt reference", { ...exactSelector(), prompt: "attempt-stale" }],
+    ["full queued packet as prompt", { ...exactSelector(), prompt: serializeLanePacket(retryPacket() as any) }],
+    ["wrong lane", { ...exactSelector(), subagent_type: `concord-${otherLane.id}` }],
+    ["resume control field", { ...exactSelector(), task_id: "resumed-session" }],
+    ["background control field", { ...exactSelector(), background: true }],
+    ["command control field", { ...exactSelector(), command: "opencode run" }],
+  ]
+  for (const [name, seed] of seeds) {
+    await expect(dispatchWindows().bind(TASK_TOOL_ID, SESSION, { ...seed }, "seed-call", async () => workspace, workspace), name).rejects.toThrow("requires the exact authorized lane and attempt reference")
+    expect(dispatchWindows().has(SESSION), name).toBe(true)
+  }
+  const { args, bind } = bindTaskArgs()
+  await bind()
+  expect(args.prompt).toBe(serializeLanePacket(retryPacket() as any))
+  expect(args.subagent_type).toBe(`concord-${lane.id}`)
+  expect(dispatchWindows().has(SESSION)).toBe(false)
+})
+
+test("a native denial after binding retains the consumed attempt for exactly one abandonment", async () => {
+  const { result } = await runTransition([() => ({ exitCode: 0, stdout: JSON.stringify(combinedOkEnvelope()), stderr: "" })])
+  expect(result.outcome).toBe("ok")
+  // Native permission denial lands after the binding hook but before the
+  // child exists (CD-0102 D5): the selector consumed the window into a
+  // retained in-flight record and no completion hook will run for it.
+  const { bind } = bindTaskArgs()
+  await bind()
+  const retained = dispatchWindows().inFlightAttempt(SESSION)
+  expect(retained?.packet.attempt_id).toBe(RETRY_ATTEMPT)
+  expect(retained?.packetDigest).toBe(RETRY_DIGEST)
+  // The existing no-report recovery closes exactly the retained identity and
+  // releases it once; the release requires the matching attempt and lane.
+  const abandonments: Array<{ command: string; attempt_id: string }> = []
+  const evidenceRunner: DispatchRunner = { async run(argv, stdin) {
+    if (argv[1] === "worker-abandon") {
+      const body = JSON.parse(stdin)
+      abandonments.push({ command: argv[1], attempt_id: body.attempt_id })
+    }
+    return { exitCode: 0, stdout: "", stderr: "" }
+  } }
+  const abandonment = await abandonWorkerAttempt(lane, { work_id: "work-retry", attempt_id: RETRY_ATTEMPT }, "the native Task was denied before its child started; no worker report exists", { credentials: testCredentials, evidenceRunner }, new AbortController().signal, () => { expect(dispatchWindows().releaseRetained(SESSION, RETRY_ATTEMPT, lane.id)).toBe(true) })
+  expect(abandonment.envelope.outcome).toBe("error")
+  expect(abandonment.committed).toBe(true)
+  expect(abandonments).toEqual([{ command: "worker-abandon", attempt_id: RETRY_ATTEMPT }])
+  expect(dispatchWindows().inFlightAttempt(SESSION)).toBeNull()
+  // The released attempt cannot authorize another Task, and a mismatched
+  // release identity never touches a fresh record.
+  expect(dispatchWindows().releaseRetained(SESSION, RETRY_ATTEMPT, lane.id)).toBe(false)
 })
 
 test("a failed launch keeps the committed attempt truthful for one abandonment", async () => {

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto"
 import nodeFs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
-import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, type RouteClient } from "./move-session"
+import { hostControlPlane, MANAGED_TASK_SCOPE_KEY } from "./move-session"
 import { resetClaimedWorktrees } from "./claimed-worktree"
 import { AdapterContractDefect } from "./adapter-contract-defect"
 const testDirectories: string[] = []
@@ -14,20 +14,16 @@ function mkdtempSync(prefix: string): string {
 }
 const fs = { ...nodeFs, mkdtempSync }
 
-async function acknowledgeNativeTask(request: Parameters<RouteClient["post"]>[0]) {
-  expect(request.url).toBe(SESSION_MESSAGES_ROUTE)
-  const body = request.body as { agent: string; noReply: boolean; parts: unknown[] }
-  expect(body.noReply).toBe(true)
-  return { data: { info: { id: "queued-message", sessionID: request.path?.id, agent: body.agent }, parts: body.parts }, response: new Response(null, { status: 200 }) }
-}
-
 beforeEach(() => {
   // Another file's landing tests can arm a claim that leaks into this run;
   // dispatch checks here must not depend on file order.
   resetClaimedWorktrees()
   hostControlPlane().bind({
     get: async ({ path }) => ({ data: { id: path?.id, directory: process.cwd(), metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } }, response: new Response(null, { status: 200 }) }),
-    post: acknowledgeNativeTask,
+    // Dispatch launches no worker and queues no subtask (CD-0102 D1), so the
+    // default transport refuses every transcript write; a test that observes
+    // a call binds its own recording post.
+    post: async () => { throw new Error("dispatch must not write to the host transcript") },
   })
 })
 afterEach(() => {
@@ -43,7 +39,7 @@ mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 const { agentLanes, agentUtilities } = await import("./generated-agent-lanes")
 const { validateAgentLanePacket } = await import("./dispatch")
-import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
+import { DispatchWindows, TASK_TOOL_ID, laneTaskArguments, serializeLanePacket } from "./dispatch-window"
 import type { AgentLanePacket, DispatchRunner } from "./dispatch"
 import type { CredentialStore } from "./credentials"
 import { fakeTool } from "./plugin-tool.fixture"
@@ -133,7 +129,10 @@ const exportedSession = () => JSON.stringify({
   messages: [{ info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: `concord-${lane.id}`, providerID: READBACK_MODEL.split("/")[0], modelID: READBACK_MODEL.split("/").slice(1).join("/"), time: { created: 1 } }, parts: [] }],
 })
 
-const contextFor = () => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: process.cwd(), directory: process.cwd(), abort: new AbortController().signal, ask: async () => {} }) as any
+// The ask default refuses: dispatch raises no permission ask of any kind —
+// the host's native Task owns Task permission (CD-0102 D1) — so any call here
+// fails the test that reached for it.
+const contextFor = () => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: process.cwd(), directory: process.cwd(), abort: new AbortController().signal, ask: async () => { throw new Error("dispatch must not raise a permission ask") } }) as any
 
 test("failed scope enrollment cannot authorize a core dispatch or open a window", async () => {
   hostControlPlane().bind({
@@ -182,7 +181,7 @@ test("routing returns null for non-dispatch_worker actions so the generic transp
   expect(laneDispatchRequest(null)).toBeNull()
 })
 
-test("happy path: continuity → packet → core ok → spawn with stubbed runners reaches the runner", async () => {
+test("happy path: continuity → packet → core ok → authorization directive with stubbed runners reaches no process", async () => {
   const seen: string[] = []
   const workflowInput: { value?: Record<string, unknown> } = {}
   const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
@@ -193,13 +192,8 @@ test("happy path: continuity → packet → core ok → spawn with stubbed runne
     if (key === "concord_work_transition.workflow_action") { workflowInput.value = args.input; return coreOkEnvelope() }
     throw new Error(`unscripted ${key}`)
   }
-  const runner: DispatchRunner = {
-    async run(argv) {
-      if (argv[1] === "run") return { exitCode: 0, stdout: runOutput(), stderr: "" }
-      if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
-      return { exitCode: 0, stdout: "", stderr: "" }
-    },
-  }
+  let processCalls = 0
+  const runner: DispatchRunner = { async run() { processCalls++; return { exitCode: 0, stdout: "", stderr: "" } } }
   let evidenceCalls = 0
   const evidenceRunner: DispatchRunner = { async run() { evidenceCalls++; return { exitCode: 0, stdout: "", stderr: "" } } }
   const windows = new DispatchWindows()
@@ -223,67 +217,113 @@ test("happy path: continuity → packet → core ok → spawn with stubbed runne
   expect(packet.inputs.binding).toEqual({ objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" })
   expect(validateAgentLanePacket(packet)).toBe(true)
   // The host runs the worker, so dispatch starts no process and records no
-  // evidence. Both belong to completion (CD-0102 D5).
+  // evidence. Both belong to the native Task and completion (CD-0102 D1/D5).
+  expect(processCalls).toBe(0)
   expect(evidenceCalls).toBe(0)
+  // The directive is authorization, not launch: it names the one native
+  // foreground Task the coordinator must issue, with the exact selector.
+  const selector = { subagent_type: `concord-${lane.id}`, prompt: packet.attempt_id, description: "Run authorized worker" }
+  expect(result.output).toContain("Authorized only")
+  expect(result.output).toContain("launches no worker")
+  expect(result.output).toContain("one native foreground Task")
+  expect(result.output).toContain(`exactly ${JSON.stringify(selector)}`)
+  expect(JSON.parse(result.output!.slice(result.output!.indexOf("{"), result.output!.lastIndexOf("}") + 1))).toEqual(selector)
   expect(windows.has("session-1")).toBe(true)
 })
 
-test.each([false, true])("authorized dispatch queues exactly one native Task with no model or provider assignment, added context=%s", async addedContext => {
+// CD-0102 D1: dispatch returns authorization, not launch. It writes no
+// subtask, raises no permission ask, and its one caller-visible instruction is
+// the exact native foreground Task selector the coordinator must issue from
+// the requesting session.
+test("authorized dispatch writes no subtask, asks no permission, and its directive names the exact native Task selector", async () => {
   const windows = new DispatchWindows()
-  const requests: Parameters<RouteClient["post"]>[0][] = []
-  const permissions: unknown[] = []
+  const transcriptWrites: unknown[] = []
   const context = contextFor()
-  let authorized = false
-  let authorizedPacket: AgentLanePacket | undefined
-  context.ask = async (request: unknown) => { expect(authorized).toBe(true); permissions.push(request) }
   hostControlPlane().bind({
     get: async ({ path }) => ({ data: { id: path?.id, directory: process.cwd(), metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } }, response: new Response(null, { status: 200 }) }),
-    async post(request) {
-      expect(authorized).toBe(true)
-      expect(permissions).toHaveLength(1)
-      expect(windows.has("session-1")).toBe(true)
-      requests.push(request)
-      const response = await acknowledgeNativeTask(request)
-      if (addedContext) response.data.parts = [...response.data.parts, { type: "text", text: "CI wait success", synthetic: true }]
-      return response
-    },
+    async post(request) { transcriptWrites.push(request); throw new Error("dispatch must not write a native subtask") },
   })
+  let authorizedPacket: AgentLanePacket | undefined
   const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }) => {
     const key = `${toolName}.${args.operation}`
     if (key === "concord_work_trace.continuity") return continuityEnvelope()
     if (key === "concord_work_browse.scope") return scopeEnvelope()
     if (key === "concord_work_transition.workflow_action") {
       authorizedPacket = (args.input!.fields as { worker_packet: AgentLanePacket }).worker_packet
-      authorized = true
       return coreOkEnvelope()
     }
     throw new Error(`unscripted ${key}`)
   }
   const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "native-task", lane_id: lane.id }, { context, invoke: invoke as any, credentials: testCredentials, windows })
   expect(result.outcome, JSON.stringify(result)).toBe("ok")
-  expect(permissions).toEqual([{ permission: "task", patterns: [`concord-${lane.id}`], always: ["*"], metadata: { description: `${lane.id} lane, attempt ${authorizedPacket!.attempt_id}`, subagent_type: `concord-${lane.id}` } }])
-  expect(requests).toHaveLength(1)
-  expect(requests[0].body).toEqual({
-    agent: "agent-1",
-    noReply: true,
-    parts: [{ type: "subtask", agent: `concord-${lane.id}`, description: `${lane.id} lane, attempt ${authorizedPacket!.attempt_id}`, prompt: JSON.stringify(authorizedPacket) }],
-  })
+  expect(result.dispatch_state).toBe("awaiting_worker")
+  expect(transcriptWrites).toHaveLength(0)
+  const packet = authorizedPacket!
+  const selector = { subagent_type: `concord-${lane.id}`, prompt: packet.attempt_id, description: "Run authorized worker" }
+  expect(result.output).toContain("Authorized only")
+  expect(result.output).toContain("launches no worker")
+  expect(result.output).toContain("one native foreground Task")
+  expect(result.output).toContain(`exactly ${JSON.stringify(selector)}`)
+  expect(JSON.parse(result.output!.slice(result.output!.indexOf("{"), result.output!.lastIndexOf("}") + 1))).toEqual(selector)
   expect(windows.has("session-1")).toBe(true)
-  const args = {}
-  await windows.bind(TASK_TOOL_ID, "session-1", args, "native-task-call", async () => process.cwd(), process.cwd())
-  expect(args).toEqual({ subagent_type: `concord-${lane.id}`, description: `${lane.id} lane, attempt ${authorizedPacket!.attempt_id}`, prompt: JSON.stringify(authorizedPacket) })
-  expect(windows.has("session-1")).toBe(false)
-  await expect(windows.bind(TASK_TOOL_ID, "session-1", {}, "replayed-task-call", async () => process.cwd(), process.cwd())).rejects.toThrow("no authorized dispatch window")
 })
 
-test("a host Task permission denial cannot queue a native worker", async () => {
+// The window the authorization opened binds one Task call — and only a call
+// naming the exact registered lane and the exact recorded attempt reference
+// with no other fields. A stale reference, the old queued full-packet prompt,
+// a wrong lane, an ordinary utility agent, and every execution-control seed
+// refuse without touching the armed window; the matching call then consumes it
+// once, overwriting the caller's arguments with the recorded packet.
+test("stale, full-packet, wrong-lane, utility, and execution-control Task seeds leave the window usable; the matching selector binds the recorded packet once", async () => {
   const windows = new DispatchWindows()
+  let authorizedPacket: AgentLanePacket | undefined
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }) => {
+    const key = `${toolName}.${args.operation}`
+    if (key === "concord_work_trace.continuity") return continuityEnvelope()
+    if (key === "concord_work_browse.scope") return scopeEnvelope()
+    if (key === "concord_work_transition.workflow_action") {
+      authorizedPacket = (args.input!.fields as { worker_packet: AgentLanePacket }).worker_packet
+      return coreOkEnvelope()
+    }
+    throw new Error(`unscripted ${key}`)
+  }
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "native-selector", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows })
+  expect(result.outcome, JSON.stringify(result)).toBe("ok")
+  const packet = authorizedPacket!
+  const exact = () => ({ subagent_type: `concord-${lane.id}`, prompt: packet.attempt_id, description: "Run authorized worker" })
+  const otherLane = agentLanes.find((candidate) => candidate.id !== lane.id)!
+  const seeds: Array<[string, Record<string, unknown>]> = [
+    ["stale attempt reference", { ...exact(), prompt: "attempt-stale" }],
+    ["full queued packet as prompt", { ...exact(), prompt: serializeLanePacket(packet) }],
+    ["wrong lane", { ...exact(), subagent_type: `concord-${otherLane.id}` }],
+    ["ordinary utility agent", { ...exact(), subagent_type: "explore" }],
+    ["resume control field", { ...exact(), task_id: "resumed-session" }],
+    ["background control field", { ...exact(), background: true }],
+    ["command control field", { ...exact(), command: "opencode run" }],
+  ]
+  for (const [name, seed] of seeds) {
+    await expect(windows.bind(TASK_TOOL_ID, "session-1", { ...seed }, "seed-call", async () => process.cwd(), process.cwd()), name).rejects.toThrow("requires the exact authorized lane and attempt reference")
+    expect(windows.has("session-1"), name).toBe(true)
+  }
+  const bound = exact()
+  await windows.bind(TASK_TOOL_ID, "session-1", bound, "matching-call", async () => process.cwd(), process.cwd())
+  expect(bound).toEqual(laneTaskArguments(packet))
+  expect(windows.has("session-1")).toBe(false)
+  await expect(windows.bind(TASK_TOOL_ID, "session-1", exact(), "replayed-call", async () => process.cwd(), process.cwd())).rejects.toThrow("no authorized dispatch window")
+})
+
+// Task permission is the host's native gate, not the adapter's: dispatch
+// consults no ask and performs no transcript write, so a coordinator whose
+// ask would deny anything still receives the authorization directive and its
+// one consumable window.
+test("dispatch consults no permission ask and no transcript write; native Task permission is the host's", async () => {
+  const windows = new DispatchWindows()
+  const transcriptWrites: unknown[] = []
   const context = contextFor()
-  let queues = 0
   context.ask = async () => { throw new Error("synthetic host Task denial") }
   hostControlPlane().bind({
     get: async ({ path }) => ({ data: { id: path?.id, directory: process.cwd(), metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } }, response: new Response(null, { status: 200 }) }),
-    async post(request) { queues++; return acknowledgeNativeTask(request) },
+    async post(request) { transcriptWrites.push(request); throw new Error("dispatch must not write a native subtask") },
   })
   const invoke = async (toolName: string, args: { operation: string }) => {
     const key = `${toolName}.${args.operation}`
@@ -293,38 +333,49 @@ test("a host Task permission denial cannot queue a native worker", async () => {
     throw new Error(`unscripted ${key}`)
   }
   const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "host-denied-task", lane_id: lane.id }, { context, invoke: invoke as any, credentials: testCredentials, windows })
-  expect(result.outcome).toBe("error")
-  expect(result.error?.kind).toBe("unauthorized_dispatch")
-  expect(result.error?.details).toEqual({ boundary: "host_task_permission", effect_state: "possible", dispatch_authorized: true, worker_launch: "not_started" })
-  expect(result.error?.message).toContain("synthetic host Task denial")
-  expect(result.error?.retry_safe).toBe(false)
-  expect(queues).toBe(0)
-  expect(windows.has("session-1")).toBe(false)
+  expect(result.outcome).toBe("ok")
+  expect(result.dispatch_state).toBe("awaiting_worker")
+  expect(result.output).toContain("launches no worker")
+  expect(transcriptWrites).toHaveLength(0)
+  expect(windows.has("session-1")).toBe(true)
 })
 
-test("an unconfirmed native launch preserves the authorized effect and never retries the queue", async () => {
+// One session holds at most one window. A second dispatch authorizes nothing
+// new to launch: the window owner refuses the second arming and the first
+// authorization's window stays the only consumable one.
+test("a second dispatch cannot arm a second window while one is open and never retries the launch", async () => {
   const windows = new DispatchWindows()
-  let queues = 0
+  const firstRequest = { work_id: WORK_ID, expected_version: 3, idempotency_key: "first-window", lane_id: lane.id }
+  const secondRequest = { work_id: WORK_ID, expected_version: 3, idempotency_key: "second-window", lane_id: lane.id }
+  const packets: AgentLanePacket[] = []
   let authorizations = 0
-  hostControlPlane().bind({
-    get: async ({ path }) => ({ data: { id: path?.id, directory: process.cwd(), metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } }, response: new Response(null, { status: 200 }) }),
-    async post() { queues++; throw new Error("synthetic lost acknowledgment") },
-  })
-  const invoke = async (toolName: string, args: { operation: string }) => {
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }) => {
     const key = `${toolName}.${args.operation}`
     if (key === "concord_work_trace.continuity") return continuityEnvelope()
     if (key === "concord_work_browse.scope") return scopeEnvelope()
-    if (key === "concord_work_transition.workflow_action") { authorizations++; return coreOkEnvelope() }
+    if (key === "concord_work_transition.workflow_action") {
+      authorizations++
+      packets.push((args.input!.fields as { worker_packet: AgentLanePacket }).worker_packet)
+      return coreOkEnvelope()
+    }
     throw new Error(`unscripted ${key}`)
   }
-  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "unconfirmed-native-task", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows })
-  expect(result.outcome).toBe("error")
-  expect(result.error?.message).toContain("synthetic lost acknowledgment")
-  expect(result.error?.details).toEqual({ effect_state: "possible", dispatch_authorized: true, worker_launch: "unconfirmed" })
-  expect(result.error?.retry_safe).toBe(false)
-  expect(authorizations).toBe(1)
-  expect(queues).toBe(1)
-  expect(windows.has("session-1")).toBe(false)
+  const first = await dispatchLaneWorker(firstRequest, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows })
+  expect(first.outcome).toBe("ok")
+  expect(windows.has("session-1")).toBe(true)
+  const second = await dispatchLaneWorker(secondRequest, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows })
+  expect(second.outcome).toBe("error")
+  expect(second.error?.message).toContain("already holds an open dispatch window")
+  expect(windows.has("session-1")).toBe(true)
+  // The armed window is still the first authorization's: its exact selector
+  // binds the first recorded packet, and the second attempt's reference does
+  // not.
+  const firstSelector = { subagent_type: `concord-${lane.id}`, prompt: packets[0].attempt_id, description: "Run authorized worker" }
+  await windows.bind(TASK_TOOL_ID, "session-1", firstSelector, "first-call", async () => process.cwd(), process.cwd())
+  expect(firstSelector.prompt).toBe(serializeLanePacket(packets[0]))
+  const secondSelector = { subagent_type: `concord-${lane.id}`, prompt: packets[1].attempt_id, description: "Run authorized worker" }
+  await expect(windows.bind(TASK_TOOL_ID, "session-1", secondSelector, "second-call", async () => process.cwd(), process.cwd())).rejects.toThrow("no authorized dispatch window")
+  expect(authorizations).toBe(2)
 })
 
 test("pre-contract research dispatch carries the recorded question as the task", async () => {
@@ -748,6 +799,27 @@ test("a malformed core error never becomes a retry-safe authorization refusal", 
   expect(windows.has("session-1")).toBe(false)
 })
 
+test("an initially replayed ordinary authorization cannot recreate a missing window", async () => {
+  const windows = new DispatchWindows()
+  const request = { work_id: WORK_ID, expected_version: 1, idempotency_key: "initial-replay", lane_id: lane.id }
+  let workflowCalls = 0
+  const invoke = async (toolName: string): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    if (toolName === "concord_work_transition") { workflowCalls++; return { ...coreOkEnvelope(), replayed: true } }
+    throw new Error(`unscripted ${toolName}`)
+  }
+  const result = await dispatchLaneWorker(request, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("unauthorized_dispatch")
+  expect(result.error?.retry_safe).toBe(false)
+  expect(result.error?.recovery_action).toBe("reconcile_operation")
+  expect(result.error?.message).toContain(dispatchAttemptID(request))
+  expect(result.dispatch_state).toBeUndefined()
+  expect(windows.has("session-1")).toBe(false)
+  expect(workflowCalls).toBe(1)
+})
+
 // A core failure after the dispatch boundary committed carries effect_state
 // possible and retry_safe true. The adapter must replay the byte-identical
 // request itself: a caller-level retry rebuilds the packet against the work
@@ -830,7 +902,7 @@ test("a retry-safe possible effect replays into the committed authorization", as
           error: { kind: "unreachable", retry_safe: true, recovery_action: { kind: "retry_same_request" }, effect_state: "possible", message: "durability checkpoint did not complete: busy=1 log=45 checkpointed=4" },
         })
       }
-      return coreOkEnvelope()
+      return { ...coreOkEnvelope(), replayed: true }
     }
     throw new Error(`unscripted ${toolName}.${args.operation}`)
   }
@@ -1194,6 +1266,7 @@ test("a missing tool context authorizes nothing in the core", async () => {
 })
 
 test("dispatchLaneWorker retains the core's packet digest for completion", async () => {
+  const request = { work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-7", lane_id: lane.id }
   const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
     if (toolName === "concord_work_trace") return continuityEnvelope()
     if (toolName === "concord_work_browse") return scopeEnvelope()
@@ -1201,14 +1274,77 @@ test("dispatchLaneWorker retains the core's packet digest for completion", async
     throw new Error(`unscripted ${toolName}.${args.operation}`)
   }
   const windows = new DispatchWindows()
-  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-7", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows })
+  const result = await dispatchLaneWorker(request, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows })
   expect(result.outcome).toBe("ok")
 
   // CD-0067 D6: the adapter never computes the digest. The value the core
   // recorded is carried across the host's Task call and quoted by the dispatch
-  // assertion at completion.
-  await windows.bind(TASK_TOOL_ID, "session-1", { subagent_type: "general", prompt: "x" }, undefined, async () => process.cwd(), process.cwd())
+  // assertion at completion. The native selector from the directive binds.
+  const selector = { subagent_type: `concord-${lane.id}`, prompt: dispatchAttemptID(request), description: "Run authorized worker" }
+  await windows.bind(TASK_TOOL_ID, "session-1", selector, undefined, async () => process.cwd(), process.cwd())
   expect(windows.takeInFlight("session-1")?.packetDigest).toBe(CORE_PACKET_DIGEST)
+})
+
+// CD-0102 D1: the evidence-credential probe runs before the consumable window
+// opens. A probe that fails admits no window and no worker execution; the
+// post-authorization refusal keeps its own diagnosis and the coordinator's
+// receipt names the operator recovery.
+test("a failing evidence credential probe opens no window and instructs no native Task", async () => {
+  const failingCredentials: CredentialStore = { async getPrivateKey() { throw new Error("credential vault is sealed") } }
+  const invoke = async (toolName: string, args: { operation: string }): Promise<unknown> => {
+    const key = `${toolName}.${args.operation}`
+    if (key === "concord_work_trace.continuity") return continuityEnvelope()
+    if (key === "concord_work_browse.scope") return scopeEnvelope()
+    if (key === "concord_work_transition.workflow_action") return coreOkEnvelope()
+    throw new Error(`unscripted ${key}`)
+  }
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "credential-fail", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: failingCredentials, windows })
+  expect(result.outcome).toBe("error")
+  expect(result.dispatch_state).toBeUndefined()
+  expect(result.error?.kind).toBe("error")
+  expect(result.error?.message).toContain("credential probe failed before worker execution")
+  expect(result.error?.message).toContain("credential vault is sealed")
+  expect(result.error?.recovery_action).toBe("contact_operator")
+  expect(result.output).toBeUndefined()
+  expect(windows.has("session-1")).toBe(false)
+})
+
+// A native Task can bind concurrently, so the window must not be consumable
+// while the credential probe is still pending: a matching Task issued during
+// the suspension finds no window, and a probe that then fails leaves none.
+test("a suspended evidence credential probe admits no concurrent Task bind and a failing probe leaves no window", async () => {
+  let settleProbe!: (privateKey: Promise<Uint8Array>) => void
+  let probeStarted!: () => void
+  const started = new Promise<void>(resolve => { probeStarted = resolve })
+  const suspendedCredentials: CredentialStore = {
+    getPrivateKey() {
+      return new Promise<Uint8Array>((resolve) => { settleProbe = resolve; probeStarted() })
+    },
+  }
+  const request = { work_id: WORK_ID, expected_version: 3, idempotency_key: "credential-suspended", lane_id: lane.id }
+  const invoke = async (toolName: string, args: { operation: string }): Promise<unknown> => {
+    const key = `${toolName}.${args.operation}`
+    if (key === "concord_work_trace.continuity") return continuityEnvelope()
+    if (key === "concord_work_browse.scope") return scopeEnvelope()
+    if (key === "concord_work_transition.workflow_action") return coreOkEnvelope()
+    throw new Error(`unscripted ${key}`)
+  }
+  const windows = new DispatchWindows()
+  const pending = dispatchLaneWorker(request, { context: contextFor(), invoke: invoke as any, credentials: suspendedCredentials, windows })
+  await started
+  // The authorization committed, but no consumable window exists yet: a
+  // concurrent native Task carrying the exact selector cannot bind.
+  expect(windows.has("session-1")).toBe(false)
+  const concurrentSelector = { subagent_type: `concord-${lane.id}`, prompt: dispatchAttemptID(request), description: "Run authorized worker" }
+  await expect(windows.bind(TASK_TOOL_ID, "session-1", { ...concurrentSelector }, "concurrent-call", async () => process.cwd(), process.cwd())).rejects.toThrow("no authorized dispatch window")
+  settleProbe(Promise.reject(new Error("credential store suspended then refused")))
+  const result = await pending
+  expect(result.outcome).toBe("error")
+  expect(result.dispatch_state).toBeUndefined()
+  expect(result.error?.message).toContain("credential probe failed before worker execution")
+  expect(result.error?.message).toContain("suspended then refused")
+  expect(windows.has("session-1")).toBe(false)
 })
 
 // CON-821 / CD-0034 on the lane route: a manifest the store would refuse at

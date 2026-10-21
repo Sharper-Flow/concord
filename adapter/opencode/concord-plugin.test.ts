@@ -281,12 +281,12 @@ describe("plugin entry registers the dispatch window hook", () => {
       post: async () => { throw new Error("Task admission cannot write host state") },
     })
     dispatchWindows().open("session-plugin", packet, "", process.cwd())
-    const output = { args: { subagent_type: "concord-implement", prompt: "whatever I like", task_id: "old" } }
+    const output = { args: { subagent_type: "concord-implement", prompt: "attempt-plugin", description: "bounded worker" } }
     await plugin["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID: "session-plugin", callID: "call-1" }, output)
 
     expect(output.args.subagent_type).toBe("concord-implement")
     expect(JSON.parse(output.args.prompt).attempt_id).toBe("attempt-plugin")
-    expect(output.args.task_id).toBeUndefined()
+    expect(output.args).not.toHaveProperty("task_id")
     expect(dispatchWindows().has("session-plugin")).toBe(false)
   })
 
@@ -344,7 +344,7 @@ describe("plugin entry refuses a dispatch whose worker would execute in the laun
       dispatchWindows().open(sessionID, packet, "", claimedWorktree)
       expect(dispatchWindows().has(sessionID)).toBe(true)
 
-      const output = { args: { subagent_type: "concord-implement", prompt: "whatever I like", task_id: "old" } }
+      const output = { args: { subagent_type: "concord-implement", prompt: "attempt-plugin", description: "bounded worker" } }
       const callerArgs = { ...output.args }
       let refusal: unknown
       try {
@@ -388,7 +388,7 @@ describe("plugin entry refuses a dispatch whose worker would execute in the laun
       get: async () => ({ data: { id: sessionID, directory: claimedWorktree }, response: new Response(null, { status: 200 }) }),
       post: async () => { throw new Error("Task admission cannot write host state") },
     }
-    const callerArgs = () => ({ subagent_type: "concord-implement", prompt: "whatever I like", task_id: "old" })
+    const callerArgs = () => ({ subagent_type: "concord-implement", prompt: "attempt-plugin", description: "bounded worker" })
     try {
       dispatchWindows().open(sessionID, packet, "", claimedWorktree)
       const first = (await ConcordAdapterPlugin({ directory: trunk, worktree: trunk, client: { _client: raw } as never })) as {
@@ -448,7 +448,7 @@ describe("plugin entry refuses a dispatch whose worker would execute in the laun
         "tool.execute.before": (i: { tool: string; sessionID: string; callID: string }, o: { args: any }) => Promise<void>
       }
       dispatchWindows().open(sessionID, packet, "", claimedWorktree)
-      const output = { args: { subagent_type: "concord-implement", prompt: "whatever I like", task_id: "old" } }
+      const output = { args: { subagent_type: "concord-implement", prompt: "attempt-plugin", description: "bounded worker" } }
       await plugin["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID, callID: "call-claimed-instance" }, output)
       expect(output.args.subagent_type).toBe("concord-implement")
       expect(JSON.parse(output.args.prompt).attempt_id).toBe(packet.attempt_id)

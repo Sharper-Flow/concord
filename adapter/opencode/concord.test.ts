@@ -39,6 +39,13 @@ configureCoreBinary("concord")
 
 const adapter = await import("./concord")
 
+test("published dispatch description separates authorization from native Task launch", () => {
+  expect(adapter.work_transition.description).toContain("dispatch itself launches nothing")
+  expect(adapter.work_transition.description).toContain("issue one native foreground Task")
+  expect(adapter.work_transition.description).toContain("exact lane and attempt reference")
+  expect(adapter.work_transition.description).toContain("without a packet, resume, background or command fields")
+})
+
 // The suite never touches a terminal surface: work_start owns no terminal
 // command, so no test needs to simulate or clear terminal environment state.
 const outerSelectedProductID = process.env.CONCORD_SELECTED_PRODUCT_ID
@@ -4075,7 +4082,7 @@ test.each([false, true])("an ok worker_abandon releases its exact authorization 
   }
   windows.open(context.sessionID, retained, "sha256:" + "c".repeat(64), process.cwd())
   if (consumed) {
-    await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-cancel", async () => process.cwd(), process.cwd())
+    await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "concord-implement", prompt: "attempt-1", description: "bounded worker" }, "call-cancel", async () => process.cwd(), process.cwd())
     expect(windows.inFlight(context.sessionID, "call-cancel")).not.toBeNull()
   } else {
     expect(windows.has(context.sessionID)).toBe(true)
@@ -4121,7 +4128,7 @@ test.each(["none", "possible", "unknown"] as const)("a missing-row worker_abando
     inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }
   windows.open(context.sessionID, retained, "sha256:" + "d".repeat(64), process.cwd())
-  await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-stranded", async () => process.cwd(), process.cwd())
+  await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "concord-implement", prompt: "attempt-stranded", description: "bounded worker" }, "call-stranded", async () => process.cwd(), process.cwd())
   expect(windows.inFlight(context.sessionID, "call-stranded")).not.toBeNull()
   const calls: string[] = []
   adapter.configureConcordAdapter({
@@ -4165,7 +4172,7 @@ test("a missing-row worker_abandon refusal preserves a foreign retained record",
     inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }
   windows.open(context.sessionID, retained, "sha256:" + "e".repeat(64), process.cwd())
-  await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-foreign", async () => process.cwd(), process.cwd())
+  await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "concord-implement", prompt: "attempt-stranded", description: "bounded worker" }, "call-foreign", async () => process.cwd(), process.cwd())
   adapter.configureConcordAdapter({
     credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
     runner: { async run(argv) {
@@ -4209,7 +4216,7 @@ test.each([
     inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }
   windows.open(sessionID, retained, "sha256:" + "b".repeat(64), process.cwd())
-  await windows.bind(TASK_TOOL_ID, sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-committed-detail", async () => process.cwd(), process.cwd())
+  await windows.bind(TASK_TOOL_ID, sessionID, { subagent_type: "concord-implement", prompt: "attempt-1", description: "bounded worker" }, "call-committed-detail", async () => process.cwd(), process.cwd())
   expect(windows.inFlight(sessionID, "call-committed-detail")).not.toBeNull()
   const calls: Array<{ argv: string[]; operation?: string }> = []
   adapter.configureConcordAdapter({
@@ -5421,7 +5428,7 @@ test.each(["recorded", "foreign", "none", "possible", "unknown"] as const)("work
   const retained = { ...recoveryPacket, attempt_id: closeState === "foreign" ? "attempt-foreign" : recoveryPacket.attempt_id }
   const windows = dispatchWindows()
   windows.open(RECOVERY_SESSION, retained, recoveryContextFixture.packet_digest, process.cwd())
-  await windows.bind(TASK_TOOL_ID, RECOVERY_SESSION, { subagent_type: "x", prompt: "y", description: "z" }, "retained-part-concord-913", async () => process.cwd(), process.cwd())
+  await windows.bind(TASK_TOOL_ID, RECOVERY_SESSION, { subagent_type: `concord-${recoveryPacket.lane_id}`, prompt: retained.attempt_id, description: "bounded worker" }, "retained-part-concord-913", async () => process.cwd(), process.cwd())
   const prepareOk = coreEnvelope("concord_work_transition", "worker_reconcile", "ok", {
     result: { changed_refs: [], next_valid_intents: [], worker_recovery: recoveryContextFixture }, changed_refs: [], next_valid_intents: [],
   })

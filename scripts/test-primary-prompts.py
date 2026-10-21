@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Tests for scripts/check-primary-prompts.py.
 
-Positive scenarios run the checker against the real repository examples.
-Negative scenarios copy the examples into a temporary tree, break one invariant
-on purpose, and prove the checker reports it: a host tool name in frontmatter, a
-missing advisory handoff, duplicated conduct text, a diverged shared section,
-a lost intake boundary, a missing cross-repository boundary phrase, and a
-forbidden move-into-another-repository instruction. The named profiles prove
+Positive scenarios run the checker against the real profiles and intake example.
+Negative scenarios copy them into a temporary tree, break one invariant on
+purpose, and prove the checker reports it: a host tool name in frontmatter,
+duplicated conduct text, a lost intake boundary, a missing cross-repository
+boundary phrase, or a retired example. The named profiles prove
 their contract: the Concord-RTE and Concord profiles carry Build-level grants
 with no workflow denial and the required role sentences, Concord-Planner keeps
 its path-scoped edits, ask-default shell, utility-only delegation, and
@@ -304,17 +303,17 @@ class PrimaryPromptCheckTests(unittest.TestCase):
             self.assertNotIn(name, installer)
 
     def test_missing_prompt_reports(self) -> None:
-        (self.root / check_primary_prompts.PROMPT_DIR / "concord-2.md").unlink()
+        (self.root / check_primary_prompts.PROMPT_DIR / "concord-0.md").unlink()
         findings = self.findings()
         self.assertTrue(any("missing primary agent example" in finding for finding in findings))
 
     def test_host_tool_name_in_frontmatter_reports(self) -> None:
-        self.rewrite("concord-1.md", lambda text: text.replace("  webfetch: allow\n", "  webfetch: allow\n  github_*: allow\n"))
+        self.rewrite("concord-0.md", lambda text: text.replace("permission:\n", "permission:\n  github_*: allow\n", 1))
         findings = self.findings()
         self.assertTrue(any("github_'" in finding and "frontmatter" in finding for finding in findings))
 
     def test_host_mutation_tool_permission_in_coordinator_frontmatter_reports(self) -> None:
-        self.rewrite("concord-1.md", lambda text: text.replace("  edit: allow\n", "  edit: allow\n  morph_edit: allow\n"))
+        self.rewrite("Concord.md", lambda text: text.replace("  edit: allow\n", "  edit: allow\n  morph_edit: allow\n"))
         findings = self.findings()
         self.assertTrue(any("morph_edit" in finding and "frontmatter" in finding for finding in findings))
 
@@ -323,43 +322,25 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         findings = self.findings()
         self.assertTrue(any("frontmatter is not closed" in finding for finding in findings))
 
-    def test_missing_advisory_handoff_reports(self) -> None:
-        def strip_handoff(text: str) -> str:
-            start = text.index("Advisory handoff.")
-            end = text.index("\n\n", start)
-            return text[:start] + text[end + 2:]
-        self.rewrite("concord-1.md", strip_handoff)
-        findings = self.findings()
-        self.assertTrue(any("concord-1.md" in finding and "Advisory handoff" in finding for finding in findings))
+    def test_retired_examples_report(self) -> None:
+        for name in check_primary_prompts.RETIRED_PRIMARY_EXAMPLES:
+            with self.subTest(name=name):
+                path = self.root / check_primary_prompts.PROMPT_DIR / name
+                path.write_text("---\nmode: primary\n---\n", encoding="utf-8")
+                self.assertTrue(any(
+                    "retired primary agent example" in finding and name in finding
+                    for finding in self.findings()
+                ))
+                path.unlink()
 
-    def test_advisory_handoff_without_decline_rule_reports(self) -> None:
-        self.rewrite(
-            "concord-2.md",
-            lambda text: text.replace(
-                "When the operator declines, do not repeat the unchanged\nrecommendation, and do not pause work the contract still permits.",
-                "",
-            ),
-        )
-        findings = self.findings()
-        self.assertTrue(any("do not repeat" in finding for finding in findings))
+    def test_retired_examples_do_not_ship(self) -> None:
+        for name in check_primary_prompts.RETIRED_PRIMARY_EXAMPLES:
+            self.assertFalse((ROOT / check_primary_prompts.PROMPT_DIR / name).exists())
 
     def test_duplicated_lookup_obligation_reports(self) -> None:
         self.rewrite("concord-0.md", lambda text: text.replace("## Dispatch boundary", "Recall is not evidence.\n\n## Dispatch boundary"))
         findings = self.findings()
         self.assertTrue(any("duplicates the technical-unknown" in finding for finding in findings))
-
-    def test_permission_drift_reports(self) -> None:
-        self.rewrite("concord-2.md", lambda text: text.replace('"sudo *": "deny"', '"sudo *": "allow"'))
-        findings = self.findings()
-        self.assertTrue(any("different permission frontmatter" in finding for finding in findings))
-
-    def test_shared_section_drift_reports(self) -> None:
-        self.rewrite(
-            "concord-2.md",
-            lambda text: text.replace("You decide, then you record.", "You decide, then you record it."),
-        )
-        findings = self.findings()
-        self.assertTrue(any("differ outside the posture" in finding for finding in findings))
 
     def test_intake_boundary_loss_reports(self) -> None:
         self.rewrite("concord-0.md", lambda text: text.replace("  write: deny\n", ""))
@@ -368,13 +349,13 @@ class PrimaryPromptCheckTests(unittest.TestCase):
 
     def test_coordinator_task_boundary_loss_reports(self) -> None:
         self.rewrite(
-            "concord-1.md",
-            lambda text: text.replace('task:\n    "*": deny\n    "concord-*": allow', 'task:\n    "*": deny'),
+            "Concord.md",
+            lambda text: text.replace('task:\n    "*": allow', 'task:\n    "*": deny'),
         )
         findings = self.findings()
-        self.assertTrue(any("task boundary" in finding for finding in findings))
+        self.assertTrue(any("does not allow task by default" in finding for finding in findings))
 
-    def test_boundary_phrases_pass_on_real_examples(self) -> None:
+    def test_boundary_phrases_pass_on_real_profiles(self) -> None:
         self.assertEqual(self.findings(), [])
 
     def test_missing_boundary_statement_reports(self) -> None:
@@ -387,10 +368,10 @@ class PrimaryPromptCheckTests(unittest.TestCase):
             self.assertEqual(count, 1, "fixture no longer carries the boundary statement")
             return rewritten
 
-        self.rewrite("concord-1.md", drop_boundary)
+        self.rewrite("Concord.md", drop_boundary)
         findings = self.findings()
         self.assertTrue(any(
-            "concord-1.md" in finding
+            "Concord.md" in finding
             and "cross-repository boundary phrase 'never claim or move across the boundary'" in finding
             for finding in findings
         ))

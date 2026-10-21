@@ -26,6 +26,11 @@ const packet = {
 
 const here = async () => process.cwd()
 
+// The exact native Task selector a dispatch response instructs: the caller
+// names only the lane agent and the attempt reference, and the bind overwrites
+// the full recorded packet afterward.
+const exactSelector = () => ({ subagent_type: "concord-implement", prompt: "attempt-1", description: "bounded worker" })
+
 function pendingDirectory() {
   let resolve!: (directory: string) => void
   let reject!: (error: Error) => void
@@ -50,25 +55,26 @@ describe("dispatch authorization window", () => {
     const windows = new DispatchWindows()
     let reads = 0
     const counted = async () => { reads++; return process.cwd() }
-    await expect(windows.bind(TASK_TOOL_ID, "session-a", {}, undefined, counted, process.cwd())).rejects.toThrow(/no authorized dispatch/i)
+    await expect(windows.bind(TASK_TOOL_ID, "session-a", exactSelector(), undefined, counted, process.cwd())).rejects.toThrow(/no authorized dispatch/i)
     expect(reads).toBe(0)
   })
 
   test("replaces caller arguments with the recorded packet", async () => {
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "", process.cwd())
-    const args = { subagent_type: "general", prompt: "whatever I like", description: "x" }
+    const args = exactSelector()
     await windows.bind(TASK_TOOL_ID, "session-a", args, undefined, here, process.cwd())
     expect(args.subagent_type).toBe("concord-implement")
     expect(JSON.parse(args.prompt).attempt_id).toBe("attempt-1")
+    expect(args.description).toBe("implement lane, attempt attempt-1")
   })
 
   test("consumes the window exactly once", async () => {
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "", process.cwd())
-    await windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "x", prompt: "y", description: "z" }, undefined, here, process.cwd())
+    await windows.bind(TASK_TOOL_ID, "session-a", exactSelector(), undefined, here, process.cwd())
     await expect(
-      windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "x", prompt: "y", description: "z" }, undefined, here, process.cwd()),
+      windows.bind(TASK_TOOL_ID, "session-a", exactSelector(), undefined, here, process.cwd()),
     ).rejects.toThrow(/no authorized dispatch/i)
   })
 
@@ -76,9 +82,9 @@ describe("dispatch authorization window", () => {
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "", process.cwd())
     await expect(
-      windows.bind(TASK_TOOL_ID, "session-b", { subagent_type: "x", prompt: "y", description: "z" }, undefined, here, process.cwd()),
+      windows.bind(TASK_TOOL_ID, "session-b", exactSelector(), undefined, here, process.cwd()),
     ).rejects.toThrow(/no authorized dispatch/i)
-    const args = { subagent_type: "x", prompt: "y", description: "z" }
+    const args = exactSelector()
     await windows.bind(TASK_TOOL_ID, "session-a", args, undefined, here, process.cwd())
     expect(args.subagent_type).toBe("concord-implement")
   })
@@ -89,7 +95,7 @@ describe("dispatch authorization window", () => {
     const args = { subagent_type: "general", prompt: "untouched" }
     await windows.bind("bash", "session-a", args, undefined, here, process.cwd())
     expect(args.prompt).toBe("untouched")
-    const taskArgs = { subagent_type: "x", prompt: "y", description: "z" }
+    const taskArgs = exactSelector()
     await windows.bind(TASK_TOOL_ID, "session-a", taskArgs, undefined, here, process.cwd())
     expect(taskArgs.subagent_type).toBe("concord-implement")
   })
@@ -106,7 +112,7 @@ describe("dispatch authorization window", () => {
   test("the in-flight refusal names the worker_abandon route and the retained identity", async () => {
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "", process.cwd())
-    await windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "x", prompt: "y", description: "z" }, "call-1", here, process.cwd())
+    await windows.bind(TASK_TOOL_ID, "session-a", exactSelector(), "call-1", here, process.cwd())
     const refusal = (() => {
       try {
         windows.open("session-a", packet, "", process.cwd())
@@ -122,12 +128,20 @@ describe("dispatch authorization window", () => {
     expect(refusal).toContain("session-a")
   })
 
-  test("refuses to resume a prior worker session", async () => {
+  // Resume, background, and command fields are execution control the dispatch
+  // never authorizes: the window refuses the call untouched and stays open for
+  // the exact instructed selector.
+  test("refuses a resume field and then binds the exact instructed selector", async () => {
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "", process.cwd())
-    const args = { subagent_type: "x", prompt: "y", description: "z", task_id: "session-prior" }
+    const resume = { ...exactSelector(), task_id: "session-prior" }
+    await expect(windows.bind(TASK_TOOL_ID, "session-a", resume, undefined, here, process.cwd())).rejects.toThrow(/exact authorized lane and attempt reference/)
+    expect(resume.task_id).toBe("session-prior")
+    expect(windows.has("session-a")).toBe(true)
+    const args = exactSelector()
     await windows.bind(TASK_TOOL_ID, "session-a", args, undefined, here, process.cwd())
-    expect(args.task_id).toBeUndefined()
+    expect(args).not.toHaveProperty("task_id")
+    expect(JSON.parse(args.prompt).attempt_id).toBe("attempt-1")
   })
 
   // The session readback and the execution instance report the claimed
@@ -138,7 +152,7 @@ describe("dispatch authorization window", () => {
     const claimed = realpathSync(tmpdir())
     expect(claimed).not.toBe(process.cwd())
     windows.open("session-a", packet, "", claimed)
-    const args = { subagent_type: "general", prompt: "model input", description: "model task" }
+    const args = exactSelector()
 
     await windows.bind(TASK_TOOL_ID, "session-a", args, undefined, async () => claimed, claimed)
     expect(args.subagent_type).toBe("concord-implement")
@@ -149,19 +163,19 @@ describe("dispatch authorization window", () => {
   test("refuses a worker when the session moved away from the claimed worktree", async () => {
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "", process.cwd())
-    const args = { subagent_type: "general", prompt: "model input", description: "model task" }
+    const args = exactSelector()
 
     await expect(
       windows.bind(TASK_TOOL_ID, "session-a", args, undefined, async () => realpathSync(tmpdir()), process.cwd()),
     ).rejects.toThrow(/does not match the active claimed worktree/i)
-    expect(args.subagent_type).toBe("general")
+    expect(args).toEqual(exactSelector())
     expect(windows.has("session-a")).toBe(false)
   })
 
   test("does not expose paths in a directory mismatch", async () => {
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "", process.cwd())
-    const result = await windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "model input" }, undefined, async () => realpathSync(tmpdir()), process.cwd()).catch(error => String(error))
+    const result = await windows.bind(TASK_TOOL_ID, "session-a", exactSelector(), undefined, async () => realpathSync(tmpdir()), process.cwd()).catch(error => String(error))
 
     expect(result).not.toContain(process.cwd())
     expect(result).not.toContain(realpathSync(tmpdir()))
@@ -173,7 +187,7 @@ describe("dispatch authorization window", () => {
     windows.open("session-a", packet, "", process.cwd())
 
     await expect(
-      windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "model input" }, undefined, async () => {
+      windows.bind(TASK_TOOL_ID, "session-a", exactSelector(), undefined, async () => {
         throw new Error(`cannot read ${secretPath}`)
       }, process.cwd()),
     ).rejects.toThrow(/could not resolve the host session directory/i)
@@ -195,7 +209,7 @@ describe("dispatch authorization window", () => {
     const before = process.cwd()
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "", directory)
-    await windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "model input" }, undefined, here, process.cwd())
+    await windows.bind(TASK_TOOL_ID, "session-a", exactSelector(), undefined, here, process.cwd())
 
     expect(process.cwd()).toBe(before)
   })
@@ -214,7 +228,7 @@ describe("dispatch authorization window", () => {
       fs.symlinkSync(other, alias)
 
       await expect(
-        windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "model input" }, undefined, async () => alias, claimed),
+        windows.bind(TASK_TOOL_ID, "session-a", exactSelector(), undefined, async () => alias, claimed),
       ).rejects.toThrow(/does not match the active claimed worktree/i)
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
@@ -229,11 +243,11 @@ describe("dispatch authorization window", () => {
     for (const executionDirectory of [undefined, "", "relative/claim", `${process.cwd()}/concord-execution-nonexistent-${randomUUID()}`, 42]) {
       const windows = new DispatchWindows()
       windows.open("session-a", packet, "", process.cwd())
-      const args = { subagent_type: "general", prompt: "model input", description: "model task" }
+      const args = exactSelector()
       await expect(
         windows.bind(TASK_TOOL_ID, "session-a", args, "call-unresolved", here, executionDirectory),
       ).rejects.toThrow(/execution directory/i)
-      expect(args.subagent_type).toBe("general")
+      expect(args).toEqual(exactSelector())
       expect(windows.has("session-a")).toBe(false)
       expect(windows.inFlightAttempt("session-a")).toBeNull()
     }
@@ -252,18 +266,18 @@ describe("dispatch authorization window", () => {
     try {
       const windows = new DispatchWindows()
       windows.open("session-a", packet, "", claimed)
-      const args = { subagent_type: "general", prompt: "model input", description: "model task" }
+      const args = exactSelector()
       await windows.bind(TASK_TOOL_ID, "session-a", args, "call-alias", async () => claimed, alias)
       expect(args.subagent_type).toBe("concord-implement")
 
       windows.open("session-b", packet, "", claimed)
       fs.unlinkSync(alias)
       fs.symlinkSync(other, alias)
-      const refused = { subagent_type: "general", prompt: "model input", description: "model task" }
+      const refused = exactSelector()
       await expect(
         windows.bind(TASK_TOOL_ID, "session-b", refused, "call-retargeted", async () => claimed, alias),
       ).rejects.toThrow(/does not match the active claimed worktree/i)
-      expect(refused.subagent_type).toBe("general")
+      expect(refused).toEqual(exactSelector())
       expect(windows.has("session-b")).toBe(false)
       expect(windows.inFlightAttempt("session-b")).toBeNull()
       windows.open("session-c", packet, "", claimed)
@@ -288,7 +302,7 @@ describe("dispatch authorization window", () => {
     try {
       const windows = new DispatchWindows()
       windows.open("session-a", packet, "", claimed)
-      const args = { subagent_type: "general", prompt: "model input", description: "model task" }
+      const args = exactSelector()
       await expect(
         windows.bind(TASK_TOOL_ID, "session-a", args, "call-retarget-during-await", async () => {
           fs.unlinkSync(alias)
@@ -296,7 +310,7 @@ describe("dispatch authorization window", () => {
           return claimed
         }, alias),
       ).rejects.toThrow(/does not match the active claimed worktree/i)
-      expect(args.subagent_type).toBe("general")
+      expect(args).toEqual(exactSelector())
       expect(windows.has("session-a")).toBe(false)
       expect(windows.inFlightAttempt("session-a")).toBeNull()
     } finally {
@@ -315,7 +329,7 @@ describe("dispatch authorization window", () => {
       process.chdir(trunk)
       const windows = new DispatchWindows()
       windows.open("session-a", packet, "", claimed)
-      const args = { subagent_type: "general", prompt: "model input", description: "model task" }
+      const args = exactSelector()
       await windows.bind(TASK_TOOL_ID, "session-a", args, "call-trunk-process", async () => claimed, claimed)
       expect(args.subagent_type).toBe("concord-implement")
       expect(process.cwd()).toBe(trunk)
@@ -331,7 +345,7 @@ describe("in-flight retention across the host task call", () => {
   test("bind moves the record to in flight and completion takes it once", async () => {
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "sha256:" + "c".repeat(64), process.cwd())
-    await windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "x" }, undefined, here, process.cwd())
+    await windows.bind(TASK_TOOL_ID, "session-a", exactSelector(), undefined, here, process.cwd())
     expect(windows.has("session-a")).toBe(false)
 
     const record = windows.takeInFlight("session-a")
@@ -352,7 +366,7 @@ describe("retained attempt release", () => {
     windows.open("session-a", packet, "sha256:" + "c".repeat(64), process.cwd())
     expect(windows.releaseRetained("session-a", "attempt-1", "implement")).toBe(true)
     expect(windows.has("session-a")).toBe(false)
-    await expect(windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "concord-explore", prompt: "utility" }, "call-after-abandon", here, process.cwd())).rejects.toThrow(/no authorized dispatch window/i)
+    await expect(windows.bind(TASK_TOOL_ID, "session-a", exactSelector(), "call-after-abandon", here, process.cwd())).rejects.toThrow(/no authorized dispatch window/i)
     expect(windows.inFlightAttempt("session-a")).toBeNull()
     expect(windows.releaseRetained("session-a", "attempt-1", "implement")).toBe(false)
   })
@@ -368,7 +382,7 @@ describe("retained attempt release", () => {
 
   const bindInFlight = async (windows: DispatchWindows, session = "session-a") => {
     windows.open(session, packet, "sha256:" + "c".repeat(64), process.cwd())
-    await windows.bind(TASK_TOOL_ID, session, { subagent_type: "x", prompt: "y", description: "z" }, "call-cancel", here, process.cwd())
+    await windows.bind(TASK_TOOL_ID, session, exactSelector(), "call-cancel", here, process.cwd())
   }
 
   test("drops the retained record when the caller names its attempt identity", async () => {
@@ -423,7 +437,7 @@ describe("retained attempt release", () => {
       const windows = new DispatchWindows()
       windows.open("session-a", packet, "", process.cwd())
       const directory = pendingDirectory()
-      const args = { subagent_type: "general", prompt: "unchanged", description: "unchanged", task_id: "unchanged" }
+      const args = exactSelector()
       const binding = windows.bind(TASK_TOOL_ID, "session-a", args, "call-after-abandon", () => directory.promise, process.cwd())
       if (revocation === "release") {
         expect(windows.releaseRetained("session-a", "attempt-1", "implement")).toBe(true)
@@ -433,7 +447,7 @@ describe("retained attempt release", () => {
       expect(windows.has("session-a")).toBe(false)
       directory.resolve(process.cwd())
       await expect(binding).rejects.toThrow(/no authorized dispatch window/i)
-      expect(args).toEqual({ subagent_type: "general", prompt: "unchanged", description: "unchanged", task_id: "unchanged" })
+      expect(args).toEqual(exactSelector())
       expect(windows.inFlightAttempt("session-a")).toBeNull()
     })
   }
@@ -443,7 +457,7 @@ describe("retained attempt release", () => {
       const windows = new DispatchWindows()
       windows.open("session-a", packet, "", process.cwd())
       const directory = pendingDirectory()
-      const args: Record<string, unknown> = {}
+      const args = exactSelector()
       const binding = windows.bind(TASK_TOOL_ID, "session-a", args, "old-call", () => directory.promise, process.cwd())
       expect(windows.releaseRetained("session-a", "attempt-1", "implement")).toBe(true)
       // Even equal packet identities name distinct single-use authorizations.
@@ -455,10 +469,10 @@ describe("retained attempt release", () => {
         directory.resolve(resolution === "matching" ? process.cwd() : realpathSync(tmpdir()))
       }
       await expect(binding).rejects.toThrow(/no authorized dispatch window|could not resolve/i)
-      expect(args).toEqual({})
+      expect(args).toEqual(exactSelector())
       expect(windows.has("session-a")).toBe(true)
       expect(windows.inFlightAttempt("session-a")).toBeNull()
-      const replacementArgs: Record<string, unknown> = {}
+      const replacementArgs = exactSelector()
       await windows.bind(TASK_TOOL_ID, "session-a", replacementArgs, "replacement-call", here, process.cwd())
       expect(JSON.parse(replacementArgs.prompt as string).inputs.task).toBe("replacement authorization")
       expect(windows.inFlight("session-a", "replacement-call")?.packet).toBe(replacement)
@@ -469,14 +483,14 @@ describe("retained attempt release", () => {
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "", process.cwd())
     const directory = pendingDirectory()
-    const args: Record<string, unknown> = {}
+    const args = exactSelector()
     const binding = windows.bind(TASK_TOOL_ID, "session-a", args, "losing-call", () => directory.promise, process.cwd())
-    const winnerArgs: Record<string, unknown> = {}
+    const winnerArgs = exactSelector()
     await windows.bind(TASK_TOOL_ID, "session-a", winnerArgs, "winning-call", here, process.cwd())
     expect(windows.inFlight("session-a", "winning-call")?.packet).toBe(packet)
     directory.resolve(process.cwd())
     await expect(binding).rejects.toThrow(/no authorized dispatch window/i)
-    expect(args).toEqual({})
+    expect(args).toEqual(exactSelector())
     expect(windows.inFlight("session-a", "winning-call")?.packet).toBe(packet)
     expect(windows.inFlight("session-a", "losing-call")).toBeNull()
     expect(windows.has("session-a")).toBe(false)

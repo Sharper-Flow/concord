@@ -354,7 +354,9 @@ describe("same-turn session move boundary", () => {
       expect(windows.has(sessionID)).toBe(false)
 
       windows.open(sessionID, packet, "", claimed)
-      await expect(windows.bind(TASK_TOOL_ID, sessionID, { subagent_type: "general", prompt: "untrusted" }, "call-same-turn", async () => claimed, claimed))
+      // Even the exact selector the coordinator issues after authorization
+      // refuses inside the closed turn: the turn-move gate precedes binding.
+      await expect(windows.bind(TASK_TOOL_ID, sessionID, { subagent_type: `concord-${packet.lane_id}`, prompt: packet.attempt_id, description: "bounded worker" }, "call-same-turn", async () => claimed, claimed))
         .rejects.toThrow(TURN_MOVE_DISPATCH_REFUSAL)
       expect(windows.has(sessionID)).toBe(false)
 
@@ -372,7 +374,7 @@ describe("same-turn session move boundary", () => {
       expect(nextTurn.outcome).toBe("ok")
       expect(authorizeCalls).toBe(1)
       expect(windows.has(sessionID)).toBe(true)
-      const args = { subagent_type: "general", prompt: "untrusted", description: "untrusted" }
+      const args = { subagent_type: `concord-${packet.lane_id}`, prompt: packet.attempt_id, description: "bounded worker" }
       await windows.bind(TASK_TOOL_ID, sessionID, args, "call-turn-move", async () => claimed, claimed)
       expect(JSON.parse(args.prompt).attempt_id).toBe(packet.attempt_id)
       expect(process.cwd()).toBe(previousDirectory)

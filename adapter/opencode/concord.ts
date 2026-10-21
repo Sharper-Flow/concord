@@ -1951,7 +1951,7 @@ export const knowledge = tool({ description: "Concord knowledge", args: argsSche
 export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: laneGuarded("concord_work_define", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_define", hostRequest(args), context)) })
 export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: laneGuarded("concord_domain", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_domain", hostRequest(args), context)) })
 const guardedWorkTransition = laneGuarded("concord_work_transition", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(hostRequest(args), context))
-export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions. Use operation worker_abandon with the attempt and lane identity to close a dispatched attempt with no report. Use operation worker_reconcile to recover the original retained completed Task without a new worker run. Use action_id dispatch_worker with fields.lane_id for the native worker route. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: async (args: HostToolCall, context: ToolContext): Promise<ToolResult> => {
+export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions. Use operation worker_abandon with the attempt and lane identity to close a dispatched attempt with no report. Use operation worker_reconcile to recover the original retained completed Task without a new worker run. Use action_id dispatch_worker with fields.lane_id to authorize a native worker; dispatch itself launches nothing. After authorization, issue one native foreground Task with the exact lane and attempt reference in the response, without a packet, resume, background or command fields. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: async (args: HostToolCall, context: ToolContext): Promise<ToolResult> => {
   const request = hostRequest(args)
   if (request.operation === "worker_reconcile") {
     const declaration = contractOperations.find((item) => item.id === "concord_work_transition.worker_reconcile")
@@ -2647,7 +2647,10 @@ async function launchRetriedWorkerDispatch(args: HostToolArgs, context: ToolCont
   const attemptID = typeof result.retry_attempt_id === "string" ? result.retry_attempt_id : ""
   const digest = typeof result.worker_packet_digest === "string" ? result.worker_packet_digest : ""
   const worktree = typeof result.worker_worktree === "string" ? result.worker_worktree : ""
-  const launch = await dispatchRetriedLaneWorker({ packet: result.retry_worker_packet, packetDigest: digest, attemptID, authorizedWorktree: worktree }, { context, credentials: credentialsOverride ?? undefined })
+  const launch = envelope.replayed === true
+    ? errorEnvelopeForLane(null, { attempt_id: attemptID }, "error", "unauthorized_dispatch", `the combined rejection replay names retry attempt ${attemptID}; it cannot recreate a lost dispatch window or authorize another Task. Recover the original attempt with worker_reconcile, or worker_abandon when no worker report exists; never redispatch this attempt`, "reconcile_operation", { details: { retry_attempt_id: attemptID, committed_dispatch: true } })
+    : await dispatchRetriedLaneWorker({ packet: result.retry_worker_packet, packetDigest: digest, attemptID, authorizedWorktree: worktree }, { context, credentials: credentialsOverride ?? undefined })
+  if (envelope.replayed === true) launch.error!.retry_safe = false
   if (!record(launch)) return launch as HostConcordEnvelope
   const receipt = Array.isArray(envelope.changed_refs) ? envelope.changed_refs : undefined
   const intents = Array.isArray(envelope.next_valid_intents) ? envelope.next_valid_intents : undefined

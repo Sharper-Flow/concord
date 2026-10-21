@@ -980,6 +980,35 @@ reason to invent a defect. Do not turn style preferences into defects or a
 """
 
 
+def research_method_instructions(lane: dict) -> str:
+    if lane["id"] != "research":
+        return ""
+    return """## Investigation method
+
+Answer the packet's bounded question using only available packet-bound source
+access. Follow relevant evidence paths as the findings change what remains
+unknown. Do not widen the assignment or bypass unavailable source access.
+Prefer primary sources; distinguish source observations from your inferences.
+Check versions and dates before comparing claims. One decisive source can be
+enough; do not add searches or citations merely to fill a quota.
+
+Lead with the answer in the first `evidence` entry's `detail`, not a new
+report field. Put supporting findings and retrieval handles in existing
+`evidence` entries. Keep the required `source_citations`, `bounded_findings`,
+and `uncertainties` obligations; they support the packet's `assigned_result`,
+not completion of other results. Give the source URL or
+repository path and line range, the relevant section, symbol, or search term,
+and version or date when available. Explain relevant relationships and source
+disagreements. Name gaps and unavailable sources instead of guessing.
+
+Return a briefing sized to the question, not a search transcript. Keep complete
+requested inventories and evidence needed to check the answer. Use no new
+fields or prose outside the report; continue long evidence through its existing
+entries and limits.
+
+"""
+
+
 def agent_projection(lane: dict, report_schema: dict, packet_schema: dict) -> str:
     agent_name = f"concord-{lane['id']}"
     boundary_clause = (
@@ -1075,7 +1104,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 {acceptance_oracle_instructions(packet_schema, lane)}
 {job_size_instructions(report_schema, lane)}
 {objective_binding_instructions()}
-{review_method_instructions(lane)}{concord_context_boundary_instructions()}
+{research_method_instructions(lane)}{review_method_instructions(lane)}{concord_context_boundary_instructions()}
 {command_duration_instructions(lane)}
 When `inputs.report_protocol` is present, return exactly one Markdown fence
 whose info string is `{packet_schema['properties']['inputs']['properties']['report_protocol']['const']}`.
@@ -1135,6 +1164,12 @@ The parent gives you a repository and one bounded question. If it gives you no
 question, report that the request is refused. Do not guess a repository or a
 question from the working directory.
 
+A bounded question limits the investigation; it need not name the files or
+symbols to retrieve. Discover those through related searches and source reads.
+For example, trace how cancellation reaches a worker and where it can stop.
+Reading a named file or locating an exact symbol is targeted retrieval the
+parent can do directly, not a reason to start an investigation.
+
 ## Method
 
 1. Use `execute` when a connected MCP tool can improve repository exploration.
@@ -1146,7 +1181,8 @@ question from the working directory.
 2. Read the repository structure with `glob` when no suitable connected tool
    is available.
 3. Search for relevant symbols or text with `grep` when needed.
-4. Read only the files and sections that answer the question.
+4. Choose each next search from the evidence already found. Follow relevant
+   callers, owners, consumers, and tests; read only what answers the question.
 5. Use the declared read-only Git commands when the parent asks about history,
    status, or the current diff.
 6. Stop when the question has a source-backed answer, or after {duration} of
@@ -1155,11 +1191,15 @@ question from the working directory.
 
 ## Facts packet
 
-Answer the bounded question first. Return the complete requested inventory or
-report, not a summary of it. Where the question depends on relationships, give
-the smallest caller -> owner -> consumer map that answers it, with `path:line`
-for each observed connection. Mark unverified connections as unknown; do not
-expand the answer into an unrelated architecture tour.
+Answer the bounded question first. Return a right-sized briefing, not a search
+transcript or a dump of everything read. Include the findings needed to answer
+the assignment and the evidence needed to check them. When an inventory is
+requested, return the complete requested set, not a sample. Do not repeat the
+same fact in several sections or expand into an unrelated architecture tour.
+
+Where the question depends on relationships, give the smallest caller -> owner
+-> consumer map that answers it, with `path:line` for each observed connection.
+Mark unverified connections as unknown.
 
 If the cap or unavailable evidence prevents completeness, label the inventory
 partial and name the population covered and the remaining gaps.
@@ -1167,6 +1207,9 @@ partial and name the population covered and the remaining gaps.
 Return plain text. The packet holds:
 
 - Observed facts only. Support each fact with its source `path:line`.
+- Useful retrieval handles: exact symbols, search strings, test names, or
+  commands beside the relevant citation, so the parent can confirm or expand
+  each finding without repeating the investigation.
 - Relevant counts, each with the population the count covers.
 - The commit SHA for each fact that is historical.
 - Unknowns, named as unknowns.
@@ -1202,6 +1245,17 @@ question from the working directory or from prior context.
 For each finding, state the publisher or author, title, URL, version or date
 when available, and access date. Separate observed facts from inferences. State
 the missing evidence when the question cannot be answered from public sources.
+
+## Handoff
+
+Lead with the answer, then the findings that support it. Include useful
+retrieval handles beside each citation: the relevant section, symbol, or search
+term so the parent can verify or expand the finding without repeating the search.
+Explain relevant relationships and source disagreements, including version or
+date differences. Name gaps and unavailable sources instead of guessing.
+Return a briefing sized to the question, not a search transcript. Keep complete
+requested inventories and evidence needed to check the answer; omit unrelated
+material and repeated source metadata.
 """,
     "advisor": """This is an independent advisory utility. Return a reasoned opinion on the
 stated problem for the parent. Solve the problem collaboratively: no critic

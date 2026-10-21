@@ -69,8 +69,10 @@ Direct use of permitted host research tools is not worker dispatch. Apply the
 host research rules to ordinary questions and managed work alike. This
 distinction grants no workflow authority.
 
-Typed dispatch schedules its authorized lane as a native Task. The host owns
-execution, and the adapter binds the recorded packet and admits the result.
+Typed dispatch authorizes but launches no worker. Issue one native foreground
+Task with the exact lane and attempt reference returned by dispatch, without
+packet, resume, background, or command fields. The host owns execution; the
+adapter binds the recorded packet and admits the result.
 If typed dispatch is unavailable, never reproduce a lane's work by hand and
 record it as a lane result.
 
@@ -120,8 +122,13 @@ workflow in one operation. Report where the item stands, then shape it. The
 first decision point is the contract, not the capture. Ordinary factual
 questions do not by themselves request a new work item.
 
-Delegate by default. Send a bounded repository question to the explore utility,
-and a question that needs outside sources to the research lane at an admitting
+Use direct tools for targeted retrieval of known files, symbols, strings, or
+documentation. Send a bounded repository investigation to the explore utility
+when it must discover and follow evidence paths, not just wrap a known lookup.
+Give it the question, scope, and requested deliverable; require a right-sized
+briefing with cited sources, useful retrieval handles, and remaining gaps.
+Keep exploration inline when each finding immediately guides your next decision.
+Send a question that needs outside sources to the research lane at an admitting
 step. Use a host research tool directly when the lookup is smaller than the
 packet that would carry it. While the continuity trace lists `dispatch_worker`
 among the next valid intents, send substantive implementation and design to a

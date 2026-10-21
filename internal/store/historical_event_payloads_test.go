@@ -896,3 +896,91 @@ func TestLiveWriteRoutesRefuseRecordedOldShapesAndCommitNothing(t *testing.T) {
 		t.Fatalf("worker_attempts holds %d rows after the refused operations, want 0", attempts)
 	}
 }
+
+// TestRecordedEarlyWorkerTerminalHistoryRebuildsAndRecords covers the early
+// released worker terminal forms as corpus witnesses: the v0.37.2 completion
+// and basic failure pair, and the four completion v2 generations the registry
+// accepted between v0.61.0 and v11.52.0. Each row carries only the members
+// its generation's writer emitted — the three-field v1 completion, the
+// reported-evidence v2 base, then the directory, base-comparison, and
+// predicate-ids generations — pinned to the recorded research lane the
+// dispatches already use. The log must rebuild byte-identically and the
+// attempts must fold to their terminal states.
+func TestRecordedEarlyWorkerTerminalHistoryRebuildsAndRecords(t *testing.T) {
+	t.Parallel()
+	requireHistoricalResearchLane(t)
+	s, _, _ := worktreeFixture(t)
+	ctx := context.Background()
+	lane, err := LookupLane("research", 1, historicalResearchLaneDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	laneEvidence := func(withPredicates bool) []any {
+		entries := make([]any, 0, len(lane.EvidenceObligations))
+		for _, obligation := range lane.EvidenceObligations {
+			entry := map[string]any{"obligation": obligation, "detail": "discharged " + obligation}
+			if withPredicates {
+				entry["predicate_ids"] = []any{"predicate:" + obligation}
+			}
+			entries = append(entries, entry)
+		}
+		return entries
+	}
+	completed := func(eventID, attemptID string, version int, at time.Time, members map[string]any) Event {
+		payload := map[string]any{
+			"attempt_id": attemptID, "readback_model": "openai/gpt-5.6-luna", "report_schema_version": "1.0",
+		}
+		for member, value := range members {
+			payload[member] = value
+		}
+		return histEventWithPayload(t, Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem,
+			SubjectID: "work-w", Actor: "worker:cli", OccurredAt: at, PayloadVersion: version}, payload)
+	}
+	hist2 := []string{"attempt-hist2-v1", "attempt-hist2-v2-base", "attempt-hist2-v2-dir", "attempt-hist2-v2-cmp", "attempt-hist2-v2-pred", "attempt-hist2-fail"}
+	for i, attempt := range hist2 {
+		insertHistoricalEvent(t, s, histDispatchEvent(t, "hist2-dispatch-"+attempt, attempt, 1, time.Unix(50+int64(i), 0).UTC(), map[string]any{
+			"routing_policy_version": historicalRoutingPolicyToken, "resolved_model": "openai/gpt-5.6-luna",
+		}))
+	}
+	insertHistoricalEvent(t, s, completed("hist2-complete-v1", hist2[0], 1, time.Unix(60, 0).UTC(), nil))
+	insertHistoricalEvent(t, s, completed("hist2-complete-v2-base", hist2[1], 2, time.Unix(61, 0).UTC(), map[string]any{
+		"evidence_origin": WorkerEvidenceReported, "evidence": laneEvidence(false),
+	}))
+	insertHistoricalEvent(t, s, completed("hist2-complete-v2-dir", hist2[2], 2, time.Unix(62, 0).UTC(), map[string]any{
+		"worker_directory": "worker-hist2-directory", "evidence_origin": WorkerEvidenceReported, "evidence": laneEvidence(false),
+	}))
+	insertHistoricalEvent(t, s, completed("hist2-complete-v2-cmp", hist2[3], 2, time.Unix(63, 0).UTC(), map[string]any{
+		"worker_directory": "worker-hist2-directory", "evidence_origin": WorkerEvidenceReported, "evidence": laneEvidence(false),
+		"base_comparison": map[string]any{"checks": []any{map[string]any{"command": "go test ./...", "branch_result": "pass", "base_result": "pass"}}},
+	}))
+	insertHistoricalEvent(t, s, completed("hist2-complete-v2-pred", hist2[4], 2, time.Unix(64, 0).UTC(), map[string]any{
+		"worker_directory": "worker-hist2-directory", "evidence_origin": WorkerEvidenceReported, "evidence": laneEvidence(true),
+	}))
+	insertHistoricalEvent(t, s, histEventWithPayload(t, Event{EventID: "hist2-failed-v1", Kind: WorkerFailed, SubjectType: SubjectWorkItem,
+		SubjectID: "work-w", Actor: "worker:cli", OccurredAt: time.Unix(65, 0).UTC(), PayloadVersion: 1}, map[string]any{
+		"attempt_id": hist2[5], "readback_model": "openai/gpt-5.6-luna",
+		"failure_kind": WorkerFailureModelIdentity, "detail": "resolved model differs from host readback model",
+	}))
+
+	before := histEventRows(t, s)
+	if err := RebuildFromLog(ctx, s); err != nil {
+		t.Fatalf("rebuild must fold the early worker terminal history: %v", err)
+	}
+	if !reflect.DeepEqual(before, histEventRows(t, s)) {
+		t.Fatal("the first rebuild changed the event log bytes, versions, or order")
+	}
+	if err := RebuildFromLog(ctx, s); err != nil {
+		t.Fatalf("repeated rebuild must fold the early worker terminal history again: %v", err)
+	}
+	if !reflect.DeepEqual(before, histEventRows(t, s)) {
+		t.Fatal("the repeated rebuild changed the event log bytes, versions, or order")
+	}
+	for _, attempt := range hist2[:5] {
+		if got := histAttemptRow(t, s.DatabaseForTesting(), attempt); got.lifecycle != "completed" {
+			t.Fatalf("attempt %s lifecycle=%s, want completed", attempt, got.lifecycle)
+		}
+	}
+	if got := histAttemptRow(t, s.DatabaseForTesting(), hist2[5]); got.lifecycle != "failed" || got.failureKind != WorkerFailureModelIdentity {
+		t.Fatalf("attempt %s lifecycle=%s failure=%s, want failed/%s", hist2[5], got.lifecycle, got.failureKind, WorkerFailureModelIdentity)
+	}
+}

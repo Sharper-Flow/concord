@@ -2,10 +2,11 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-12
-- **Scope:** Work creation folds and capture surfaces
+- **Scope:** Work creation admission and capture surfaces
 - **Approval:** The operator approved this bounded collision gate.
 - **Related:** CD-0002, CD-0013, CD-0035, CD-0050
 - **Preserves:** Terminal work reuse, one-way Linear import, and domain-overlap detection
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 
 ## Context
 
@@ -18,24 +19,28 @@ leave another route able to bypass the collision check.
 
 ## Decision
 
-### D1. Read live collisions in the creation fold
+### D1. Read live collisions at creation
 
 `foldWorkCreated` reads the exact external reference on its existing transaction
 and matches only work items whose `terminal_time IS NULL`. An empty reference
-skips the read. The fold returns `projection_conflict` with an
-`external_ref_conflict` payload that carries the existing work ID and reference.
+skips the read. The creation mutation returns `projection_conflict` with an
+`external_ref_conflict` payload that carries the existing work ID and reference
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### D2. Require an explicit origin for a legitimate duplicate
 
 The optional `raised_from_work_id` capture field must name the item returned by
-the collision read. The fold records the `raised_from` relation with the new
-work item in the same transaction. Any other value refuses the capture.
+the collision read. The same mutation records the `raised_from` relation with the new
+work item in one transaction
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+Any other value refuses the capture.
 
 ### D3. Keep creation routes on one rule
 
-Agent capture and host bootstrap publish `raised_from_work_id` to the shared
-creation event. Initiative creation and Linear import continue to emit their
-existing creation events and retain their existing import behavior.
+Agent capture and host bootstrap publish `raised_from_work_id` on the shared
+creation route
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+Initiative creation and Linear import retain their existing import behavior.
 
 ## Verification
 

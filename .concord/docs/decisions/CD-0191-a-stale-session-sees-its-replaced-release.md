@@ -12,6 +12,7 @@
   recorded in its dispatch packet.
 - **Preserves:** CD-0111 D1's pinned pair, CD-0111 D2's lease-held retention,
   and the closed envelope and refusal vocabulary
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D6
 
 ## Context
 
@@ -30,7 +31,7 @@ held in memory after a lane fix shipped.
 
 ## Decision
 
-CD-0013 D11 removes routine failed-worker retry approval only for its new policy. This does not weaken the release-currency boundary: stale packet and release checks remain, and no retry can repair stale authority by itself. The retry-approval rationale below continues to describe historical pins, not the new consent policy.
+The release-currency boundary stands: stale packet and release checks remain, and no relaunch repairs stale authority by itself. [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) governs: no approval-gated fresh-retry route exists; each launch carries its own authority and safety checks.
 
 
 ### D1. The adapter owns installed-versus-session staleness

@@ -10,6 +10,7 @@
 - **Extends:** CD-0122 D2 with typed entry and reconciliation routes
 - **Preserves:** CD-0122 D1 and D3, ordinary managed completion gates,
   repository review and merge evidence, and host-owned permissions and roles
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D3
 - **Approval:** The operator approved this law change on 2026-10-07,
   relayed by the Snowball coordinator. The public pull request carries its
   delivery evidence. This repair creates no managed workflow approval record.
@@ -181,13 +182,14 @@ No release installation or session restart belongs to this decision's delivery.
 ## Verification
 
 - `internal/store.TestOutsideRepairTypedHoldBaseReproduction` proves the
-  missing typed disposition on the base and its accepted fold on this branch.
+  missing typed disposition on the base and its accepted hold on this branch
+  (CD-0242 D3).
 - `internal/store.TestOutsideRepairHoldRequiresApprovalNotCompletionEvidence`
-  proves approval binding, suppression, and log rebuild.
+  proves approval binding and suppression across recovery (CD-0242 D2).
 - `internal/store.TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses`
   proves managed admission remains held.
 - `internal/store.TestOutsideRepairReconcileBothLiveLifecyclesAndReplay` proves
-  atomic closure, unchanged history, and replay agreement.
+  atomic closure and idempotent reconciliation (CD-0242 D2).
 - `internal/store.TestOutsideRepairResumePreservesStateAndAllowsAnotherHold`
   proves resume without changing the workflow step.
 - `internal/store.TestOutsideRepairDoesNotChangeOrdinaryCompletion` preserves

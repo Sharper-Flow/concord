@@ -8,10 +8,11 @@
   [CD-0008](CD-0008-concord-mechanism-hardening.md) D5 (evaluation bullet)
 - **Preserves:** CD-0008 D5's closed condition fields, `blocks` participation,
   no-polling rule, and resolution evidence rules; CD-0013 D10 item 2 and
-  criteria 27-28; [CD-0218](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)
-  D4 history obligations
+  criteria 27-28; recorded conditions stay readable as current rows
+  ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2)
 - **Approval:** 2026-10-17. Coordinator approval under the operator's delegation
   for [Concord (CON) issue 1081](https://linear.app/sharper-flow/issue/CON-1081).
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 
 ## Context
 
@@ -36,7 +37,9 @@ owning authority's evidence.
 ### D2. An open condition refuses and stays readable
 
 A consequential action on work with an open condition refuses before any write.
-Recorded conditions and their events stay readable and rebuild unchanged. No
+Recorded conditions stay readable as current rows
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+No
 wait authority exists.
 
 ## Alternatives considered
@@ -63,5 +66,5 @@ timer, failure, and heuristic bullets bind a future resolver only.
   through the admission refusal with no resolver argument.
 - `WF26` and `WF28`, run by
   `internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions`,
-  assert the archived-family refusal of every condition action and an
-  unchanged rebuild of recorded conditions.
+  assert the archived-family refusal of every condition action and that
+  recorded conditions read back unchanged (CD-0242 D2).

@@ -1,4 +1,4 @@
-# CD-0235: The independent verdict is the outcome strength evaluation
+# CD-0235: The outcome strength evaluation is Review's judgment
 
 - **Status:** Accepted
 - **Date:** 2026-10-17
@@ -7,11 +7,9 @@
   (second paragraph); [CD-0013](CD-0013-workflow-engine-mechanism.md) D4
   (strength comparison paragraph)
 - **Preserves:** CD-0012 D3's strengthen-only rule, D4's omission refusal,
-  D7's authorship fencing and evaluator distinctness, and D9's
-  premise confirmation; CD-0013 D4's closed predicate union and outcome-token
-  evidence rule, D5's actor tuple, and D10's completion clauses;
-  [CD-0218](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)
-  D6's independent-verdict obligation
+  and D9's premise confirmation; CD-0013 D4's closed predicate union and
+  outcome-token evidence rule; Review's report and Main's acceptance of the
+  disposition ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5)
 - **Approval:** 2026-10-17. Coordinator approval under the operator's delegation
   for [Concord (CON) issue 1079](https://linear.app/sharper-flow/issue/CON-1079).
 - **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5, D9
@@ -29,7 +27,7 @@ an actor distinct from the executor (CD-0013 D10).
 
 ## Decision
 
-### D1. The independent verdict actor evaluates strength
+### D1. Review evaluates strength
 
 [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
 governs: no separate final evaluator exists; Review inspects the accumulated
@@ -44,7 +42,7 @@ governs: completion requires a passing receipt for every accepted criterion on
 the final candidate, the accepted ready disposition on that candidate, no open
 in-scope blocking finding, every applicable approval, and delivery evidence.
 
-### D3. The verdict actor interprets surfaces and checks
+### D3. The review pass interprets surfaces and checks
 
 Until an accepted decision supplies the check catalog or the ground-truth
 surface registry (CD-0013 deferred items 2 and 3), no registry resolves
@@ -56,10 +54,10 @@ interprets them, and the receipts record what ran.
 ## Alternatives considered
 
 - Wire a mechanical evaluator into completion. Rejected: no delivered predicate
-  is recorded and no resolver exists, so wiring needs a new event field, a
+  is recorded and no resolver exists, so wiring needs a new recorded field, a
   surface registry, and a check catalog that no accepted need asks for.
-- Record a delivered predicate and compare it without resolvers. Rejected: the
-  verdict actor would author both sides of the comparison.
+- Record a delivered predicate and compare it without resolvers. Rejected: one
+  actor would author both sides of the comparison.
 
 ## Consequences
 

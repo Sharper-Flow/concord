@@ -1,8 +1,8 @@
-# CD-0173: The escalation wall stays visible and the gate counts the Product
+# CD-0173: The investigation gate counts the Product
 
 - **Status:** Accepted
 - **Date:** 2026-09-23
-- **Scope:** Work pin next intents, the investigation gate, and the correction dispatch wall
+- **Scope:** Work pin next intents and the investigation gate
 - **Amends:** CD-0129 D2, CD-0148
 - **Related:** CD-0013, CD-0166
 - **Amended by:** [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
@@ -18,7 +18,7 @@ has no other work item to name, so its premise gate can never open.
 
 ## Decision
 
-### D1. The escalated pin advertises the convergence-gated retry
+### D1. A launch carries its own authority
 
 [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) governs: no convergence basis, escalation wall, or attempt count exists; each launch carries its own authority and safety checks.
 
@@ -34,9 +34,9 @@ carries only the current Domain ref.
 
 ## Verification
 
-- The escalated-pin advertisement and the fourth-dispatch refusal bind the
-  CD-0242 D6 anchor: no attempt count, escalation wall, or convergence basis
-  exists, and no dispatch mints a challenge. Until that change lands,
+- The work-pin refusal paths bind the
+   CD-0242 D6 anchor: no attempt count, escalation wall, or convergence basis
+   exists, and no dispatch mints a challenge. Until that change lands,
   `python3 scripts/check-knowledge-index.py` is the executable anchor for this
   record's law registration.
 - The store tests `TestInvestigationArtifactAdmitsSingleItemProductByDomainRef`

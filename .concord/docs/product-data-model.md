@@ -168,7 +168,7 @@ work-item supersession keep their bounded owners in CD-0222 and PM4.
 CD-0222 and CD-0213 replace the predecessor Epic shape. Business grouping lives in
 Linear. Product embeds no grouping record, and grouping is not a second Product,
 Domain, or architecture authority.
-[CD-0213 D8](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d8-history-stays-replayable)
+[CD-0213 D8](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d8-retired-planning-kinds-keep-no-history)
 keeps planning history in Linear; the local store keeps current state and finite
 snapshots, with no event log or replay
 ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).

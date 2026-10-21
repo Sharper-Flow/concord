@@ -12,6 +12,7 @@
   The public pull request
   carries its delivery evidence. This record creates no managed workflow
   approval record. Its authority tier is `derived` under CD-0159 D3.
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 - **Related:** CD-0014, CD-0031, CD-0048, CD-0078, CD-0083, CD-0108, CD-0222,
   CD-0163, CD-0176, C14, C17
 - **Amends:** CD-0014 (the rendering stack retires with the TUI); CD-0108 D1
@@ -60,8 +61,9 @@ store reads (the store query contracts).
 ### D3. Obligations whose subject was the TUI are vacated
 
 - CD-0048: the S2 answer-stack clauses are vacated with the screen.
-  Store event, replay, and query contracts remain unchanged.
-  This deletion introduces no recency column or new fold obligation.
+  The store's current-state and query contracts remain unchanged
+  ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+  This deletion introduces no recency column.
 - CD-0083: the no-color render anchors and the operator screen-reader
   obligation are vacated with the render surface; the C14 §9
   screen-reader/no-color render condition retires with them. CD-0014's

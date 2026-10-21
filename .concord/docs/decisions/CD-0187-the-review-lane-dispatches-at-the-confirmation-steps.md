@@ -10,6 +10,7 @@
 - **Related:** CD-0059, CD-0133, CD-0140, CD-0166
 - **Amends:** CD-0140, which preserved the human-checkpoint exclusion
 - **Amended by:** [CD-0193](CD-0193-cd-0187-d2-and-d3-release-the-checkpoint-gate-at-the-recorded-failure.md) at D2's composed action set and D3's hold release: the engine admits the failure record at a confirmation step as a hold-mode recovery, and the hold keys on attempts a worker actually dispatched.
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D3, D14
 - **Refines:** CD-0133 D3 and D4 on the confirmation-step surface this record
   opens
 
@@ -31,7 +32,7 @@ hold rule that the amended join implies.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, confirmation-step review dispatch remains routine and correction supersession requires no operator signature. Human confirmation depends on the recorded decision domains, not the step-kind label. Review acceptance cannot itself confirm a premise, create evaluator independence, or bypass acceptance deliverables. Historical pins retain their original human gates.
+For `approval_policy=consequence_v1`, confirmation-step review dispatch remains routine and correction supersession requires no operator signature. Human confirmation depends on the recorded decision domains, not the step-kind label. Review acceptance cannot itself confirm a premise, create evaluator independence, or bypass acceptance deliverables. A record about an earlier subject authorizes nothing about a changed one ([CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)).
 
 
 ### D1. The review class binds the confirmation steps
@@ -58,7 +59,8 @@ also admits `accept_worker_evidence` as a resolution: an attempt whose report
 an accept has dispositioned no longer holds the step. A rejected or failed
 attempt keeps holding, so the effect-step recovery routes stay as CD-0133
 recorded them. The work pin reads the same rule, so the pin never offers an
-advance the fold refuses.
+advance admission refuses
+([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).
 
 ### D4. Refinement can accept review evidence without delivery
 
@@ -84,7 +86,9 @@ operator approves the exact successor contract; evidence acceptance supplies
 no approval and does not reinterpret an old report as a successor result.
 
 The work pin, preflight, mutation, and replay share the recovery predicate.
-Released definition content and digests stay unchanged.
+[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
+governs: derived definitions are generated from the one canonical source, and
+no released version or digest is retained.
 
 ## Alternatives considered
 
@@ -104,8 +108,9 @@ Released definition content and digests stay unchanged.
 
 A confirmation step that enforces review evidence hosts the review lane. The
 review report binds at the step and the operator gate passes on it, so the
-CON-517 shape cannot recur on the promoted definitions. Every frozendefinition version keeps its digest. The new versions carry new digests, and
-the version pins record them. Refinement review evidence has a hold-mode
+CON-517 shape cannot recur on the promoted definitions. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
+governs: the amended binding is generated from the one canonical source, and
+its digest is the source's. Refinement review evidence has a hold-mode
 recovery without a definition change. The join stays the
 one authority: composition and dispatch validation both read the amended
 binding.
@@ -116,7 +121,7 @@ binding.
 Scenario: The review lane dispatches at the confirmation step
   Given a break_fix item at the verify step whose contract requires review evidence
   When the coordinator dispatches the review lane
-  Then the dispatch folds and the attempt window opens
+  Then the dispatch is admitted and the attempt opens
 
 Scenario: The checkpoint accept binds the report and holds the step
   Given a completed review attempt at the verify step
@@ -133,9 +138,9 @@ Scenario: No other lane dispatches at a confirmation step
   When the coordinator dispatches the research lane
   Then the core refuses with unauthorized_dispatch
 
-Scenario: A pinned instance reaches the amended steps by repin
-  Given an item pinned to break_fix version 14 at the verify step
-  When the coordinator repins the item to the current definition
+Scenario: A recorded item reaches the amended steps after revalidation
+  Given an item recorded at the verify step before the amended binding
+  When its recorded steps are revalidated against the canonical source
   Then the review lane dispatches at the verify step
 
 Scenario: Refinement accepts review evidence without delivery

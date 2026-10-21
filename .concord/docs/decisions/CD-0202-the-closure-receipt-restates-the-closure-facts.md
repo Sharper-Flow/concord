@@ -10,7 +10,9 @@
   restate recorded proposal, delivery, and relation facts beside the verified
   predicates
 - **Preserves:** CD-0169 D1's one-renderer rule and D3's adapter delegation;
-  CD-0170 D2's degrade-by-omission rule; every released definition digest
+  CD-0170 D2's degrade-by-omission rule; the digests derived from the one
+  canonical source ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14)
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14
 - **Related:** CD-0115, CD-0166, CD-0169, CD-0170, CD-0184
 - **Approval:** The operator approved the approach in session chat on
   2026-10-02, including the dedicated closure read, the proposal
@@ -79,13 +81,12 @@ sixteen entries beside its sibling optional lists. The list is bounded by the
 shared prose rules: each entry carries one to five hundred twelve characters,
 and the entries are unique.
 
-`workflow.implementation` version 22 ships the payload declaration. The
+The implementation family's canonical source ships the payload declaration. The
 column `workflow_proposal_records.out_of_scope` is additive and defaulted to
-an empty array, and the migration is recorded as non-breaking. Every released
-definition version keeps its digest, and a pinned instance that submits the
-field still refuses it as undeclared. The generated agent contracts publish
-one `record_proposal` payload shape that admits the field, and the store
-refuses it for an instance pinned to a released version.
+an empty array, and the migration is recorded as non-breaking. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
+governs: the generated contracts publish one `record_proposal` payload shape
+that admits the field, and validation refuses the field for an item whose
+declared shape lacks it.
 
 ### D5. Follow-ups are the direct raised_from successors
 
@@ -133,8 +134,9 @@ one verb prints them, and the adapter stays a delegate. Old items render
 byte-identical receipts, so no consumer of the old shape breaks.
 
 The proposal's excluded scope becomes recorded fact rather than chat memory.
-Pinned workflow instances keep their released payloads, and new instances
-record scope on the current version.
+Recorded items keep their recorded payloads, and new items
+record scope in the declared shape
+([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ## Verification
 
@@ -157,15 +159,15 @@ Scenario: A correction overlays the shipped row
   When the closure read runs for the item
   Then the shipped artifact is the correction's merge evidence
 
-Scenario: The current definition accepts the excluded scope
-  Given workflow.implementation version 22 and a bounded out_of_scope list
+Scenario: The declared shape accepts the excluded scope
+  Given a bounded out_of_scope list in the declared payload shape
   When record_proposal validates the payload
-  Then the list persists, survives a rebuild, and renders as left-out rows
+  Then the list persists in current state and renders as left-out rows
 
-Scenario: A released pin refuses the excluded scope
-  Given workflow.implementation version 21 pinned before this record
+Scenario: A shape without the member refuses the excluded scope
+  Given a declared payload shape with no out_of_scope member
   When record_proposal validates a payload that carries out_of_scope
-  Then the field refuses as undeclared and the pin's digest holds
+  Then the field refuses as undeclared
 
 Scenario: The prose width truncates visibly
   Given a problem statement longer than one hundred twenty code points

@@ -24,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:32c8f27be77b9febeeb7a817c8a3fcf6695c6a0330260e279a36b129a25f854c",
+  "sha256": "sha256:b958dc77c6053867065ebe4a2d1b9c88423235e287f8c78182f6a028349ae0ce",
   "status": "accepted",
   "summary": "A verified landing releases every occupancy row of that session in any work item, and the release a session_vacate produces happens at its verified landing (CD-0190); a claim records the host process identity at creation; a row without identity releases when every live host lease started after its recorded_at and an unreadable lease set releases nothing; the adapter moves a session out of a terminal work item's worktree after a completed or cancelled transition; and worktree_audit_reclaim classifies every drift row before its limit bounds reclaim attempts.",
   "tags": [

@@ -10,9 +10,12 @@
   on the same two dispositions, and a completed review that is not the newest
   is stale
 - **Preserves:** CD-0201 D1, the single admission owner; CD-0201 D2, the
-  liveness law; CD-0115 D1, released definition content and digests; CD-0197
+  liveness law; the digests derived from the one canonical source
+  ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14);
+  CD-0197
   D6, a lane report alone carries no workflow authority; every other route
   refusal keeps its scope (CD-0186)
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D3, D6, D7, D14
 - **Related:** CD-0166, CD-0197, CD-0201
 - **Approval:** The operator approved the amendment in session chat on
   2026-10-05 for the no-ship delivery-gate defect. This record serves
@@ -40,15 +43,17 @@ an older report could still bind its findings.
 A rejected refinement result and an accepted review-capability report with a
 `no_ship` verdict are the same obligation. The shared derivation reads the
 latest such disposition, its freshness frontier, and the settling review, so
-the admission fold, the accept guard, the correction binding, the preflight,
-and the work pin answer identically.
+admission, the accept guard, the correction binding, the preflight,
+and the work pin answer identically
+([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).
 
 ### D2. An accepted no-ship review opens the obligation
 
 The coordinator accepts a ready `no_ship` review as evidence. That acceptance
 binds the findings and opens the settling obligation like a rejected result.
-On the historical pins the acceptance advances the refinement step as
-recorded; the obligation then holds the delivery gate, so `record_delivery`
+On the recorded items the acceptance advances the refinement step as recorded
+([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source));
+the obligation then holds the delivery gate, so `record_delivery`
 refuses and the evidence-bearing corrective return stays admitted. Only a
 later accepted review with a ship or absent verdict settles it, and its
 dispatch must follow the obligation and the result's latest refinement
@@ -57,7 +62,9 @@ activity. A report alone, without the acceptance, opens nothing.
 On oracle-bound histories the shared context retains canonical ranked-finding
 IDs, their oracle bindings, and receipt references. Accepted `no_ship`
 evidence leaves the settling debt outstanding and is not productive
-acceptance. It creates no convergence basis family. A later correction
+acceptance. It opens no correction-count family
+([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
+A later correction
 record uses the exact derived open set through the existing correction
 route; an unrelated P0 follow-up remains visible to the decision owner
 without becoming a repair obligation.
@@ -65,8 +72,9 @@ without becoming a repair obligation.
 ### D3. Only the newest completed review can bind
 
 A completed review that a newer completed review has superseded is stale.
-The acceptance of a stale review refuses with the fresh-review refusal, on
-current and released definition pins, whatever the folded state names.
+The acceptance of a stale review refuses with the fresh-review refusal at
+every admission site
+([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).
 
 ### D4. The historical gate returns through the truthful disposition
 
@@ -77,16 +85,18 @@ and names the origin event's predicates or the active contract's predicates.
 Operator identity and durably bound evidence stay required. An ordinary
 parked gate without the obligation keeps its existing route.
 
-No definition version changes. Admission code is not definition content
-(CD-0115 D1).
+[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
+governs: the gate lives in the admission code derived from the one canonical
+source, not in declared definition content.
 
 ## Alternatives considered
 
 - Fabricate a coordinator rejection for the historical acceptance. Rejected:
   it changes the recorded disposition and invents authority.
 - Hold the refinement step instead of the gate. Rejected: the merged
-  recovery holds the gate, and rewriting recorded history is not admission
-  code's to do (CD-0115 D2).
+  recovery holds the gate, and a record about an earlier subject stays true
+  of that subject
+  ([CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)).
 - Let any pending review bind after a newer one completes. Rejected: the
   newer evidence supersedes the older findings.
 

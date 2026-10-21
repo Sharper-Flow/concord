@@ -15,9 +15,11 @@
   [CD-0218](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)
   D2, the steps every implementation item walks;
   [CD-0213](CD-0213-linear-mcp-is-the-only-planning-authority.md) D3, the issue
-  identity of a resize successor
-- **Preserves:** [CD-0115](CD-0115-a-released-workflow-definition-never-changes-content-in-place.md),
-  released definition bytes, digests, and pins; CD-0006 R1 and CD-0013 D8,
+  identity recorded per work item
+- **Preserves:** the derived definitions generated from the one canonical
+  source
+  ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14);
+  CD-0006 R1 and CD-0013 D8,
   forward-link composition across work items; CD-0218 D1, the three live
   execution families and their predicate forms;
   [CD-0077](CD-0077-storage-vocabularies-have-one-authority.md) D1, the
@@ -102,7 +104,7 @@ CD-0218 D1 retains.
 Composition inside one definition is assembly, not nested execution.
 Composition across work items stays forward-link only.
 
-### D3. Released compositions stay frozen
+### D3. Compositions derive from one source
 
 [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
 governs: derived schemas and compositions are generated from one canonical
@@ -157,8 +159,9 @@ The registry gains a part layer and a compiler, and the work record gains a
 size and its model inputs. That needs a store migration; [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) governs: the cutover is one documented migration with a verified snapshot. The size vocabulary needs one machine-readable declaration under
 CD-0077 D2. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: no released definition version is retained for history.
 
-A part change now produces new versions of several compositions in one
-release, and reviewers see each affected composition.
+A part change now regenerates several compositions in one
+release, and reviewers see each affected composition
+([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 A resize costs no successor; [CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)
 governs: the decision model runs again, the newly required steps are added,

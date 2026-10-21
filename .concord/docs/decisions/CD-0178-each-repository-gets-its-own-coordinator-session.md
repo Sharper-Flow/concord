@@ -83,9 +83,9 @@ coordinator's worktree, or a member worktree of a concurrent group
 Concord creates no worker session through the host session API, and Concord
 registers no plugin tool named `task`.
 
-Every new authenticated worker completion carries the nonempty worker directory the host observed. The live worker-evidence ingest checks that directory against the claimed worktree its assignment names before appending completion. An omitted or empty directory provides no proof and refuses without recording completion. Rebuilding recorded events never requires a live filesystem check. An exact acknowledgment of recorded completion appends nothing and does not repeat the directory check.
+Every new authenticated worker completion carries the nonempty worker directory the host observed. The live worker-evidence ingest checks that directory against the claimed worktree its assignment names before appending completion. An omitted or empty directory provides no proof and refuses without recording completion. Recovery of recorded completions repeats no live directory check ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). An exact acknowledgment of recorded completion appends nothing and does not repeat the directory check.
 
-A new worker completion proves the active claimed worktree of the Project that the attempt's original dispatch authorization identifies. An active claim for another Project of the same work item is not proof. If the original Project or its active claim cannot be established, the completion refuses without recording a terminal outcome. Rebuilding recorded events does not check the live filesystem. An exact acknowledgment appends no new completion and does not repeat this check.
+A new worker completion proves the active claimed worktree of the Project that the attempt's original dispatch authorization identifies. An active claim for another Project of the same work item is not proof. If the original Project or its active claim cannot be established, the completion refuses without recording a terminal outcome. Recovery and readback of recorded completions repeat no live check ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). An exact acknowledgment appends no new completion and does not repeat this check.
 
 ### D2. One coordinator session per repository
 
@@ -144,7 +144,7 @@ recorded it. The host lease of CD-0111 reads the same identity through
 `internal/hostlease`.
 
 A same-session landing with a different core-checked process identity, or
-with a legacy row lacking process identity, appends a new landing event and
+with a legacy row lacking process identity, records a new landing and
 refreshes that row (CD-0239 D3). The session-to-process association remains
 caller-supplied. A replay from the same recorded process remains idempotent.
 

@@ -25,7 +25,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7bf5b15c85791ccb44207269777f8dd59f317435f3de7863df1b2b060088bedb",
+  "sha256": "sha256:5bb55b57f97232e69babdf288077bc8734bbae07eac1da67eed5c8ceed55c919",
   "status": "accepted",
   "summary": "Under CD-0242 D5 no separate final evaluator or verdict-actor distinctness exists: Review judges a weaker or incomparable delivery against the approved criteria and reports one disposition that Main records. Completion follows CD-0242 D9. Until a check catalog or surface registry exists, no registry resolves surface and check_ref values; approval checks their grammar and the verifying review interprets them.",
   "tags": [
@@ -33,5 +33,5 @@
     "outcomes",
     "evidence"
   ],
-  "title": "The independent verdict is the outcome strength evaluation"
+  "title": "The outcome strength evaluation is Review's judgment"
 }

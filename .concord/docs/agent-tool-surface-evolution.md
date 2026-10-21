@@ -2,6 +2,7 @@
 
 > **Status:** Accepted and binding until superseded.
 > **Decision:** TS8, amended by CD-0042.
+> **Amended by [CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** surface-change evidence binds current state and verified snapshots; no replay evidence exists.
 > **Current boundary:** Concord is pre-go-live. The current agent surface has one
 > generated manifest and one identity: its exact manifest digest.
 
@@ -14,7 +15,7 @@ pre-go-live: the current surface has one generated manifest whose exact
 digest is its identity.
 ## Contract
 
-CD-0013 D11 determines which overlap answers require consent; all retain exact work/version and judged-content authority. Changed closed decision-domain and consequence-summary contracts follow a major surface cutover, with regenerated projections, fail-closed old-client negotiation, historical decoders, and replay evidence. Released workflow definition content and active pins do not change implicitly.
+CD-0013 D11 determines which overlap answers require consent; all retain exact work/version and judged-content authority. Changed closed decision-domain and consequence-summary contracts follow a major surface cutover, with regenerated projections, fail-closed old-client negotiation, historical decoders, and evidence bound to current state and verified snapshots, not replay ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Released workflow definition content and active pins do not change implicitly.
 
 
 The binding contract is sections 1 through 3: the canonical manifest as the

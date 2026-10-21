@@ -5,6 +5,7 @@
 > **Decision:** C15; resource-first canonical identity with Product ownership/
 > consumption links.
 > **Amended by:** CD-0082 removes the unimplemented resource-replacement model.
+> **Amended by [CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** accepted operations write current rows in one transaction; no event append exists.
 > **Binding inputs:** PM2 global authority, PM3 typed-core/extension rule, PM5 stable
 > identity/membership precedent, Product data model §§1–4, 8–9, and 11, native-authority
 > placement, and accepted TS1–TS9 evolution gates.
@@ -101,7 +102,7 @@ project/account ref, service-unit name, URL, or provider slug.
 - Uniqueness/resolution uses `(authority_kind, authority_id, namespace, kind,
   normalized value)`. A locator may omit namespace only when that authority/kind
   guarantees uniqueness within `authority_id`; no value is assumed globally unique.
-- Locator rename/move appends history without changing resource ID.
+- A locator rename or move adds a new locator row without changing the resource ID.
 - One resource may have several locators or none only with typed
   `planned|not_addressable` reason.
 - No credential, token, data source name (DSN) secret, connection string, or provider response body.
@@ -140,8 +141,9 @@ extend beyond work's derived PM5 scope, TS5 requires explicit cross-scope intent
 ## 3. Stage rule
 
 Every resource stores explicit stage. At creation, UI/core may propose the owner
-Product's current stage, but acceptance materializes it on the resource and records
-the event. Later Product-stage changes do not silently rewrite resource history.
+Product's current stage, but acceptance materializes it on the resource as a
+current row ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+Later Product-stage changes do not silently rewrite the resource's recorded stage.
 
 This deliberately narrows the earlier generic inheritance prose for managed
 resources: shared resources cannot inherit from several Products, and dynamic
@@ -160,14 +162,14 @@ authoritative input and forbids a consumer Product from lowering it.
 - **Transfer ownership:** replace owner atomically; prior owner may become consumer in
   the same operation or be removed explicitly.
 - **Update inventory:** replace one closed metadata/stage/environment block with
-  expected version; locator operations remain typed and append history.
+  expected version; locator operations remain typed and add a new locator row.
 - **Link work:** create one work-resource edge after both endpoint/version/scope
   checks.
-- **Delete:** physical deletion blocked while Product/work references or retained
-  authoritative history require identity.
+- **Delete:** physical deletion blocked while Product/work references require
+  identity.
 
-All accepted operations append `domain_events` and update typed projections in one
-transaction. No copied Product-resource rows, reconciliation jobs, or direct
+All accepted operations write current rows in one transaction ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+No copied Product-resource rows, reconciliation jobs, or direct
 projection writes.
 
 ## 5. Query contract
@@ -290,13 +292,13 @@ secret storage.
 - Given a resource creation
   When it commits
   Then resource, explicit stage, exactly one owner Product, environments,
-  and initial locators or typed absence reason land in one event-backed
-  SQLite transaction.
+  and initial locators or typed absence reason land in one SQLite
+  transaction that writes current rows ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 - Given a duplicate consumer link or an environment outside the resource's
   declared set
   When the share is attempted
-  Then the core refuses it with a typed error and no event.
+  Then the core refuses it with a typed error and no committed change.
 
 - Given locator authority
   When a locator is stored

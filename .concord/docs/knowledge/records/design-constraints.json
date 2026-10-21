@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2b199216d29377c5d1a26b9f7ab0d752d3c753a04f12e24524146922d43756d8",
+  "sha256": "sha256:f7fd6dd039e6040604156e7c662e1e8ba3d74b9cd2ec9e03adea3d6cf43ee683",
   "status": "published",
   "summary": "Non-functional requirements, hard constraints, and design directives aligned under CD-0006 and CD-0222.",
   "tags": [

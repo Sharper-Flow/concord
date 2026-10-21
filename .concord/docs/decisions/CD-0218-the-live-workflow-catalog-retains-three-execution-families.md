@@ -6,7 +6,7 @@
   live migration or release activation is authorized.
 - **Classification:** Breaking replacement under CD-0036 D2
 - **Planning record:** [Concord (CON) issue 902](https://linear.app/sharper-flow/issue/CON-902/delete-redundant-workflow-ceremony-retain-minimal-authorized-agent)
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D4, D6, D13, D14
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D4, D5, D6, D13, D14
 - **Approval:** The operator approved this successor as designed on 2026-10-09
   at 19:35 Eastern Daylight Time (EDT), relayed through the Snowball
   coordinator. This publication is the isolated candidate only: it does not
@@ -39,7 +39,7 @@ The accepted research-pack capability remains independent of workflow selection.
 
 ## Decision
 
-Only the three live execution families receive new `approval_policy=consequence_v1` versions under CD-0013 D11. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current state and finite snapshots, not frozen history, and recorded work keeps its recorded consent and attribution facts. New-policy verdicts require independent authenticated evaluators without operator substitution; completion and engineering confirmation use their real authorized coordinators. No old work migrates implicitly and no retired family gains a new authoring route.
+Only the three live execution families receive new `approval_policy=consequence_v1` versions under CD-0013 D11. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current state and finite snapshots, not frozen history, and recorded work keeps its recorded consent and attribution facts. [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) governs: Review inspects the accumulated solution, verifies the corrected candidate, and reports one disposition that Main records, with no separate final evaluator; completion and engineering confirmation use their real authorized coordinators. No old work migrates implicitly and no retired family gains a new authoring route.
 
 
 ### D1. Three families own new execution
@@ -103,7 +103,7 @@ research-pack provenance and consumers, and GitHub delivery receipts remain.
 Shared affected-Domain membership alone grants no effect authority and creates
 no compatible-with approval requirement.
 
-### D4. Frozen history remains exact and readable
+### D4. Recorded work reads back exactly
 
 [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
 and

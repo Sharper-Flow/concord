@@ -9,6 +9,7 @@
   ([`agent-read-tool-contract.md`](../agent-read-tool-contract.md)), TS7
   ([`agent-result-envelope.md`](../agent-result-envelope.md))
 - **Amends:** CD-0039 native-run records before their implementation
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 records observations and verifications as current rows
 - **Supersedes:** nothing
 
 ## Context
@@ -40,8 +41,8 @@ prove what was named, not that the producer named the whole world. A digest over
 
 External-state records embed one closed provenance and verification component.
 The component supplies common identity, observed-universe, verification, and
-freshness semantics. Purpose-built domain events and projections retain their
-own status vocabularies and invariants. Native-run phases, Git proof, external
+freshness semantics. Purpose-built domain records retain their
+own status vocabularies and invariants; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each writes current rows through its owning operations. Native-run phases, Git proof, external
 conditions, and backup validation do not collapse into one generic status table.
 
 A bounded generic fallback exists for observations that have no owning domain,
@@ -84,9 +85,9 @@ are opaque, bounded, and non-secret. They remain evidence subject data until an
 owning registry such as C15 exists; this record does not make C15 a floor
 prerequisite.
 
-Capture provenance is append-only. Later checks append verification events; they
-do not edit the original observation or turn an attributed report into a Concord
-finding.
+Capture provenance never changes. Later checks record additional verification
+rows; they do not edit the original observation or turn an attributed report
+into a Concord finding (CD-0242 D2).
 
 ### D4. Examined scope separates shape, coverage, and anchor
 
@@ -111,7 +112,7 @@ may be truncated. A total may be an estimate. A set digest proves the identity
 of the captured set, not the scope of the world the producer chose to capture.
 
 For a large domain-owned collection, the component may point at that domain's
-bounded projection rather than copy every identity into the event. The reference,
+bounded stored rows rather than copy every identity into the record. The reference,
 distinct count, canonical identity key, and set digest must still bind the same
 captured set.
 
@@ -147,9 +148,9 @@ omission prevents a negative conclusion. Open APIs that expose no stable anchor
 can still provide useful presence evidence; they cannot provide authoritative
 absence.
 
-### D6. Verification is append-only and attributed
+### D6. Verification is recorded and attributed
 
-Verification events bind one observation to:
+A verification record binds one observation to:
 
 ```text
 verification_method
@@ -161,7 +162,7 @@ current_digest?
 omissions[]
 ```
 
-The fold derives one of:
+The recorded verification state is one of:
 
 ```text
 unverified
@@ -217,9 +218,9 @@ age, or frequency heuristic owns this classification.
 ### D9. Reads remain available; consequential use fails closed
 
 Reads always return the record with provenance, verification state, freshness,
-omissions, and attribution. TS3 read operations never append verification
-events. An explicit D10 verification variant or a consequential preflight runs an
-accepted Git probe and appends the result before the caller re-reads. Unverified, stale, partial, unreachable, and
+omissions, and attribution. TS3 read operations never record verification.
+An explicit D10 verification variant or a consequential preflight runs an
+accepted Git probe and records the result before the caller re-reads. Unverified, stale, partial, unreachable, and
 unverifiable records remain inspectable but never render as verified or
 `authoritative_empty`.
 
@@ -240,13 +241,13 @@ The fallback uses the existing
 `concord_work_define.observation_record` operation. Its current work-scoped,
 grant-authenticated, idempotent, non-authoritative semantics remain. The input
 gains a closed external-observation variant for capture or verification, and the
-core emits purpose-built external-observation event payloads and folds. Plain CD-0030 observations remain plain statements and satisfy no evidence or
+core records purpose-built external-observation rows. Plain CD-0030 observations remain plain statements and satisfy no evidence or
 gate. The external variant is also non-authoritative: it may only supply or
 withhold a precondition checked by another operation. It cannot positively
 satisfy evidence, approval, transition, verdict, or completion.
 
 Capturing a new observation remains forbidden on terminal work under CD-0030.
-Appending a verification to an observation that was captured while work was
+Recording a verification for an observation that was captured while work was
 active remains allowed after terminal transition for audit and read-time
 inspection; it cannot change terminal work or reopen authority.
 
@@ -262,7 +263,7 @@ Every CD-0039 native-run event embeds the shared capture component. Its
 remain as accepted. The added component records capture method, observed
 universe, freshness policy, divergence policy, and verification participation.
 
-A native status may be folded and read as an attributed report while unverified.
+A native status may be read as an attributed report while unverified.
 Any later completion, safety conclusion, or consequential action that consumes
 it follows D9. Reads never present `rolled_back` without its reporter and
 verification/freshness state.
@@ -272,7 +273,7 @@ law amendment at the cheapest point in its lifetime. CD-0039 and CD-0040 land in
 the same TS8 major implementation rather than adding verification in a second
 migration.
 
-### D12. Surface and replay obligations
+### D12. Surface and existing-record obligations
 
 No tenth tool is added. Purpose-built paths remain on their current operations;
 the generic fallback extends an existing operation. TS7's authority, freshness,
@@ -284,10 +285,9 @@ would make an unverified record look ordinary. The first implementation joins
 the major surface amendment already required by CD-0037/CD-0039. Old clients
 fail negotiation; there is no prose or untyped compatibility alias.
 
-Existing plain work observations replay unchanged and never acquire external
-provenance retroactively. Existing domain records retain their event history;
-only new records written under the new major carry the component. Rebuild derives
-verification projections solely from appended events.
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded observations read back unchanged and never acquire external
+provenance retroactively; records written before this surface carry no component,
+and no replay or rebuild participates.
 
 ## Rejected alternatives
 

@@ -17,6 +17,7 @@
 - **Preserves:** the worker authority boundary in full — a worker still records
   no transition, no verdict, and no completion, and still cannot accept its own
   result
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 keeps completions and evidence as current rows
 - **Supersedes:** nothing
 
 ## Context
@@ -126,11 +127,9 @@ Neither a signed report nor an execution locator proves semantic acceptance.
 
 ### D4. An undischarged obligation is not a completion
 
-A `worker.completed` event whose evidence leaves any of the dispatching lane's
-declared obligations undischarged is refused with a typed failure. The refusal
-happens in the fold, inside the transaction that would have made the attempt
-terminal, because that is the only point where the attempt's lane identity and
-the reported evidence are both in hand.
+A `worker.completed` acceptance whose evidence leaves any of the dispatching
+lane's declared obligations undischarged is refused with a typed failure.
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the refusal happens at completion acceptance, inside the one transaction that would write the terminal rows, because that is the only point where the attempt's lane identity and the reported evidence are both in hand.
 
 A refused completion is not a silent retry. The caller records `worker.failed`
 with the existing `invalid_report` kind, which gives that constant its first
@@ -153,26 +152,11 @@ authority or certify the semantic truth of a closure.
 Report schema `1.0` retains the pre-job shape. Schema `1.1` admits a
 worker-job binding and additive oracle report members. The terminal report
 must match the dispatch's recorded schema identity and job binding. Oracle
-members require an oracle-bearing dispatched revision; historical pins
-do not gain an oracle by absence, upcast, or today's registry.
+members require an oracle-bearing dispatched revision; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: a recorded dispatch gains no oracle tie by absence or upcast.
 
-### D6. Terminal versions preserve legacy evidence
+### D6. A recorded completion states its evidence origin
 
-Stored v1 completions carry no evidence, and no upcaster can invent it. Rather
-than tolerate an absent field and let one shape mean both "reported nothing" and
-"predates the contract", the payload records which it is: `evidence_origin` is
-`reported` or `legacy_unavailable`.
-
-`upcastWorkerCompletedV1` sets `legacy_unavailable` with empty evidence. Every
-newly appended completion must set `reported` and satisfy D4. Validation is total
-in both directions, and a legacy completion is visibly legacy rather than
-indistinguishable from an empty one.
-
-The current `worker.completed` payload is version 6. Review, job binding,
-context findings, and oracle members retain their v3, v4, v5, and v6 source
-boundaries. Upcasts preserve absence without fabricated evidence.
-`worker.failed` remains version 2; valid failed reports retain their context
-findings without a new oracle terminal payload.
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each terminal result is a recorded current fact; a completion recorded before this contract reads back with `evidence_origin: legacy_unavailable` and empty evidence, and no payload version, upcast, or replay invents evidence.
 
 ### D7. The adapter parses the report it already receives
 
@@ -246,15 +230,16 @@ step graph under CD-0013 D1.
 - The obligation enum in `agent-lanes.schema.json` and
   `agent-lane-report.schema.json` is proved identical, and every lane's
   obligations proved a subset, by `scripts/check-agent-contracts.py`.
-- A completion whose evidence covers its lane's obligations folds; one that
-  leaves any obligation undischarged is refused with a typed failure and no
-  projection change.
+- A completion whose evidence covers its lane's obligations is accepted; one
+  that leaves any obligation undischarged is refused with a typed failure and
+  no terminal write (CD-0242 D2).
 - A completion naming an obligation the dispatching lane does not declare is
   refused.
-- A stored v1 completion upcasts to v2 as `legacy_unavailable`, deterministically
-  and idempotently, and replays to the same projection.
-- A v2 completion claiming `legacy_unavailable` is refused, and one claiming
-  `reported` with empty evidence is refused.
+- A completion recorded before this contract reads back as `legacy_unavailable`
+  with empty evidence, with no upcast or replay (CD-0242 D2).
+- A completion that claims `legacy_unavailable` for a report produced under
+  this contract is refused, and one claiming `reported` with empty evidence is
+  refused.
 - Every lane digest is unchanged from before this decision.
 - The adapter turns an unparseable or invalid report into `worker.failed` with
   `invalid_report` rather than a completion.

@@ -37,9 +37,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ecc23dd188b390bbbe7ad558fe50f5d9ca37e721cfbbcbeeda274b6a83e0aa7a",
+  "sha256": "sha256:de8e5e7a4d0bb539b005a9e1b9f332932eb71602e0348d0f97a8e5ecd48e57bd",
   "status": "accepted",
-  "summary": "Adds a hold-only bind_evidence route to break-fix verify and separates it from verdict correction, which requires completed and accepted delivery, returns to pinned repair, and resets only on a comparable healthy predicate set.",
+  "summary": "Adds a hold-only bind_evidence route to break-fix verify and separates it from verdict correction, which requires completed and accepted delivery, returns to the declared repair step, and resets only on a comparable healthy predicate set.",
   "tags": [
     "workflow",
     "evidence",

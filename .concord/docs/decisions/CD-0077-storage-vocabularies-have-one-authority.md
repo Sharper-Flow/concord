@@ -9,9 +9,10 @@
   #502, selected workflow-definition family resolution for #508, and directed
   #512 into the same change on 2026-08-25.
 - **Related:** CD-0002, CD-0013 D14, CD-0039, CD-0040 D11, CD-0055
-- **Preserves:** The workflow-family set fixed by CD-0013 D14; the meaning of the
-  `workflow.successor_linked.successor_kind` event field; migration immutability;
+- **Preserves:** The live workflow-family set; the `successor_kind` work-item
+  meaning on a recorded successor link; migration immutability;
   SQLite as the sole local state authority
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 keeps recorded links and rows current; D14 derives definitions from one source
 - **Supersedes:** The implicit treatment of `work_items.kind` as a workflow family
   in composition checks; duplicated native-run status declarations
 
@@ -59,7 +60,7 @@ enter `work_items.kind`.
 
 ### D2. Each vocabulary has one machine-readable declaration
 
-`contracts/work-kinds.v1.json` owns stored, fold-create, fold-revise, and agent
+`contracts/work-kinds.v1.json` owns stored, create, revise, and agent
 capture policy for every work-item term. `contracts/native-run-statuses.v1.json`
 owns each native-run phase/status pair and its failure classification.
 
@@ -86,23 +87,19 @@ with a registry trigger rather than a table rebuild. Thirty-seven tables referen
 stronger membership invariant. The trigger performs the same registry lookup at
 the database boundary without replacing the referenced table.
 
-### D4. Composition resolves the pinned workflow definition
+### D4. Composition resolves the successor's definition identity
 
 A forward-link composition check reads the successor's
-`workflow_instances.definition_ref`, resolves the pinned builtin definition, and
+`workflow_instances.definition_ref`, resolves that builtin definition
+identity, and
 compares its workflow family with the source definition's allowed families. A
 successor without a workflow instance has no family and is refused.
 
-`workflow.successor_linked` payload version 2 requires `definition_ref`. Its v1
-upcast preserves replay for an earlier valid `research` successor that had no
-workflow instance. Only an event read from stored v1 data can use that narrow
-compatibility rule. A newly appended event cannot select it.
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded successor links read back with their recorded meaning, and no payload version, upcast, or replay reinterprets them. The
+`successor_kind` value keeps its work-item meaning, checked against
+`work_items.kind` at admission.
 
-The event field `successor_kind` retains its work-item meaning. Fold replay still
-checks that value against `work_items.kind`; changing the event meaning would make
-old records ambiguous.
-
-### D5. Scenarios state each concept at its owning event
+### D5. Scenarios state each concept at its owning record
 
 `work.created.work_kind` carries an operator kind. Existing family-shaped fixture
 values become `task` unless the scenario explicitly states `bug` or `research`.
@@ -128,7 +125,7 @@ from entering the store.
 
 ## Rejected alternatives
 
-**Keep boundary-only validation.** Rejected because replay, reconstruction, tests,
+**Keep boundary-only validation.** Rejected because snapshot restore, tests,
 and future import paths do not all enter through the agent schema. The database
 must protect its own vocabulary.
 
@@ -153,8 +150,9 @@ history immutable and current declarations accountable.
 - Store tests prove every registry row and policy bit, accepted rows, rejected
   unknown values, wrong-phase status refusal, and valid and invalid upgrades from
   schema version 48.
-- Store composition tests prove v1 replay, the v2 definition pin, and refusal of
-  a successor without a workflow instance.
+- Store composition tests prove the recorded successor meaning, the derived
+  definition identity, and refusal of a successor without a workflow instance
+  (CD-0242 D2, D14).
 - An agent-surface test captures operator-kind `task` items, selects different
   workflow families, forward-links the allowed family, and proves the operation
   refuses an unpinned successor.
@@ -162,5 +160,5 @@ history immutable and current declarations accountable.
   boundaries.
 - Paired Python suites mutate contracts, schemas, migration rows, trigger
   predicates, and runtime call sites to prove each closure validator fails.
-- The workflow scenario corpus passes with operator kinds on creation events and
-  families on definition-selection events.
+- The workflow scenario corpus passes with operator kinds at creation and
+  workflow families at definition selection.

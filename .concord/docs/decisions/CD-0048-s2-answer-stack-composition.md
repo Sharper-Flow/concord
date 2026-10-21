@@ -16,9 +16,9 @@
   The Snowball coordinator (operator-delegated) approved this record alignment
   on 2026-10-10 at 07:10 Eastern Daylight Time (EDT).
 - **Amended by:** CD-0219 (2026-10-09) vacates the S2 answer-stack clauses
-  with the retired launcher TUI; store event, replay, and query contracts
-  stand unchanged, and no recency column or fold obligation survives this
-  record
+  with the retired launcher TUI; no recency column or stamp obligation survives
+  this record; [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
+  D2 keeps current state and finite snapshots, not an event or replay contract
 - **Related:** CD-0014, CD-0108, CD-0219
 - **Preserves:** the store materialization contracts the record documented —
   `internal/store/domain_reads.go`,
@@ -38,11 +38,11 @@ CD-0224, and no live query derives it.
 `internal/store/domain_reads.go` resolves the governing Domain and its
 architecture overlap. `cmd/concord/session.go` carries the core-derived
 session context: the bounded packet derivation and validation that
-work-start preparation applies. No fold-maintained last-activity stamp
+work-start preparation applies. No stored last-activity stamp
 survives:
 migration 109 drops the `work_items.last_activity_at` column the 2026-09-28
-amendment carried, so no release's writes can drift a stored stamp behind the
-log (CD-0111).
+amendment carried, so no release's writes can drift a stored stamp
+(CD-0111).
 
 ## Decision
 
@@ -53,18 +53,18 @@ and the S2 surface is deleted with it. The panel-stack composition, the
 quiet-means-healthy render, the stored last-activity ordering, the Tab-row
 realignment, and the read-only action surface are vacated with the screen. No
 clause of this record obliges a render, a display order, a stored recency
-column, or a fold advance.
+column, or a stamp advance.
 
-Store event, replay, and query contracts are unchanged. The store
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current rows and their query contracts, not an event or replay contract. The store
 materialization named in Context keeps its owning contracts and serves the
 JSON agent tools and the managed session context. `updated_at` keeps its
 versioned-write meaning.
 
 ## Consequences
 
-- No schema or fold obligation of this record survives. Migration 109 drops
-  `work_items.last_activity_at`, and no recency column or new fold obligation
-  replaces it.
+- No schema or stored-stamp obligation of this record survives. Migration 109
+  drops `work_items.last_activity_at`, and no recency column or new stamp
+  obligation replaces it.
 - The store materialization continues to serve the JSON agent tools and the
   managed session context. No renderer ships (CD-0014).
 - Coverage for the vacated clauses carries an out-of-scope state, not a

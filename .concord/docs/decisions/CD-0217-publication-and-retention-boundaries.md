@@ -8,6 +8,7 @@
   [CD-0215](CD-0215-retained-research-context.md),
   [CD-0216](CD-0216-research-surface-and-explicit-retirement.md),
   [CD-0142](CD-0142-operator-directed-execution-removal.md), PM8, PM9, and PM10
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 owns store retention and snapshots
 
 ## Context
 
@@ -23,18 +24,18 @@ CD-0013 D11 separates routine local publication/proof reconciliation from resear
 
 ### D1. Terminal projection pruning remains deferred
 
-No terminal-work prune eligibility predicate, storage-pressure threshold, maintenance run, or prune event is introduced.
+No terminal-work prune eligibility predicate, storage-pressure threshold, or maintenance run is introduced.
 Terminal work remains in live typed projections indefinitely.
 `work_projection_pruned` and `archived_work_linked` remain reserved; introducing either requires a successor to this deferral.
 CD-0142 remains a separate operator-directed nonterminal execution-removal boundary after verified handoff and reconciliation.
-It is not terminal pruning and does not remove `domain_events`.
+It is not terminal pruning and removes no recorded current row; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current state and finite snapshots, with retention and cleanup under its documented rules.
 
 ### D2. Authority guarantees remain in force
 
 | Guarantee | Obligation |
 |---|---|
 | Git note | authority for distilled knowledge |
-| `domain_events` | exact work history and replay; never pruned |
+| Store state | current rows and finite verified snapshots; retention and cleanup follow [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) |
 | Work IDs | immutable after a prune boundary; renewed need uses a new linked identity |
 | Work projection removal | verified linkage precedes terminal removal; CD-0142 remains separate |
 | Historical projections | disposable and Git-rebuildable |
@@ -45,14 +46,14 @@ It is not terminal pruning and does not remove `domain_events`.
 
 Research retirement needs neither a compaction link nor a calendar deadline.
 Only `research_retire` deletes pack aggregates; eligibility alone has no destructive effect.
-PM8's WIP-byte exclusion, PM9's process-exhaust rejection, and the ban on core-event pruning remain unchanged.
+PM8's WIP-byte exclusion, PM9's process-exhaust rejection, and [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)'s retention rules remain unchanged.
 
 ### D3. Live projection growth has a revisit trigger
 
 Live work, relation, membership, idempotency, operation, worker, message, observation, and workflow projections may grow without bound at single-operator pre-floor scale.
 A later accepted decision must restore a pruning mechanism before any of these conditions holds:
 
-1. Representative projection size measurably degrades authoritative query latency, fold time, or startup.
+1. Representative projection size measurably degrades authoritative query latency or startup.
 2. Deployment moves beyond one operator through another concurrent operator or a hosted installation.
 3. Backup snapshot size makes the absence of reclamation a recovery risk.
 
@@ -67,8 +68,8 @@ Research retirement does not delete earlier backup copies.
 
 ### D5. Deliberate absences stay absent
 
-There is no core-event pruning, WIP-byte content-addressed store, separate process-exhaust receipt, calendar expiration, or fixed sweep.
-The research aggregate remains outside retained events and historical work projections.
+There is no core-row pruning outside [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)'s documented rules, no WIP-byte content-addressed store, separate process-exhaust receipt, calendar expiration, or fixed sweep.
+The research aggregate remains outside retained store history and historical work projections.
 Work publication and read inspection cannot become alternate retirement routes.
 Owner removal must preserve retained research or refuse before a foreign-key cascade can destroy it.
 

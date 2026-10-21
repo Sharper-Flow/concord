@@ -5,9 +5,9 @@
 **Spike:** [`../research/R6-typed-workers-and-model-routing.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R6-typed-workers-and-model-routing.md)
 **Issue:** [#57](https://github.com/Sharper-Flow/concord/issues/57)
 **Amends:** CD-0005 (adds the worker-lane dimension above the D6 adapter boundary; D1–D9 unchanged)
-**Preserves:** R1 (forward-linked composition), CD-0013 (attempt model, §D5 actor identity), CD-0016 (pinned continuity projections)
+**Preserves:** R1 (forward-linked composition), CD-0013 (worker authority boundary and actor identity), CD-0016 (pinned continuity projections)
 **Cites:** #42/CD-0016 (context continuity — separate decision; lane dispatch consumes its pinned projections)
-**Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5, D6
+**Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D6
 
 ## Context
 
@@ -56,8 +56,8 @@ Provider releases change host configuration, never durable lane law.
 
 ### D4. Worker authority boundary
 
-A worker run is a **bounded execution attempt of one workflow step** — the position
-`workflow.action_started`/`workflow.action_checkpointed` already model. Workers
+A worker run is a **bounded execution attempt of one workflow step** — the
+dispatched step position the engine records. Workers
 never record step transitions, verdicts, or completion, and never spawn nested
 workflow authority. Durable workflow authority remains with the owning Concord
 workflow; a worker result can complete a gate only when the owning workflow
@@ -80,15 +80,15 @@ Concord records which model executed the attempt. It asserts no intended
 model and no legal resolution set, so it claims no substitution detection.
 
 A readback that yields no executing-model identity, or more than one, is not
-an adapter error to discard. The adapter records exactly one failed attempt in
-one event: a dispatch born `failed`, with an empty `readback_model` and a kind
+an adapter error to discard. The adapter records exactly one failed dispatch:
+a dispatch born `failed`, with an empty `readback_model` and a kind
 of `model_readback_missing` or `model_readback_ambiguous`, carrying the
-refusing predicate, the export digest, and the export byte count. One event is
-one transaction, so no `dispatched` attempt can outlive a stopped process. The
+refusing predicate, the export digest, and the export byte count.
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the failed dispatch is one current row written in one transaction, so no `dispatched` attempt can outlive a stopped process. The
 schema admits an empty `readback_model` only under those two failed kinds. The
 attempt is never retried; a new attempt is a new decision.
 
-The dispatch event also records `worker_worktree_identity`, the sha256 of the
+The dispatch record also records `worker_worktree_identity`, the sha256 of the
 canonical session worktree path the core admitted under CD-0102 D7. Later
 worker evidence binds to that claim without a machine path in a public event.
 
@@ -96,7 +96,7 @@ worker evidence binds to that claim without a machine path in a public event.
 
 `worker.completed` and `worker.failed` bind to the dispatched attempt's exact work
 item and make one transition from `dispatched`. Both terminal states are immutable;
-a later terminal event cannot replace failure with success or success with failure.
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each terminal result is one recorded current fact, and no later record replaces failure with success or success with failure.
 
 ### D6. Reviewer/model distinctness is structurally available and workflow-declared
 
@@ -106,7 +106,7 @@ a later terminal event cannot replace failure with success or success with failu
 
 Lane prompt behavior is evaluated with a prompt-evaluation harness (promptfoo or
 equivalent) once lane prompts exist. Deterministic authority — registry validation,
-packet/report schemas, dispatch fencing, evidence recording, distinctness rejection —
+packet/report schemas, dispatch fencing, and evidence recording —
 remains in Go tests. Behavioral evals never complete gates and never substitute for
 schema or state checks.
 
@@ -154,8 +154,7 @@ schema or state checks.
   report contract outside the evidence boundary; declines the issue.
 - **Vendor/model identifiers in lane contracts:** rot every provider release;
   capability classes carry the durable intent.
-- **Globally mandatory cross-model review:** awaits the R6 §5 measured basis;
-  structurally available and workflow-declared until then.
+- **Globally mandatory cross-model review:** [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: no model-identity distinctness requirement exists, so no mandatory cross-model review exists.
 - **Adapter-side result validation beyond envelope/identity:** CD-0005 D6 violation.
 
 ## Implementation acceptance

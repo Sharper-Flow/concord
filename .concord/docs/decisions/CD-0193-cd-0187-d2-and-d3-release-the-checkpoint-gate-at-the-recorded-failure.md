@@ -14,6 +14,7 @@
   sentence, the hold-mode accept, and the CD-0133 effect-step recovery routes
 - **Related:** CD-0059, CD-0133, CD-0166, CD-0179,
   [Concord (CON) issue 430](https://linear.app/sharper-flow/issue/CON-430)
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
 - **Approval:** The operator accepted the work item CON-430 contract that
   carries this record on 2026-09-29.
 
@@ -45,8 +46,8 @@ stays off their declared actions, and the engine admits
 `record_worker_failure` at a `human_checkpoint` step when the latest attempt
 a worker actually dispatched there is failed and no failure record
 dispositions it yet. The admission is a recovery: the record carries the
-pinned definition's hold-mode action, the step keeps its position, and the
-pinned definition digest never moves, so no repin is needed.
+definition's hold-mode action, the step keeps its position, and the recovery
+changes no definition, so no repin is needed; [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source.
 
 CD-0187 D2 says: "The advancing accept and the failure record stay off these
 steps." That sentence reads instead: the advancing accept stays off these
@@ -57,12 +58,12 @@ gate remains the step's only advancing exit.
 The recorded failure also opens the corrective return. Once the record
 dispositions the failed attempt, a current unhealthy verdict exposes
 `request_correction` at the checkpoint under CD-0143 D1's amended admission,
-and the pinned definition digest still never moves.
+and the recovery still changes no definition.
 
 ### D2. The checkpoint hold releases on the record, the accept, or a used window
 
-The hold rule is one rule the fold and the work pin both read, with two
-step-shaped branches.
+The hold rule is one rule admission and the work pin both read, with two
+step-shaped branches; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: both read current rows.
 
 At a `human_checkpoint` step, the latest attempt a worker actually dispatched
 holds the step. An attempt stops holding only when an accept dispositions its
@@ -83,14 +84,14 @@ latest workflow action start holds the step, so the recorded effect-step
 route that records the failed attempt and starts a fresh fenced attempt
 reopens the exits exactly as CD-0133 recorded it. A rejected attempt keeps
 holding on every step. The work pin reads the same rule, so the pin never
-offers an advance the fold refuses, and it advertises the failure record
-exactly while the fold admits it.
+offers an advance admission refuses, and it advertises the failure record
+exactly while admission admits it.
 
 ## Alternatives considered
 
 - Compose `record_worker_failure` onto the checkpoint steps. Rejected: the
-  composition moves every promoted definition digest and wedges the instances
-  pinned to them, while the engine recovery keeps the digests frozen.
+  composition would rewrite the generated definitions and strand recorded
+  instances, while the engine recovery changes no definition (CD-0242 D14).
 - Release the hold when a window opens, on every step. Rejected: the unused
   window was the second defect, and the confirm followed the failure edge on
   a window no worker used.
@@ -98,8 +99,9 @@ exactly while the fold admits it.
   effect-step route opens the exits through the fresh fenced attempt, and an
   early release would advance before any fresh attempt exists.
 - Keep the hold blind to the failed attempt and repin the item to a repaired
-  definition. Rejected: a repin is not a recovery for a failed attempt, and
-  the digest pins exist so the recorded contract stays stable.
+  definition. Rejected: a repin replaces the definition instead of recovering
+  the attempt; the engine's hold-mode record is the admitted route
+  (CD-0242 D14).
 
 ## Consequences
 
@@ -109,11 +111,11 @@ own gate opens, so the failure edge to refine stays reachable.
 
 An authorized window no worker used releases nothing at a confirmation step,
 so a failed attempt can no longer be advanced past on an unused window. The
-pinned definitions keep their digests, and instances reach the recovery
-without a repin.
+recovery changes no definition, and instances reach it without a repin
+(CD-0242 D14).
 
 The pin advertises the failure record while the failed attempt holds and
-stops advertising once the record lands, so the pin and the fold state one
+stops advertising once the record lands, so the pin and admission state one
 answer.
 
 ## Verification
@@ -127,13 +129,13 @@ Scenario: The failed checkpoint review records and releases the gate
 Scenario: An unused dispatch window keeps the hold
   Given the failed review attempt and a dispatch window no worker used
   When the operator confirms the premise
-  Then the fold refuses with the dispatched-attempt hold
+  Then admission refuses with the dispatched-attempt hold
 
-Scenario: The pin matches the fold on the recovery
+Scenario: The pin matches admission on the recovery
   Given the failed review attempt unrecorded
   Then the pin advertises record_worker_failure as worker_failure_recovery
   When the failure record lands
-  Then the pin stops advertising it and the pinned digest is unchanged
+  Then the pin stops advertising it and the definition is unchanged
 
 Scenario: A later worker actually dispatching supersedes the failed attempt
   Given the failed review attempt and a retry attempt a worker dispatched

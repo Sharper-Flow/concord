@@ -675,3 +675,68 @@ func TestOutsideRepairWorkPinPopulation(t *testing.T) {
 	}
 	requireTypedAbsence(read(), "completed")
 }
+
+// TestOutsideRepairHistoryRecordsCorpusWitnesses drives the typed hold,
+// reconcile and resume routes with the modeled approval receipts and records
+// the emitted pv1 rows as corpus witnesses. The shapes are the released
+// forms — unchanged since the introducing release — and admission requires
+// this passing history plus a full replay that keeps the exact stored bytes,
+// including the reconciled row's complete receipt identities. Each history
+// owns its store because the seed's workflow-law event is per-store.
+func TestOutsideRepairHistoryRecordsCorpusWitnesses(t *testing.T) {
+	type repairRow struct {
+		kind    string
+		version int
+		payload string
+	}
+	terminal := func(t *testing.T, s *Store) map[string]repairRow {
+		t.Helper()
+		rows, err := s.DatabaseForTesting().Query(`SELECT event_id, kind, payload_version, CAST(payload AS BLOB) FROM domain_events WHERE kind IN ('workflow.outside_repair_disposition_set','workflow.outside_repair_reconciled','workflow.outside_repair_resumed') ORDER BY event_id`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		out := map[string]repairRow{}
+		for rows.Next() {
+			var eventID string
+			var row repairRow
+			var payload []byte
+			if err := rows.Scan(&eventID, &row.kind, &row.version, &payload); err != nil {
+				t.Fatal(err)
+			}
+			row.payload = string(payload)
+			out[eventID] = row
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	history := func(t *testing.T, work, closingKind string, evidence OutsideRepairEvidence) {
+		t.Helper()
+		s := openTemp(t)
+		seedOutsideRepairTestWork(t, s, work)
+		if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "close"), closingKind, evidence); err != nil {
+			t.Fatal(err)
+		}
+		before := terminal(t, s)
+		if len(before) != 2 {
+			t.Fatalf("history for %s holds %d outside-repair rows, want 2", work, len(before))
+		}
+		if err := RebuildFromLog(context.Background(), s); err != nil {
+			t.Fatalf("rebuild must fold the %s history: %v", work, err)
+		}
+		after := terminal(t, s)
+		if !reflect.DeepEqual(before, after) {
+			t.Fatalf("the rebuild changed the %s row bytes", work)
+		}
+		for eventID, row := range after {
+			recordHistoricalWitness(t, s, eventID, row.kind, row.version, []byte(row.payload))
+		}
+	}
+	history(t, "outside-corpus-reconciled", WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence())
+	history(t, "outside-corpus-resumed", WorkflowOutsideRepairResumed, OutsideRepairEvidence{})
+}

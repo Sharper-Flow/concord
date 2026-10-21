@@ -12,7 +12,7 @@ needs a Breaking migration and requires each bump to declare its class.
 **Amended:** 2026-10-18 — [CD-0238](CD-0238-point-in-time-reconstruction-runs-outside-the-core.md) amends
 D6's point-in-time reconstruction bullet: reconstruction runs on the operator's
 machine, outside the core.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D13, D14
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D13, D14
 **Scope:** Evidence resolution, unreadable-record isolation, workflow checkpoints,
 attempt fencing, external conditions, worktree topology, schema evolution, and the
 SQLite confirmation and alternative-engine trigger.
@@ -41,8 +41,9 @@ Concord retains one global local SQLite authority outside all repositories and
 worktrees. Product/workflow state never branches with Git code.
 
 - One canonical `work_id`; one optional `worktree_set_id` for implementation work.
-- Each affected Project contributes at most one active implementation worktree to
-  that set.
+- Each affected Project contributes one integration worktree to that set, plus one
+  member worktree for each active member of a concurrent assignment group
+  ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)).
 - Product/Project/work identity derives from stable IDs and registered repository
   locators—not checkout/worktree paths.
 - Trunk/default checkouts remain on default branches and are read/deploy sources.

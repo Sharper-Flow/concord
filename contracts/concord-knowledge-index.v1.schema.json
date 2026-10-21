@@ -339,7 +339,7 @@
         },
         "law_relations": {
           "type": "array",
-          "maxItems": 32,
+          "maxItems": 64,
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/lawRelation"

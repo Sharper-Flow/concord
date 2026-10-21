@@ -100,20 +100,24 @@ invariants, and failure behavior, and cites the contract's Domain and law
 scope. The plan connects remaining requirements to an order and a proof
 strategy and details only the next assignment.
 
-### D5. Execution is a sequential loop that Main controls
+### D5. Execution is a loop that Main controls
 
-Main owns the plan and every progression. Within one work item, one
-implementation assignment runs at a time. Main assigns; Implement builds and
-verifies; Main dispatches Review; Review inspects the accumulated solution,
-may commit corrective changes, verifies the corrected candidate, and reports.
+Main owns the plan and every progression. Each implementation assignment
+carries one focused outcome. Main may run independent assignments of one work
+item as one concurrent group when their interfaces are settled and each member
+runs in its own claimed member worktree; dependent assignments run in sequence.
+Implement builds and verifies; Main integrates the group's results into one
+candidate and dispatches Review; Review inspects the accumulated solution, may
+commit corrective changes, verifies the corrected candidate, and reports.
 Workers do not dispatch workers.
 
 A review report names its input and output candidates, the criteria and
 architecture revisions it judged, its findings, its remaining obligations, and
 one disposition: continue, correction required, revision required, or ready
 for final proof. Main records its acceptance of the disposition. A new
-assignment needs an accepted disposition of continue bound to the current
-candidate. Leaving execution needs an accepted disposition of ready for final
+assignment group needs an accepted disposition of continue bound to the current
+integrated candidate; members of one group need no Review between them. A late
+or duplicate member result never replaces a newer accepted candidate. Leaving execution needs an accepted disposition of ready for final
 proof bound to the current candidate. An open in-scope blocking finding
 blocks both.
 
@@ -289,14 +293,16 @@ and cites the governing decision here. The rest of each record stands.
 |---|---|---|
 | CD-0002 | I2, I3, I5, I6; tier table; section 4 log survivor | D1, D2 |
 | Core architecture | invariants 1, 3, 4, 7, 11; section 1 log discipline; section 3 migration row | D2, D6, D14 |
-| CD-0008 | D6 | D2, D13, D14 |
+| CD-0008 | D1 worktree-set bullet; D6 | D2, D5, D13, D14 |
 | CD-0012 | D7, the executing-agent exclusion | D5 |
+| CD-0102 | D7 placement check | D5 |
 | CD-0013 | D1, D2, D3, D5, D10 clause 4, D11, D12, D13, D14 | D2, D3, D5, D7, D14 |
 | CD-0017 | D5 retry limit and approval prerequisite; D6 model distinctness | D5, D6 |
 | CD-0036 | D1 revision identity for staleness; D2; D3 strict quiescence | D7, D10 |
 | CD-0130 | D1 to D3 | D2, D14 |
 | CD-0137 | D1 to D4 | D5, D6, D7 |
 | CD-0173 | D1 | D6 |
+| CD-0178 | D1 worker directory and completion directory check | D5 |
 | CD-0197 | D1 verdict vocabulary; D4; D6 | D5 |
 | CD-0205 | D4; D6 | D6, D14 |
 | CD-0213 | D8 replay readability | D2 |

@@ -345,7 +345,7 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
         findings.append(f"{prefix}: invalid sha256 proof")
     if "law_relations" in record:
         relations = record["law_relations"]
-        if kind not in LAW_RELATION_SUBJECTS or not isinstance(relations, list) or len(relations) > 32:
+        if kind not in LAW_RELATION_SUBJECTS or not isinstance(relations, list) or len(relations) > 64:
             findings.append(f"{prefix}: invalid law_relations")
         elif any(
             not isinstance(item, dict)

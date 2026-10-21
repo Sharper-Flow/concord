@@ -522,7 +522,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             continue
 
         relations = record.get("law_relations", [])
-        if not isinstance(relations, list) or len(relations) > 32:
+        if not isinstance(relations, list) or len(relations) > 64:
             fail(findings, f"{prefix}: law_relations must be a bounded array")
         elif not isinstance(record.get("kind"), str) or record.get("kind") not in LAW_RELATION_SUBJECTS:
             if relations:

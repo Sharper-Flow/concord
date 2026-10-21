@@ -17,6 +17,7 @@
   in
   [CON-1271](https://linear.app/sharper-flow/issue/CON-1271/use-native-opencode-task-or-separate-sessions-for-concord-worker#comment-c61eaa2b-eb1a-42ec-9458-eced361746cc).
 - **Related:** CD-0059, CD-0088, CD-0092, CD-0093, CD-0096, issue #689
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5
 - **Amends:** CD-0059 D1 for the worker execution route, not for its
   authorize-before-start rule
 - **Preserves:** The lane packet contract, the lane report contract, and the
@@ -227,9 +228,8 @@ worktree, and a session in a default checkout cannot dispatch an
 implementation-bearing lane at all.
 
 *(Amended 2026-09-06, issue #826 — the core checks this, the host does not
-promise it.)* *Before `dispatch_worker` opens a window, the core resolves the
-target work item's active worktree claims and compares them with the session's
-worktree (CD-0104) by filesystem identity: absolute, symlink-resolved, cleaned.
+promise it.)* *Before `dispatch_worker` opens a window, the core resolves the worktree claim the assignment names and compares it with
+the directory the worker will run in, by filesystem identity: absolute, symlink-resolved, cleaned.
 No active claim, an unresolvable session path, or a mismatch refuses with
 `unauthorized_dispatch`. The refusal names the sha256 identity of each path,
 never the path. The same check runs in preflight and in lane registration, so a

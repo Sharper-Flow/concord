@@ -5,6 +5,7 @@
 - **Amended:** 2026-10-17. Coordinator approval under the operator's delegation
   for [Concord (CON) issue 160](https://linear.app/sharper-flow/issue/CON-160). A new worker completion must prove its directory.
 - **Amended:** 2026-10-17. Coordinator approval under the operator's delegation for [Concord (CON) issue 1095](https://linear.app/sharper-flow/issue/CON-1095/worker-evidence-authority-gaps-generic-applyoperation-may-append). A new completion proves its original Project's claim.
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5
 - **Scope:** Where a lane worker runs, how one work item reaches a second
   repository, and what protects a worktree from removal; issues #1358, #1322,
   #1125
@@ -76,12 +77,13 @@ repositories.
 
 ### D1. A lane worker is a native subagent in its coordinator's directory
 
-A lane worker runs through the host `task` tool, as CD-0102 states. Its
-directory is the directory of the coordinator session that dispatches it.
+A lane worker runs through the host `task` tool, as CD-0102 states. Its directory is the claimed worktree its assignment names: the dispatching
+coordinator's worktree, or a member worktree of a concurrent group
+([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)).
 Concord creates no worker session through the host session API, and Concord
 registers no plugin tool named `task`.
 
-Every new authenticated worker completion carries the nonempty worker directory the host observed. The live worker-evidence ingest checks that directory against the work item's active claimed worktree before appending completion. An omitted or empty directory provides no proof and refuses without recording completion. Rebuilding recorded events never requires a live filesystem check. An exact acknowledgment of recorded completion appends nothing and does not repeat the directory check.
+Every new authenticated worker completion carries the nonempty worker directory the host observed. The live worker-evidence ingest checks that directory against the claimed worktree its assignment names before appending completion. An omitted or empty directory provides no proof and refuses without recording completion. Rebuilding recorded events never requires a live filesystem check. An exact acknowledgment of recorded completion appends nothing and does not repeat the directory check.
 
 A new worker completion proves the active claimed worktree of the Project that the attempt's original dispatch authorization identifies. An active claim for another Project of the same work item is not proof. If the original Project or its active claim cannot be established, the completion refuses without recording a terminal outcome. Rebuilding recorded events does not check the live filesystem. An exact acknowledgment appends no new completion and does not repeat this check.
 

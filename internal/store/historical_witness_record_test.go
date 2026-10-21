@@ -253,7 +253,10 @@ func TestHistoricalWitnessRecordsOnlyAdmittedRows(t *testing.T) {
 		switch {
 		case strings.Contains(row, `"kind":"domain.observation_recorded"`):
 			observedRow++
-			if !strings.Contains(row, "historical") || !strings.Contains(row, "replay-link-a") {
+			// Pin the markers to the embedded array forms: the statement also
+			// contains the word "historical", so a bare name would pass on an
+			// empty tags list.
+			if !strings.Contains(row, `refs\":[\"work:replay-link-a\"]`) || !strings.Contains(row, `tags\":[\"historical\"]`) {
 				t.Fatalf("recorded observation row lacks nonempty refs/tags: %s", row)
 			}
 		case strings.Contains(row, `"kind":"domain.observation_dismissed"`):

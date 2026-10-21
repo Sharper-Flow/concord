@@ -1,6 +1,6 @@
 # CD-0237: A resize successor writes its own forward link and supersession
 
-- **Status:** Accepted
+- **Status:** Superseded by [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
 - **Date:** 2026-10-18
 - **Scope:** Which writer creates the relations of a CD-0229 D6 resize
 - **Amends:** [CD-0224](CD-0224-ten-planning-and-browsing-operations-are-retired-from-the-agent-surface.md),

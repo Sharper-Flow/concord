@@ -1,6 +1,6 @@
 # CD-0148: Failed worker retries require exact approval and fresh fencing
 
-- **Status:** Accepted
+- **Status:** Superseded by [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
 - **Date:** 2026-09-14
 - **Scope:** Worker lane dispatch and workflow correction
 - **Amends:** CD-0017, CD-0027

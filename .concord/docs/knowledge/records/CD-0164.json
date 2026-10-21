@@ -23,8 +23,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:81d2086f19b472a5c8b2f0edb845bd5b5fa56ccbfca4b79e0757f6b55df50f99",
-  "status": "accepted",
+  "sha256": "sha256:ae8945edcec28c0d50faf6d279ee6dceea95631ada43ef153f733106147fb45e",
+  "status": "superseded",
+  "successor": "CD-0242",
   "summary": "Correction counts use distinct dispatched attempts since the last productive acceptance, regardless of failure kind. The work-wide nonprogress budget also counts completed no_ship attempts and survives step, disposition, correction-request, and contract changes. Only productive acceptance resets the window. On repair-capable pins, the one CD-0205 D4 funded confirming review is the sole dispatch admitted at the wall without a store-derived basis; the repairing acceptance resets nothing, and only its accepted ship review is productive for the repaired obligations. Failure and rejection use the dispatch-count comparator; verification uses correction requests since the last healthy verdict.",
   "tags": [
     "correction",

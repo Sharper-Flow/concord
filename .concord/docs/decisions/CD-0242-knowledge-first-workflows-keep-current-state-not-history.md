@@ -1,16 +1,24 @@
 # CD-0242: Knowledge-first workflows keep current state, not history
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-21
 - **Scope:** Ownership of durable and current state, workflow stage exits, the
   execution loop, invalidation, evidence, completion, knowledge use, law-edit
   governance, resumption, recovery, and the cutover from the event-sourced
   engine
 - **Implements:** [Concord (CON) issue 1275](https://linear.app/sharper-flow/issue/CON-1275)
-- **Supersedes:** listed in the amendment map of Consequences
-- **Approval:** Pending operator approval of exact text. The change is serious
-  under P12: it affects more than one Domain, touches data safety, and changes
-  operator approval points.
+- **Supersedes:** [CD-0115](CD-0115-a-released-workflow-definition-never-changes-content-in-place.md),
+  [CD-0148](CD-0148-approved-fresh-worker-retries.md),
+  [CD-0164](CD-0164-correction-attempt-counting-population.md),
+  [CD-0225](CD-0225-worker-job-size-overruns-split-without-raising-the-cap.md),
+  [CD-0226](CD-0226-review-findings-carry-fixes-with-cross-family-checks.md),
+  [CD-0237](CD-0237-a-resize-successor-writes-its-own-forward-link-and-supersession.md),
+  and [CD-0238](CD-0238-point-in-time-reconstruction-runs-outside-the-core.md)
+- **Approval:** The operator approved D1–D14, the amendment map, and the
+  quoted `goals.md` and `priorities.md` edits as exact text on 2026-10-21 for
+  [Concord (CON) issue 1275](https://linear.app/sharper-flow/issue/CON-1275).
+  The change is serious under P12: it affects more than one Domain, touches
+  data safety, and changes operator approval points.
 
 ## Context
 
@@ -331,12 +339,17 @@ verified, not reviewed again."
 
 ## Verification
 
-Anchors are bound when the implementing change lands:
-
-- the stage admission refusal tests for D3, D5, and D7;
-- the resume-without-history acceptance fixture for D2 and D11;
-- the reviewer-repair-to-delivery acceptance fixture for D5 and D9;
-- the administrative-recovery acceptance fixture for D6, D7, and D12;
-- the cutover interruption and snapshot-restore tests for D2 and D13;
-- `python3 scripts/check-doc-contract.py` and
-  `python3 scripts/check-knowledge-index.py` for the record and its shard.
+- The implementing runtime change binds the executable anchors for D2 to D13:
+  the stage admission refusal tests, the resume-without-history and
+  reviewer-repair-to-delivery acceptance fixtures, the administrative-recovery
+  fixture, and the cutover interruption and snapshot-restore tests. Until that
+  change lands, `python3 scripts/check-knowledge-index.py` is the executable
+  anchor for this record's law registration.
+- `python3 scripts/check-knowledge-index.py` composes the record shards and
+  checks the accepted record's `supersedes` relation to each superseded
+  record, each superseded record's `successor` pointer, and every shard hash.
+- `python3 scripts/check-knowledge-closure.py --strict` proves this document
+  is registered and leaves no knowledge document unprocessed.
+- `python3 scripts/check-doc-contract.py` checks the required decision
+  outline, the anchor discipline of this section, and accepted-law citation
+  targets.

@@ -1,6 +1,6 @@
 # CD-0164: Correction attempts count every dispatch
 
-- **Status:** Accepted
+- **Status:** Superseded by [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
 - **Date:** 2026-09-20
 - **Scope:** The counting population behind the worker-dispatch correction
   bound; the escalation comparators in

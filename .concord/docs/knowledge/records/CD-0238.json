@@ -29,8 +29,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8ff7b6eed359303fcd9c8df17745e361eb4751050368a86e9171d00fc99c7c22",
-  "status": "accepted",
+  "sha256": "sha256:abaaf874b44b48036f0f101c305720ff84f2c0644b1612cdb9868f43bd8a4e7f",
+  "status": "superseded",
+  "successor": "CD-0242",
   "summary": "Concord has no command, tool, store function, or conformance scenario that reconstructs a subject at a past event sequence; the retained event log and RebuildFromLog remain the history authority. An operator reconstructs a past state on the operator's machine by folding a prefix of a copy of the retained log, with no workflow authority or evidence.",
   "tags": [
     "history",

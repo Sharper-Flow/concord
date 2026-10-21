@@ -36,8 +36,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9fe14f751fab4adddc1d55a02150ee4f83d23bcf29f5fa9cdc96f311d8bf6ca2",
-  "status": "accepted",
+  "sha256": "sha256:ab4c8d4f67524f407898017b787f0344c6a9734013d8ba00b01d5185eba13d8d",
+  "status": "superseded",
+  "successor": "CD-0242",
   "summary": "Editing jobs bind a fixed production-size cap and host-observed measurement. Overruns split under the original cap while preserving obligations, correction accounting, and integrated predecessor debt.",
   "tags": [
     "worker-jobs",

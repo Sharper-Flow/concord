@@ -1,6 +1,6 @@
 # CD-0226: Review findings carry fixes with family evidence
 
-- **Status:** Accepted
+- **Status:** Superseded by [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
 - **Date:** 2026-10-15
 - **Scope:** Suggested fixes in ranked findings, correction provenance, and independent review of applied fixes.
 - **Amends:** [CD-0197](CD-0197-a-review-report-carries-a-typed-verdict-and-ranked-findings.md) D1-D5, [CD-0044](CD-0044-worker-evidence-caller-authentication.md) D1 and D4 for classification evidence only, and [CD-0058](CD-0058-no-model-routing.md) D2 for family evidence only.

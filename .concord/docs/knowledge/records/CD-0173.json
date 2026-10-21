@@ -27,7 +27,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:80943e3367b66feaea1406d4619e2f813f16aa7a0bd7af0849161c74505670f9",
+  "sha256": "sha256:529d948bc280dad6495f2045f65eb56081d9ebf1180f503a878ec2225a60d5d4",
   "status": "accepted",
   "summary": "An escalated correction keeps dispatch_worker visible with reason escalated_retry_requires_convergence, or escalated_retry_convergence_recorded when a basis exists. The investigation gate demands the comparison work ref only when the item's Product holds another work item in any lifecycle, counted by the core in the same transaction.",
   "tags": [

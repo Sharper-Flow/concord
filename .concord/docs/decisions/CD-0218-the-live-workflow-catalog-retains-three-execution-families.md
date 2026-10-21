@@ -6,7 +6,7 @@
   live migration or release activation is authorized.
 - **Classification:** Breaking replacement under CD-0036 D2
 - **Planning record:** [Concord (CON) issue 902](https://linear.app/sharper-flow/issue/CON-902/delete-redundant-workflow-ceremony-retain-minimal-authorized-agent)
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D13, D14
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D6, D13, D14
 - **Approval:** The operator approved this successor as designed on 2026-10-09
   at 19:35 Eastern Daylight Time (EDT), relayed through the Snowball
   coordinator. This publication is the isolated candidate only: it does not
@@ -169,7 +169,7 @@ Before publication, carry every unaffected obligation from those records into
 the accepted successor text or an approved coherent successor set. Retain the
 bootstrap/platform floor, explicit end-state and independent-verdict rules,
 research-pack guarantees, vocabulary ownership, the identities active work
-needs, mandatory backlog search, and all CD-0198 evidence/approval/retry floors.
+needs, mandatory backlog search, and CD-0198's evidence and approval floors. [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) governs: no retry count or retry floor exists; each launch carries its own authority, and its scope and safety checks remain.
 
 Do not publish this draft with only a prose exception to still-accepted rules.
 The publication owner must update old record status, manifest identities,
@@ -259,8 +259,9 @@ declared actions, and independent acceptance. CD-0039 keeps D1 through D4 and D7
 D9 for historic attributed reports, failures, and effects.
 
 CD-0077 keeps operator kind separation, stored historical names, and immutable
-migration checksums. CD-0156 keeps mandatory backlog search. CD-0198 keeps every
-evidence, approval, start, and retry floor. CD-0215 owns the research-pack
+migration checksums. CD-0156 keeps mandatory backlog search. CD-0198 keeps its
+evidence, approval, and start floors; [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
+governs: no retry floor exists. CD-0215 owns the research-pack
 guarantees, and this record leaves it standing.
 
 CD-0215 D2 still requires a separate architecture spike decision. Before cutover,

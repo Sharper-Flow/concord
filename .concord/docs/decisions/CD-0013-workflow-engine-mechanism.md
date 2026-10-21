@@ -26,7 +26,7 @@ outcome-contract acceptance criterion 3 (vacuity is judged at review); and
 [CD-0238](CD-0238-point-in-time-reconstruction-runs-outside-the-core.md) amends D13's
 `ReconstructSubjectAt` paragraph and acceptance criterion 36 (point-in-time
 reconstruction runs outside the core).
-**Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D11, D13, D14
+**Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D7, D11, D13, D14
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/28>
 **Historical surface note:** CD-0042 supersedes the pre-go-live agent-surface
 version, negotiation, migration, and deprecation requirements described in D11.
@@ -311,16 +311,7 @@ introduced.
 
 ### D12. Staleness is structurally evaluated at consequential boundaries
 
-The terminal completion gate checks declared `staleness_rules`. Drift in a declared
-input produces one of:
-
-- `warning` — recorded on `workflow.staleness_observed` and
-  `workflow.completed`, then visible in the next read;
-- `block` — completion refused until the input is re-verified.
-
-No polling, no timer daemon, no heuristic authority (CD-0008 D5). Drift is recorded
-through a typed `workflow.staleness_observed` event. Re-verification and upstream
-impact events remain valid sources for the completion gate.
+[CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it) governs: a record is stale exactly when a revision, candidate, or input digest it depended on has changed, checked at the stage's admission. No polling, no timer daemon, no heuristic authority (CD-0008 D5).
 
 ### D13. Reconstruction is total from the event log
 
@@ -427,10 +418,11 @@ The implementation acceptance suite must exercise:
 
 ### Staleness
 
-40. Drift in a declared `staleness_rule` input blocks completion until the input
-    is re-verified or warned only per rule severity.
-41. Drift detected outside the consequential-boundary scan is recorded on
-    `workflow.completed` and surfaced through the next read; no daemon re-scans.
+40. A stage record is stale at its admission exactly when a revision, candidate,
+    or input digest it depended on has changed; a record whose depended-on
+    digests are unchanged is not stale.
+41. Staleness is evaluated only at the consequential boundary's admission; no
+    polling, timer daemon, or heuristic re-scan exists (CD-0008 D5).
 
 ### Retained CD-0008 obligations
 

@@ -12,7 +12,7 @@
   worker attempts but does not name the counting population
 - **Preserves:** The three-attempt limit, the correction escalation wall,
   the escalated retry route, and the immutability of attempt history
-- **Amended by:** [CD-0205 D4](CD-0205-worker-jobs-bind-dispatch-and-separate-local-acceptance-from-delivery.md#d4-only-the-satisfying-acceptance-closes-a-failed-jobs-window-refines-cd-0164-d1-d2),
+- **Amended by:** [CD-0205 D4](CD-0205-worker-jobs-bind-dispatch-and-separate-local-acceptance-from-delivery.md#d4-each-terminal-result-is-accepted-or-rejected-once),
   [Concord (CON) issue 1221](https://linear.app/sharper-flow/issue/CON-1221): one funded
   confirming review on repair-capable definition versions and its productive
   acceptance.

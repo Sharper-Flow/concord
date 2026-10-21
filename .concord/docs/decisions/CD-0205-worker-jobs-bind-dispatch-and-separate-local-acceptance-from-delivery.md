@@ -289,7 +289,7 @@ acceptance behind missing integration evidence refuses exactly as
 Each job-capable step also declares `record_delivery`. A held step therefore
 keeps its exit, and no new phase-exit action is necessary.
 
-### D4. Only the satisfying acceptance closes a failed job's window (refines CD-0164 D1-D2)
+### D4. Each terminal result is accepted or rejected once
 
 [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
 governs: each launch is one admitted request with its own scope, assignment,

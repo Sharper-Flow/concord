@@ -14,6 +14,7 @@
   D6's independent-verdict obligation
 - **Approval:** 2026-10-17. Coordinator approval under the operator's delegation
   for [Concord (CON) issue 1079](https://linear.app/sharper-flow/issue/CON-1079).
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D9
 
 ## Context
 
@@ -43,13 +44,10 @@ The verdict actor is distinct from the executing actor (CD-0012 D7).
 
 ### D2. Completion refuses on the recorded verdict
 
-Completion refuses while an approved predicate of the active contract has no
-latest verdict (CD-0013 D10 clause 4). It refuses with `outcome_mismatch`
-unless every latest verdict is `ok` and comparable. No argument,
-documentation, or test overrides a recorded weaker or incomparable verdict.
-A later independent verdict for the same predicate replaces it. Which earlier
-verdicts a successor contract keeps follows the workflow-engine contract §7.1
-and the declared correction routes.
+[CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)
+governs: completion requires a passing receipt for every accepted criterion on
+the final candidate, the accepted ready disposition on that candidate, no open
+in-scope blocking finding, every applicable approval, and delivery evidence.
 
 ### D3. The verdict actor interprets surfaces and checks
 

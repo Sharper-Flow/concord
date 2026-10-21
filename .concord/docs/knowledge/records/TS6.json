@@ -44,7 +44,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d4c8466377337595fd5aa2e13eefe70fc9e6e4b199e4f32eeaedc09c3589714b",
+  "sha256": "sha256:92492d58f19316d5ddae80aabe51c1b3f7dc26e0c57b6db9cb158ae7c2e59274",
   "status": "accepted",
   "summary": "Binds the OpenCode adapter to generated tool registration through a plugin entry and short-lived Go CLI transport; domain authority remains in the Go core.",
   "tags": [

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,12 +22,11 @@ import (
 const MaxEnvelopeBytes = 65536
 
 // MaxRequestBytes is the request transport limit for the whole invoke
-// request — the plugin request envelope and the CLI stdin body. It is the
-// next power of two above the composed declared maxima of a dispatch request:
-// the whole-action packet budget plus the operation input fields and the
-// call envelope's host-owned identities. It never bounds a response; the
-// response caps stay MaxEnvelopeBytes and MaxResultEnvelopeBytes.
-const MaxRequestBytes = 32 * 1024 * 1024
+// request — the plugin request envelope and the CLI stdin body. It aliases
+// the store's shared action payload ceiling, which the widest-shape
+// derivation in internal/agent pins. It never bounds a response, whose caps
+// stay MaxEnvelopeBytes and MaxResultEnvelopeBytes.
+const MaxRequestBytes = store.MaxWorkflowActionPayloadBytes
 
 // MaxResultEnvelopeBytes is the serialized result envelope's hard maximum.
 const MaxResultEnvelopeBytes = 51200
@@ -178,6 +178,16 @@ type ExternalRefConflict struct {
 	ExternalRef    string `json:"external_ref"`
 }
 
+// SizeOverrun names the worker job revision an acceptance refused because
+// its observed production size exceeds the recorded cap (CD-0225 D2).
+type SizeOverrun struct {
+	JobID    string `json:"job_id"`
+	Revision int64  `json:"revision"`
+	Cap      int64  `json:"cap"`
+	Observed int64  `json:"observed"`
+	Subject  string `json:"subject"`
+}
+
 type InterveningAction struct {
 	ActionID   string `json:"action_id"`
 	SessionRef string `json:"session_ref"`
@@ -210,6 +220,7 @@ type TypedError struct {
 	StaleLawRevision    *StaleLawRevision    `json:"stale_law_revision,omitempty"`
 	DomainOverlap       *DomainOverlap       `json:"domain_overlap,omitempty"`
 	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`
+	SizeOverrun         *SizeOverrun         `json:"size_overrun,omitempty"`
 	SessionPlacement    *SessionPlacement    `json:"session_placement,omitempty"`
 	// ConsequenceSummary is the CD-0037 typed approval prompt. It is derived
 	// at challenge mint from the exact facts the challenge binds, so nothing
@@ -670,7 +681,7 @@ func unique(values []string) bool {
 	return true
 }
 func validateRecovery(kind string) error {
-	allowed := map[string]bool{"none": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_declared_route": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
+	allowed := map[string]bool{"none": true, "correct_request": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_declared_route": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
 	if !allowed[kind] {
 		return fmt.Errorf("unknown recovery action %q", kind)
 	}
@@ -694,6 +705,7 @@ func validateRecoveryAction(action RecoveryAction) error {
 var (
 	toolIDRE      = regexp.MustCompile("^concord_[a-z0-9_]+$")
 	operationIDRE = regexp.MustCompile("^[a-z0-9_]+$")
+	commitOIDRE   = regexp.MustCompile("^[0-9a-f]{40}([0-9a-f]{24})?$")
 )
 
 // sortedBoundedList enforces the canonical renderer's contract: sorted,
@@ -780,6 +792,9 @@ func validateError(err TypedError) error {
 	if x := validateRecoveryAction(err.RecoveryAction); x != nil {
 		return x
 	}
+	if err.RecoveryAction.Kind == "correct_request" && (err.Kind != "invalid_input" || err.EffectState != EffectNone || err.RetrySafe) {
+		return errors.New("correct_request requires pre-effect invalid_input with retry_safe=false")
+	}
 	if len(err.Message) > 1000 || len(err.Candidates) > 20 || len(err.Violations) > 20 || !boundedStrings(err.Candidates, 128) || !boundedStrings(err.Violations, 128) {
 		return errors.New("error scalar/list bound exceeded")
 	}
@@ -810,6 +825,12 @@ func validateError(err TypedError) error {
 	if err.ExternalRefConflict != nil {
 		if err.Kind != "operation_conflict" || !bounded(err.ExternalRefConflict.ExistingWorkID, 1, 128) || !bounded(err.ExternalRefConflict.ExternalRef, 1, 256) {
 			return errors.New("external reference conflict coupling violated")
+		}
+	}
+	if overrun := err.SizeOverrun; overrun != nil {
+		if err.Kind != "invalid_input" || err.RecoveryAction.Kind != "use_declared_route" || !slices.Contains(err.RecoveryAction.RequiredRefs, "record_worker_job") ||
+			!bounded(overrun.JobID, 1, 128) || overrun.Revision < 1 || overrun.Cap < 1 || overrun.Cap > store.WorkerJobSizeCapMax || overrun.Observed <= overrun.Cap || !commitOIDRE.MatchString(overrun.Subject) {
+			return errors.New("size overrun coupling violated")
 		}
 	}
 	if want, coupled := enforcedRecoveryCouplings[err.Kind]; coupled && err.RecoveryAction.Kind != want {

@@ -125,6 +125,25 @@ func checksRepairRepairFields(checks string, revisions []int64) map[string]any {
 	return fields
 }
 
+// checksRepairSealedCompletion sends the report-owned completion the sealed
+// terminal seam admits: observed_delivery is core-derived identity the
+// production ingest refuses from any caller, and the sealed proof owns the
+// delivery observation and its report size. The two continuity callsites
+// drop the direct-fold builder's synthetic members only here, so the already
+// prepared native seam derives the observation and the seam's report-size
+// helper binds the production_size the sealed proof proves.
+func checksRepairSealedCompletion(t *testing.T, event Event) Event {
+	t.Helper()
+	var payload WorkerCompletedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatalf("decode the sealed completion %s: %v", event.EventID, err)
+	}
+	payload.ObservedDelivery = nil
+	payload.ProductionSize = nil
+	event.Payload = mustJSONValue(payload)
+	return event
+}
+
 func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.T) {
 	const workID = checksRepairContinuityWorkID
 	const jobID = checksRepairContinuityJobID
@@ -202,7 +221,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	// oracle receipt, and the core observes its delivery, so the accepted
 	// attempt anchors the confirming review's subject join.
 	run5 := checksRepairClosureRun(t, s, "close-family-five", git)
-	attempt2Completion := oracleCompletionEvent(t, s, workID, attempt2, "checks-repair-completed-"+attempt2, func(payload *WorkerCompletedPayload) {
+	attempt2Completion := checksRepairSealedCompletion(t, oracleCompletionEvent(t, s, workID, attempt2, "checks-repair-completed-"+attempt2, func(payload *WorkerCompletedPayload) {
 		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{
 			checksRepairContinuation(t, s, open[0], "first blocker stands"),
 			checksRepairContinuation(t, s, open[1], "second blocker stands"),
@@ -215,7 +234,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 			Result:       OracleReceiptResultPass, ExitCode: passExitCode(), RunRef: run5.OperationRef,
 			EvidenceRefs: []string{run5.OperationRef},
 		}
-	})
+	}))
 	attempt2Prepared, attempt2PreparedErr := PrepareWorkerTerminalDelivery(context.Background(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attempt2, EventID: attempt2Completion.EventID})
 	if attempt2PreparedErr != nil {
 		t.Fatalf("the first repair's terminal delivery preparation refused: %v", attempt2PreparedErr)
@@ -253,7 +272,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 		t.Fatalf("the correction window at the funded review = (%#v, %v), want the escalated wall", wall, wallErr)
 	}
 	reject1Seq, reject2Seq := checksRepairCorrectionRecordSeq(t, s, workID, attempt1), checksRepairCorrectionRecordSeq(t, s, workID, attempt2)
-	basis, basisErr := workflowRetryConvergence(ctx, s.DatabaseForTesting(), workID, "repair")
+	basis, basisErr := workflowRetryConvergenceForRegistry(ctx, s.DatabaseForTesting(), workID, "repair", BuiltinWorkflowRegistry())
 	if basisErr != nil {
 		t.Fatal(basisErr)
 	}
@@ -283,7 +302,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	if review1Marker.RecordedBasis != "" {
 		t.Fatalf("the funded confirming review also recorded ordinary convergence authority %q", review1Marker.RecordedBasis)
 	}
-	if after, err := workflowRetryConvergence(ctx, s.DatabaseForTesting(), workID, "repair"); err != nil || after.valid() {
+	if after, err := workflowRetryConvergenceForRegistry(ctx, s.DatabaseForTesting(), workID, "repair", BuiltinWorkflowRegistry()); err != nil || after.valid() {
 		t.Fatalf("convergence after the funded dispatch = (%+v, %v), want fresh convergence required", after, err)
 	}
 	// The voiding report continues three standing blockers and closes the
@@ -341,7 +360,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	attempt3Packet := joinPacketFor(t, s, workID, "repair", attempt3, "implement", laneVersion, laneDigest)
 	attempt3Packet["schema_version"] = WorkerPacketSchemaVersion
 	attempt3Packet["inputs"].(map[string]any)["correction"] = correction
-	attempt3Packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *recovery)
+	attempt3Packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *recovery, "implement")
 	attempt3Payload, payloadErr := json.Marshal(map[string]any{"attempt_id": attempt3, "worker_packet": attempt3Packet})
 	if payloadErr != nil {
 		t.Fatal(payloadErr)
@@ -414,7 +433,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	attempt4Packet := joinPacketFor(t, s, workID, "repair", attempt4, "implement", laneVersion, laneDigest)
 	attempt4Packet["schema_version"] = WorkerPacketSchemaVersion
 	attempt4Packet["inputs"].(map[string]any)["correction"] = correction4
-	attempt4Packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *second)
+	attempt4Packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *second, "implement")
 	attempt4Payload, payload4Err := json.Marshal(map[string]any{"attempt_id": attempt4, "worker_packet": attempt4Packet})
 	if payload4Err != nil {
 		t.Fatal(payload4Err)
@@ -436,7 +455,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	// (the latest accepted implementation delivery must carry the
 	// observation).
 	run2 := checksRepairClosureRun(t, s, "close-family-two", git)
-	attempt4Completion := oracleCompletionEvent(t, s, workID, attempt4, "checks-repair-second-repair", func(payload *WorkerCompletedPayload) {
+	attempt4Completion := checksRepairSealedCompletion(t, oracleCompletionEvent(t, s, workID, attempt4, "checks-repair-second-repair", func(payload *WorkerCompletedPayload) {
 		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{
 			checksRepairContinuation(t, s, open[0], "first blocker stands"),
 		}, ResolvedFindings: []WorkerOracleResolution{{FindingID: open[1], EvidenceRefs: []string{run2.OperationRef}}}}
@@ -446,7 +465,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 			Result:       OracleReceiptResultPass, ExitCode: passExitCode(), RunRef: run2.OperationRef,
 			EvidenceRefs: []string{run2.OperationRef},
 		}
-	})
+	}))
 	prepared, preparedErr := PrepareWorkerTerminalDelivery(context.Background(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attempt4, EventID: attempt4Completion.EventID})
 	if preparedErr != nil {
 		t.Fatalf("terminal delivery preparation refused: %v", preparedErr)

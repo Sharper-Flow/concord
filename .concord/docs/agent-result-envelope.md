@@ -134,6 +134,7 @@ adapter_reason?      # required closed reason when origin=adapter
 
 ```text
 none
+correct_request
 retry_same_request
 refresh_context
 reread_entities
@@ -199,6 +200,14 @@ required, so an `invariant_violation` that offers no choice stays valid. A refus
 carrying `accept_scope_cut` also carries the `approval_ref` that option resolves
 against: the choice is actionable, not advisory. See
 [CD-0035](./decisions/CD-0035-governing-requirements-at-capture.md).
+
+### 5.1 Contract-request validation guidance
+
+A pre-effect contract-request input refusal identifies the relevant failing field and constraint. Its message includes the accepted shape and a minimal illustrative example derived from that field's effective canonical schema. The diagnostic fits within the existing message and envelope bounds without cutting the field, constraint, shape, or example.
+
+Validation still evaluates every required schema branch. Diagnostic selection does not change which requests pass, including oneOf exclusivity. A branch contradicted by a supplied discriminator or closed fieldset does not contribute an unqualified field error when another branch accepts that discriminator or fieldset. When no single branch applies, the message labels the alternatives rather than treating one branch's local restriction as a rule for the whole request.
+
+The same schema owns authoring guidance and refusal guidance. An example establishes syntax only; it grants no authority, evidence, entity existence, or workflow admission. Error kind, retry safety, recovery action, effect state, approval requirements, and all existing bounds remain unchanged.
 
 ## 6. Authority, freshness, and omissions
 
@@ -304,7 +313,7 @@ The schema admits these adapter-origin kinds:
 | `cancelled` | Cancellation completed with no authoritative effect. | `none` | `retry_same_request` |
 | `operation_conflict` | A failed operation needs reconciliation. | `none` or `possible` | `reconcile_operation`; an adapter `session_vacate` error with `unknown_effect` and `possible` uses the CD-0190 D3 replay or operator contact. |
 | `unauthorized` | The adapter refused lane tool authorization before dispatch. | `none` | `contact_operator` |
-| `invalid_input` | The host wrapper, tool arguments, or CLI input failed validation before dispatch. | `none`, with `retry_safe=false` | `restart_query` |
+| `invalid_input` | The host wrapper, tool arguments, or CLI input failed validation before dispatch. | `none`, with `retry_safe=false` | `correct_request` |
 
 If the wrapper refusal cannot resolve an accepted tool/operation pair, `operation` is
 the empty string and `query_id` is absent. Only this no-effect wrapper refusal may
@@ -340,14 +349,19 @@ a reason and a kind beyond the input and manifest rules named below.
 | `worker_abandon_receipt_failed` | Abandonment succeeded but its receipt failed. | `possible` | `reconcile_operation` |
 | `worker_reconcile_failed_recorded` | Retained-report recovery recorded the original attempt's terminal failure in this call; the attempt is failed and this route cannot recover it. | `possible` | `reconcile_operation` |
 | `lane_tool_refusal` | A managed lane called a tool outside its authority. | `none` | `contact_operator` |
-| `invalid_cli_input` | The CLI refused input before dispatch. | `none`, with `retry_safe=false` | `restart_query` |
-| `invalid_request_wrapper` | The host request wrapper is absent or malformed. | `none`, with `retry_safe=false` | `restart_query` |
-| `invalid_tool_input` | Host tool arguments failed validation before dispatch. | `none`, with `retry_safe=false` | `restart_query` |
+| `invalid_cli_input` | The CLI refused input before dispatch. | `none`, with `retry_safe=false` | `correct_request` |
+| `invalid_request_wrapper` | The host request wrapper is absent or malformed. | `none`, with `retry_safe=false` | `correct_request` |
+| `invalid_tool_input` | Host tool arguments failed validation before dispatch. | `none`, with `retry_safe=false` | `correct_request` |
 
 `manifest_mismatch` requires kind `transport_failure`, effect `none`, and recovery `contact_operator`.
-The three input reasons require kind `invalid_input`, effect `none`, recovery `restart_query`, and
+The three input reasons require kind `invalid_input`, effect `none`, recovery `correct_request`, and
 `retry_safe=false`. Unknown reasons fail validation. The adapter's own
 `adapter_contract_version` validates the bootstrap envelope before core invocation.
+
+`correct_request` admits correction of the named malformed input only, within
+unchanged authority and scope. It requires `invalid_input`, effect `none`, and
+`retry_safe=false`: unchanged replay is not a correction. It cannot replace an
+approval, operator denial, effect reconciliation, or committed mutation.
 
 `worker_reconcile_failed_recorded` reports only a failure whose write the core acknowledged in the same call. A refused or uncertain write keeps `unknown_effect`. Its recovery reconciles the original attempt's failed outcome through the current workflow. The recovery itself reopens no attempt, repeats no retained worker recovery, and starts no replacement worker; a later dispatch follows the current workflow's own admission. The envelope identifies the original work and attempt in `error.details`.
 

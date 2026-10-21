@@ -59,11 +59,11 @@ func retainedAtDeliveryContract(definition WorkflowDefinition) WorkflowDefinitio
 // fails until it does.
 var builtinWorkflowCurrentVersions = map[string]int64{
 	"workflow.architecture_spike": 17,
-	"workflow.break_fix":          32,
+	"workflow.break_fix":          35,
 	"workflow.generic_one_off":    16,
-	"workflow.implementation":     37,
+	"workflow.implementation":     39,
 	"workflow.ops_runbook":        18,
-	"workflow.research":           21,
+	"workflow.research":           23,
 	"workflow.static_analysis":    15,
 }
 
@@ -126,8 +126,8 @@ func implementationVersionChain() []WorkflowDefinition {
 		mustCompileWorkflowComposition(implementationCompositionV33()),
 		mustCompileWorkflowComposition(implementationConsequenceV34()),
 		mustCompileWorkflowComposition(implementationCompositionV35()),
-		mustCompileWorkflowComposition(implementationSmallV36()),
-		mustCompileWorkflowComposition(implementationCompositionV37()),
+		mustCompileWorkflowComposition(implementationCompositionV36()),
+		mustCompileWorkflowComposition(implementationObligationV37()),
 		mustCompileWorkflowComposition(implementationTimedSmallV38()),
 		mustCompileWorkflowComposition(implementationTimedV39()),
 	}
@@ -169,7 +169,9 @@ func breakFixVersionChain() []WorkflowDefinition {
 		mustCompileWorkflowComposition(breakFixCompositionV30()),
 		mustCompileWorkflowComposition(breakFixConsequenceV31()),
 		mustCompileWorkflowComposition(breakFixCompositionV32()),
-		mustCompileWorkflowComposition(breakFixTimedV33()),
+		mustCompileWorkflowComposition(breakFixCompositionV33()),
+		mustCompileWorkflowComposition(breakFixObligationV34()),
+		mustCompileWorkflowComposition(breakFixTimedV35()),
 	}
 }
 
@@ -198,7 +200,8 @@ func researchVersionChain() []WorkflowDefinition {
 		researchResearchContextV19(),
 		mustCompileWorkflowComposition(researchCompositionV20()),
 		mustCompileWorkflowComposition(researchConsequenceV21()),
-		mustCompileWorkflowComposition(researchTimedV22()),
+		mustCompileWorkflowComposition(researchObligationV22()),
+		mustCompileWorkflowComposition(researchTimedV23()),
 	}
 }
 

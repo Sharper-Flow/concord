@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -668,8 +669,13 @@ func TestNativeTargetAxisSelector(t *testing.T) {
 		t.Fatalf("valid check selector refused: %v", err)
 	}
 	chkC.Argv = []string{"check", "shell-value", "alpha"}
-	if _, err := nativeTargetSelector(chk, chkC); err == nil {
-		t.Fatal("unsorted check selector was admitted")
+	mismatch, err := nativeTargetSelector(chk, chkC)
+	var mismatchFailure *Failure
+	if !errors.As(err, &mismatchFailure) || mismatchFailure.Kind != KindUnavailable {
+		t.Fatalf("unsorted check selector must refuse: %v", err)
+	}
+	if !strings.Contains(mismatchFailure.RecoveryAction, `["check","alpha","shell-value"]`) || !strings.Contains(mismatchFailure.RecoveryAction, "record_worker_job") {
+		t.Fatalf("selector refusal hides the closed selector or recorded-revision remedy: %+v", mismatch)
 	}
 }
 

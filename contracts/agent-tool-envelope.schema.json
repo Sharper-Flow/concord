@@ -1418,6 +1418,7 @@
         "kind": {
           "enum": [
             "none",
+            "correct_request",
             "retry_same_request",
             "refresh_context",
             "reread_entities",
@@ -1855,6 +1856,42 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 256
+            }
+          }
+        },
+        "size_overrun": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The worker job revision an acceptance refused because its observed production size exceeds the recorded cap (CD-0225 D2). The refusal routes to the recorded split through record_worker_job.",
+          "required": [
+            "job_id",
+            "revision",
+            "cap",
+            "observed",
+            "subject"
+          ],
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "cap": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "observed": {
+              "type": "integer",
+              "minimum": 2
+            },
+            "subject": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
             }
           }
         },
@@ -2399,6 +2436,35 @@
               "consequence_summary"
             ]
           }
+        },
+        {
+          "if": {
+            "required": [
+              "size_overrun"
+            ]
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "const": "invalid_input"
+              },
+              "recovery_action": {
+                "required": [
+                  "required_refs"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "use_declared_route"
+                  },
+                  "required_refs": {
+                    "contains": {
+                      "const": "record_worker_job"
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -2833,6 +2899,34 @@
       "allOf": [
         {
           "if": {
+            "required": ["error"],
+            "properties": {
+              "error": {
+                "required": ["recovery_action"],
+                "properties": {
+                  "recovery_action": {
+                    "required": ["kind"],
+                    "properties": { "kind": { "const": "correct_request" } }
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "required": ["kind", "effect_state", "retry_safe"],
+                "properties": {
+                  "kind": { "const": "invalid_input" },
+                  "effect_state": { "const": "none" },
+                  "retry_safe": { "const": false }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
             "required": ["origin", "error"],
             "properties": {
               "origin": { "const": "adapter" },
@@ -2861,7 +2955,7 @@
                   "retry_safe": { "const": false },
                   "recovery_action": {
                     "required": ["kind"],
-                    "properties": { "kind": { "const": "restart_query" } }
+                    "properties": { "kind": { "const": "correct_request" } }
                   }
                 }
               }

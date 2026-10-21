@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -198,6 +200,14 @@ func reviewSubjectAccept(t *testing.T, s *Store, workID, attemptID string) {
 // accepted delivery's dispatch.
 func reviewSubjectSupersedeContract(t *testing.T, s *Store, workID string) {
 	t.Helper()
+	reviewSubjectSupersedeContractVersions(t, s, workID, 1, 2, "the pinned contract moved past the accepted delivery")
+}
+
+// reviewSubjectSupersedeContractVersions records one contract supersession
+// between the named versions with the fixture's successor shape; sequences
+// that force repeated basis supersessions supersede through it directly.
+func reviewSubjectSupersedeContractVersions(t *testing.T, s *Store, workID string, from, to int64, reason string) {
+	t.Helper()
 	version := readWorkVersion(t, s, workID)
 	ownerRef, err := WorkflowActorRef(WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent})
 	if err != nil {
@@ -205,11 +215,11 @@ func reviewSubjectSupersedeContract(t *testing.T, s *Store, workID string) {
 	}
 	payload := map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"previous_contract_version": 1, "new_contract_version": 2,
-		"supersede_reason": "the pinned contract moved past the accepted delivery",
+		"previous_contract_version": from, "new_contract_version": to,
+		"supersede_reason": reason,
 		"audit_evidence":   []string{"evidence:review-subject-supersede"},
 		"successor_contract": map[string]any{
-			"contract_version": 2, "premise": "deliver the checked change under the second contract", "outcome_kind": "check",
+			"contract_version": to, "premise": "deliver the checked change under a later contract", "outcome_kind": "check",
 			"outcome_predicates": []map[string]any{{"predicate_id": "predicate:review-subject", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:review-subject", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}}},
 			"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 			"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
@@ -219,11 +229,11 @@ func reviewSubjectSupersedeContract(t *testing.T, s *Store, workID string) {
 			},
 		},
 	}
-	event := workflowEventWithActor("review-supersede-1-"+workID, WorkflowContractSuperseded, workID, ownerRef, payload)
+	event := workflowEventWithActor(fmt.Sprintf("review-supersede-%d-%s", to, workID), WorkflowContractSuperseded, workID, ownerRef, payload)
 	event.PayloadVersion = 1
 	event = withPinnedDecisionFact(t, pinnedWorkflowDefinitionForTest(t, s, workID), event)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		t.Fatalf("supersede contract v1: %v", err)
+		t.Fatalf("supersede contract v%d: %v", from, err)
 	}
 }
 
@@ -237,7 +247,7 @@ func reviewSubjectDispatch(t *testing.T, s *Store, f workContextFixture, attempt
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	job := reviewSubjectReadyRevision(t, f)
 	packet := joinPacketFor(t, s, f.workID, stepID, attemptID, "review", laneVersion, laneDigest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, f.workID, job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, f.workID, job, "review")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, f.workID)
 	packetBytes, err := json.Marshal(packet)
 	if err != nil {
@@ -542,7 +552,7 @@ func rawLiveDispatch(t *testing.T, s *Store, f workContextFixture, stepID, attem
 	t.Helper()
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, s, f.workID, stepID, attemptID, "review", laneVersion, laneDigest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, f.workID, job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, f.workID, job, "review")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, f.workID)
 	packetBytes, err := json.Marshal(packet)
 	if err != nil {
@@ -672,10 +682,11 @@ func TestLiveDispatchRequiresSealedPreparation(t *testing.T) {
 }
 
 // qualifiedSubjectRunner answers the delivery probe without touching the
-// filesystem: HEAD is the work's qualified verify subject and the tree is
-// clean. Every other git call — the declared-reading resolution's committed
-// proofs — runs against the real fixture repositories. A preparation over a
-// subject-less view probes nothing.
+// filesystem: HEAD is the work's qualified verify subject, the tree is
+// clean, and the measured-delta probe answers an empty numstat — the clean
+// zero-delta observation. Every other git call — the declared-reading
+// resolution's committed proofs — runs against the real fixture
+// repositories. A preparation over a subject-less view probes nothing.
 type qualifiedSubjectRunner struct{ head string }
 
 func (r qualifiedSubjectRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
@@ -684,6 +695,9 @@ func (r qualifiedSubjectRunner) Run(ctx context.Context, dir string, args ...str
 	}
 	if len(args) > 0 && args[0] == "rev-parse" {
 		return []byte(r.head), nil
+	}
+	if slices.Contains(args, "--numstat") {
+		return nil, nil
 	}
 	return ExecGitRunner{}.Run(ctx, dir, args...)
 }
@@ -706,7 +720,7 @@ func seedAcceptedImplementationDelivery(t *testing.T, s *Store, workID string, o
 	recordWorkerJobRevisionForTest(t, s, workID, owner, &job)
 	attemptID := "attempt:accepted-delivery:" + workID
 	packet := joinPacketFor(t, s, workID, stepID, attemptID, "implement", lane.Version, lane.Digest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, "implement")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, workID)
 	if err := dispatchJobPacketForTest(t, s, workID, attemptID, owner, "accepted-delivery-"+workID, packet); err != nil {
 		t.Fatalf("accepted-delivery dispatch refused: %v", err)
@@ -721,6 +735,7 @@ func seedAcceptedImplementationDelivery(t *testing.T, s *Store, workID string, o
 	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
+		ProductionSize: completionProductionSizeForTest(t, s, workID, &job, subject),
 	})}
 	prepared, prepErr := PrepareWorkerTerminalDelivery(ctx, s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attemptID, EventID: completion.EventID, Runner: qualifiedSubjectRunner{head: subject}})
 	if prepErr != nil {

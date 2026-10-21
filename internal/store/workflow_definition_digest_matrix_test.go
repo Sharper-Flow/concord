@@ -68,8 +68,10 @@ var releasedDefinitionDigests = map[string]string{
 	"workflow.implementation v33":     "sha256:b5771bcb5a796249e7e090228d86947b193c3134d7ba30736bcc1909953157d3",
 	"workflow.implementation v34":     "sha256:7055412eb83264cddd99e1cb51bdf675f3299fd380c4910a1623353776aeb49c",
 	"workflow.implementation v35":     "sha256:27517b4ae91181916323a1f92c63955eedcb9c58f3f4a6e351aceeba6235abb2",
-	"workflow.implementation v36":     "sha256:1255ab3449c142112015e95e58cfc72aa9d541f821dc0e903231166a16bebf41",
-	"workflow.implementation v37":     "sha256:b46b9a0c0a5218d06b8fa3b37adb8ed1f6b7d3a7cd1f8e1001ea65ab901d8d7b",
+	"workflow.implementation v36":     "sha256:34cb51a2e26e208d613627e88c97d7ab5afded7671ace79961df440b93fea895",
+	"workflow.implementation v37":     "sha256:27379015255636ef43ef65cc81ccd279ea86975bc8c1fb80795e90c1368e1e4c",
+	"workflow.implementation v38":     "sha256:ffe511ff27592512427125d594f1c8e61ea34f4bba52e89288ad1f292dbe7a4e",
+	"workflow.implementation v39":     "sha256:b614cf541de90e07f6f7177070fbc7cdc4f76a5e3ab0ab7cb3a6feedbc720e61",
 	"workflow.break_fix v1":           "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
 	"workflow.break_fix v2":           "sha256:d7f8d8cc8b951e74751ddafe95c7b9c9d65e606cd73c41b2ceadd5fa2cdf29cb",
 	"workflow.break_fix v3":           "sha256:3a406e35712a33dcab245ab93c77d51e0811ef51fbefb1a54c2fb40ae6b1f8b6",
@@ -102,6 +104,8 @@ var releasedDefinitionDigests = map[string]string{
 	"workflow.break_fix v30":          "sha256:252af47b2f64825844595e4ec05dbafc223b9bbd254f621ddc2def5bb1756309",
 	"workflow.break_fix v31":          "sha256:2a2baab65976d8994e0d70459438552e985402c4e6b924da25e59eb2d8fa770d",
 	"workflow.break_fix v32":          "sha256:84e2bb3699bf0d91e44dede7b3711b643048f9e4e4269176069372b6dac31301",
+	"workflow.break_fix v33":          "sha256:1cd9d8a70f67d3622ab37204a5821b8ab8c1ed72ee94a3770948683f8173984a",
+	"workflow.break_fix v34":          "sha256:d8e81a6fd7df6c55df2fda70e6671ac9d93f68cbbd94f8fc417dd8ddca77a550",
 	"workflow.research v1":            "sha256:adeb334ee4eb08e1907b2f36c618d809675a81f325266733142e697a90c108b9",
 	"workflow.research v2":            "sha256:7a987b5e2cbc9bafd7a80e92345efa35b331ccaa533aefe4722024485be57e4a",
 	"workflow.research v3":            "sha256:c8708cf194d2b5d4ac4421c3ee0eff09bc4074b5efe34bbab7ff546df0fd1256",
@@ -123,6 +127,7 @@ var releasedDefinitionDigests = map[string]string{
 	"workflow.research v19":           "sha256:35209c6f6d321a3c663a265be940ef52e9911e9d9c195e4b1851aa81d89e2ec5",
 	"workflow.research v20":           "sha256:93c26a941ef7e76e2e6e75eac61ca4654fdc832f7c2340eb2f287dc7353b1d21",
 	"workflow.research v21":           "sha256:a8c1173342a5b706c15511824470e60ebd7cdfb2ff49217e3a20c8e2c06b8ca0",
+	"workflow.research v22":           "sha256:4108141b47f055806cd0f2f3e3e0cfba5e3c44b22c2b90f53a47364a820abea5",
 	"workflow.architecture_spike v1":  "sha256:97d09dd24f80750dfa403ac2ccb9bf17b046cbd04981358b7ebaf1b1076aef5e",
 	"workflow.architecture_spike v2":  "sha256:99ecb21ccfbf263d61f44c43730a2e0945b721082fd8c8a40e50df143b5fffcc",
 	"workflow.architecture_spike v3":  "sha256:3b8d63a48c2bdcd008eb69dcf0322b0b1c40b0566ab0c4157283d9282789f720",
@@ -189,6 +194,8 @@ var releasedDefinitionDigests = map[string]string{
 	"workflow.generic_one_off v14":    "sha256:727d5743776421aa55fc0a196412bdd57005cec6e3a1125d523d0cc27d9e79b2",
 	"workflow.generic_one_off v15":    "sha256:263e045c468d31248a33e3f563c7703707a0428e7160cf2e28cbacdd9b8f0abe",
 	"workflow.generic_one_off v16":    "sha256:05e53c76e3f6c712cc62f7421c22a3df4719767aba91f7a07049ba973190d8d7",
+	"workflow.break_fix v35":          "sha256:ea492bb450e206d2602705742bd3a7ac141523159a7cbb4469323fc42a643dbe",
+	"workflow.research v23":           "sha256:13f0bfb00ab8584f8c61538240162866c9e1d9354354df963d403388c55978a9",
 }
 
 // TestPremiseFloorVersionPinsRefuseContentMutation proves the CD-0115

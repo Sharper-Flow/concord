@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -270,7 +271,39 @@ func smallReviewDispositionJourneyWithChecks(t *testing.T, workID, root string, 
 	gitRunStore(t, dir, "branch", "-m", branch)
 	j := &candidateJourney{s: s, workID: workID, repo: dir, fixture: workContextFixture{store: s, workID: workID, owner: owner}}
 	job := WorkerJobBinding{JobID: "job:small-disposition"}
-	recordWorkerJobRevisionForTest(t, s, workID, owner, &job)
+	paths := []string{"internal/store/value.txt"}
+	for name := range files {
+		paths = append(paths, name)
+	}
+	slices.Sort(paths)
+	fields := map[string]any{
+		"job_id": job.JobID, "objective": "deliver the scoped small candidate",
+		"stopping_condition": "the candidate is committed inside the measured scope",
+		"checks":             []string{"go test ./internal/store/"}, "path_scope": paths,
+		"ready": true, "readiness_evidence": []string{"evidence:coordinator-ready"},
+	}
+	bootstrapOracleFixtureSubject(t, s, workID)
+	fields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, s, workID)
+	for member, value := range workerJobSizeMembersForTest(t, s, workID, fields) {
+		fields[member] = value
+	}
+	inventory := make([]map[string]any, 0, len(paths))
+	for _, path := range paths {
+		class := "production"
+		if strings.HasSuffix(path, "_test.go") {
+			class = "test"
+		}
+		inventory = append(inventory, map[string]any{"path": path, "class": class})
+	}
+	fields["measurement_basis"].(map[string]any)["paths"] = inventory
+	if err := recordWorkerJobActionForTest(t, s, workID, owner, fields); err != nil {
+		t.Fatalf("record scoped small job: %v", err)
+	}
+	jobs, err := readWorkerJobRevisions(context.Background(), s.db, workID)
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("read scoped small job: %v, %v", jobs, err)
+	}
+	job = jobs[0].Binding
 	j.dispatchJob(t, "small-implementation", "implement", "implementation", job)
 	if err := os.MkdirAll(filepath.Join(dir, "internal/store"), 0o700); err != nil {
 		t.Fatal(err)

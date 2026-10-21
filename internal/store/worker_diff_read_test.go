@@ -39,7 +39,33 @@ func workerDiffCommit(t *testing.T, j *candidateJourney, id, content string) str
 
 func workerDiffDispatch(t *testing.T, j *candidateJourney, attempt string) WorkerDiffRequest {
 	t.Helper()
-	job := reviewSubjectReadyRevision(t, j.fixture)
+	// The diff-reading job's scope covers the fixture's committed edit
+	// paths, so the bounded read returns the review delta.
+	fields := map[string]any{
+		"job_id": "diff-read-" + attempt, "objective": "read the bounded review delta",
+		"stopping_condition": "the bounded review delta is read", "path_scope": []string{"internal/store"},
+		"checks": []string{}, "ready": true, "readiness_evidence": []string{"evidence:ready"},
+	}
+	if sizeCapablePinForWork(t, j.s, j.workID) {
+		bootstrapOracleFixtureSubject(t, j.s, j.workID)
+		fields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, j.s, j.workID)
+		for member, value := range workerJobSizeMembersForTest(t, j.s, j.workID, fields) {
+			fields[member] = value
+		}
+	}
+	if err := recordWorkerJobActionForTest(t, j.s, j.workID, j.fixture.owner, fields); err != nil {
+		t.Fatalf("record diff-read job: %v", err)
+	}
+	views, err := readWorkerJobRevisions(context.Background(), j.s.db, j.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var job WorkerJobBinding
+	for _, view := range views {
+		if view.Binding.JobID == "diff-read-"+attempt {
+			job = view.Binding
+		}
+	}
 	return workerDiffDispatchJob(t, j, attempt, job)
 }
 
@@ -47,7 +73,7 @@ func workerDiffDispatchJob(t *testing.T, j *candidateJourney, attempt string, jo
 	t.Helper()
 	version, digest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attempt, "review", version, digest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job, "review")
 	ctx, err := reviewSubjectPrepareDispatch(j.s, j.workID, j.repo)
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +185,19 @@ func TestReadWorkerDiffRequiresNonemptyLiteralJobScope(t *testing.T) {
 	for i, scope := range [][]string{{"internal/store/*"}, {}} {
 		jobID := fmt.Sprintf("diff-scope-%d", i)
 		fields := map[string]any{"job_id": jobID, "objective": "read only the declared literal scope", "stopping_condition": "the bounded review delta is read", "path_scope": scope, "checks": []string{}, "ready": true, "readiness_evidence": []string{"evidence:ready"}}
-		if err := recordWorkerJobFieldsForTest(t, j.s, j.workID, j.fixture.owner, fields); err != nil {
+		var err error
+		if len(scope) == 0 {
+			// A read-only job keeps the declared empty scope; the shared
+			// helper's size members would author a per-job scope instead.
+			if oracleCapablePinForWork(t, j.s, j.workID) {
+				bootstrapOracleFixtureSubject(t, j.s, j.workID)
+				fields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, j.s, j.workID)
+			}
+			err = recordWorkerJobActionForTest(t, j.s, j.workID, j.fixture.owner, fields)
+		} else {
+			err = recordWorkerJobFieldsForTest(t, j.s, j.workID, j.fixture.owner, fields)
+		}
+		if err != nil {
 			t.Fatal(err)
 		}
 		views, err := readWorkerJobRevisions(context.Background(), j.s.db, j.workID)
@@ -325,5 +363,37 @@ func TestReadWorkerDiffCorrectionSupersessionKeepsPredecessorBase(t *testing.T) 
 	}
 	if page.BaseCommit != base || page.BaseCommit == first || page.SubjectCommit != head || !bytes.Contains(page.Data, []byte("+delivered change\n")) || !bytes.Contains(page.Data, []byte("+more delivered change\n")) {
 		t.Fatalf("correction supersession lost the predecessor editing base: %+v %s", page, page.Data)
+	}
+}
+
+// A failed review retry between two correction supersessions is not editing
+// history: the retry's own dispatch must not qualify the newer supersession
+// as a boundary with editing work under it, or the retry re-orphans the
+// window the boundary fallback just repaired — the exact sequence a review
+// escalation forces (supersede for the dispatch basis, review fails,
+// supersede again, review retries).
+func TestReadWorkerDiffReviewRetryDoesNotResetEditingBase(t *testing.T) {
+	j, base := descendantReviewFixture(t, "diff-review-retry-base")
+	workerDiffCommit(t, j, "first", "delivered change\n")
+	reviewSubjectImplementComplete(t, j.fixture, "correction-editor", "correction-completed", true)
+	reviewSubjectAccept(t, j.s, j.workID, "correction-editor")
+	head := workerDiffCommit(t, j, "second", "delivered change\nmore delivered change\n")
+	reviewSubjectSupersedeContract(t, j.s, j.workID)
+	first := workerDiffDispatch(t, j, "review-first")
+	if page, err := j.s.ReadWorkerDiff(context.Background(), first); err != nil || page.BaseCommit != base || page.SubjectCommit != head {
+		t.Fatalf("first review after the supersession lost its base: %+v %v", page, err)
+	}
+	// The first review attempt ends without new editing work; the
+	// correction machinery forces a second supersession before the retry
+	// dispatches. The retry's own dispatch must not qualify the newer
+	// supersession, and neither must the first review's.
+	reviewSubjectSupersedeContractVersions(t, j.s, j.workID, 2, 3, "the correction window forces a fresh basis supersession before the review retry")
+	retry := workerDiffDispatch(t, j, "review-retry")
+	page, err := j.s.ReadWorkerDiff(context.Background(), retry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.BaseCommit != base || page.SubjectCommit != head || !bytes.Contains(page.Data, []byte("+delivered change\n")) {
+		t.Fatalf("review retry re-orphaned the editing base: %+v %s", page, page.Data)
 	}
 }

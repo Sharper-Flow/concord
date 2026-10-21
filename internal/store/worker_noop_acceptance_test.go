@@ -41,7 +41,7 @@ func dispatchChangeAcceptanceAttempt(t *testing.T, f oracleRepairFixture, workID
 	s := f.store
 	lane := reviewGateLane(t, "implementation")
 	packet := joinPacketFor(t, s, workID, "repair", attempt, lane.ID, lane.Version, lane.Digest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, lane.ID)
 	view, err := readWorkContextView(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)

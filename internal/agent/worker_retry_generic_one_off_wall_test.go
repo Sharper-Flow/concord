@@ -672,7 +672,7 @@ func TestGenericOneOffEscalatedWallAdmitsOnlyBehindStoreConvergence(t *testing.T
 	if refused.Error == nil || refused.Error.Kind != "missing_evidence" {
 		t.Fatalf("escalated retry without a basis = %+v, want missing_evidence", refused.Error)
 	}
-	if !strings.Contains(refused.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step refine)") {
+	if !strings.Contains(refused.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: both populations block the dispatch — 3 non-progress attempts since the applicable nonprogress anchor (step refine), and the correction window sits at its escalation threshold") {
 		t.Fatalf("escalated refusal does not name the counted population: %q", refused.Error.Message)
 	}
 	if refused.Error.RecoveryAction.Kind != "provide_evidence" {
@@ -871,7 +871,7 @@ func TestGenericOneOffFindingsConvergenceAdmitsOneEscalatedRetry(t *testing.T) {
 				}
 				// The rejected rounds are the counted population now, so
 				// the refusal names all three non-progress attempts.
-				if !strings.Contains(attempt.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step refine)") {
+				if !strings.Contains(attempt.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: both populations block the dispatch — 3 non-progress attempts since the applicable nonprogress anchor (step refine), and the correction window sits at its escalation threshold") {
 					t.Fatalf("refusal does not name the counted population: %q", attempt.Error.Message)
 				}
 				if got := verifyWallChallenges(t, s); got != 0 {
@@ -978,7 +978,7 @@ func TestGenericOneOffNonProgressBudgetSpansStepsAndNoShipAcceptances(t *testing
 	if refused.Error == nil || refused.Error.Kind != "missing_evidence" {
 		t.Fatalf("retry behind the mixed non-progress population = %+v, want missing_evidence", refused.Error)
 	}
-	if !strings.Contains(refused.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step execution)") {
+	if !strings.Contains(refused.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the applicable nonprogress anchor (step execution)") {
 		t.Fatalf("refusal does not name the mixed non-progress population: %q", refused.Error.Message)
 	}
 	if refused.Error.RecoveryAction.Kind != "provide_evidence" {
@@ -1014,7 +1014,7 @@ func TestGenericOneOffNonProgressBudgetSpansStepsAndNoShipAcceptances(t *testing
 	}
 	// The budget was spent at execute and the refusal names it at the new
 	// step: the population counts across steps and nothing renewed it.
-	if !strings.Contains(spent.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step refine)") {
+	if !strings.Contains(spent.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the applicable nonprogress anchor (step refine)") {
 		t.Fatalf("refusal after the no_ship acceptance does not name the spent population: %q", spent.Error.Message)
 	}
 	if got := verifyWallChallenges(t, s); got != 0 {

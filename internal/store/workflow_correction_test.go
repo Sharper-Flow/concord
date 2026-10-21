@@ -2057,7 +2057,7 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 	}
 	def := pinnedWorkflowDefinitionForTest(t, s, workID)
 	model := admissionModelState{step: "complete", debt: ReviewDebtNone, contracts: 2, verdict: "ok", artifact: true}
-	conformanceCheckpoint(t, s, workID, def, model, "duplicate at the complete step")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "duplicate at the complete step")
 	if issue1013HasIntent(issue1013Pin(t, s, workID), "supersede_contract") {
 		t.Fatal("duplicate complete-step pin advertises supersession before the contradiction record")
 	}
@@ -2070,7 +2070,7 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 
 	recordCompleteStepContradictionObservation(t, s, workID, fixture.owner)
 	model.observed = true
-	conformanceCheckpoint(t, s, workID, def, model, "duplicate with the contradiction record")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "duplicate with the contradiction record")
 	if !issue1013HasIntent(issue1013Pin(t, s, workID), "supersede_contract") {
 		t.Fatal("duplicate complete-step pin withholds the admitted correction")
 	}
@@ -2105,7 +2105,7 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 		t.Fatalf("active contracts after duplicate correction = %v, want [3]", active)
 	}
 	model = admissionSuccessor(def, model, "supersede_contract")
-	conformanceCheckpoint(t, s, workID, def, model, "after the duplicate correction")
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after the duplicate correction")
 }
 
 // runDuplicateRecoveryWithApproval runs a duplicate-contract supersession as

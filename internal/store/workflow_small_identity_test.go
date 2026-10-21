@@ -104,9 +104,9 @@ func TestSmallNativeIdentitySurvivesReclaimedSymlinkPrefix(t *testing.T) {
 
 func TestNativeDispatchIdentityUpcastPreservesPayloadBytes(t *testing.T) {
 	t.Parallel()
-	raw := []byte(`{ "work_id": "old-work", "step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": 1, "worker_context_frontier": 0, "worker_packet_predicate_ids": [] }`)
-	event := Event{Kind: WorkflowActionCompleted, PayloadVersion: 5, Payload: raw}
-	upcast, err := upcastWorkflowActionCompletedV5(event)
+	raw := []byte(`{ "work_id": "old-work", "step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": 1, "worker_context_frontier": 0, "worker_packet_predicate_ids": [], "worker_worktree_identity": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }`)
+	event := Event{Kind: WorkflowActionCompleted, PayloadVersion: 7, Payload: raw}
+	upcast, err := upcastWorkflowActionCompletedV7(event)
 	if err != nil || upcast.PayloadVersion != workflowActionCompletedDispatchIdentityVersion || !bytes.Equal(upcast.Payload, raw) {
 		t.Fatalf("the additive identity boundary changed old payload bytes: %+v, %v", upcast, err)
 	}
@@ -121,7 +121,7 @@ func TestNativeDispatchIdentityUpcastPreservesPayloadBytes(t *testing.T) {
 		}
 		members[key] = json.RawMessage(`"forged"`)
 		event.Payload = mustJSONValue(members)
-		if _, err := upcastWorkflowActionCompletedV5(event); err == nil {
+		if _, err := upcastWorkflowActionCompletedV7(event); err == nil {
 			t.Errorf("the old payload smuggled %s across the identity boundary", key)
 		}
 	}

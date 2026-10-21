@@ -33,6 +33,14 @@ and every older accepted version it writes, and binds every writer row, so a
 gate run alone is never
 acceptance.
 
+The v0.1.0-v0.7.1 writers run the source-proven bootstrap-only variant:
+their complete whole-file owner fingerprints (scripts/release_restore_legacy.py)
+select the operator product-create/project-locator-add pair before any
+execution, the invoke phase registers and invokes nothing, and the case
+report carries the proof's variant, source commit, fingerprint, and
+component owner hashes. A drifted, disconnected, or unbound legacy source
+holds by name; it never becomes bootstrap-only.
+
 Writer processes get a constructed environment: synthetic HOME, XDG, TMPDIR,
 and CONCORD_DB_PATH roots, and no inherited variable. Earlier releases predate
 the installed-store refusal (CD-0240), so an inherited CONCORD_DB_PATH would
@@ -62,7 +70,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from release_restore_confine import STOP, CaseFailure, Guard, STREAM_LIMIT, checkpoint, install_interrupt_handlers, run_bounded
-from release_restore_invoke import INVOKE_PLAN, InvokeError, run_invoke_phase
+from release_restore_invoke import InvokeError, invoke_plan, run_invoke_phase, tag_facts, verify_invoke_snapshot
+from release_restore_legacy import LEGACY_VARIANT, LegacyProofError, select_variant
 from release_restore_population import (
     GateError, Writer, enumerate_writers, gh_release_page, gh_release_total, git_tags, list_releases, semver,
 )
@@ -140,8 +149,9 @@ def recipe_for(tag: str) -> list[tuple[str, dict]]:
     return [(verb, request) for first, verb, request in RECIPE if semver(first) <= semver(tag)]
 
 
-def recipe_sha256(steps: list[tuple[str, dict]]) -> str:
-    return hashlib.sha256(json.dumps([RECIPE_ID, steps, list(INVOKE_PLAN)], sort_keys=True).encode()).hexdigest()
+def recipe_sha256(steps: list[tuple[str, dict]], plan: tuple[str, ...]) -> str:
+    """Bind the domain steps and the tag's actual invoke plan: no variant reuses another's hash."""
+    return hashlib.sha256(json.dumps([RECIPE_ID, steps, list(plan)], sort_keys=True).encode()).hexdigest()
 
 
 def resolve(value, store: Path, case: Path, deadline: float):
@@ -213,7 +223,25 @@ def sandbox_env(root: Path) -> dict[str, str]:
 
 
 def tree_bytes(root: Path) -> int:
-    return sum(path.stat().st_size for path in root.rglob("*") if path.is_file()) if root.exists() else 0
+    """File bytes under root.
+
+    The confined writer may remove its SQLite journal mid-walk after a rollback;
+    a path that disappears between the is_file check and stat counts zero rather
+    than failing the case at the harness stage.
+    """
+    if not root.exists():
+        return 0
+    total = 0
+    try:
+        for path in root.rglob("*"):
+            try:
+                if path.is_file():
+                    total += path.stat().st_size
+            except FileNotFoundError:
+                continue
+    except FileNotFoundError:
+        pass
+    return total
 
 
 def sha256_file(path: Path) -> str:
@@ -404,11 +432,23 @@ def invoke_runner(binary: Path, env: dict[str, str], streams: Path, deadline: fl
     return run
 
 
+def check_invoke_effects(path: Path, record: dict, deadline: float, status: str, stage: str) -> None:
+    db = connect(path, deadline)
+    try:
+        verify_invoke_snapshot(db, record)
+    except InvokeError as error:
+        raise CaseFailure(status, stage, error.detail) from None
+    finally:
+        db.close()
+
+
 def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path, streams: Path, case_seconds: int,
                     wall_deadline: float, scratch: Scratch, transfer: Transfer) -> dict:
     started = time.monotonic()
+    repo = Path(__file__).resolve().parents[1]
     steps = recipe_for(writer.tag)
-    row = dataclasses.asdict(writer) | {"recipe": RECIPE_ID, "recipe_sha256": recipe_sha256(steps), "streams": str(streams), "witnesses": []}
+    # No hash claims a plan when the wall is exhausted or its source is unreadable.
+    row = dataclasses.asdict(writer) | {"recipe": RECIPE_ID, "recipe_sha256": "", "streams": str(streams), "witnesses": []}
     case = work / writer.tag
 
     def room() -> int:
@@ -423,6 +463,21 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
     try:
         if started >= wall_deadline:
             raise CaseFailure("unknown", "wall", "global budget exhausted before the case started")
+        try:
+            facts = tag_facts(repo, writer.tag)
+            selection = select_variant(repo, writer.tag, writer.commit)
+        except (InvokeError, LegacyProofError) as error:
+            raise CaseFailure("unknown", f"invoke-{error.stage}", error.detail) from None
+        if selection is not None and selection[0] == LEGACY_VARIANT:
+            # The complete whole-file proof selected bootstrap-only before any
+            # execution: the report carries the proof's variant, source commit,
+            # fingerprint, and component owner hashes.
+            variant, proof = selection
+            facts = {**facts, "bootstrap_only": True}
+            row["source_proof"] = {"variant": variant, "commit": proof["commit"],
+                                   "fingerprint": proof["fingerprint"], "owners": proof["owners"]}
+        plan = invoke_plan(facts)
+        row["recipe_sha256"] = recipe_sha256(steps, plan)
         deadline = min(started + case_seconds, wall_deadline)
         binary, asset_digest = verify_writer_asset(repository, writer, case, deadline, streams, transfer, guard, room)
         env = sandbox_env(case)
@@ -433,18 +488,23 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
             if rc != 0:
                 raise CaseFailure("unknown", verb, f"writer refused recipe step {step} {verb} with exit {rc}")
         try:
-            capture = run_invoke_phase(invoke_runner(binary, env, streams, deadline, guard), Path(__file__).resolve().parents[1],
-                                       writer.tag, case, store)
-            row["invoke"] = {"outcome": capture.get("outcome"), "plan": list(INVOKE_PLAN)}
+            record = run_invoke_phase(invoke_runner(binary, env, streams, deadline, guard), repo, writer.tag, case, store, facts=facts)
         except InvokeError as error:
             raise CaseFailure("unknown", f"invoke-{error.stage}", error.detail) from None
+        if record.get("plan") != list(plan):
+            raise CaseFailure("unknown", "invoke-plan", "invoke phase plan diverged from the recipe-hashed plan")
         snapshot = case / "snapshot.db"
         manifest = snapshot_fixture(store, snapshot, writer.tag, room, guard, deadline)
+        check_invoke_effects(snapshot, record, deadline, "unknown", "invoke-snapshot-effects")
+        if record["outcome"] != "bootstrap-only":
+            row["invoke"] = {"outcome": record["outcome"], "plan": record["plan"]}
         row["source"] = {key: manifest[key] for key in ("schema_version", "event_watermark", "db_checksum")}
         row["restored"] = restore(candidate, snapshot, case / "restored.db", case, deadline, streams, "restore", guard)
+        check_invoke_effects(case / "restored.db", record, deadline, "fail", "effects")
         again = case / "restored-snapshot.db"
         snapshot_fixture(case / "restored.db", again, f"{writer.tag}-restored", room, guard, deadline)
         row["rebuilt"] = restore(candidate, again, case / "rebuilt.db", case, deadline, streams, "rebuild", guard)
+        check_invoke_effects(case / "rebuilt.db", record, deadline, "fail", "rebuild-effects")
         if row["rebuilt"]["appended_events"] or row["rebuilt"]["event_watermark"] != row["restored"]["event_watermark"]:
             raise CaseFailure("fail", "rebuild", "a second restore of the restored store changed its event log")
         row["witnesses"] = witnesses(snapshot, deadline, {"tag": writer.tag, "asset_digest": asset_digest, "recipe": RECIPE_ID,

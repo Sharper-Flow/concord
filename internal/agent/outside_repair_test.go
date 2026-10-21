@@ -1389,10 +1389,8 @@ func TestOutsideRepairReconcileTooManyPullRequestsRefuses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, refusalErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "outside_repair_reconcile", Input: raw}, env)
-	if refusalErr == nil || !strings.Contains(refusalErr.Error(), "pull_requests") {
-		t.Fatalf("33 pull requests = (%v), want an input refusal naming pull_requests", refusalErr)
-	}
+	response, refusalErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "outside_repair_reconcile", Input: raw}, env)
+	assertInputCorrection(t, response, refusalErr, "pull_requests")
 }
 
 func TestOutsideRepairIdempotentReplayReplaysRecordedResult(t *testing.T) {

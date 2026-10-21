@@ -87,6 +87,29 @@ const (
 	ActionCheckpoint ActionExecutionMode = "checkpoint"
 )
 
+// WorkflowProgressPolicyObligationSatisfactionV1 is the one explicit
+// progress-policy discriminator (CD-0164 D2a). On a definition that declares
+// it, the first qualified coordinator-side satisfaction of a required
+// obligation may renew the nonprogress window; absence selects the released
+// legacy policy, where only a satisfying worker acceptance renews it. The
+// field is digest-covered manifest content whenever it is declared, so a
+// definition cannot change its progress policy without its digest detecting
+// the change.
+const WorkflowProgressPolicyObligationSatisfactionV1 = "obligation_satisfaction_v1"
+
+// The closed obligation-satisfaction vocabulary. Each value names the class
+// of required obligation a completed action can newly satisfy:
+// WorkflowSatisfactionEvidence a required evidence obligation,
+// WorkflowSatisfactionPredicate an approved predicate's qualified verdict,
+// WorkflowSatisfactionPremise a required premise confirmation, and
+// WorkflowSatisfactionWorkerJob a dispatched job obligation.
+const (
+	WorkflowSatisfactionEvidence  = "evidence"
+	WorkflowSatisfactionPredicate = "predicate"
+	WorkflowSatisfactionPremise   = "premise"
+	WorkflowSatisfactionWorkerJob = "worker_job"
+)
+
 type PayloadValueType string
 
 const (
@@ -224,6 +247,14 @@ type WorkflowActionDefinition struct {
 	// uses it for dispatch_worker, where callers supply lane_id and the adapter
 	// authors the core attempt identity and worker packet.
 	PublicPayload *WorkflowPayloadDefinition `json:"public_payload,omitempty"`
+	// SatisfactionKind declares the obligation class this action can newly
+	// satisfy under WorkflowProgressPolicyObligationSatisfactionV1, from the
+	// closed vocabulary WorkflowSatisfactionEvidence, Predicate, Premise, and
+	// WorkerJob. It is digest-covered manifest content whenever it is
+	// declared; validation binds it to the canonical action mapping, and a
+	// definition without the progress policy carries no satisfaction kinds
+	// at all (CD-0164 D2a).
+	SatisfactionKind string `json:"satisfaction_kind,omitempty"`
 }
 
 type WorkflowStep struct {
@@ -297,7 +328,15 @@ type WorkflowDefinition struct {
 	// WorkflowApprovalPolicyConsequenceV1. It is digest-covered manifest
 	// content whenever it is declared, so a definition cannot change its
 	// policy without its digest detecting the change.
-	ApprovalPolicy        string                        `json:"approval_policy,omitempty"`
+	ApprovalPolicy string `json:"approval_policy,omitempty"`
+	// ProgressPolicy is the definition-owned progress-policy discriminator
+	// (CD-0164 D2a). Absence selects the released legacy policy, where only a
+	// satisfying worker acceptance renews the nonprogress window; the one
+	// explicit value is WorkflowProgressPolicyObligationSatisfactionV1, under
+	// which a qualified coordinator-side satisfaction may renew it. Released
+	// definition pins retain their existing behavior; the core never
+	// reinterprets historical events under a later progress policy.
+	ProgressPolicy        string                        `json:"progress_policy,omitempty"`
 	StepGraph             WorkflowStepGraph             `json:"step_graph"`
 	AvailableActions      []string                      `json:"available_actions"`
 	ActionDefinitions     []WorkflowActionDefinition    `json:"action_definitions"`
@@ -436,6 +475,9 @@ func validateWorkflowDefinitionWithReference(definition WorkflowDefinition, vali
 	if definition.ApprovalPolicy != "" && definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
 		return definitionFailure(KindInvalidDefinition, "definition approval policy is unknown")
 	}
+	if !validWorkflowProgressPolicy(definition.ProgressPolicy) {
+		return definitionFailure(KindInvalidDefinition, "definition progress policy is unknown")
+	}
 	graph := definition.StepGraph
 	if len(graph.Steps) < 2 || len(graph.Steps) > 32 || len(graph.Edges) < 1 || len(graph.Edges) > 64 || !validWorkflowID(graph.StartStep) || len(graph.TerminalSteps) < 1 || len(graph.TerminalSteps) > 16 {
 		return definitionFailure(KindInvalidDefinition, "definition graph bounds are invalid")
@@ -487,6 +529,30 @@ func validateWorkflowDefinitionWithReference(definition WorkflowDefinition, vali
 	}
 	if len(actions) != len(definition.AvailableActions) {
 		return definitionFailure(KindInvalidDefinition, "action definitions do not match available actions")
+	}
+	// The obligation-satisfaction taxonomy is closed and coupled: every
+	// declared kind must answer to the vocabulary and match the canonical
+	// mapping for its action, a definition without the progress policy
+	// carries no satisfaction kinds at all, and a policy declaration with no
+	// satisfying action declares nothing (CD-0164 D2a).
+	satisfyingActions := 0
+	for _, action := range definition.ActionDefinitions {
+		if !validWorkflowSatisfactionKind(action.SatisfactionKind) {
+			return definitionFailure(KindInvalidDefinition, "action satisfaction kind is unknown")
+		}
+		if action.SatisfactionKind == "" {
+			continue
+		}
+		if definition.ProgressPolicy == "" {
+			return definitionFailure(KindInvalidDefinition, "action satisfaction kind requires the obligation-satisfaction progress policy")
+		}
+		if action.SatisfactionKind != workflowActionSatisfactionKind(action.ID) {
+			return definitionFailure(KindInvalidDefinition, "action satisfaction kind does not match its obligation taxonomy")
+		}
+		satisfyingActions++
+	}
+	if definition.ProgressPolicy != "" && satisfyingActions == 0 {
+		return definitionFailure(KindInvalidDefinition, "definition declares the obligation-satisfaction progress policy without a satisfying action")
 	}
 	for _, actionID := range definition.AvailableActions {
 		if !validWorkflowID(actionID) {
@@ -588,6 +654,7 @@ func canonicalWorkflowDefinitionWithReference(definition WorkflowDefinition, val
 		WorkKind              WorkKind                      `json:"work_kind"`
 		ChangesProductTruth   *bool                         `json:"changes_product_truth"`
 		ApprovalPolicy        string                        `json:"approval_policy,omitempty"`
+		ProgressPolicy        string                        `json:"progress_policy,omitempty"`
 		StepGraph             WorkflowStepGraph             `json:"step_graph"`
 		AvailableActions      []string                      `json:"available_actions"`
 		ActionDefinitions     []WorkflowActionDefinition    `json:"action_definitions"`
@@ -602,6 +669,7 @@ func canonicalWorkflowDefinitionWithReference(definition WorkflowDefinition, val
 		SchemaVersion: workflowDefinitionSchemaVersion, Ref: definition.Ref, Version: definition.Version, WorkKind: definition.WorkKind,
 		ChangesProductTruth: definition.ChangesProductTruth,
 		ApprovalPolicy:      definition.ApprovalPolicy,
+		ProgressPolicy:      definition.ProgressPolicy,
 		StepGraph:           definition.StepGraph, AvailableActions: definition.AvailableActions, ActionDefinitions: definition.ActionDefinitions,
 		RequiredEvidenceKinds: definition.RequiredEvidenceKinds, OutcomeSchema: definition.OutcomeSchema, RigorRules: definition.RigorRules,
 		StalenessRules: definition.StalenessRules, CompositionRules: definition.CompositionRules, EvaluatorIndependence: definition.EvaluatorIndependence,
@@ -1213,6 +1281,47 @@ func validActionExecutionMode(value ActionExecutionMode) bool {
 	return value == ActionAdvance || value == ActionHold || value == ActionFenced || value == ActionCheckpoint
 }
 
+// workflowActionSatisfactionKind maps a builtin action onto the obligation
+// class it can newly satisfy under the obligation-satisfaction progress
+// policy (CD-0164 D2a): the evidence binders and the checkpoint-step
+// evidence accept satisfy a required evidence obligation, record_verdict
+// satisfies an approved predicate, confirm_premise satisfies a required
+// premise confirmation, and accept_worker_result satisfies a dispatched job
+// obligation. Recording, authoring, fencing, and correcting work satisfy
+// nothing: an empty kind is the closed no-satisfaction answer for every
+// other action, and an action carrying a kind it does not map to refuses
+// definition validation.
+func workflowActionSatisfactionKind(actionID string) string {
+	switch actionID {
+	case "bind_evidence", "record_report", "record_research", "accept_decision", "approve_operation", "accept_worker_evidence":
+		return WorkflowSatisfactionEvidence
+	case "record_verdict":
+		return WorkflowSatisfactionPredicate
+	case "confirm_premise":
+		return WorkflowSatisfactionPremise
+	case "accept_worker_result":
+		return WorkflowSatisfactionWorkerJob
+	}
+	return ""
+}
+
+// validWorkflowProgressPolicy reports whether a definition's progress-policy
+// discriminator is declared: absence selects the released legacy policy, and
+// the one explicit value is WorkflowProgressPolicyObligationSatisfactionV1.
+func validWorkflowProgressPolicy(value string) bool {
+	return value == "" || value == WorkflowProgressPolicyObligationSatisfactionV1
+}
+
+// validWorkflowSatisfactionKind reports whether a declared satisfaction kind
+// answers to the closed obligation-satisfaction vocabulary.
+func validWorkflowSatisfactionKind(value string) bool {
+	switch value {
+	case "", WorkflowSatisfactionEvidence, WorkflowSatisfactionPredicate, WorkflowSatisfactionPremise, WorkflowSatisfactionWorkerJob:
+		return true
+	}
+	return false
+}
+
 // WorkflowPremiseMaxLength is the single bound for a workflow contract
 // premise. The generated continuity read schema carries the same number in
 // $defs/workflow_premise; internal/agent's round-trip test fails when the two
@@ -1420,10 +1529,13 @@ func validateEngineCrossFieldDeclarations() error {
 		// batched field list — which declares verdicts — is the shape the
 		// declaration binds; the released single-form payload never
 		// reaches the rule because its own closed field list refuses the
-		// batch before cross-field validation runs.
+		// batch before cross-field validation runs. Every other action
+		// binds the shape its latest action catalog declares.
 		fields := policy.Payload.Fields
 		if id == "record_verdict" {
 			fields = verdictBatchActionFields()
+		} else if latest, err := latestCatalogAction(id); err == nil {
+			fields = latest.Payload.Fields
 		}
 		if !validateCrossFieldDeclaration(fields, *policy.CrossField) {
 			return fmt.Errorf("engine cross-field declaration for %s does not match its payload fields", id)
@@ -1967,8 +2079,10 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	// CD-0205: record_worker_job records one immutable worker-job revision
 	// under the work aggregate and holds the step. The caller authors the
 	// bounded job; the core derives the parent contract version, the Project
-	// scope, the next revision, and the digest.
-	"record_worker_job": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+	// scope, the next revision, and the digest. A size-capable pin also
+	// declares the closed split variant (CD-0225 D3): a call carries the
+	// ordinary group or the split alone.
+	"record_worker_job": actionPolicyWithAlternatives(actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
 		actionRefField("job_id", true),
 		actionStringField("objective", true, 4096),
 		actionStringField("stopping_condition", true, 2048),
@@ -1981,7 +2095,19 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		WorkflowPayloadField{Name: "ready", ValueType: PayloadBoolean, Required: true},
 		actionListField("readiness_evidence", false, 0, 16),
 	),
+		WorkflowPayloadAlternative{Fields: workerJobOrdinaryGroup},
+		WorkflowPayloadAlternative{Fields: []string{"split"}, Forbids: workerJobSplitForbids, Remedy: "carry each successor's content inside split.successors"},
+	),
 }
+
+// workerJobOrdinaryGroup is record_worker_job's ordinary field group: the
+// members every released version declares and requires, so an engine group
+// over them admits every frozen pin unchanged. workerJobSplitForbids names
+// the ordinary optional members, which cannot ride beside a split.
+var (
+	workerJobOrdinaryGroup = []string{"job_id", "objective", "stopping_condition", "ready"}
+	workerJobSplitForbids  = []string{"path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration", "readiness_evidence", "acceptance_oracle", "production_size_max", "measurement_basis", "direct_caller_allowance", "repair_revisions", "repair_reason"}
+)
 
 // workflowCallerEvidenceBinders names the actions whose completed event binds
 // the evidence kind the call submitted. Each payload declares the

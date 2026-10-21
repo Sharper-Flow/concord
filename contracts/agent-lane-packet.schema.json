@@ -928,6 +928,128 @@
         },
         "checks_repair": {
           "$ref": "#/$defs/lane_worker_checks_repair"
+        },
+        "production_size_max": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647,
+          "description": "The recorded production-size cap (CD-0225 D1). Optional and omitted on every read-only revision; carried beside the measurement basis by every editing revision."
+        },
+        "measurement_basis": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The recorded measurement basis of the selected revision: the immutable base commit the delta is counted against and the classified path inventory. Optional and omitted on every read-only revision.",
+          "required": [
+            "base_commit",
+            "paths"
+          ],
+          "properties": {
+            "base_commit": {
+              "type": "string",
+              "minLength": 40,
+              "maxLength": 64,
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "description": "The raw commit oid of the clean integration foundation the production delta is measured against."
+            },
+            "paths": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 64,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "class"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "description": "A normalized relative repository-contained path, unique within the inventory."
+                  },
+                  "class": {
+                    "type": "string",
+                    "enum": [
+                      "production",
+                      "test",
+                      "documentation",
+                      "generated"
+                    ],
+                    "description": "The closed classification vocabulary."
+                  },
+                  "generator_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "description": "The owning generator's normalized relative repository path. Required when class is generated; refused on every other classification."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "direct_caller_allowance": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The recorded conditional direct-caller scope of the selected revision (CD-0227 D1). Optional and omitted on every read-only revision.",
+          "required": [
+            "project_id",
+            "mechanisms",
+            "domain_ids",
+            "law_bindings"
+          ],
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 128,
+              "description": "The permitted Project: always the recorded job's project_scope."
+            },
+            "mechanisms": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": {
+                "$ref": "#/$defs/lane_worker_oracle_mechanism"
+              },
+              "description": "The changed owner mechanisms the caller repair preserves."
+            },
+            "domain_ids": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "description": "The approved affected Domains of the active parent contract the allowance keeps."
+            },
+            "law_bindings": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 8,
+              "items": {
+                "$ref": "#/$defs/lane_worker_oracle_law_binding"
+              },
+              "description": "The pinned law revisions the allowance keeps, possibly empty."
+            }
+          }
+        },
+        "caller_exclusions": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "description": "The measured paths of the work's other jobs currently in correction. The core computes this set and refuses a packet whose exclusions differ; only the implementation capability class carries it, and it never enters the job digest."
         }
       }
     },

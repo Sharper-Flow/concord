@@ -205,7 +205,7 @@ def require_delivery_rule_teaching(defs: dict) -> None:
     if stale:
         fail(f"retired published action add_condition remains projected: {', '.join(stale)} (CD-0218 D1)")
 
-SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "type", "properties", "patternProperties", "propertyNames", "required", "additionalProperties", "unevaluatedProperties", "items", "contains", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "enum", "const", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "default", "minProperties", "maxProperties", "x-maxBytes", "x-minBytes"}
+SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "examples", "type", "properties", "patternProperties", "propertyNames", "required", "additionalProperties", "unevaluatedProperties", "items", "contains", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "enum", "const", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "default", "minProperties", "maxProperties", "x-maxBytes", "x-minBytes"}
 
 # The store counts workflow string bounds in UTF-8 bytes
 # (validateWorkflowPayloadValue); JSON Schema minLength/maxLength count
@@ -1518,8 +1518,63 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
         defs["worktree_inspect_result"]["properties"][name].pop("minLength", None)
 
 
+def remove_generated_guidance(node: object) -> None:
+    """Rebuild teaching after constraints change, rather than retaining stale examples."""
+    if isinstance(node, dict):
+        description = node.get("description")
+        markers = [description.index(marker) for marker in ("Accepted shape:", "Bounds:")
+                   if isinstance(description, str) and marker in description]
+        if markers:
+            original = description[:min(markers)].rstrip()
+            if original:
+                node["description"] = original
+            else:
+                node.pop("description")
+            node.pop("examples", None)
+        for key, child in node.items():
+            if key != "examples":
+                remove_generated_guidance(child)
+    elif isinstance(node, list):
+        for child in node:
+            remove_generated_guidance(child)
+
+
+def project_schema_guidance(document: dict, names: list[str], *, bounds_only: bool = False) -> dict:
+    """One Go owner generates and validates the teaching consumed by both clients."""
+    result = subprocess.run(
+        ["go", "run", "./scripts/schema-guidance", *(["--bounds-only"] if bounds_only else []), *sorted(set(names))],
+        input=json.dumps(document), cwd=ROOT, text=True, capture_output=True, timeout=120,
+    )
+    if result.returncode:
+        fail(f"schema guidance generation failed: {result.stderr.strip()}")
+    projected = json.loads(result.stdout)
+    def preserve_order(original: object, annotated: object) -> object:
+        if isinstance(original, dict) and isinstance(annotated, dict):
+            ordered = {key: preserve_order(value, annotated[key]) for key, value in original.items()}
+            ordered.update((key, value) for key, value in annotated.items() if key not in ordered)
+            return ordered
+        if isinstance(original, list) and isinstance(annotated, list):
+            return [preserve_order(left, right) for left, right in zip(original, annotated, strict=True)]
+        return annotated
+    projected = preserve_order(document, projected)
+    def prune_replaced_count_text(node: object) -> None:
+        if isinstance(node, dict):
+            description = node.get("description")
+            if isinstance(description, str) and description.startswith(BYTE_LIMIT_GUIDANCE + " ") and ("Accepted shape:" in description or "Bounds:" in description):
+                node["description"] = description[len(BYTE_LIMIT_GUIDANCE) + 1:]
+            for key, child in node.items():
+                if key != "examples":
+                    prune_replaced_count_text(child)
+        elif isinstance(node, list):
+            for child in node:
+                prune_replaced_count_text(child)
+    prune_replaced_count_text(projected)
+    return projected
+
+
 def project_workflow_action_schema(document: dict, actions: list[dict], workflows: list[dict], teaching: dict) -> tuple[dict, list[dict]]:
     projected = copy.deepcopy(document)
+    remove_generated_guidance(projected)
     defs = projected["$defs"]
     # Continuity and work pins expose the same card references as dispatch.
     # The authored packet schema owns the source shape, not a second union.
@@ -1746,6 +1801,10 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     defs["work_transition_action_public_input"] = copy.deepcopy(variant_wrapper) | {"anyOf": [{"$ref": f"#/$defs/{variant['schema']}"} for variant in public_variants]}
     require_delivery_rule_teaching(defs)
     install_retained_output_twins(defs)
+    contracts = {"approve_contract", "supersede_contract"}
+    guidance_names = [f"work_transition_action_variant_{action}" for action in sorted(contracts)]
+    guidance_names.extend(variant["schema"] for variant in public_variants if variant["action_id"] in contracts)
+    projected = project_schema_guidance(projected, guidance_names)
     return projected, public_variants
 
 
@@ -1841,6 +1900,8 @@ def check_schema_keywords(node, path="schema"):
     # explicit type ("type is not defined"), so an enum must always name one.
     if "enum" in node and "type" not in node: fail(f"enum without type at {path}")
     for key,value in node.items():
+        if key in {"examples", "const", "enum", "default"}:
+            continue
         if key in {"properties", "patternProperties", "$defs"} and isinstance(value, dict):
             for name, child in value.items(): check_schema_keywords(child, f"{path}.{key}.{name}")
         elif isinstance(value, dict): check_schema_keywords(value, f"{path}.{key}")
@@ -2155,8 +2216,8 @@ def validate_worker_check_host_tool(tool: dict) -> None:
     if list(properties) != ["control_id"] or args.get("required") != ["control_id"]:
         fail("concord_worker_check must require only control_id")
     reference = json.loads(PAYLOAD.read_text(encoding="utf-8"))["$defs"]["reference"]
-    actual = {key: value for key, value in properties["control_id"].items() if key != "description"}
-    expected = {key: value for key, value in reference.items() if key != "description"}
+    actual = {key: value for key, value in properties["control_id"].items() if key not in {"description", "examples"}}
+    expected = {key: value for key, value in reference.items() if key not in {"description", "examples"}}
     if actual != expected:
         fail("concord_worker_check control_id must use the workflow reference bounds")
 
@@ -2353,7 +2414,7 @@ def ts_validator_projection(manifest: dict) -> str:
     return f'''// Code generated by scripts/generate-agent-contracts.py; DO NOT EDIT.
 import {{ payloadSchemas }} from "./generated-contracts";
 export const envelopeSchema = {envelope_schema};
-type Validation = {{ valid: boolean; evaluated: Set<string>; path: string | null }};
+type Validation = {{ valid: boolean; evaluated: Set<string>; path: string | null; reason?: string }};
 export function validateGeneratedPayload(name: string, value: unknown): boolean {{
   return payloadFailurePath(name, value) === null;
 }}
@@ -2362,6 +2423,10 @@ export function validateGeneratedEnvelope(value: unknown): boolean {{
 }}
 export function payloadFailurePath(name: string, value: unknown): string | null {{
   return validateSchema((payloadSchemas as Record<string, unknown>)[name], value, payloadSchemas as Record<string, unknown>).path;
+}}
+export function payloadFailureMessage(name: string, value: unknown): string | null {{
+  const result = validateSchema((payloadSchemas as Record<string, unknown>)[name], value, payloadSchemas as Record<string, unknown>);
+  return result.valid ? null : `${{result.path}}: ${{result.reason ?? "does not match the declared schema"}}`;
 }}
 export function envelopeFailurePath(value: unknown): string | null {{
   return validateSchema(envelopeSchema, value, envelopeSchema as Record<string, unknown>).path;
@@ -2441,7 +2506,7 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
   // action (approve_contract and supersede_contract) must teach the rule,
   // or a drop from one branch hides behind its siblings.
   const delivery: unknown = carrier.fields.properties.outcome_predicates?.description;
-  if (delivery !== {json.dumps(DELIVERY_RULE_PREDICATE_DESCRIPTION)}) {{
+  if (typeof delivery !== "string" || delivery.split(" Accepted shape:", 1)[0] !== {json.dumps(DELIVERY_RULE_PREDICATE_DESCRIPTION)}) {{
     gaps.push(`outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action ${{carrier.actionId}}`);
   }}
   }}
@@ -2452,7 +2517,7 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
   return gaps;
 }}
 function pass(evaluated: Iterable<string> = []): Validation {{ return {{ valid: true, evaluated: new Set(evaluated), path: null }}; }}
-function fail(at: string): Validation {{ return {{ valid: false, evaluated: new Set(), path: at }}; }}
+function fail(at: string, reason?: string): Validation {{ return {{ valid: false, evaluated: new Set(), path: at, reason }}; }}
 function joinPath(path: string, key: string): string {{ return path ? path + "." + key : key; }}
 function merge(target: Set<string>, source: Set<string>): void {{ for (const key of source) target.add(key); }}
 function dateTime(value: string): boolean {{
@@ -2469,23 +2534,30 @@ function validateSchema(schema: any, value: unknown, root: Record<string, unknow
   if (schema.$ref) {{ const definitions: Record<string, unknown> = (root.$defs as Record<string, unknown> | undefined) ?? root; const target = definitions[schema.$ref.replace("#/$defs/", "")]; const result = validateSchema(target, value, root, path); if (!result.valid) return result; merge(evaluated, result.evaluated); }}
   if ("const" in schema && JSON.stringify(schema.const) !== JSON.stringify(value)) return fail(path || "<root>");
   if (schema.enum && !schema.enum.some((candidate: unknown) => JSON.stringify(candidate) === JSON.stringify(value))) return fail(path || "<root>");
-  if (schema.type) {{ const types = Array.isArray(schema.type) ? schema.type : [schema.type]; if (!types.some((kind: string) => kind === "null" ? value === null : kind === "array" ? Array.isArray(value) : kind === "object" ? value !== null && typeof value === "object" && !Array.isArray(value) : kind === "integer" ? typeof value === "number" && Number.isInteger(value) : typeof value === kind || kind === "number" && typeof value === "number")) return fail(path || "<root>"); }}
-  if (typeof value === "string") {{ const length = Array.from(value).length; if (schema.minLength !== undefined && length < schema.minLength || schema.maxLength !== undefined && length > schema.maxLength || schema.pattern && !(new RegExp(schema.pattern).test(value))) return fail(path || "<root>"); if (schema.format === "date-time" && !dateTime(value)) return fail(path || "<root>"); const bytes = Buffer.byteLength(value); if (schema["x-maxBytes"] !== undefined && bytes > schema["x-maxBytes"]) return fail(path || "<root>"); if (schema["x-minBytes"] !== undefined && bytes < schema["x-minBytes"]) return fail(path || "<root>"); }}
-  if (typeof value === "number" && (schema.minimum !== undefined && value < schema.minimum || schema.maximum !== undefined && value > schema.maximum)) return fail(path || "<root>");
+  if (schema.type) {{ const types = Array.isArray(schema.type) ? schema.type : [schema.type]; if (!types.some((kind: string) => kind === "null" ? value === null : kind === "array" ? Array.isArray(value) : kind === "object" ? value !== null && typeof value === "object" && !Array.isArray(value) : kind === "integer" ? typeof value === "number" && Number.isInteger(value) : typeof value === kind || kind === "number" && typeof value === "number")) return fail(path || "<root>", `type must be ${{types.join(" or ")}}`); }}
+  if (typeof value === "string") {{
+    const length = Array.from(value).length;
+    for (const [keyword, exceeds] of [["minLength", length < schema.minLength], ["maxLength", length > schema.maxLength]] as const) if (exceeds) return fail(path || "<root>", `${{keyword}} bound ${{schema[keyword]}} Unicode code points; received ${{length}}`);
+    if (schema.pattern && !(new RegExp(schema.pattern).test(value))) return fail(path || "<root>", `pattern must match ${{schema.pattern}}`);
+    if (schema.format === "date-time" && !dateTime(value)) return fail(path || "<root>", "format must be date-time");
+    const bytes = Buffer.byteLength(value);
+    for (const [keyword, exceeds] of [["x-minBytes", bytes < schema["x-minBytes"]], ["x-maxBytes", bytes > schema["x-maxBytes"]]] as const) if (exceeds) return fail(path || "<root>", `${{keyword}} bound ${{schema[keyword]}} UTF-8 bytes; received ${{bytes}}`);
+  }}
+  if (typeof value === "number") for (const [keyword, exceeds] of [["minimum", value < schema.minimum], ["maximum", value > schema.maximum]] as const) if (exceeds) return fail(path || "<root>", `${{keyword}} bound ${{schema[keyword]}}`);
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {{
     const object = value as Record<string, unknown>; const properties = schema.properties ?? {{}}; const patterns = schema.patternProperties ?? {{}}; const known = new Set<string>();
-    if (schema.required) for (const key of schema.required) if (!(key in object)) return fail(joinPath(path, key));
+    if (schema.required) for (const key of schema.required) if (!(key in object)) return fail(joinPath(path, key), "required field is missing");
     for (const [key, child] of Object.entries(properties)) if (key in object) {{ const result = validateSchema(child, object[key], root, joinPath(path, key)); if (!result.valid) return result; evaluated.add(key); }}
     for (const [pattern, child] of Object.entries(patterns)) for (const key of Object.keys(object)) if (new RegExp(pattern).test(key)) {{ const result = validateSchema(child, object[key], root, joinPath(path, key)); if (!result.valid) return result; evaluated.add(key); }}
     for (const key of Object.keys(properties)) known.add(key);
     for (const pattern of Object.keys(patterns)) for (const key of Object.keys(object)) if (new RegExp(pattern).test(key)) known.add(key);
     const additional = Object.keys(object).filter((key) => !known.has(key));
-    if (schema.additionalProperties === false && additional.length > 0) return fail(joinPath(path, additional[0]));
+    if (schema.additionalProperties === false && additional.length > 0) return fail(joinPath(path, additional[0]), "additional property is not allowed");
     if (schema.additionalProperties && typeof schema.additionalProperties === "object") for (const key of additional) {{ const result = validateSchema(schema.additionalProperties, object[key], root, joinPath(path, key)); if (!result.valid) return result; evaluated.add(key); }}
-    if (schema.minProperties !== undefined && Object.keys(object).length < schema.minProperties || schema.maxProperties !== undefined && Object.keys(object).length > schema.maxProperties) return fail(path || "<root>");
+    for (const [keyword, exceeds] of [["minProperties", Object.keys(object).length < schema.minProperties], ["maxProperties", Object.keys(object).length > schema.maxProperties]] as const) if (exceeds) return fail(path || "<root>", `${{keyword}} bound ${{schema[keyword]}}`);
   }}
   if (Array.isArray(value)) {{
-    if (schema.minItems !== undefined && value.length < schema.minItems || schema.maxItems !== undefined && value.length > schema.maxItems) return fail(path || "<root>");
+    for (const [keyword, exceeds] of [["minItems", value.length < schema.minItems], ["maxItems", value.length > schema.maxItems]] as const) if (exceeds) return fail(path || "<root>", `${{keyword}} bound ${{schema[keyword]}}`);
     if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) return fail(path || "<root>");
     if (schema.items) for (let index = 0; index < value.length; index++) {{ const result = validateSchema(schema.items, value[index], root, path + "[" + index + "]"); if (!result.valid) return result; }}
   }}
@@ -2498,7 +2570,7 @@ function validateSchema(schema: any, value: unknown, root: Record<string, unknow
       // path reaches deepest names the most specific mismatch.
       const failed = results.filter((result: Validation) => !result.valid);
       const specific = failed.reduce((best: Validation | null, current: Validation) => best === null || (current.path ?? "").length > (best.path ?? "").length ? current : best, null);
-      return fail(specific?.path ?? path ?? "<root>");
+      return fail(specific?.path ?? path ?? "<root>", specific?.reason);
     }}
     for (const result of valid) merge(evaluated, result.evaluated);
   }}
@@ -2584,6 +2656,12 @@ def main() -> int:
         validate_historical_decoder(schema_refs, payload.get("$defs", {}))
         projected_payload, public_variants = project_workflow_action_schema(payload, actions, workflows, teaching)
         project_worker_packet_inputs(projected_payload, json.loads(LANE_PACKET.read_text()))
+        # The adapter publishes public action variants, never the core-owned
+        # dispatch packet in the internal workflow_action input union.
+        input_names = [operation["input_schema"].rsplit("/", 1)[-1] for operation in manifest["operations"]
+                       if operation["id"] != "concord_work_transition.workflow_action"]
+        input_names.extend(variant["schema"] for variant in public_variants)
+        projected_payload = project_schema_guidance(projected_payload, input_names, bounds_only=True)
         if payload != projected_payload:
             if check:
                 fail("generated payload contract drift (workflow action or worker packet projection): contracts/agent-tool-surface-payloads.schema.json")
@@ -2592,6 +2670,19 @@ def main() -> int:
         envelope = json.loads(ENVELOPE.read_text())
         host_manifest = json.loads(HOST_MANIFEST.read_text())
         host_schema = json.loads(HOST_SCHEMA.read_text())
+        host_projected = copy.deepcopy(host_manifest)
+        host_roots = {tool["name"]: tool["args"] for tool in host_projected["tools"]}
+        for schema in host_roots.values():
+            remove_generated_guidance(schema)
+        host_document = {"$defs": {**copy.deepcopy(payload["$defs"]), **host_roots}}
+        annotated_hosts = project_schema_guidance(host_document, list(host_roots), bounds_only=True)["$defs"]
+        for tool in host_projected["tools"]:
+            tool["args"] = annotated_hosts[tool["name"]]
+        if host_projected != host_manifest:
+            if check:
+                fail("generated host bound guidance drift: contracts/host-tool-surface.v1.json")
+            HOST_MANIFEST.write_text(json.dumps(host_projected, ensure_ascii=False, indent=2) + "\n")
+            host_manifest = host_projected
         check_schema_keywords(ir, "ir")
         check_schema_keywords(payload, "payload")
         check_schema_keywords(envelope, "envelope")

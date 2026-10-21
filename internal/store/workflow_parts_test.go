@@ -73,21 +73,24 @@ func TestLiveHeadsAreTheirCompiledCompositions(t *testing.T) {
 	}
 }
 
-// The first composed heads change no behavior: each holds the same steps in the
-// same order with the same ordered actions (workflowStepIsDeliveryGate reads
-// that order), the same edges, recovery routes, action contracts, policy, and
-// capabilities as the released head it succeeds. Only the definition-level
-// available_actions and action_definitions lists may be reordered.
+// The composed heads match the released heads they succeed beyond the
+// declared member change: each size-capable head equals its predecessor
+// except the version, the action-catalog pin, and the optional job-size
+// members, closed split variant, and acceptance classifications the v3
+// catalog declares. The normalization strips exactly those members, so any
+// other drift fails the comparison.
 func TestComposedHeadsMatchTheReleasedHeadsTheySucceed(t *testing.T) {
 	t.Parallel()
 	for _, pair := range []struct {
 		ref               string
 		composed, release int64
+		stripSizeMembers  bool
 	}{
-		{"workflow.implementation", 33, 32},
-		{"workflow.implementation", 37, 35},
-		{"workflow.break_fix", 30, 29},
-		{"workflow.research", 20, 19},
+		{"workflow.implementation", 33, 32, false},
+		{"workflow.break_fix", 30, 29, false},
+		{"workflow.research", 20, 19, false},
+		{"workflow.implementation", 36, 35, true},
+		{"workflow.break_fix", 33, 32, true},
 	} {
 		composed, ok := BuiltinWorkflowRegistry().Lookup(pair.ref, pair.composed)
 		previous, held := BuiltinWorkflowRegistry().Lookup(pair.ref, pair.release)
@@ -95,8 +98,14 @@ func TestComposedHeadsMatchTheReleasedHeadsTheySucceed(t *testing.T) {
 			t.Fatalf("%s v%d or v%d is not registered", pair.ref, pair.composed, pair.release)
 		}
 		head := composed.Definition
-		if got, want := workflowShapeForComparison(t, head), workflowShapeForComparison(t, previous.Definition); got != want {
-			t.Errorf("%s v%d differs from v%d beyond list order", head.Ref, head.Version, previous.Definition.Version)
+		headShape := workflowShapeForComparison(t, head)
+		previousShape := workflowShapeForComparison(t, previous.Definition)
+		if pair.stripSizeMembers {
+			headShape = stripWorkerJobSizeMembers(t, headShape)
+			previousShape = stripWorkerJobSizeMembers(t, previousShape)
+		}
+		if got, want := headShape, previousShape; got != want {
+			t.Errorf("%s v%d differs from v%d beyond the declared size members", head.Ref, head.Version, previous.Definition.Version)
 		}
 		if workflowCapabilities(head) != workflowCapabilities(previous.Definition) {
 			t.Errorf("%s v%d enables different capabilities than v%d", head.Ref, head.Version, previous.Definition.Version)
@@ -154,6 +163,74 @@ func TestSmallImplementationComposesDefineImplementReviewShip(t *testing.T) {
 	if _, err := builtinWorkflowDefinitionForSize("workflow.unknown_family", WorkSizeSmall); !hasFailureKind(err, KindDefinitionDigestMismatch) {
 		t.Fatalf("an unregistered family = %v, want the registry refusal", err)
 	}
+}
+
+// stripWorkerJobSizeMembers removes the optional size members and the closed
+// split variant from the rendered job declaration, restores the ordinary
+// group's required flags the split variant relaxes, removes the acceptance's
+// supplemental classifications, and renames the dispatch packet closure back
+// to the retained one, so the size-capable heads compare equal
+// to their predecessors modulo the declared member and closure change.
+func stripWorkerJobSizeMembers(t *testing.T, shape string) string {
+	t.Helper()
+	var document map[string]any
+	if err := json.Unmarshal([]byte(shape), &document); err != nil {
+		t.Fatal(err)
+	}
+	members := map[string]bool{"production_size_max": true, "measurement_basis": true, "direct_caller_allowance": true}
+	actions, ok := document["action_definitions"].([]any)
+	if !ok {
+		t.Fatal("rendered shape carries no action_definitions list")
+	}
+	seen := map[string]bool{}
+	for _, action := range actions {
+		entry, ok := action.(map[string]any)
+		if !ok {
+			t.Fatalf("rendered action definition is not an object: %#v", action)
+		}
+		id, _ := entry["id"].(string)
+		if id != "record_worker_job" && id != "dispatch_worker" && id != "accept_worker_result" {
+			continue
+		}
+		seen[id] = true
+		payload, ok := entry["payload"].(map[string]any)
+		if !ok {
+			t.Fatalf("rendered %s carries no payload object", id)
+		}
+		fields, ok := payload["fields"].([]any)
+		if !ok {
+			t.Fatalf("rendered %s payload carries no fields list", id)
+		}
+		if id == "record_worker_job" || id == "accept_worker_result" {
+			kept := fields[:0]
+			for _, field := range fields {
+				named, ok := field.(map[string]any)
+				if ok && ((id == "record_worker_job" && (members[named["name"].(string)] || named["name"] == "split")) || (id == "accept_worker_result" && named["name"] == "supplemental_classifications")) {
+					continue
+				}
+				if ok && id == "record_worker_job" && slices.Contains(workerJobOrdinaryGroup, named["name"].(string)) {
+					named["required"] = true
+				}
+				kept = append(kept, field)
+			}
+			payload["fields"] = kept
+		}
+		if id == "dispatch_worker" {
+			for _, field := range fields {
+				if named, ok := field.(map[string]any); ok && named["name"] == "worker_packet" {
+					named["schema_ref"] = checksRepairPacketSchema
+				}
+			}
+		}
+	}
+	if !seen["record_worker_job"] || !seen["dispatch_worker"] || !seen["accept_worker_result"] {
+		t.Fatalf("rendered shape declares record_worker_job=%v dispatch_worker=%v accept_worker_result=%v, want all three", seen["record_worker_job"], seen["dispatch_worker"], seen["accept_worker_result"])
+	}
+	raw, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
 }
 
 func builtinWorkflowComposition(t *testing.T, ref string, version int64) WorkflowComposition {

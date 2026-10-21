@@ -74,6 +74,10 @@ type writerSite struct {
 	Expression     string   `json:"expression"`
 	FunctionDigest string   `json:"function_digest"`
 	Pairs          []string `json:"pairs"`
+	// Comparison is the proven route of an assignment whose function's
+	// Event result reaches, through its one static caller, only a bool
+	// comparator; nil otherwise.
+	Comparison *comparisonRoute `json:"comparison_only,omitempty"`
 	// Confinement is "upcaster" on an assignment, outside any loop or
 	// closure, of fields of the site function's own Event parameter, when
 	// the function is reachable only as an Upcaster value through the one
@@ -85,19 +89,52 @@ type writerSite struct {
 
 // upcastDispatcher is the one function declaration that calls Upcaster
 // values and holds every other expression of the Upcaster type, with the
-// conditions of its if statements whose body ends in a return, and its
-// callers: every declared function that calls it, or calls a caller that
-// passes its own parameter as the EventKindRegistration argument.
+// conditions of its if statements whose body ends in a return, its callers:
+// every declared function that calls it, or calls a caller that
+// passes its own parameter as the EventKindRegistration argument, and the
+// package's registeredEventKind declaration, by full name and the digest of
+// its exact declaration bytes, when the package declares one.
 type upcastDispatcher struct {
 	Function       string      `json:"function"`
 	FunctionDigest string      `json:"function_digest"`
 	Guards         []string    `json:"guards"`
 	Callers        []namedHash `json:"callers"`
+	// RegisteredKind pins the registry-lookup helper the callers pass
+	// event.Kind through; nil when the package declares none.
+	RegisteredKind *namedHash `json:"registered_event_kind,omitempty"`
 }
 
 type namedHash struct {
 	Function string `json:"function"`
 	Digest   string `json:"digest"`
+}
+
+// comparisonRoute names the caller that binds a comparison-only function's
+// Event result and the one bool comparator it feeds, each by digest.
+type comparisonRoute struct {
+	Caller           string `json:"caller"`
+	CallerDigest     string `json:"caller_digest"`
+	Comparator       string `json:"comparator"`
+	ComparatorDigest string `json:"comparator_digest"`
+}
+
+// pureComparators are the calls a comparison-only comparator may hand its
+// event to.
+var pureComparators = map[string]bool{"bytes.Equal": true, "reflect.DeepEqual": true, "encoding/json.Marshal": true}
+
+// adaptRoute names the one function that calls the recorded-schema adapt
+// field, the forwarders its result passes through, and every function the
+// registry's schema literals name as an adapt value together with every
+// static callee of one whose result holds an Event, when the analysis
+// proves every adapt result reaches only the upcast dispatcher. The value
+// digests pin what an adapt can do to an event; a changed adapt function,
+// or a changed function an adapt delegates its event to, changes a digest
+// and refuses every adapt-keyed entry.
+type adaptRoute struct {
+	Function       string      `json:"function"`
+	FunctionDigest string      `json:"function_digest"`
+	Forwarders     []namedHash `json:"forwarders"`
+	Values         []namedHash `json:"values"`
 }
 
 // writerAnalysis is one release binary's event writers. Writes are the pairs
@@ -109,6 +146,7 @@ type writerAnalysis struct {
 	Writes        []string          `json:"writes,omitempty"`
 	Open          []writerSite      `json:"open_sites,omitempty"`
 	Dispatcher    *upcastDispatcher `json:"upcast_dispatcher,omitempty"`
+	Adapt         *adaptRoute       `json:"adapt_route,omitempty"`
 	WorkItemFolds []string          `json:"work_item_folds,omitempty"`
 	CheckSubject  string            `json:"check_subject,omitempty"`
 }
@@ -219,12 +257,15 @@ type returned struct {
 	at      assignment
 }
 
-// callSite is one static call, its package, and the declared function it
-// sits in directly, nil in a closure or outside any function.
+// callSite is one static call, its package, the declared function it sits
+// in directly (nil in a closure or outside any function), and the declared
+// function whose body encloses it even through closures, for proofs that
+// pin the enclosing declaration's digest.
 type callSite struct {
-	call   *ast.CallExpr
-	pkg    *checkedPackage
-	caller *function
+	call     *ast.CallExpr
+	pkg      *checkedPackage
+	caller   *function
+	encloser *function
 }
 
 // analyzer holds one binary's type-checked packages, the flow facts the
@@ -244,6 +285,7 @@ type analyzer struct {
 	captured   map[types.Object]bool
 	formals    map[types.Object]formal
 	funcs      map[string]*function
+	funcNames  map[*function]string
 	callees    map[*ast.Ident]bool
 	dynamic    map[string]bool
 	registry   types.Object
@@ -257,6 +299,15 @@ type analyzer struct {
 	upcasterExprs map[ast.Decl]*checkedPackage
 	upcasterCalls map[ast.Decl]*checkedPackage
 	dispatcher    *upcastDispatcher
+	// adaptField is recordedPayloadSchema's adapt func field; adaptCalls the
+	// top-level declarations that call it, adaptEscapes how often the field
+	// is mentioned anywhere else but a call or a nil comparison or a schema
+	// literal sets it to anything but an identifier, and adaptValues the
+	// identifiers the schema literals name as adapt values.
+	adaptField   *types.Var
+	adaptCalls   map[ast.Decl]*checkedPackage
+	adaptValues  map[*ast.Ident]*checkedPackage
+	adaptEscapes int
 }
 
 func analyzerVersion() string { return "release-writer-sites.v1 " + digest([]byte(generatorSource)) }
@@ -362,7 +413,18 @@ func analyzeWritersIn(dir string) (writerAnalysis, error) {
 	a.params, a.typeArgs = map[*types.TypeParam]string{}, map[string][]types.Type{}
 	a.assigns, a.declared, a.unknown, a.writes = map[types.Object][]assignment{}, map[types.Object]bool{}, map[types.Object]bool{}, map[string]bool{}
 	a.captured, a.formals, a.funcs, a.callees, a.dynamic = map[types.Object]bool{}, map[types.Object]formal{}, map[string]*function{}, map[*ast.Ident]bool{}, map[string]bool{}
+	a.funcNames = map[*function]string{}
 	a.upcastValues, a.upcasterExprs, a.upcasterCalls = map[*ast.Ident]bool{}, map[ast.Decl]*checkedPackage{}, map[ast.Decl]*checkedPackage{}
+	a.adaptCalls, a.adaptValues = map[ast.Decl]*checkedPackage{}, map[*ast.Ident]*checkedPackage{}
+	if schema, ok := store.types.Scope().Lookup("recordedPayloadSchema").(*types.TypeName); ok {
+		if fields, ok := schema.Type().Underlying().(*types.Struct); ok {
+			for i := range fields.NumFields() {
+				if fields.Field(i).Name() == "adapt" {
+					a.adaptField = fields.Field(i)
+				}
+			}
+		}
+	}
 	for _, p := range packages {
 		a.instances(p)
 		a.index(p)
@@ -370,7 +432,7 @@ func analyzeWritersIn(dir string) (writerAnalysis, error) {
 	var literal *ast.CompositeLit
 	a.registry, a.registered, literal = readRegistry(store)
 	a.dispatcher = a.findDispatcher()
-	result := writerAnalysis{Analyzer: analyzerVersion(), Dispatcher: a.dispatcher}
+	result := writerAnalysis{Analyzer: analyzerVersion(), Dispatcher: a.dispatcher, Adapt: a.adaptRoute()}
 	for _, p := range packages {
 		a.collect(p)
 	}
@@ -421,7 +483,11 @@ func (a *analyzer) index(p *checkedPackage) {
 			case *ast.FuncDecl:
 				a.indexFunc(p, v)
 			case *ast.CallExpr:
-				a.indexCall(p, v, a.enclosingFunc(p, stack))
+				if selector, ok := ast.Unparen(v.Fun).(*ast.SelectorExpr); ok && a.isAdaptField(p, selector) {
+					a.adaptCalls[stack[1].(ast.Decl)] = p
+					a.callees[selector.Sel] = true
+				}
+				a.indexCall(p, v, a.enclosingFunc(p, stack), a.enclosingDecl(p, stack))
 			case *ast.DeferStmt:
 				if fn := a.enclosingFunc(p, stack); fn != nil {
 					fn.deferred = true
@@ -437,6 +503,11 @@ func (a *analyzer) index(p *checkedPackage) {
 					a.markUnknown(p, v.X)
 				}
 			case *ast.SelectorExpr:
+				if a.isAdaptField(p, v) && !a.callees[v.Sel] {
+					if binary, ok := stack[len(stack)-1].(*ast.BinaryExpr); !(ok && (binary.Op == token.EQL || binary.Op == token.NEQ) && (p.info.Types[binary.X].IsNil() || p.info.Types[binary.Y].IsNil())) {
+						a.adaptEscapes++
+					}
+				}
 				// A pointer method called on an addressable value takes its
 				// address.
 				if sel := p.info.Selections[v]; sel != nil && sel.Kind() == types.MethodVal {
@@ -449,6 +520,33 @@ func (a *analyzer) index(p *checkedPackage) {
 				for _, e := range []ast.Expr{v.Key, v.Value} {
 					a.markUnknown(p, e)
 				}
+			case *ast.CompositeLit:
+				typ := p.info.Types[v].Type
+				if pointer, ok := typ.(*types.Pointer); ok {
+					typ = pointer.Elem()
+				}
+				if a.adaptField != nil && a.isNamed(typ, "recordedPayloadSchema") {
+					fields := typ.Underlying().(*types.Struct)
+					for i, element := range v.Elts {
+						adapt := false
+						if pair, ok := element.(*ast.KeyValueExpr); ok {
+							element = pair.Value
+							if key, ok := pair.Key.(*ast.Ident); ok && key.Name == "adapt" {
+								adapt = true
+							}
+						} else if i < fields.NumFields() && fields.Field(i) == a.adaptField {
+							adapt = true
+						}
+						if !adapt {
+							continue
+						}
+						if id, ok := ast.Unparen(element).(*ast.Ident); ok {
+							a.adaptValues[id] = p
+						} else {
+							a.adaptEscapes++
+						}
+					}
+				}
 			}
 			return true
 		})
@@ -460,6 +558,7 @@ func (a *analyzer) function(f *types.Func) *function {
 	name := f.Origin().FullName()
 	if a.funcs[name] == nil {
 		a.funcs[name] = &function{}
+		a.funcNames[a.funcs[name]] = name
 	}
 	return a.funcs[name]
 }
@@ -488,7 +587,7 @@ func (a *analyzer) indexFunc(p *checkedPackage, decl *ast.FuncDecl) {
 
 // indexCall records a static call. A method expression call, whose arguments
 // start with the receiver, uses its function as a value.
-func (a *analyzer) indexCall(p *checkedPackage, call *ast.CallExpr, caller *function) {
+func (a *analyzer) indexCall(p *checkedPackage, call *ast.CallExpr, caller, encloser *function) {
 	id := calleeIdent(call.Fun)
 	f, ok := p.info.Uses[id].(*types.Func)
 	if !ok {
@@ -499,7 +598,21 @@ func (a *analyzer) indexCall(p *checkedPackage, call *ast.CallExpr, caller *func
 		a.function(f).value = true
 		return
 	}
-	a.function(f).calls = append(a.function(f).calls, callSite{call, p, caller})
+	a.function(f).calls = append(a.function(f).calls, callSite{call, p, caller, encloser})
+}
+
+// enclosingDecl returns the declared function whose body encloses the
+// current node, through closures, or nil outside any declaration.
+func (a *analyzer) enclosingDecl(p *checkedPackage, stack []ast.Node) *function {
+	for i := len(stack) - 1; i >= 0; i-- {
+		if decl, ok := stack[i].(*ast.FuncDecl); ok {
+			if f, ok := p.info.Defs[decl.Name].(*types.Func); ok {
+				return a.function(f)
+			}
+			return nil
+		}
+	}
+	return nil
 }
 
 func calleeIdent(fun ast.Expr) *ast.Ident {
@@ -850,8 +963,12 @@ func (a *analyzer) collect(p *checkedPackage) {
 				}
 				if slices.ContainsFunc(pairs, func(pair string) bool { return strings.Contains(pair, "*") }) {
 					open := writerSite{Function: name, Expression: normalize(a.source(node)), FunctionDigest: body, Pairs: pairs}
-					if assign, ok := node.(*ast.AssignStmt); ok && a.confinedSite(p, d, assign) {
-						open.Confinement = "upcaster"
+					if assign, ok := node.(*ast.AssignStmt); ok {
+						if a.confinedSite(p, d, assign) {
+							open.Confinement = "upcaster"
+						} else {
+							open.Comparison = a.comparisonSite(p, d, assign)
+						}
 					}
 					a.sites = append(a.sites, open)
 					return
@@ -1104,7 +1221,26 @@ func (a *analyzer) findDispatcher() *upcastDispatcher {
 		return true
 	})
 	name, body := a.declName(p, fn)
-	return &upcastDispatcher{Function: name, FunctionDigest: body, Guards: guards, Callers: callers}
+	return &upcastDispatcher{Function: name, FunctionDigest: body, Guards: guards, Callers: callers, RegisteredKind: a.registeredKind(p)}
+}
+
+// registeredKind records the declaration named registeredEventKind in the
+// dispatcher's package: the helper the reviewed callers pass event.Kind
+// through. The digest covers the exact declaration bytes, so a changed
+// helper body changes the pin and refuses every pinned exemption entry; a
+// package without the helper records none.
+func (a *analyzer) registeredKind(p *checkedPackage) *namedHash {
+	for _, file := range p.files {
+		for _, d := range file.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Name.Name != "registeredEventKind" {
+				continue
+			}
+			name, body := a.declName(p, fn)
+			return &namedHash{Function: name, Digest: body}
+		}
+	}
+	return nil
 }
 
 // dispatchCallers lists upcastDispatcher's callers of dispatcher, sorted, or
@@ -1139,6 +1275,454 @@ func (a *analyzer) dispatchCallers(dispatcher *function) ([]namedHash, bool) {
 	}
 	slices.SortFunc(callers, func(x, y namedHash) int { return strings.Compare(x.Function, y.Function) })
 	return callers, true
+}
+
+// isAdaptField reports a selector that reads the recorded-schema adapt field.
+func (a *analyzer) isAdaptField(p *checkedPackage, selector *ast.SelectorExpr) bool {
+	selection := p.info.Selections[selector]
+	return a.adaptField != nil && selection != nil && selection.Kind() == types.FieldVal && selection.Obj() == a.adaptField
+}
+
+// adaptRoute proves the recorded-schema adapt structure: exactly one declared
+// function calls the adapt field, the field is mentioned nowhere else but
+// that call (a nil comparison excepted), each adapt result is assigned to an
+// uncaptured Event local outside any loop, and every later use of that local
+// is an argument of the upcast dispatcher itself or of a forwarder whose own
+// matching parameter is only ever passed to the dispatcher. A label that a
+// goto could replay, a package-level target, and a named result the caller
+// returns without naming are excluded only by the pinned caller digest, not
+// by this proof, exactly as in the censused analyzer. Any other shape leaves
+// the route nil, and a release whose route is nil cannot match an
+// adapt-keyed exemption entry.
+func (a *analyzer) adaptRoute() *adaptRoute {
+	if a.dispatcher == nil || a.adaptField == nil || a.adaptEscapes != 0 || len(a.adaptCalls) != 1 {
+		return nil
+	}
+	var decl ast.Decl
+	var p *checkedPackage
+	for decl, p = range a.adaptCalls {
+	}
+	fn, ok := decl.(*ast.FuncDecl)
+	if !ok || fn.Body == nil {
+		return nil
+	}
+	parents := parentsOf(fn)
+	forwarders := map[string]namedHash{}
+	held := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		selector, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr)
+		if !ok || !a.isAdaptField(p, selector) {
+			return true
+		}
+		assign, ok := parents[call].(*ast.AssignStmt)
+		if !ok || len(assign.Rhs) != 1 || inLoop(parents, assign, fn) {
+			held = true
+			return true
+		}
+		id, ok := assign.Lhs[0].(*ast.Ident)
+		obj := p.info.ObjectOf(id)
+		if !ok || obj == nil || !a.isEvent(obj.Type()) || a.captured[obj] || a.unknown[obj] {
+			held = true
+			return true
+		}
+		for _, use := range usesAfter(p, fn, obj, assign.End()) {
+			index, ok := argumentOf(parents, use)
+			callee := calleeName(p, callOf(parents, use))
+			switch {
+			case !ok:
+				held = true
+			case callee == a.dispatcher.Function:
+			case a.forwardsToDispatcher(callee, index):
+				name, digest := a.declName(a.funcs[callee].pkg, a.funcs[callee].decl)
+				forwarders[callee] = namedHash{name, digest}
+			default:
+				held = true
+			}
+		}
+		return true
+	})
+	if held {
+		return nil
+	}
+	name, digest := a.declName(p, fn)
+	route := &adaptRoute{Function: name, FunctionDigest: digest, Forwarders: []namedHash{}, Values: []namedHash{}}
+	for _, forwarder := range forwarders {
+		route.Forwarders = append(route.Forwarders, forwarder)
+	}
+	slices.SortFunc(route.Forwarders, func(x, y namedHash) int { return strings.Compare(x.Function, y.Function) })
+	// outbound lists, per function name, the static calls its declaration
+	// makes, read once from the index's inbound call records.
+	outbound := map[string][]*ast.CallExpr{}
+	for _, fn := range a.funcs {
+		if fn == nil {
+			continue
+		}
+		for _, site := range fn.calls {
+			if site.caller != nil {
+				outbound[a.funcNames[site.caller]] = append(outbound[a.funcNames[site.caller]], site.call)
+			}
+		}
+	}
+	// pin records one function in the value set and follows its static
+	// callees: an adapt value's event can come from a callee, so every
+	// callee whose result holds an Event is pinned too, recursively. What
+	// the adapt does to an event stays bound by a digest or the route
+	// refuses.
+	seen := map[string]bool{}
+	var pin func(string) bool
+	pin = func(name string) bool {
+		target := a.funcs[name]
+		if target == nil || target.decl == nil {
+			return false
+		}
+		valueName, valueDigest := a.declName(target.pkg, target.decl)
+		if seen[valueName+"\x00"+valueDigest] {
+			return true
+		}
+		seen[valueName+"\x00"+valueDigest] = true
+		route.Values = append(route.Values, namedHash{valueName, valueDigest})
+		for _, call := range outbound[name] {
+			callee, ok := target.pkg.info.Uses[calleeIdent(call.Fun)].(*types.Func)
+			if !ok {
+				return false
+			}
+			results := callee.Origin().Signature().Results()
+			reaches := false
+			for i := range results.Len() {
+				reaches = reaches || a.isEvent(results.At(i).Type()) || a.holdsEvent(results.At(i).Type(), map[types.Type]bool{})
+			}
+			if reaches && !pin(callee.Origin().FullName()) {
+				return false
+			}
+		}
+		return true
+	}
+	for id, pkg := range a.adaptValues {
+		f, ok := pkg.info.Uses[id].(*types.Func)
+		if !ok || !pin(f.Origin().FullName()) {
+			return nil
+		}
+	}
+	slices.SortFunc(route.Values, func(x, y namedHash) int { return strings.Compare(x.Function, y.Function) })
+	return route
+}
+
+// forwardsToDispatcher reports whether the function named callee, given an
+// Event at argument position index, only ever passes that parameter to the
+// upcast dispatcher. The parameter must be its own Event-typed local, never
+// captured or addressed, and never read outside a dispatcher argument.
+func (a *analyzer) forwardsToDispatcher(callee string, index int) bool {
+	target := a.funcs[callee]
+	if target == nil || target.decl == nil || target.value {
+		return false
+	}
+	var param types.Object
+	position := 0
+	for _, field := range target.decl.Type.Params.List {
+		names := field.Names
+		if len(names) == 0 {
+			names = []*ast.Ident{nil}
+		}
+		for _, name := range names {
+			if position == index {
+				if name == nil {
+					return false
+				}
+				param = target.pkg.info.ObjectOf(name)
+			}
+			position++
+		}
+	}
+	if param == nil || !a.isEvent(param.Type()) || a.captured[param] || a.unknown[param] {
+		return false
+	}
+	if target.decl.Body == nil {
+		return false
+	}
+	parents := parentsOf(target.decl)
+	for _, use := range usesAfter(target.pkg, target.decl, param, target.decl.Body.Pos()) {
+		_, ok := argumentOf(parents, use)
+		if !ok || calleeName(target.pkg, callOf(parents, use)) != a.dispatcher.Function {
+			return false
+		}
+	}
+	return true
+}
+
+// parentsOf maps every node under root to its parent.
+func parentsOf(root ast.Node) map[ast.Node]ast.Node {
+	parents := map[ast.Node]ast.Node{}
+	var stack []ast.Node
+	ast.Inspect(root, func(n ast.Node) bool {
+		if n == nil {
+			stack = stack[:len(stack)-1]
+			return true
+		}
+		if len(stack) > 0 {
+			parents[n] = stack[len(stack)-1]
+		}
+		stack = append(stack, n)
+		return true
+	})
+	return parents
+}
+
+// usesAfter lists the identifiers that read obj after position end in fn.
+func usesAfter(p *checkedPackage, fn *ast.FuncDecl, obj types.Object, end token.Pos) []*ast.Ident {
+	var uses []*ast.Ident
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if !ok || id.Pos() < end || p.info.Uses[id] != obj {
+			return true
+		}
+		uses = append(uses, id)
+		return true
+	})
+	return uses
+}
+
+// callOf returns the innermost call expression enclosing the identifier.
+func callOf(parents map[ast.Node]ast.Node, id *ast.Ident) *ast.CallExpr {
+	for at := parents[id]; at != nil; at = parents[at] {
+		if call, ok := at.(*ast.CallExpr); ok {
+			return call
+		}
+	}
+	return nil
+}
+
+// argumentOf reports the argument position of the identifier's innermost
+// enclosing call, and whether that call exists at all.
+func argumentOf(parents map[ast.Node]ast.Node, id *ast.Ident) (int, bool) {
+	call := callOf(parents, id)
+	if call == nil {
+		return 0, false
+	}
+	for index, argument := range call.Args {
+		if argument == ast.Node(id) {
+			return index, true
+		}
+	}
+	return 0, false
+}
+
+// calleeName returns a call's callee's generic-origin full name.
+func calleeName(p *checkedPackage, call *ast.CallExpr) string {
+	if call == nil {
+		return ""
+	}
+	if f, ok := p.info.Uses[calleeIdent(call.Fun)].(*types.Func); ok {
+		return f.Origin().FullName()
+	}
+	return ""
+}
+
+// inLoop reports whether stmt sits under a loop of fn.
+func inLoop(parents map[ast.Node]ast.Node, stmt ast.Stmt, fn *ast.FuncDecl) bool {
+	for at := parents[stmt]; at != nil; at = parents[at] {
+		switch at.(type) {
+		case *ast.ForStmt, *ast.RangeStmt:
+			return true
+		}
+		if at == fn {
+			return false
+		}
+	}
+	return false
+}
+
+// fieldTarget is the single Event-typed local whose fields an assignment
+// sets, when every left side is a field selector on it and the operation is
+// a plain assignment.
+func (a *analyzer) fieldTarget(p *checkedPackage, assign *ast.AssignStmt) types.Object {
+	var target types.Object
+	for _, lhs := range assign.Lhs {
+		selector, ok := ast.Unparen(lhs).(*ast.SelectorExpr)
+		if !ok {
+			return nil
+		}
+		id, ok := ast.Unparen(selector.X).(*ast.Ident)
+		if !ok || p.info.Selections[selector] == nil || p.info.Selections[selector].Kind() != types.FieldVal || target != nil && p.info.Uses[id] != target {
+			return nil
+		}
+		target = p.info.Uses[id]
+	}
+	if target == nil || !a.isEvent(target.Type()) || assign.Tok != token.ASSIGN {
+		return nil
+	}
+	return target
+}
+
+// comparisonSite proves a comparison-only route for an assignment in the
+// declaration d: d is a plain function, never used as a value, an upcaster,
+// or an adapt value, with exactly one static caller; the assignment sets
+// fields of d's own Event local and, after it, the local leaves only through
+// d's first result; the one caller binds that result to an unaddressed local
+// whose every use is an argument of a single bool comparator. The censused
+// analyzer proves the same route; the pinned caller and comparator digests
+// carry what the proof does not.
+func (a *analyzer) comparisonSite(p *checkedPackage, d ast.Decl, assign *ast.AssignStmt) *comparisonRoute {
+	decl, ok := d.(*ast.FuncDecl)
+	if !ok || decl.Recv != nil {
+		return nil
+	}
+	name := a.siteFunction(p, d)
+	fn := a.funcs[name]
+	if fn == nil || fn.value || fn.upcaster || len(fn.calls) != 1 {
+		return nil
+	}
+	for id, pkg := range a.adaptValues {
+		if f, ok := pkg.info.Uses[id].(*types.Func); ok && f.Origin().FullName() == name {
+			return nil
+		}
+	}
+	target := a.fieldTarget(p, assign)
+	if target == nil || !a.eventReturnsOnly(p, decl, target, assign) {
+		return nil
+	}
+	results := p.info.Defs[decl.Name].(*types.Func).Signature().Results()
+	if results.Len() == 0 || !a.isEvent(results.At(0).Type()) {
+		return nil
+	}
+	site := fn.calls[0]
+	if site.caller == nil {
+		site.caller = site.encloser
+	}
+	if site.caller == nil || site.caller.decl == nil {
+		return nil
+	}
+	caller, callerPkg := site.caller.decl, site.caller.pkg
+	parents := parentsOf(caller)
+	bound, ok := parents[site.call].(*ast.AssignStmt)
+	if !ok || len(bound.Rhs) != 1 {
+		return nil
+	}
+	id, ok := bound.Lhs[0].(*ast.Ident)
+	result := callerPkg.info.ObjectOf(id)
+	if !ok || result == nil || a.unknown[result] || a.captured[result] {
+		return nil
+	}
+	comparator := ""
+	for _, use := range usesAfter(callerPkg, caller, result, caller.Body.Pos()) {
+		index, ok := argumentOf(parents, use)
+		callee := calleeName(callerPkg, callOf(parents, use))
+		if !ok || comparator != "" && callee != comparator || !a.compares(callee, index) {
+			return nil
+		}
+		comparator = callee
+	}
+	if comparator == "" {
+		return nil
+	}
+	callerName, callerDigest := a.declName(callerPkg, caller)
+	_, comparatorDigest := a.declName(a.funcs[comparator].pkg, a.funcs[comparator].decl)
+	return &comparisonRoute{Caller: callerName, CallerDigest: callerDigest, Comparator: comparator, ComparatorDigest: comparatorDigest}
+}
+
+// eventReturnsOnly reports whether, after stmt, obj leaves fn only as fn's
+// first result or the base of a field selector that holds no Event.
+func (a *analyzer) eventReturnsOnly(p *checkedPackage, fn *ast.FuncDecl, obj types.Object, stmt ast.Stmt) bool {
+	parents := parentsOf(fn)
+	if inLoop(parents, stmt, fn) || a.captured[obj] || a.unknown[obj] {
+		return false
+	}
+	for _, use := range usesAfter(p, fn, obj, stmt.End()) {
+		switch parent := parents[use].(type) {
+		case *ast.ReturnStmt:
+			if len(parent.Results) == 0 || parent.Results[0] != use {
+				return false
+			}
+		case *ast.SelectorExpr:
+			selection := p.info.Selections[parent]
+			if selection == nil || selection.Kind() != types.FieldVal || a.holdsEvent(selection.Type(), map[types.Type]bool{}) || a.containsEvent(selection.Type(), map[types.Type]bool{}) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// compares reports whether the function named callee is a bool comparator
+// for an Event at argument position index: a plain function returning one
+// bool, whose Event parameter is never assigned and whose every use reads a
+// field that holds no Event, a comparison operand, or an argument to a pure
+// comparator.
+func (a *analyzer) compares(callee string, index int) bool {
+	target := a.funcs[callee]
+	if target == nil || target.decl == nil || target.decl.Recv != nil || target.value {
+		return false
+	}
+	p := target.pkg
+	results := p.info.Defs[target.decl.Name].(*types.Func).Signature().Results()
+	if results.Len() != 1 || !types.Identical(results.At(0).Type(), types.Typ[types.Bool]) {
+		return false
+	}
+	param := paramAt(p, target.decl, index)
+	if param == nil || !a.isEvent(param.Type()) {
+		return false
+	}
+	parents := parentsOf(target.decl)
+	written := false
+	ast.Inspect(target.decl.Body, func(n ast.Node) bool {
+		if assign, ok := n.(*ast.AssignStmt); ok {
+			for _, lhs := range assign.Lhs {
+				written = written || a.mentions(p, lhs, param)
+			}
+		}
+		return !written
+	})
+	if written {
+		return false
+	}
+	for _, use := range usesAfter(p, target.decl, param, target.decl.Body.Pos()) {
+		switch parent := parents[use].(type) {
+		case *ast.SelectorExpr:
+			selection := p.info.Selections[parent]
+			_, addressed := parents[parent].(*ast.UnaryExpr)
+			if selection == nil || selection.Kind() != types.FieldVal || addressed || a.holdsEvent(selection.Type(), map[types.Type]bool{}) || a.containsEvent(selection.Type(), map[types.Type]bool{}) {
+				return false
+			}
+		case *ast.BinaryExpr:
+			if parent.Op != token.EQL && parent.Op != token.NEQ {
+				return false
+			}
+		case *ast.CallExpr:
+			f, ok := p.info.Uses[calleeIdent(parent.Fun)].(*types.Func)
+			if !ok || !pureComparators[f.FullName()] || parent.Fun == use {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// paramAt returns the parameter object at argument position index.
+func paramAt(p *checkedPackage, decl *ast.FuncDecl, index int) types.Object {
+	position := 0
+	for _, field := range decl.Type.Params.List {
+		names := field.Names
+		if len(names) == 0 {
+			names = []*ast.Ident{nil}
+		}
+		for _, name := range names {
+			if position == index {
+				if name == nil {
+					return nil
+				}
+				return p.info.ObjectOf(name)
+			}
+			position++
+		}
+	}
+	return nil
 }
 
 // confinedSite reports whether an assignment meets writerSite.Confinement.

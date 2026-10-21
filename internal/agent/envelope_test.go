@@ -125,7 +125,7 @@ func TestNonMutationEnvelopesOmitMutationMetadata(t *testing.T) {
 }
 
 func TestAdapterCLIInputRefusalMarshals(t *testing.T) {
-	e := NewCoreError(NewBase("cli-input-refusal", "concord_work_define", "capture"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, AdapterReason: "invalid_cli_input"})
+	e := NewCoreError(NewBase("cli-input-refusal", "concord_work_define", "capture"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "correct_request"}, EffectState: EffectNone, AdapterReason: "invalid_cli_input"})
 	e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
 	if _, err := e.Encode(); err != nil {
 		t.Fatalf("adapter CLI input refusal cannot marshal: %v", err)
@@ -133,6 +133,33 @@ func TestAdapterCLIInputRefusalMarshals(t *testing.T) {
 	e.Error.EffectState = EffectPossible
 	if err := e.Validate(); err == nil {
 		t.Fatal("pre-effect adapter input refusal accepted a possible effect")
+	}
+}
+
+func TestCorrectRequestRequiresPreEffectInputRefusal(t *testing.T) {
+	for _, origin := range []Origin{OriginCore, OriginAdapter} {
+		for _, test := range []struct {
+			kind   string
+			effect EffectState
+			retry  bool
+		}{
+			{"invalid_input", EffectNone, false},
+			{"invalid_input", EffectPossible, false},
+			{"invalid_input", EffectPartial, false},
+			{"invalid_input", EffectNone, true},
+			{"unauthorized", EffectNone, false},
+			{"approval_required", EffectNone, false},
+		} {
+			e := NewCoreError(NewBase("input-coupling", "concord_work_transition", "worker_abandon"), TypedError{Kind: test.kind, EffectState: test.effect, RetrySafe: test.retry, RecoveryAction: RecoveryAction{Kind: "correct_request"}})
+			e.Origin = origin
+			if origin == OriginAdapter {
+				e.Authority, e.Error.AdapterReason = AuthorityUnreachable, "invalid_tool_input"
+			}
+			want := test.kind == "invalid_input" && test.effect == EffectNone && !test.retry
+			if err := e.Validate(); (err == nil) != want {
+				t.Errorf("origin=%s kind=%s effect=%s retry=%v: %v", origin, test.kind, test.effect, test.retry, err)
+			}
+		}
 	}
 }
 
@@ -178,7 +205,7 @@ func TestAdapterEnvelopeAdmitsSchemaVocabulary(t *testing.T) {
 		t.Run("reason/"+reason, func(t *testing.T) {
 			typed := TypedError{Kind: "transport_failure", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone, AdapterReason: reason}
 			if reason == "invalid_cli_input" || reason == "invalid_request_wrapper" || reason == "invalid_tool_input" {
-				typed.Kind, typed.RecoveryAction.Kind = "invalid_input", "restart_query"
+				typed.Kind, typed.RecoveryAction.Kind = "invalid_input", "correct_request"
 			}
 			assertAdmitted(t, typed)
 		})
@@ -196,7 +223,7 @@ func TestAdapterEnvelopeAdmitsSchemaVocabulary(t *testing.T) {
 			case "operation_conflict":
 				typed.AdapterReason, typed.RecoveryAction.Kind, typed.EffectState = "unknown_effect", "reconcile_operation", EffectPossible
 			case "invalid_input":
-				typed.AdapterReason, typed.RecoveryAction.Kind = "invalid_cli_input", "restart_query"
+				typed.AdapterReason, typed.RecoveryAction.Kind = "invalid_cli_input", "correct_request"
 			}
 			assertAdmitted(t, typed)
 		})
@@ -224,7 +251,7 @@ func TestAdapterEnvelopeRetainsSchemaRejections(t *testing.T) {
 		"conflict recovery": func(e *Envelope) { e.Error.Kind, e.Error.AdapterReason = "operation_conflict", "unknown_effect" },
 		"input recovery":    func(e *Envelope) { e.Error.Kind, e.Error.AdapterReason = "invalid_input", "invalid_cli_input" },
 		"input retry": func(e *Envelope) {
-			e.Error.Kind, e.Error.AdapterReason, e.Error.RecoveryAction.Kind, e.Error.RetrySafe = "invalid_input", "invalid_request_wrapper", "restart_query", true
+			e.Error.Kind, e.Error.AdapterReason, e.Error.RecoveryAction.Kind, e.Error.RetrySafe = "invalid_input", "invalid_request_wrapper", "correct_request", true
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -282,7 +309,7 @@ func TestAdapterVacateGeneratedSchemaRecoveryScope(t *testing.T) {
 }
 
 func TestAdapterWrapperRefusalMarshals(t *testing.T) {
-	e := NewCoreError(NewBase("wrapper-refusal", "concord_work_browse", "list"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
+	e := NewCoreError(NewBase("wrapper-refusal", "concord_work_browse", "list"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "correct_request"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
 	e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
 	if _, err := e.Encode(); err != nil {
 		t.Fatalf("adapter wrapper refusal cannot marshal: %v", err)
@@ -294,7 +321,7 @@ func TestAdapterWrapperRefusalMarshals(t *testing.T) {
 }
 
 func TestAdapterWrapperRefusalUnresolvedOperation(t *testing.T) {
-	e := NewCoreError(NewBase("wrapper-unresolved", "concord_work_browse", ""), TypedError{Kind: "invalid_input", RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
+	e := NewCoreError(NewBase("wrapper-unresolved", "concord_work_browse", ""), TypedError{Kind: "invalid_input", RecoveryAction: RecoveryAction{Kind: "correct_request"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
 	e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
 	encoded, err := e.Encode()
 	if err != nil {
@@ -330,7 +357,7 @@ func TestAdapterWrapperRefusalUnresolvedOperation(t *testing.T) {
 
 func TestAdapterWrapperRefusalAcceptedOperationCoupling(t *testing.T) {
 	for _, pair := range []struct{ tool, operation string }{{"concord_work_browse", "list"}, {"concord_work_define", "capture"}} {
-		e := NewCoreError(NewBase("wrapper-coupling", pair.tool, pair.operation), TypedError{Kind: "invalid_input", RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
+		e := NewCoreError(NewBase("wrapper-coupling", pair.tool, pair.operation), TypedError{Kind: "invalid_input", RecoveryAction: RecoveryAction{Kind: "correct_request"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
 		e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
 		for name, mutate := range map[string]func(*TypedError){
 			"transport kind":  func(e *TypedError) { e.Kind, e.RecoveryAction.Kind = "transport_failure", "contact_operator" },

@@ -270,9 +270,9 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 		// Every consequence_v1 version, sized or full; every other version
 		// carries no policy.
 		generations := map[string][]int64{
-			"workflow.implementation": {34, 35, 36, 37},
-			"workflow.break_fix":      {31, 32},
-			"workflow.research":       {21},
+			"workflow.implementation": {34, 35, 36, 37, 38, 39},
+			"workflow.break_fix":      {31, 32, 33, 34, 35},
+			"workflow.research":       {21, 22, 23},
 		}
 		live := map[string]int64{}
 		for _, head := range BuiltinWorkflowDefinitions() {

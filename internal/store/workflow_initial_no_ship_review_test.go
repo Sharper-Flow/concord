@@ -144,7 +144,7 @@ func TestInitialNoShipHistoricalDeliveryKeepsTypedCorrection(t *testing.T) {
 	if err != nil || !workPinContainsAction(pin.NextValidIntents, "request_correction") || workPinContainsAction(pin.NextValidIntents, "record_delivery") {
 		t.Fatalf("historical negative-review pin = %#v, err=%v", pin, err)
 	}
-	correction, err := workflowDeliveryGateCorrectionContext(context.Background(), s.db, workID, mustDefinitionForPin(t, "workflow.implementation", 19), "delivery", "initial_review_test")
+	correction, err := workflowDeliveryGateCorrectionContextForRegistry(context.Background(), s.db, workID, mustDefinitionForPin(t, "workflow.implementation", 19), "delivery", "initial_review_test", BuiltinWorkflowRegistry())
 	if err != nil || correction == nil || correction.Disposition != "verification" {
 		t.Fatalf("negative findings misclassified or missing: %#v, err=%v", correction, err)
 	}
@@ -284,7 +284,7 @@ func TestRenewedNoShipObligationCarriesItsOwnEvidence(t *testing.T) {
 	if err != nil || !renewed {
 		t.Fatalf("later no_ship did not renew the obligation: outstanding=%v, err=%v", renewed, err)
 	}
-	correction, err := workflowDeliveryGateCorrectionContext(context.Background(), s.db, workID, def, "delivery", "initial_review_test")
+	correction, err := workflowDeliveryGateCorrectionContextForRegistry(context.Background(), s.db, workID, def, "delivery", "initial_review_test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}

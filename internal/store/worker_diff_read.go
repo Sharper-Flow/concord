@@ -89,6 +89,7 @@ func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity 
 		id, digest    string
 		version       int64
 		subject, tree string
+		editing       bool
 	}
 	editors := make([]editingDispatch, 0, 8)
 	for rows.Next() {
@@ -96,19 +97,27 @@ func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity 
 		if err := rows.Scan(&d.seq, &d.id, &d.version, &d.digest, &d.subject, &d.tree); err != nil {
 			return "", err
 		}
+		lane, err := LookupLane(d.id, d.version, d.digest)
+		if err != nil {
+			return "", err
+		}
+		d.editing = slices.Contains(lane.Capabilities, "edit_scoped_files")
 		editors = append(editors, d)
 	}
 	if err := rows.Err(); err != nil {
 		return "", err
 	}
-	// boundaries descend; the first boundary with an editing dispatch after
+	// Boundaries descend; the first boundary with an EDITING dispatch after
 	// it is the window start. A boundary with no editing history of its own
-	// cannot reset the base.
+	// cannot reset the base, and non-editing dispatches — a failed review
+	// retry between two correction supersessions — never count as editing
+	// history, or the retry itself would re-orphan the window the fallback
+	// just repaired.
 	var start int64
 	for _, boundary := range boundaries {
 		hasEditor := false
 		for _, d := range editors {
-			if d.seq > boundary {
+			if d.editing && d.seq > boundary {
 				hasEditor = true
 				break
 			}
@@ -119,14 +128,7 @@ func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity 
 		}
 	}
 	for _, d := range editors {
-		if d.seq <= start {
-			continue
-		}
-		lane, err := LookupLane(d.id, d.version, d.digest)
-		if err != nil {
-			return "", err
-		}
-		if !slices.Contains(lane.Capabilities, "edit_scoped_files") {
+		if d.seq <= start || !d.editing {
 			continue
 		}
 		if d.tree == "" {
@@ -241,6 +243,17 @@ func checkWorkerDiffSubject(ctx context.Context, runner GitRunner, before worker
 	return nil
 }
 
+// workerDiffSharedDiffArgs is the one owner of the diff argument list both
+// editing-surface readers share (CD-0225 D2): the global flags, the diff
+// subcommand, and the closed flag set that disables rename detection,
+// external diffs, and text conversion under the Myers algorithm. The review
+// diff read appends its patch-shaping flags; the terminal size observation
+// appends --numstat -z and the two commits. No second reader copies these
+// flags.
+func workerDiffSharedDiffArgs() []string {
+	return []string{"--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames", "--diff-algorithm=myers", "--no-indent-heuristic"}
+}
+
 // ReadWorkerDiff reads immutable objects only, creates no evidence, and samples
 // the same live authority again before returning at most one bounded byte page.
 func (s *Store) ReadWorkerDiff(ctx context.Context, req WorkerDiffRequest) (WorkerDiffPage, error) {
@@ -263,7 +276,7 @@ func (s *Store) ReadWorkerDiff(ctx context.Context, req WorkerDiffRequest) (Work
 	if err := checkWorkerDiffSubject(ctx, runner, before); err != nil {
 		return empty, err
 	}
-	args := []string{"--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames", "--full-index", "--diff-algorithm=myers", "--no-indent-heuristic", "--src-prefix=a/", "--dst-prefix=b/", "--unified=3", before.base, before.window.SubjectCommit, "--"}
+	args := append(workerDiffSharedDiffArgs(), "--full-index", "--src-prefix=a/", "--dst-prefix=b/", "--unified=3", before.base, before.window.SubjectCommit, "--")
 	content, err := runner.Run(ctx, before.repo, append(args, before.paths...)...)
 	if err != nil {
 		return empty, err

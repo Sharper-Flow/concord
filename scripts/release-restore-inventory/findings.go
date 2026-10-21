@@ -15,10 +15,13 @@ import (
 // A writer finding records, for one release, the analyzer that ran, the pairs
 // its resolved sites write, and every open site of its analysis. An open site
 // that a reviewed exemption covers is reported as exempted; every other open
-// site is held. Neither a reported write nor an exemption is a discharge: no
-// finding discharges a release's obligation for any (kind, version).
+// site is held. A discharge is the finding's computed proof that one
+// registered (kind, version) has no writer at that release: no resolved
+// write, held site, replay-held kind, or upcast-held pair can emit it. A
+// refused or missing analysis, and a held site that names no pairs, discharge
+// nothing.
 //
-// Three exemption classes are admitted, each by a recorded ruling. The first
+// Four exemption classes are admitted, each by a recorded ruling. The first
 // two are keyed by function, exact expression, and function digest:
 //
 //   - read_back: a site that reads a stored row's kind and version back.
@@ -30,14 +33,25 @@ import (
 //     a named kind stays held at that release.
 //   - upcast_confinement: a site the analysis confines to an upcaster
 //     (writerSite.Confinement), keyed by the dispatcher's name and digest,
-//     one exact guard it holds, and its callers' names and digests. The
-//     reviewed dispatcher refuses any result whose version is not the current
-//     version of the registration it is passed, and the reviewed callers pass
-//     the registry registration of the event's kind; a recorded-schema adapt
-//     between them may change the kind. So a covered site can still produce
-//     the current version of a kind with an older supported version or an
-//     upcaster, and of any kind at that version when the kind also has
-//     recorded schemas: the finding names those pairs as upcast_held_pairs.
+//     one exact guard it holds, its callers' names and digests, the pinned
+//     registeredEventKind helper the reviewed callers pass event.Kind
+//     through, by name and the digest of its exact declaration bytes, and,
+//     when the release has a recorded-schema adapt path, the proven adapt
+//     route: the adapt caller's name and digest and its forwarders'. An
+//     entry without adapt keys matches only a release whose analysis found
+//     no adapt route; an adapt-keyed entry matches only the exact route; a
+//     pin-less entry matches only an analysis that records no helper. The
+//     reviewed dispatcher refuses any result whose version is not the
+//     current version of the registration it is passed, and a recorded-
+//     schema adapt between the lookup and the dispatch may change the kind,
+//     so a covered site can still produce the current version of every kind
+//     with an older supported version or an upcaster: the finding names
+//     those pairs as upcast_held_pairs.
+//
+//   - comparison_only: an assignment whose function's Event result reaches,
+//     through its one static caller, only a bool comparator, keyed by the
+//     function's name and digest and the caller's and comparator's digests;
+//     the site expression is free, as in the censused table.
 //
 // Any drift of a keyed digest or expression leaves the site held.
 
@@ -60,10 +74,29 @@ type exemption struct {
 	DispatcherDigest string      `json:"dispatcher_digest,omitempty"`
 	Guard            string      `json:"guard,omitempty"`
 	Callers          []namedHash `json:"callers,omitempty"`
+	// RegisteredKind and RegisteredKindDigest pin the registry-lookup
+	// helper the reviewed callers pass event.Kind through, both or
+	// neither; only an upcast_confinement entry has them, and a pin-less
+	// entry covers only a release whose analysis records no helper.
+	RegisteredKind       string `json:"registered_kind,omitempty"`
+	RegisteredKindDigest string `json:"registered_kind_digest,omitempty"`
+	// AdaptCaller, AdaptCallerDigest, Forwarders, and AdaptValues key an
+	// upcast_confinement entry's adapt route, all or none together; an entry
+	// without them demands a route-free release.
+	AdaptCaller       string      `json:"adapt_caller,omitempty"`
+	AdaptCallerDigest string      `json:"adapt_caller_digest,omitempty"`
+	Forwarders        []namedHash `json:"forwarders,omitempty"`
+	AdaptValues       []namedHash `json:"adapt_values,omitempty"`
 	// CheckSubjectDigest is the reviewed checkSubject a replay_decoder's
 	// fold refusals rely on; no other class has one.
 	CheckSubjectDigest string `json:"check_subject_digest,omitempty"`
-	Check              string `json:"check"`
+	// Caller, CallerDigest, Comparator, and ComparatorDigest key a
+	// comparison_only entry; no other class has them.
+	Caller           string `json:"caller,omitempty"`
+	CallerDigest     string `json:"caller_digest,omitempty"`
+	Comparator       string `json:"comparator,omitempty"`
+	ComparatorDigest string `json:"comparator_digest,omitempty"`
+	Check            string `json:"check"`
 }
 
 type exemptionTable struct {
@@ -98,22 +131,47 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 			}
 			callers = string(data)
 		}
+		route := ""
+		if (e.AdaptCaller == "") != (e.AdaptCallerDigest == "") || (e.AdaptCaller == "") != (len(e.Forwarders) == 0) || (e.AdaptCaller == "") != (len(e.AdaptValues) == 0) {
+			return table, fmt.Errorf("exemption %q names only part of an adapt route", e.ID)
+		}
+		if e.AdaptCaller != "" {
+			forwarders, err := json.Marshal(e.Forwarders)
+			if err != nil {
+				return table, err
+			}
+			values, err := json.Marshal(e.AdaptValues)
+			if err != nil {
+				return table, err
+			}
+			route = e.AdaptCaller + "\x00" + e.AdaptCallerDigest + "\x00" + string(forwarders) + "\x00" + string(values)
+		}
 		upcast := []string{e.Dispatcher, e.DispatcherDigest, e.Guard, callers}
+		if route != "" {
+			upcast = append(upcast, route)
+		}
+		if (e.RegisteredKind == "") != (e.RegisteredKindDigest == "") {
+			return table, fmt.Errorf("exemption %q names only part of a registered-kind pin", e.ID)
+		}
+		pin := []string{e.RegisteredKind, e.RegisteredKindDigest}
 		check := []string{e.CheckSubjectDigest}
-		keys, absent := site, slices.Concat(upcast, check)
+		comparison := []string{e.Caller, e.CallerDigest, e.Comparator, e.ComparatorDigest}
+		keys, absent := site, slices.Concat(upcast, check, comparison, pin)
 		switch e.Class {
 		case "read_back":
 		case "replay_decoder":
-			keys, absent = slices.Concat(site, check), upcast
+			keys, absent = slices.Concat(site, check), slices.Concat(upcast, comparison, pin)
 		case "upcast_confinement":
-			keys, absent = upcast, slices.Concat(site, check)
+			keys, absent = upcast, slices.Concat(site, check, comparison)
+		case "comparison_only":
+			keys, absent = slices.Concat([]string{e.Function, e.FunctionDigest}, comparison), slices.Concat(upcast, check, pin)
 		default:
 			return table, fmt.Errorf("exemption %q has unknown class %q", e.ID, e.Class)
 		}
 		if slices.Contains(append([]string{e.ID, e.Check}, keys...), "") || slices.ContainsFunc(absent, func(key string) bool { return key != "" }) {
 			return table, fmt.Errorf("exemption %q lacks a key of its class, its identity, or its check record, or has another class's key", e.ID)
 		}
-		key := strings.Join(slices.Concat(site, upcast), "\x00")
+		key := strings.Join(slices.Concat(site, upcast, []string{e.Caller, e.CallerDigest, e.Comparator, e.ComparatorDigest, e.RegisteredKind, e.RegisteredKindDigest}), "\x00")
 		if seen[e.ID] || seen[key] {
 			return table, fmt.Errorf("exemption %q is repeated", e.ID)
 		}
@@ -126,10 +184,37 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 // covers reports whether an entry covers one open site of an analysis.
 func (e exemption) covers(site writerSite, analysis writerAnalysis) bool {
 	if e.Class == "upcast_confinement" {
-		d := analysis.Dispatcher
-		return site.Confinement == "upcaster" && d != nil && d.Function == e.Dispatcher && d.FunctionDigest == e.DispatcherDigest && slices.Contains(d.Guards, e.Guard) && slices.Equal(d.Callers, e.Callers)
+		d, route := analysis.Dispatcher, analysis.Adapt
+		if d == nil {
+			return false
+		}
+		// The registered-kind pin covers only the exact helper
+		// declaration the analysis records; a pin-less entry covers only
+		// an analysis that records none.
+		helper := d.RegisteredKind != nil && d.RegisteredKind.Function == e.RegisteredKind && d.RegisteredKind.Digest == e.RegisteredKindDigest
+		if e.RegisteredKind == "" {
+			helper = d.RegisteredKind == nil
+		}
+		common := helper && site.Confinement == "upcaster" && d.Function == e.Dispatcher && d.FunctionDigest == e.DispatcherDigest && slices.Contains(d.Guards, e.Guard) && slices.Equal(d.Callers, e.Callers)
+		if e.AdaptCaller == "" {
+			return common && route == nil
+		}
+		return common && route != nil && route.Function == e.AdaptCaller && route.FunctionDigest == e.AdaptCallerDigest && slices.Equal(route.Forwarders, e.Forwarders) && slices.Equal(route.Values, e.AdaptValues)
+	}
+	if e.Class == "comparison_only" {
+		c := site.Comparison
+		return c != nil && site.Function == e.Function && site.FunctionDigest == e.FunctionDigest && c.Caller == e.Caller && c.CallerDigest == e.CallerDigest && c.Comparator == e.Comparator && c.ComparatorDigest == e.ComparatorDigest
 	}
 	return site.Function == e.Function && site.Expression == e.Expression && site.FunctionDigest == e.FunctionDigest
+}
+
+// discharge is one registered obligation a finding's exemptions proved
+// unwritable at that release, with the exemption entries the proof relied
+// on.
+type discharge struct {
+	Kind           string   `json:"kind"`
+	PayloadVersion int      `json:"payload_version"`
+	Exemptions     []string `json:"exemptions"`
 }
 
 // writerFinding is one release's writer result: the analyzer and exemption
@@ -146,7 +231,31 @@ type writerFinding struct {
 	Exempted      []exemptedSite `json:"exempted_sites,omitempty"`
 	ReplayHeld    []string       `json:"replay_held_kinds,omitempty"`
 	UpcastHeld    []string       `json:"upcast_held_pairs,omitempty"`
+	Discharged    []discharge    `json:"discharged"`
+	Undischarged  []string       `json:"undischarged"`
 	FindingSource string         `json:"finding_source"`
+}
+
+// pairMatches reports whether a site pair can produce (kind, version) at a
+// release whose registered current versions are current. A version form the
+// matcher does not know matches every version.
+func pairMatches(pair, kind string, version int, current map[string]int) bool {
+	k, v, ok := strings.Cut(pair, " v")
+	if !ok {
+		return true
+	}
+	if k != "*" && k != kind {
+		return false
+	}
+	if v == "*" {
+		return true
+	}
+	if other, isCurrent := strings.CutPrefix(v, "cur:"); isCurrent {
+		cur, registered := current[other]
+		return !registered || cur == version
+	}
+	n, err := strconv.Atoi(v)
+	return err != nil || n == version
 }
 
 // exemptedSite is an open site and the exemption that covers it.
@@ -174,7 +283,7 @@ func writerFindings(inv inventory, table exemptionTable) []writerFinding {
 			continue
 		}
 		analysis, analyzed := inv.Analyses[result.Group]
-		finding := writerFinding{Tag: result.Tag, Analyzer: analysis.Analyzer, Exemptions: table.digest, FindingSource: findingSource}
+		finding := writerFinding{Tag: result.Tag, Analyzer: analysis.Analyzer, Exemptions: table.digest, Discharged: []discharge{}, Undischarged: []string{}, FindingSource: findingSource}
 		switch {
 		case !analyzed:
 			finding.Refused = "no analysis for the release's group"
@@ -202,12 +311,62 @@ func writerFindings(inv inventory, table exemptionTable) []writerFinding {
 					for _, r := range inv.Groups[result.Group] {
 						if r.MinSupported < r.CurrentVersion || len(r.Upcasters) > 0 {
 							finding.UpcastHeld = append(finding.UpcastHeld, r.Kind+" v"+strconv.Itoa(r.CurrentVersion))
-							if len(r.RecordedSchemas) > 0 {
-								finding.UpcastHeld = append(finding.UpcastHeld, "* v"+strconv.Itoa(r.CurrentVersion))
-							}
 						}
 					}
 					finding.UpcastHeld = slices.Compact(slices.Sorted(slices.Values(finding.UpcastHeld)))
+				}
+			}
+			// A discharge is the exemption table's proof that a registered
+			// (kind, version) has no writer at this release: every resolved
+			// write and held site must miss the pair, the replay decoder
+			// must not hold its kind, and no exempted upcaster can produce
+			// it — a pair an upcast_held entry names stays an obligation. A
+			// held site that names no pairs misses nothing provably, so it
+			// blocks every pair; the live analyzer always names a wildcard
+			// pair, so only an analysis it did not produce can get here.
+			current := map[string]int{}
+			for _, r := range inv.Groups[result.Group] {
+				current[r.Kind] = r.CurrentVersion
+			}
+			replay := map[string]bool{}
+			for _, kind := range finding.ReplayHeld {
+				replay[kind] = true
+			}
+			heldBlind := slices.ContainsFunc(finding.Held, func(site writerSite) bool { return len(site.Pairs) == 0 })
+			for _, r := range inv.Groups[result.Group] {
+				// A registration whose accepted range is not a fact — a
+				// minimum below 1, or a current below its minimum — proves
+				// nothing unwritable: every version it names stays an
+				// obligation, and an inverted range names none.
+				invalid := r.MinSupported < 1 || r.CurrentVersion < r.MinSupported
+				for version := r.MinSupported; version <= r.CurrentVersion; version++ {
+					blocked := invalid || heldBlind || replay[r.Kind] || replay["*"]
+					for _, held := range finding.UpcastHeld {
+						blocked = blocked || pairMatches(held, r.Kind, version, current)
+					}
+					for _, write := range analysis.Writes {
+						blocked = blocked || pairMatches(write, r.Kind, version, current)
+					}
+					for _, site := range finding.Held {
+						for _, pair := range site.Pairs {
+							blocked = blocked || pairMatches(pair, r.Kind, version, current)
+						}
+					}
+					pair := r.Kind + " v" + strconv.Itoa(version)
+					if blocked {
+						finding.Undischarged = append(finding.Undischarged, pair)
+						continue
+					}
+					relied := []string{}
+					for _, covered := range finding.Exempted {
+						for _, pair := range covered.Pairs {
+							if pairMatches(pair, r.Kind, version, current) && !slices.Contains(relied, covered.Exemption) {
+								relied = append(relied, covered.Exemption)
+							}
+						}
+					}
+					slices.Sort(relied)
+					finding.Discharged = append(finding.Discharged, discharge{r.Kind, version, relied})
 				}
 			}
 		}

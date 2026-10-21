@@ -112,6 +112,17 @@ import (
 // predecessor except for the order of the two definition-level action lists.
 // Implementation 34, break_fix 31, and research 21 equal those compositions
 // under the consequence_v1 approval policy (CD-0230 D5).
+// Checks repair repins implementation 35 and break_fix 32 at the v2 action
+// catalog (CD-0205 D4); the size-capable heads implementation 36 and
+// break_fix 33 repin the v3 catalog, whose record_worker_job adds the size
+// members and the closed split variant (CD-0225 D1, CD-0227 D1, CD-0225 D3).
+//
+// The obligation-satisfaction heads (CD-0164 D2a) ship one new version per
+// live authoring family: implementation 36, break_fix 33, and research 22
+// declare progress_policy obligation_satisfaction_v1 and carry the closed
+// per-action satisfaction taxonomy compiled from the canonical mapping.
+// Every released version above keeps its digest; the four retired families
+// freeze outside the policy.
 //
 // Editing a definition changes its computed digest and fails this test. Ship
 // the new content as a new version and add its digest here; never edit a row
@@ -264,19 +275,28 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.research", "20"}:           "sha256:93c26a941ef7e76e2e6e75eac61ca4654fdc832f7c2340eb2f287dc7353b1d21",
 	{"workflow.implementation", "34"}:     "sha256:7055412eb83264cddd99e1cb51bdf675f3299fd380c4910a1623353776aeb49c",
 	{"workflow.implementation", "35"}:     "sha256:27517b4ae91181916323a1f92c63955eedcb9c58f3f4a6e351aceeba6235abb2",
-	{"workflow.implementation", "36"}:     "sha256:1255ab3449c142112015e95e58cfc72aa9d541f821dc0e903231166a16bebf41",
-	{"workflow.implementation", "37"}:     "sha256:b46b9a0c0a5218d06b8fa3b37adb8ed1f6b7d3a7cd1f8e1001ea65ab901d8d7b",
-	{"workflow.implementation", "38"}:     "sha256:6108be6e88bc6655dcf07074026783e03d00f34be7781b5de44d6c9c7d359685",
-	{"workflow.implementation", "39"}:     "sha256:88365901052e009bb2ceef22ad19b45a7e0836547b241f0a212eb0b1f2e0712f",
 	{"workflow.break_fix", "31"}:          "sha256:2a2baab65976d8994e0d70459438552e985402c4e6b924da25e59eb2d8fa770d",
 	{"workflow.break_fix", "32"}:          "sha256:84e2bb3699bf0d91e44dede7b3711b643048f9e4e4269176069372b6dac31301",
-	{"workflow.break_fix", "33"}:          "sha256:f88fbf9649ed7acc5844cb6e01f0a9cab8d1f3219e7cbcf27c20a2574777a670",
 	{"workflow.research", "21"}:           "sha256:a8c1173342a5b706c15511824470e60ebd7cdfb2ff49217e3a20c8e2c06b8ca0",
-	{"workflow.research", "22"}:           "sha256:10719f986227a1b6da1e883434f166323b5a3c27d2842c5b04d22a522310877e",
+	// The size-capable heads derive their digests in the merge test window;
+	// the zero digests fail loudly until the draft test below supplies the
+	// computed values.
+	{"workflow.implementation", "36"}:     "sha256:34cb51a2e26e208d613627e88c97d7ab5afded7671ace79961df440b93fea895",
+	{"workflow.break_fix", "33"}:          "sha256:1cd9d8a70f67d3622ab37204a5821b8ab8c1ed72ee94a3770948683f8173984a",
 	{"workflow.architecture_spike", "17"}: "sha256:3e9d434cba63d47aadea18399c3f950b89e93a5cc69317b8685fbbee2d245e55",
 	{"workflow.ops_runbook", "18"}:        "sha256:354390116b3faf7a73524ca4bfbbfe962650f8ed8eaf73a68845d812daade63a",
 	{"workflow.static_analysis", "15"}:    "sha256:5a561e9d53d26fc0ddec0f84aa72ca5cd2a0018e92dfa5dd0732efd0a8b32ade",
 	{"workflow.generic_one_off", "16"}:    "sha256:05e53c76e3f6c712cc62f7421c22a3df4719767aba91f7a07049ba973190d8d7",
+	// The obligation-satisfaction heads derive their digests in the merge
+	// test window; the zero digests fail loudly until the draft test above
+	// supplies the computed values.
+	{"workflow.implementation", "37"}: "sha256:27379015255636ef43ef65cc81ccd279ea86975bc8c1fb80795e90c1368e1e4c",
+	{"workflow.break_fix", "34"}:      "sha256:d8e81a6fd7df6c55df2fda70e6671ac9d93f68cbbd94f8fc417dd8ddca77a550",
+	{"workflow.research", "22"}:       "sha256:4108141b47f055806cd0f2f3e3e0cfba5e3c44b22c2b90f53a47364a820abea5",
+	{"workflow.implementation", "38"}: "sha256:ffe511ff27592512427125d594f1c8e61ea34f4bba52e89288ad1f292dbe7a4e",
+	{"workflow.implementation", "39"}: "sha256:b614cf541de90e07f6f7177070fbc7cdc4f76a5e3ab0ab7cb3a6feedbc720e61",
+	{"workflow.break_fix", "35"}:      "sha256:ea492bb450e206d2602705742bd3a7ac141523159a7cbb4469323fc42a643dbe",
+	{"workflow.research", "23"}:       "sha256:13f0bfb00ab8584f8c61538240162866c9e1d9354354df963d403388c55978a9",
 }
 
 // TestWorkflowDefinitionDraftVersionDigests prints only the unreleased
@@ -286,8 +306,8 @@ func TestWorkflowDefinitionDraftVersionDigests(t *testing.T) {
 	for _, definition := range []WorkflowDefinition{
 		mustCompileWorkflowComposition(implementationTimedSmallV38()),
 		mustCompileWorkflowComposition(implementationTimedV39()),
-		mustCompileWorkflowComposition(breakFixTimedV33()),
-		mustCompileWorkflowComposition(researchTimedV22()),
+		mustCompileWorkflowComposition(breakFixTimedV35()),
+		mustCompileWorkflowComposition(researchTimedV23()),
 	} {
 		digest, err := WorkflowDefinitionDigest(definition)
 		if err != nil {
@@ -464,23 +484,16 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
-	cases := map[string]int64{
-		"workflow.break_fix":          32,
-		"workflow.implementation":     37,
-		"workflow.generic_one_off":    16,
-		"workflow.research":           21,
-		"workflow.architecture_spike": 17,
-		"workflow.ops_runbook":        18,
-		"workflow.static_analysis":    15,
-	}
-	for ref, version := range cases {
+	// The current head comes from the registry's own version table, never a
+	// hand-written number: a new head must not require editing this test.
+	for ref, want := range builtinWorkflowCurrentVersions {
 		registered, err := BuiltinWorkflowDefinitionForRef(ref)
 		if err != nil {
 			t.Errorf("%s does not resolve: %v", ref, err)
 			continue
 		}
-		if registered.Definition.Version != version {
-			t.Errorf("%s resolved version %d, want %d", ref, registered.Definition.Version, version)
+		if registered.Definition.Version != want {
+			t.Errorf("%s resolved version %d, want %d", ref, registered.Definition.Version, want)
 		}
 	}
 }

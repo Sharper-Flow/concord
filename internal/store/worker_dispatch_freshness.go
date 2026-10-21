@@ -71,8 +71,14 @@ type workerDispatchProof struct {
 	observation *WorkerObservedDelivery
 	anchor      *reviewDeliveryAnchor
 	ancestry    reviewSubjectAncestry
-	acceptance  bool
-	pinReceipt  *WorktreeVerifyResult
+	// correctionAncestry proves the dispatched job's correction base is an
+	// ancestor of the observed subject, probed beside the review
+	// delivery anchor. The repeat dispatch admission revalidates it.
+	correctionBase     string
+	correctionAncestry reviewSubjectAncestry
+	splitOverruns      []workerSplitOverrunAncestry
+	acceptance         bool
+	pinReceipt         *WorktreeVerifyResult
 
 	// readings carries one sealed witness per declared required reading:
 	// the SQL-sampled source identities sampled in the same read snapshot,
@@ -127,6 +133,15 @@ type PrepareWorkerDispatchRequest struct {
 	WorkID          string
 	SessionWorktree string
 	Runner          GitRunner
+	// WorkerJob is the dispatched job binding the dispatch payload carried,
+	// resolved by the authenticated mutation boundary before preparation.
+	// When it names a capped job, its recorded base_commit anchors the
+	// correction ancestry probe beside the review delivery anchor.
+	WorkerJob *WorkerJobBinding
+	// WorkerAttemptID is the rejected attempt a combined rejection's derived
+	// retry re-dispatches; its authorization's job binding anchors the same
+	// probe when the retry carries no packet of its own.
+	WorkerAttemptID string
 }
 
 // workerDispatchSample is the SQL-sampled identity set one dispatch
@@ -146,13 +161,18 @@ type workerDispatchSample struct {
 	readings   []dispatchReadingWitness
 	anchors    []reviewDeliveryAnchor
 	pinReceipt *WorktreeVerifyResult
+
+	// correctionBase is the dispatched job's retained original base; empty
+	// before the job's first implementation dispatch or when unnamed.
+	correctionBase string
+	splitOverruns  []string
 }
 
 // sampleWorkerDispatchStateInto samples the dispatch state into the
 // caller's sample so the preparation's read snapshot closure stays a single
 // call. It performs SQL only.
-func sampleWorkerDispatchStateInto(ctx context.Context, q queryer, workID string, sample *workerDispatchSample) error {
-	sampled, err := sampleWorkerDispatchState(ctx, q, workID)
+func sampleWorkerDispatchStateInto(ctx context.Context, q queryer, request PrepareWorkerDispatchRequest, sample *workerDispatchSample) error {
+	sampled, err := sampleWorkerDispatchState(ctx, q, request)
 	if err != nil {
 		return err
 	}
@@ -165,7 +185,8 @@ func sampleWorkerDispatchStateInto(ctx context.Context, q queryer, workID string
 // worktree entry list through one queryer so every sampled identity observes
 // one snapshot. It performs SQL only; the caller resolves canonical paths
 // and probes Git only after the snapshot closes.
-func sampleWorkerDispatchState(ctx context.Context, q queryer, workID string) (workerDispatchSample, error) {
+func sampleWorkerDispatchState(ctx context.Context, q queryer, request PrepareWorkerDispatchRequest) (workerDispatchSample, error) {
+	workID := request.WorkID
 	var sample workerDispatchSample
 	if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&sample.version); err != nil {
 		if err == sql.ErrNoRows {
@@ -223,6 +244,24 @@ func sampleWorkerDispatchState(ctx context.Context, q queryer, workID string) (w
 	if err != nil {
 		return sample, err
 	}
+	binding := request.WorkerJob
+	if binding == nil && request.WorkerAttemptID != "" {
+		_, resolved, resolveErr := dispatchCompletionJobForAttempt(ctx, q, request.WorkID, request.WorkerAttemptID)
+		if resolveErr != nil {
+			return sample, resolveErr
+		}
+		binding = resolved
+	}
+	if binding != nil {
+		sample.correctionBase, err = workerJobRetainedBaseTx(ctx, q, request.WorkID, binding.JobID)
+		if err != nil {
+			return sample, err
+		}
+		sample.splitOverruns, err = workerJobSplitOverrunCommitsTx(ctx, q, request.WorkID, binding.JobID)
+		if err != nil {
+			return sample, err
+		}
+	}
 	return sample, nil
 }
 
@@ -252,7 +291,7 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 	}
 	var sample workerDispatchSample
 	if err := s.readSnapshot(ctx, func(q queryer) error {
-		return sampleWorkerDispatchStateInto(ctx, q, request.WorkID, &sample)
+		return sampleWorkerDispatchStateInto(ctx, q, request, &sample)
 	}); err != nil {
 		return nil, err
 	}
@@ -289,6 +328,10 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 	if claimFound {
 		proof.claimPath, proof.claimBranch, proof.claimOpID, proof.projectID, proof.claimState = entry.Path, entry.Branch, entry.ClaimOpID, entry.ProjectID, entry.State
 		proof.probePath = probePath
+	}
+	proof.correctionBase = sample.correctionBase
+	for _, commit := range sample.splitOverruns {
+		proof.splitOverruns = append(proof.splitOverruns, workerSplitOverrunAncestry{commit: commit})
 	}
 	proof.anchor = selectReviewDeliveryAnchor(sample.anchors, proof.sessionIdentity)
 	if acceptance && sample.pinReceipt != nil && (!claimFound || entry.Path != sample.pinReceipt.Path || entry.ProjectID != sample.pinReceipt.ProjectID) {
@@ -330,12 +373,13 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 		// preparation for an editing/recovery lane.
 		anchorCommit, _ = proof.anchor.cleanCommit()
 	}
-	observation, ancestry, err := observeDispatchSubject(ctx, runner, probePath, anchorCommit)
+	observation, ancestry, correctionAncestry, err := observeDispatchSubject(ctx, runner, probePath, anchorCommit, proof.correctionBase, proof.splitOverruns)
 	if err != nil {
 		return nil, err
 	}
 	proof.observation = observation
 	proof.ancestry = ancestry
+	proof.correctionAncestry = correctionAncestry
 	return &WorkerDispatchPreparation{proof: proof}, nil
 }
 
@@ -369,36 +413,47 @@ func selectDispatchClaimEntry(entries []WorktreeEntry, sessionWorktree string) (
 // observeDispatchSubject runs the read-only Git observation of one claimed
 // worktree under the single fixed probe deadline. A failed command or the
 // deadline produces a typed refusal before any effect.
-func observeDispatchSubject(ctx context.Context, runner GitRunner, path, anchorCommit string) (*WorkerObservedDelivery, reviewSubjectAncestry, error) {
+func observeDispatchSubject(ctx context.Context, runner GitRunner, path, anchorCommit, correctionBase string, splitOverruns []workerSplitOverrunAncestry) (*WorkerObservedDelivery, reviewSubjectAncestry, reviewSubjectAncestry, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, workerDispatchObservationDeadline)
 	defer cancel()
 	status, err := runner.Run(probeCtx, path, "status", "--porcelain=v1", "-z", "--untracked-files=all")
 	if err != nil {
-		return nil, reviewSubjectAncestry{}, dispatchSubjectProbeFailure("clean status", probeCtx, err)
+		return nil, reviewSubjectAncestry{}, reviewSubjectAncestry{}, dispatchSubjectProbeFailure("clean status", probeCtx, err)
 	}
 	head, err := runner.Run(probeCtx, path, "rev-parse", "--verify", "HEAD^{commit}")
 	if err != nil {
-		return nil, reviewSubjectAncestry{}, dispatchSubjectProbeFailure("HEAD commit", probeCtx, err)
+		return nil, reviewSubjectAncestry{}, reviewSubjectAncestry{}, dispatchSubjectProbeFailure("HEAD commit", probeCtx, err)
 	}
 	commit := strings.TrimSpace(string(head))
 	if !worktreeSHAPattern.MatchString(commit) {
-		return nil, reviewSubjectAncestry{}, newFailure(KindGitUnreachable, workerDispatchFreshnessOp, "the claimed worktree's HEAD is not one raw commit OID", true, "retry once the worktree resolves a commit")
+		return nil, reviewSubjectAncestry{}, reviewSubjectAncestry{}, newFailure(KindGitUnreachable, workerDispatchFreshnessOp, "the claimed worktree's HEAD is not one raw commit OID", true, "retry once the worktree resolves a commit")
 	}
-	var ancestry reviewSubjectAncestry
-	if anchorCommit != "" && anchorCommit != commit && len(status) == 0 {
-		_, ancestorErr := runner.Run(probeCtx, path, "--no-replace-objects", "merge-base", "--is-ancestor", anchorCommit, commit)
-		if ancestorErr == nil {
-			ancestry.strictDescendant = true
-		} else {
-			var exit *exec.ExitError
-			if !errors.As(ancestorErr, &exit) || exit.ExitCode() != 1 || probeCtx.Err() != nil {
-				// An ancestry outage refuses review, but cannot prevent an
-				// editing lane from producing a fresh accepted delivery.
-				ancestry.failure = dispatchSubjectProbeFailure("review subject ancestry", probeCtx, ancestorErr)
-			}
+	var ancestry, correctionAncestry reviewSubjectAncestry
+	if len(status) == 0 {
+		ancestry = observeDispatchAncestry(probeCtx, runner, path, "review subject ancestry", anchorCommit, commit)
+		correctionAncestry = observeDispatchAncestry(probeCtx, runner, path, "correction base ancestry", correctionBase, commit)
+		for i := range splitOverruns {
+			splitOverruns[i].ancestry = observeDispatchAncestry(probeCtx, runner, path, "split overrun ancestry", splitOverruns[i].commit, commit)
 		}
 	}
-	return &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}, ancestry, nil
+	return &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}, ancestry, correctionAncestry, nil
+}
+
+// An ancestry outage stays scoped to the admission that needs this proof;
+// review outages do not prevent an editing lane from producing a new delivery.
+func observeDispatchAncestry(ctx context.Context, runner GitRunner, path, what, ancestor, subject string) reviewSubjectAncestry {
+	if ancestor == "" || ancestor == subject {
+		return reviewSubjectAncestry{}
+	}
+	_, err := runner.Run(ctx, path, "--no-replace-objects", "merge-base", "--is-ancestor", ancestor, subject)
+	if err == nil {
+		return reviewSubjectAncestry{strictDescendant: true}
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 && ctx.Err() == nil {
+		return reviewSubjectAncestry{}
+	}
+	return reviewSubjectAncestry{failure: dispatchSubjectProbeFailure(what, ctx, err)}
 }
 
 // dispatchSubjectProbeFailure classifies one probe failure: the fixed
@@ -408,7 +463,7 @@ func dispatchSubjectProbeFailure(what string, probeCtx context.Context, err erro
 	if probeCtx.Err() != nil {
 		return wrapFailure(KindTimeout, workerDispatchFreshnessOp, "the dispatch subject observation exceeded its fixed probe deadline while reading "+what, true, "retry the dispatch once the worktree answers", err)
 	}
-	return wrapFailure(KindGitUnreachable, workerDispatchFreshnessOp, "cannot observe the claimed worktree's "+what, true, "retry the dispatch once the worktree is reachable", err)
+	return wrapFailure(KindGitUnreachable, workerDispatchFreshnessOp, "cannot observe the claimed worktree's "+what, true, "restore the referenced objects or repair repository access, then prepare the dispatch again", err)
 }
 
 // admitWorkerDispatchSubjectFreshness is the transactional half of the one

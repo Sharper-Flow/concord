@@ -498,7 +498,7 @@ func TestWorkflowTimingShipClassificationAndFirstSubmission(t *testing.T) {
 
 func TestWorkflowTimingUsesNewGenerations(t *testing.T) {
 	for ref, versions := range map[string][]int64{
-		"workflow.implementation": {38, 39}, "workflow.break_fix": {33}, "workflow.research": {22},
+		"workflow.implementation": {38, 39}, "workflow.break_fix": {35}, "workflow.research": {23},
 	} {
 		for _, version := range versions {
 			entry, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
@@ -547,11 +547,11 @@ func TestWorkflowTimingSubmissionClassification(t *testing.T) {
 	}{
 		{"unsized", "https://github.com/example/project.git", "", "", "not_applicable", "unsized", false, implementationTimedV39()},
 		{"unregistered", "", "", "", "unavailable", "unregistered_merge_route", true, implementationTimedV39()},
-		{"other forge", "https://elsewhere.invalid/example/project", "", "", "unavailable", "unregistered_merge_route", true, breakFixTimedV33()},
-		{"research", "https://github.com/example/project", "", "", "not_applicable", "research_outcome", true, researchTimedV22()},
-		{"legacy pin", "https://github.com/example/project", "", "", "unavailable", "legacy_definition", true, implementationCompositionV37()},
+		{"other forge", "https://elsewhere.invalid/example/project", "", "", "unavailable", "unregistered_merge_route", true, breakFixTimedV35()},
+		{"research", "https://github.com/example/project", "", "", "not_applicable", "research_outcome", true, researchTimedV23()},
+		{"legacy pin", "https://github.com/example/project", "", "", "unavailable", "legacy_definition", true, implementationObligationV37()},
 		{"full implementation", "git@github.com:Example/Project.git", "https://github.com/Example/Project/pull/7", "asserted", "merge_route", "", true, implementationTimedV39()},
-		{"break fix", "https://github.com/example/project", "https://github.com/example/project/pull/8", "asserted", "merge_route", "", true, breakFixTimedV33()},
+		{"break fix", "https://github.com/example/project", "https://github.com/example/project/pull/8", "asserted", "merge_route", "", true, breakFixTimedV35()},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			const workID = "timing-classification"
@@ -668,10 +668,10 @@ func TestWorkflowTimingLegacyUpcastDoesNotInventMetadata(t *testing.T) {
 
 func TestWorkflowTimingKeepsBaselineActionContracts(t *testing.T) {
 	for _, pair := range [][2]WorkflowComposition{
-		{implementationSmallV36(), implementationTimedSmallV38()},
-		{implementationCompositionV37(), implementationTimedV39()},
-		{breakFixCompositionV32(), breakFixTimedV33()},
-		{researchConsequenceV21(), researchTimedV22()},
+		{smallImplementation(implementationObligationV37()), implementationTimedSmallV38()},
+		{implementationObligationV37(), implementationTimedV39()},
+		{breakFixObligationV34(), breakFixTimedV35()},
+		{researchObligationV22(), researchTimedV23()},
 	} {
 		before, after := mustCompileWorkflowComposition(pair[0]), mustCompileWorkflowComposition(pair[1])
 		for _, action := range before.ActionDefinitions {

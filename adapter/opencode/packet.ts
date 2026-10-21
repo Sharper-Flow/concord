@@ -460,6 +460,12 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     const selected = selectReadyWorkerJob(request.workId, pinned, lane.capability_class)
     if (selected.failure) return { failure: selected.failure }
     workerJob = selected.job
+    // The published caller exclusions bind only an implementation dispatch
+    // (CD-0227 D1); the core refuses them on every other lane.
+    if (workerJob && lane.capability_class !== "implementation" && Object.hasOwn(workerJob, "caller_exclusions")) {
+      const { caller_exclusions: _excluded, ...laneJob } = workerJob
+      workerJob = laneJob
+    }
     if (lane.capability_class === "verification" && (!Array.isArray(workerJob?.checks) || workerJob.checks.length === 0)) {
       return failure("worker_job_unavailable", `work ${request.workId} requires recorded executable checks for a verification job; record the bounded checks before dispatching this lane`)
     }

@@ -120,7 +120,7 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *test
 	// the version unchanged, and no attempt window opened.
 	blockedAttempt := "attempt:" + workID + ":blocked-successor"
 	blockedPacket := dispatchWorkerPacket(t, s, workID, "repair", blockedAttempt)
-	blockedPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *jobB)
+	blockedPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *jobB, "implement")
 	versionBefore := readWorkVersion(t, s, workID)
 	eventsBefore := sequenceWitnessEventCount(t, s, workID)
 	if err := dispatchJobPacketForTest(t, s, workID, blockedAttempt, fixture.owner, "sequence-blocked-"+workID, blockedPacket); err == nil || !strings.Contains(err.Error(), "is not ready") {

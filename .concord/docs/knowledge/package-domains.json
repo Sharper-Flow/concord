@@ -161,6 +161,12 @@
     },
     {
       "domain_ids": [
+        "agent-surface"
+      ],
+      "path": "scripts/schema-guidance"
+    },
+    {
+      "domain_ids": [
         "workflow-engine"
       ],
       "path": "scripts/workflow-action-contracts"

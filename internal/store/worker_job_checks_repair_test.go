@@ -76,7 +76,7 @@ func TestChecksRepairDispatchPropagatesUnreadableAuthorization(t *testing.T) {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	err = verifyWorkerDispatchedJobBindingTx(ctx, tx, workID, "attempt:unreadable", binding)
+	err = verifyWorkerDispatchedJobBindingTx(ctx, tx, Event{SubjectID: workID}, "attempt:unreadable", binding)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindUnavailable {
 		t.Fatalf("unreadable confirming authorization = %v, want unavailable", err)
@@ -232,7 +232,7 @@ func TestChecksRepairSatisfiesNamedRevisionsAndFundsOneConfirmingReview(t *testi
 	if anchorErr != nil || anchor == nil || !anchor.Escalated || anchor.AttemptCount != 3 {
 		t.Fatalf("correction anchor after the repairing acceptance = (%#v, %v), want the escalated open window with 3 counted dispatches", anchor, anchorErr)
 	}
-	if nonProgress, err := workflowNonProgressAttemptCount(ctx, s.DatabaseForTesting(), workID, "checks-repair"); err != nil || nonProgress != 2 {
+	if nonProgress, err := workflowNonProgressAttemptCountForRegistry(ctx, s.DatabaseForTesting(), workID, "checks-repair", BuiltinWorkflowRegistry()); err != nil || nonProgress != 2 {
 		t.Fatalf("non-progress attempts after the repairing acceptance = %d, %v, want the 2 failed attempts preserved", nonProgress, err)
 	}
 	// Nothing is dispatch-ready while the unconfirmed repair stands: the
@@ -302,7 +302,7 @@ func TestChecksRepairSatisfiesNamedRevisionsAndFundsOneConfirmingReview(t *testi
 	// satisfied repairing revision refuses.
 	authoringPacket := dispatchWorkerPacket(t, s, workID, "repair", "attempt:"+workID+":authoring")
 	authoringPacket["schema_version"] = WorkerPacketSchemaVersion
-	authoringPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *rev3)
+	authoringPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *rev3, "implement")
 	if err := dispatchJobPacketForTest(t, s, workID, "attempt:"+workID+":authoring", worker, "checks-repair-authoring", authoringPacket); err == nil {
 		t.Fatal("an authoring dispatch of the satisfied repairing revision was admitted")
 	}
@@ -345,7 +345,7 @@ func TestChecksRepairSatisfiesNamedRevisionsAndFundsOneConfirmingReview(t *testi
 	if pin := issue1013Pin(t, s, workID); pin.Correction != nil {
 		t.Fatalf("correction window after the confirming acceptance = %#v, want it closed", pin.Correction)
 	}
-	if nonProgress, err := workflowNonProgressAttemptCount(ctx, s.DatabaseForTesting(), workID, "checks-repair"); err != nil || nonProgress != 0 {
+	if nonProgress, err := workflowNonProgressAttemptCountForRegistry(ctx, s.DatabaseForTesting(), workID, "checks-repair", BuiltinWorkflowRegistry()); err != nil || nonProgress != 0 {
 		t.Fatalf("non-progress attempts after the confirming acceptance = %d, %v, want the productive reset to 0", nonProgress, err)
 	}
 
@@ -366,6 +366,139 @@ func TestChecksRepairSatisfiesNamedRevisionsAndFundsOneConfirmingReview(t *testi
 	assertIntegrationPopulation()
 }
 
+// TestChecksRepairSizeTrioJoinsTheOnlyChecksComparison proves the repair
+// comparison's size coverage on the current size-capable head: a checks-only
+// repair whose recorded size trio is byte-identical to the named revision
+// records (the positive control), and a repair whose authoring changes any
+// one of the three members — a lowered cap, a wider inventory, or a changed
+// allowance mechanism — refuses with the checks-only rule. A raised cap or a
+// reclassified path never reaches this comparison: the size authoring gate
+// refuses those first, so the mutations here stay inside what the size gate
+// admits.
+func TestChecksRepairSizeTrioJoinsTheOnlyChecksComparison(t *testing.T) {
+	const workID = "checks-repair-size-trio"
+	const jobID = "job:checks-repair-size-trio"
+	fixture := seedChecksRepairFixture(t, workID, "repair")
+	s := fixture.store
+	defer s.Close()
+	ctx := context.Background()
+	reviewSubjectClaim(t, s, workID)
+	worker := workerForChecksRepair(workID)
+
+	fields := func(checks string, revisions []int64) map[string]any {
+		candidate := map[string]any{
+			"job_id":               jobID,
+			"objective":            "Corrective bounded objective for the size-trio job",
+			"stopping_condition":   "the recorded checks pass with no unresolved reference",
+			"path_scope":           []string{"internal/store"},
+			"checks":               []string{checks},
+			"reserved_integration": "integration evidence binds at the parent effect step",
+			"ready":                true,
+			"readiness_evidence":   []string{"evidence:checks-repair-size-trio-ready"},
+		}
+		if revisions != nil {
+			candidate["repair_revisions"] = revisions
+			candidate["repair_reason"] = "the named revisions' checks invoked a command no admitted lane can execute or decide as written"
+		}
+		return candidate
+	}
+
+	// Revision 1 fails its own checks, so a repair names exactly it.
+	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, fields("concord check --size-trio --exit-code=never", nil)); err != nil {
+		t.Fatalf("record the original revision: %v", err)
+	}
+	rev1 := checksRepairLatestBinding(t, s, workID, jobID)
+	if rev1 == nil {
+		t.Fatal("the original revision is not recorded")
+	}
+	attempt1 := "attempt:" + workID + ":1"
+	dispatchJobBoundAttempt(t, s, workID, "repair", attempt1, nil, worker, 0, "checks-repair-size-trio-1", rev1)
+	s2WorkerFailedAttributedLive(t, s, workID, attempt1, "the original check names a command no admitted lane can execute")
+
+	// The repair candidate authors its content beside the named revision's
+	// exact recorded size trio, so one mutated member is the only delta the
+	// derivation can name.
+	recordedTrio := func() map[string]any {
+		recorded := checksRepairRecordedEvent(t, s, workID, jobID, rev1.Revision)
+		raw, err := json.Marshal(map[string]any{
+			"production_size_max":     recorded["production_size_max"],
+			"measurement_basis":       recorded["measurement_basis"],
+			"direct_caller_allowance": recorded["direct_caller_allowance"],
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var members map[string]any
+		if err := json.Unmarshal(raw, &members); err != nil {
+			t.Fatal(err)
+		}
+		return members
+	}
+	mutatedFields := func(mutate func(trio map[string]any)) map[string]any {
+		candidate := fields("go test ./internal/store/ -run TestChecksRepairSizeTrio", []int64{1})
+		for member, value := range recordedTrio() {
+			candidate[member] = value
+		}
+		candidate["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, s, workID)
+		mutate(candidate)
+		return candidate
+	}
+
+	for _, refusal := range []struct {
+		name   string
+		mutate func(trio map[string]any)
+	}{
+		{"a lowered cap", func(trio map[string]any) { trio["production_size_max"] = 380 }},
+		{"a wider inventory", func(trio map[string]any) {
+			basis := trio["measurement_basis"].(map[string]any)
+			basis["paths"] = append(basis["paths"].([]any), map[string]any{"path": "internal/store/query.go", "class": "production"})
+		}},
+		{"a changed allowance mechanism", func(trio map[string]any) {
+			allowance := trio["direct_caller_allowance"].(map[string]any)
+			allowance["mechanisms"].([]any)[0].(map[string]any)["entry_point"] = "changed entry point"
+		}},
+	} {
+		t.Run(refusal.name, func(t *testing.T) {
+			err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, mutatedFields(refusal.mutate))
+			if err == nil || !strings.Contains(err.Error(), "a checks repair changes only the checks") {
+				t.Fatalf("%s error = %v, want the checks-only comparison refusal", refusal.name, err)
+			}
+			if revisions, err := readWorkerJobRevisions(ctx, s.db, workID); err != nil || len(revisions) != 1 {
+				t.Fatalf("recorded revisions after the refusal = (%d, %v), want only the original", len(revisions), err)
+			}
+		})
+	}
+
+	// The positive control: the same authoring through the shared helper,
+	// whose regenerated trio is byte-identical to the recorded one, records.
+	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, fields("go test ./internal/store/ -run TestChecksRepairSizeTrio", []int64{1})); err != nil {
+		t.Fatalf("the checks-only control repair refused: %v", err)
+	}
+	rev2 := checksRepairLatestBinding(t, s, workID, jobID)
+	if rev2 == nil || rev2.Revision != 2 || rev2.Digest == rev1.Digest {
+		t.Fatalf("the control repair = %+v, want derived revision 2 with a fresh digest", rev2)
+	}
+	// The recorded trios are byte-identical member by member: the comparison
+	// covers all three size members, and the control changed none.
+	original := checksRepairRecordedEvent(t, s, workID, jobID, 1)
+	repair := checksRepairRecordedEvent(t, s, workID, jobID, 2)
+	for _, member := range []string{"production_size_max", "measurement_basis", "direct_caller_allowance"} {
+		if string(original[member]) != string(repair[member]) {
+			t.Fatalf("the control repair changed %s: %s against %s", member, repair[member], original[member])
+		}
+	}
+	var metadata checksRepairRecord
+	if raw, ok := repair["checks_repair"]; !ok || json.Unmarshal(raw, &metadata) != nil {
+		t.Fatalf("the control repair carries no checks_repair record: %v", repair["checks_repair"])
+	}
+	if len(metadata.Revisions) != 1 || metadata.Revisions[0].WorkerJob.Revision != 1 {
+		t.Fatalf("the control repair's metadata = %+v, want exactly revision 1 named", metadata)
+	}
+	if !slices.Equal(metadata.Revisions[0].Checks, []string{"concord check --size-trio --exit-code=never"}) {
+		t.Fatalf("the control repair's recorded old checks = %#v, want the named revision's original checks", metadata.Revisions[0].Checks)
+	}
+}
+
 // dispatchConfirmingReview dispatches one review-lane attempt whose packet
 // binds the satisfied repairing revision — the one dispatch the unconfirmed
 // checks repair admits (CD-0205 D4) — through the sealed dispatch
@@ -380,7 +513,7 @@ func dispatchConfirmingReview(t *testing.T, s *Store, workID, attemptID string, 
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, s, workID, "repair", attemptID, "review", laneVersion, laneDigest)
 	packet["schema_version"] = WorkerPacketSchemaVersion
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "review")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, workID)
 	packetBytes, err := json.Marshal(packet)
 	if err != nil {
@@ -643,7 +776,7 @@ func TestChecksRepairNoShipReviewVoidsRepair(t *testing.T) {
 	ownPacket := dispatchWorkerPacket(t, s, workID, "repair", ownAttempt)
 	ownPacket["schema_version"] = WorkerPacketSchemaVersion
 	ownPacket["inputs"].(map[string]any)["correction"] = pin.Correction
-	ownPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *own)
+	ownPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *own, "implement")
 	if err := dispatchJobPacketForTest(t, s, workID, ownAttempt, worker, "checks-repair-void-own", ownPacket); err == nil || !strings.Contains(err.Error(), "without a convergence basis") {
 		t.Fatalf("the recovery dispatch without a basis = %v, want the wall's convergence refusal", err)
 	}
@@ -676,7 +809,7 @@ func TestChecksRepairNoShipReviewVoidsRepair(t *testing.T) {
 	recoveryPacket := dispatchWorkerPacket(t, s, workID, "repair", recoveryAttempt)
 	recoveryPacket["schema_version"] = WorkerPacketSchemaVersion
 	recoveryPacket["inputs"].(map[string]any)["correction"] = pin.Correction
-	recoveryPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *recovered)
+	recoveryPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *recovered, "implement")
 	if err := dispatchJobPacketForTest(t, s, workID, recoveryAttempt, worker, "checks-repair-void-recovery", recoveryPacket); err != nil {
 		t.Fatalf("the basis-admitted recovery dispatch refused: %v", err)
 	}
@@ -693,7 +826,7 @@ func TestChecksRepairNoShipReviewVoidsRepair(t *testing.T) {
 	secondPacket := dispatchWorkerPacket(t, s, workID, "repair", "attempt:"+workID+":recovery-2")
 	secondPacket["schema_version"] = WorkerPacketSchemaVersion
 	secondPacket["inputs"].(map[string]any)["correction"] = pin.Correction
-	secondPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *recovered)
+	secondPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *recovered, "implement")
 	if err := dispatchJobPacketForTest(t, s, workID, "attempt:"+workID+":recovery-2", worker, "checks-repair-void-recovery-2", secondPacket); err == nil || !strings.Contains(err.Error(), "without a convergence basis") {
 		t.Fatalf("the dispatch behind the consumed basis = %v, want the wall's convergence refusal", err)
 	}
@@ -1120,7 +1253,7 @@ func TestChecksRepairConfirmingAcceptanceKeepsUnrelatedJobDebt(t *testing.T) {
 	if count := jobWindowCorrectionCount(t, s, workID); count != 4 {
 		t.Fatalf("correction count after the confirming acceptance = %d, want the 4 dispatches the preserved window holds", count)
 	}
-	if nonProgress, err := workflowNonProgressAttemptCount(ctx, s.DatabaseForTesting(), workID, "checks-repair"); err != nil || nonProgress != 2 {
+	if nonProgress, err := workflowNonProgressAttemptCountForRegistry(ctx, s.DatabaseForTesting(), workID, "checks-repair", BuiltinWorkflowRegistry()); err != nil || nonProgress != 2 {
 		t.Fatalf("non-progress attempts after the confirming acceptance = %d, %v, want the unrelated failure and the repaired job's failure preserved", nonProgress, err)
 	}
 }
@@ -1231,7 +1364,7 @@ func TestChecksRepairAbandonedConfirmingReviewVoidsRepair(t *testing.T) {
 	if anchorErr != nil || anchor == nil {
 		t.Fatalf("correction anchor after the abandonment = (%#v, %v), want the open window", anchor, anchorErr)
 	}
-	if nonProgress, npErr := workflowNonProgressAttemptCount(ctx, s.DatabaseForTesting(), workID, "checks-repair"); npErr != nil || nonProgress != 2 {
+	if nonProgress, npErr := workflowNonProgressAttemptCountForRegistry(ctx, s.DatabaseForTesting(), workID, "checks-repair", BuiltinWorkflowRegistry()); npErr != nil || nonProgress != 2 {
 		t.Fatalf("non-progress attempts after the abandonment = %d, %v, want the original failure and the abandoned review preserved", nonProgress, npErr)
 	}
 }

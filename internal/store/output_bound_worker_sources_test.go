@@ -50,6 +50,11 @@ func init() {
 		defPacket2          = "/$defs/worker_packet2"
 		defPacket3          = "/$defs/worker_packet3"
 		defPacket4          = "/$defs/worker_packet4"
+		defPacket5          = "/$defs/worker_packet5"
+		defPacket5Job       = "/$defs/worker_packet5_worker_job"
+		defMeasuredPath     = "/$defs/worker_job_measured_path"
+		defMeasurementBasis = "/$defs/worker_job_measurement_basis"
+		defCallerAllowance  = "/$defs/worker_job_direct_caller_allowance"
 		defPacketBinding    = "/$defs/worker_packet_binding"
 		defWorkRecord       = "/$defs/worker_packet_work_record"
 		defPacketJob        = "/$defs/worker_packet_worker_job"
@@ -260,18 +265,16 @@ func init() {
 	// shape; the retry derivation never authors constraints of its own.
 	proposalConstraints := inputBound("/$defs/work_transition_action_variant_record_proposal/properties/fields/properties/constraints/maxItems")
 	proposalConstraintText := inputBound("/$defs/proposal_text/maxLength")
-	registerOutputBound(defPacket2+"/properties/inputs/properties/constraints/items/maxLength", proposalConstraintText)
-	registerOutputBound(defPacket2+"/properties/inputs/properties/constraints/maxItems", proposalConstraints)
-	registerOutputBound(defPacket3+"/properties/inputs/properties/constraints/items/maxLength", proposalConstraintText)
-	registerOutputBound(defPacket3+"/properties/inputs/properties/constraints/maxItems", proposalConstraints)
-	registerOutputBound(defPacket4+"/properties/inputs/properties/constraints/items/maxLength", proposalConstraintText)
-	registerOutputBound(defPacket4+"/properties/inputs/properties/constraints/maxItems", proposalConstraints)
+	for _, packet := range []string{defPacket2, defPacket3, defPacket4, defPacket5} {
+		registerOutputBound(packet+"/properties/inputs/properties/constraints/items/maxLength", proposalConstraintText)
+		registerOutputBound(packet+"/properties/inputs/properties/constraints/maxItems", proposalConstraints)
+	}
 	// Dispatch admission validates every packet against the schema its
 	// definition version declares (validateWorkflowPayloadSchema in
 	// workflow_preflight.go, against the published document whatever the
 	// pin's age), so the admitted caps bound the retry copy whatever the
 	// retained record holds.
-	for _, packet := range []string{defPacket2, defPacket3, defPacket4} {
+	for _, packet := range []string{defPacket2, defPacket3, defPacket4, defPacket5} {
 		for _, member := range []string{"context", "task"} {
 			pointer := packet + "/properties/inputs/properties/" + member + "/maxLength"
 			registerOutputBound(pointer, inputBound(pointer))
@@ -303,8 +306,11 @@ func init() {
 	// admitted through the authoring input that carries this same
 	// definition, so the admitted shape is the copied value's bound. The
 	// digest is core-derived over the content and re-derived equal at the
-	// fold, so it rides the recorded derivation bound.
-	for _, job := range []string{defPacketJob, defRepairJob} {
+	// fold, so it rides the recorded derivation bound. The packet5 job def
+	// is the size-capable mirror: the same shape under a versioned name,
+	// with the dispatch-time caller exclusions rows registered beside the
+	// loop below.
+	for _, job := range []string{defPacketJob, defRepairJob, defPacket5Job} {
 		registerOutputBound(job+"/properties/digest/maxLength", recordedJobDigest)
 		for _, member := range []string{
 			"checks/items/maxLength", "checks/maxItems", "job_id/maxLength", "objective/maxLength",
@@ -317,6 +323,42 @@ func init() {
 			registerOutputBound(pointer, inputBound(pointer))
 		}
 	}
+
+	// The size surface (CD-0225 D1, CD-0227 D1): the recorded basis and
+	// allowance ride the field guards validateWorkerJobSizeShape enforces
+	// on append and replay alike; the measured inventory paths and generator
+	// references ride the shared normalized-path grammar through their one
+	// routing site; and the packet5 job's dispatch-time caller exclusions
+	// are the core's own computed set.
+	registerOutputBound(defCallerAllowance+"/properties/project_id/maxLength",
+		goInlineBound("internal/store/worker_job_size.go", "validateWorkerJobSizeShape", "len(allowance.ProjectID)", boundBytes))
+	registerOutputBound(defCallerAllowance+"/properties/mechanisms/maxItems",
+		goInlineBound("internal/store/worker_job_size.go", "validateWorkerJobSizeShape", "len(allowance.Mechanisms)", boundItems))
+	registerOutputBound(defCallerAllowance+"/properties/domain_ids/maxItems",
+		goInlineBound("internal/store/worker_job_size.go", "validateWorkerJobSizeShape", "len(allowance.DomainIDs)", boundItems))
+	// Each allowance Domain id is admitted through the shared oracle Domain
+	// bound; the comparison rides validateUniqueOracleReferences' admission
+	// closure, so the row cites the constant the closure compares against,
+	// exactly like the oracle owner's domain row.
+	registerOutputBound(defCallerAllowance+"/properties/domain_ids/items/maxLength",
+		goConstantBound("internal/store/worker_oracle.go", "oracleDomainIDMaxBytes", boundBytes))
+	registerOutputBound(defCallerAllowance+"/properties/law_bindings/maxItems",
+		goInlineBound("internal/store/worker_job_size.go", "validateWorkerJobSizeShape", "len(allowance.LawBindings)", boundItems))
+	registerOutputBound(defMeasuredPath+"/properties/path/maxLength", workerMeasuredPathBound("measured.Path"))
+	registerOutputBound(defMeasuredPath+"/properties/generator_ref/maxLength", workerMeasuredPathBound("measured.GeneratorRef"))
+	registerOutputBound(defMeasurementBasis+"/properties/paths/maxItems",
+		goInlineBound("internal/store/worker_job_size.go", "validateWorkerJobSizeShape", "len(basis.Paths)", boundItems))
+
+	// The caller exclusions are computed once at dispatch admission and
+	// bound to the packet, never the job digest. The packet's declared
+	// bounds — the count and the per-path Unicode character width — are
+	// enforced by one shared guard both producing sites route through: the
+	// dispatch computation owner, and the continuity ready projection whose
+	// over-bound set is omitted whole so the read stays available.
+	registerOutputBound(defPacket5Job+"/properties/caller_exclusions/maxItems",
+		workerCallerExclusionGuardBound("len(paths)", boundItems))
+	registerOutputBound(defPacket5Job+"/properties/caller_exclusions/items/maxLength",
+		workerCallerExclusionGuardBound("utf8.RuneCountInString(path)", boundCharacters))
 
 	// Repair metadata is guarded on append and replay before a packet copies it.
 	registerOutputBound(defChecksRepair+"/properties/reason/maxLength",
@@ -888,6 +930,88 @@ func workerGeneratedResultsBound() outputBoundSource {
 		}
 		describe := fmt.Sprintf("worker assigned result bound: the widest of the %d fixed generatedWorkerScopeAssignments tokens (%d ASCII characters), byte-compared at dispatch", entries, widest)
 		return workerASCIIWidth(widest, describe), nil
+	}}
+}
+
+// workerMeasuredPathBound closes one measured-inventory row through its
+// routing site: validateWorkerJobMeasuredPaths must hand the named field to
+// the shared normalized-path grammar exactly once, and the grammar's own
+// refusing len guard supplies the width both rows share. A rewritten router
+// or grammar stops the derivation instead of admitting a stale bound.
+func workerMeasuredPathBound(siteField string) outputBoundSource {
+	const (
+		siteFile    = "internal/store/worker_job_size.go"
+		siteFunc    = "validateWorkerJobMeasuredPaths"
+		grammarFile = "internal/store/worker_jobs.go"
+		grammarFunc = "normalizedRelativeRepoPathProblem"
+	)
+	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
+		site, err := workerUniqueFunc(rt, siteFile, siteFunc)
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		routed := 0
+		ast.Inspect(site, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) != 2 || !ledgerCalleeMatches(call, grammarFunc) {
+				return true
+			}
+			if ledgerExprText(call.Args[1]) == siteField {
+				routed++
+			}
+			return true
+		})
+		if routed != 1 {
+			return evaluatedBound{}, fmt.Errorf("worker measured path bound: %s routes %s through %s %d times", siteFunc, siteField, grammarFunc, routed)
+		}
+		evaluated, err := rt.evaluateSource(goInlineBound(grammarFile, grammarFunc, "len(path)", boundBytes), census)
+		if err != nil {
+			return evaluatedBound{}, fmt.Errorf("worker measured path bound: %w", err)
+		}
+		describe := fmt.Sprintf("worker measured path bound: %s:%s routes %s through the shared grammar exactly once (%s)", siteFile, siteFunc, siteField, evaluated.describe)
+		evaluated.describe = describe
+		for i := range evaluated.constraints {
+			evaluated.constraints[i].from = describe
+		}
+		return evaluated, nil
+	}}
+}
+
+// workerCallerExclusionGuardBound closes one caller-exclusions row through
+// the shared packet-bounds guard: the dispatch computation owner and the
+// continuity ready projection must each hand their set to
+// validateWorkerJobPacketExclusions exactly once, and the guard's own
+// refusing comparisons fix the count and the per-path Unicode character
+// width. A rewritten guard or a lost route stops the derivation instead of
+// admitting a stale bound.
+func workerCallerExclusionGuardBound(measurement string, unit boundUnit) outputBoundSource {
+	const (
+		guardFile = "internal/store/worker_job_size.go"
+		guardFunc = "validateWorkerJobPacketExclusions"
+		ownerFunc = "workerJobCallerExclusionsTx"
+		projFile  = "internal/store/workflow_continuity.go"
+		projFunc  = "continuityReadReadyWorkerJobsTx"
+	)
+	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
+		for _, route := range []struct{ file, fn string }{{guardFile, ownerFunc}, {projFile, projFunc}} {
+			site, err := workerUniqueFunc(rt, route.file, route.fn)
+			if err != nil {
+				return evaluatedBound{}, err
+			}
+			if workerCountCalls(site, guardFunc) != 1 {
+				return evaluatedBound{}, fmt.Errorf("worker caller exclusion bound: %s no longer routes its exclusions through %s exactly once", route.fn, guardFunc)
+			}
+		}
+		evaluated, err := rt.evaluateSource(goInlineBound(guardFile, guardFunc, measurement, unit), census)
+		if err != nil {
+			return evaluatedBound{}, fmt.Errorf("worker caller exclusion bound: %w", err)
+		}
+		describe := fmt.Sprintf("worker caller exclusion bound: %s and %s route their sets through %s exactly once (%s)", ownerFunc, projFunc, guardFunc, evaluated.describe)
+		evaluated.describe = describe
+		for i := range evaluated.constraints {
+			evaluated.constraints[i].from = describe
+		}
+		return evaluated, nil
 	}}
 }
 

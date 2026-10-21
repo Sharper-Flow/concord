@@ -299,13 +299,12 @@ func workflowFailureOf(err error) *Failure {
 	return newFailure(KindUnavailable, "workflow_action", err.Error(), true, "retry once the projection is readable")
 }
 
-// loadWorkflowAdmissionStateTx folds one work item's admission state in the
-// caller's transaction. It takes a queryer rather than a *sql.Tx so a caller
-// holding the pooled connection's transaction passes the tx itself and never
-// a pool-backed store: a nested s.db call inside the transaction parks on the
-// single pooled connection forever. Ordered proof candidates are a separate
-// result for the guard's external tooling check, not part of the abstract state.
-func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (WorkflowAdmissionState, []workflowVerificationRun, []workflowVerificationRun, error) {
+// loadWorkflowAdmissionStateTxForRegistry folds the same admission state with
+// the caller's authoritative registry: the historical progress
+// qualification, the retry convergence, and the correction routes resolve
+// their pins through it, never through a builtin retry. A nil registry
+// selects the builtin registry.
+func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, registry DefinitionRegistry) (WorkflowAdmissionState, []workflowVerificationRun, []workflowVerificationRun, error) {
 	state := WorkflowAdmissionState{
 		Step:               currentStep,
 		RefinementWorkflow: workflowReviewProofRoles(definition).review != "",
@@ -332,7 +331,7 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	// folds below that resolve one active contract degrade instead of
 	// refusing, so the loader stays total over the projection the recovery
 	// owns and every action still reaches its typed route.
-	l := workflowAdmissionLoad{ctx: ctx, q: q, workID: workID, definition: definition, currentStep: currentStep, subject: subject, duplicated: state.ActiveContracts > 1}
+	l := workflowAdmissionLoad{ctx: ctx, q: q, workID: workID, definition: definition, currentStep: currentStep, subject: subject, duplicated: state.ActiveContracts > 1, registry: registry}
 	if err := l.staleness(&state); err != nil {
 		return WorkflowAdmissionState{}, nil, nil, err
 	}
@@ -388,6 +387,10 @@ type workflowAdmissionLoad struct {
 	currentStep string
 	subject     string
 	duplicated  bool
+	// registry is the authoritative resolver the fold's progress-sensitive
+	// derivations verify recorded selection pins through: nil selects the
+	// builtin registry.
+	registry DefinitionRegistry
 }
 
 // staleness folds the size rerun, law-pin staleness, breaking notices, open
@@ -504,7 +507,7 @@ func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) (bo
 			state.CorrectionRequestContext = gateContext
 		}
 	} else {
-		correctionRequestContext, correctionRequestMissing, correctionRequestErr := workflowCorrectionRequestAdmission(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, 0)
+		correctionRequestContext, correctionRequestMissing, correctionRequestErr := workflowCorrectionRequestAdmissionForRegistry(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, 0, l.registry)
 		if correctionRequestErr != nil && !(l.duplicated && workflowDuplicateContractProjection(correctionRequestErr)) {
 			return false, correctionRequestErr
 		}
@@ -512,12 +515,6 @@ func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) (bo
 		if correctionRequestErr == nil {
 			state.CorrectionRequestContext = correctionRequestContext
 		}
-	}
-	correction, correctionErr := workflowCorrectionContext(l.ctx, l.q, l.workID, l.currentStep)
-	if correctionErr != nil && !(l.duplicated && workflowDuplicateContractProjection(correctionErr)) {
-		return false, correctionErr
-	} else if correctionErr == nil && correction != nil {
-		state.CorrectionEscalated = correction.Escalated
 	}
 	return correctionRoute, nil
 }
@@ -534,7 +531,7 @@ func (l workflowAdmissionLoad) retryAndHolds(state *WorkflowAdmissionState) erro
 		}
 		state.UnconsumedUnboundRejection = rejectionHold
 	}
-	nonProgress, wallErr := workflowNonProgressAttemptCount(l.ctx, l.q, l.workID, l.subject)
+	nonProgress, wallErr := workflowNonProgressAttemptCountForRegistry(l.ctx, l.q, l.workID, l.subject, l.registry)
 	if wallErr != nil {
 		return wallErr
 	}
@@ -542,15 +539,17 @@ func (l workflowAdmissionLoad) retryAndHolds(state *WorkflowAdmissionState) erro
 	if err := loadWorkflowOracleAdmissionTx(l.ctx, l.q, l.workID, l.definition, state); err != nil {
 		return err
 	}
-	if !state.CorrectionEscalated {
-		continued, continuedErr := workflowCorrectionWindowContinued(l.ctx, l.q, l.workID, l.subject)
-		if continuedErr != nil {
-			return continuedErr
-		}
-		state.CorrectionEscalated = continued
+	// The one escalation derivation the fold, the pin's retry window, and
+	// the read projection share: an open correction record's counted window
+	// at or past its comparator, or a converged retry that already crossed
+	// the current one.
+	escalated, escalatedErr := workflowCorrectionWindowEscalated(l.ctx, l.q, l.workID, l.currentStep, l.subject)
+	if escalatedErr != nil {
+		return escalatedErr
 	}
+	state.CorrectionEscalated = escalated
 	if state.retryEscalated() {
-		convergence, err := workflowRetryConvergence(l.ctx, l.q, l.workID, l.currentStep)
+		convergence, err := workflowRetryConvergenceForRegistry(l.ctx, l.q, l.workID, l.currentStep, l.registry)
 		if err != nil {
 			return err
 		}
@@ -731,6 +730,29 @@ func foldWorkflowConfirmationTx(ctx context.Context, q queryer, workID string, d
 	return fold, nil
 }
 
+// workflowCorrectionWindowEscalated is the one derivation of the correction
+// wall behind a worker dispatch (CD-0164 D4/D5): an open correction record's
+// counted window at or past its comparator, or a converged retry that already
+// crossed the current window. The admission fold, the CD-0164 D5 window read,
+// and the dispatched packet all read it. Under a duplicated projection the
+// singular active-contract read inside the correction context raises the
+// duplicate invariant the supersede recovery owns, and the derivation
+// degrades instead of refusing.
+func workflowCorrectionWindowEscalated(ctx context.Context, q queryer, workID, step, subject string) (bool, error) {
+	correction, err := workflowCorrectionContextForDispatch(ctx, q, workID, step, "")
+	if err != nil {
+		if workflowDuplicateContractProjection(err) {
+			correction = nil
+		} else {
+			return false, err
+		}
+	}
+	if correction != nil && correction.Escalated {
+		return true, nil
+	}
+	return workflowCorrectionWindowContinued(ctx, q, workID, subject)
+}
+
 // workflowCorrectionWindowContinued reports whether a converged retry already
 // crossed the current non-progress window. Materialization closes an unbound
 // correction record, not the wall its converging retry crossed. Only
@@ -772,7 +794,7 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 	if actionID == "supersede_contract" {
 		return workflowAdmitSupersede(definition, state, decision)
 	}
-	if workflowAdmitDispatchRefused(state, actionID, &decision) {
+	if workflowAdmitDispatchRefused(definition, state, actionID, &decision) {
 		return decision
 	}
 	if err := state.stalenessRefusal(actionID); err != nil {
@@ -849,7 +871,7 @@ func workflowAdmitInstanceRefused(definition WorkflowDefinition, state WorkflowA
 
 // workflowAdmitDispatchRefused answers dispatch_worker's own bounds: a stale
 // design, the open oracle blocker bound, and the retry convergence wall.
-func workflowAdmitDispatchRefused(state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
+func workflowAdmitDispatchRefused(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
 	if actionID == "dispatch_worker" {
 		if state.DesignStale {
 			decision.Failure = newFailure(KindMissingEvidence, "worker_dispatch", "contract correction invalidated the recorded design", false, "use supersede_contract with design_record before worker dispatch")
@@ -864,7 +886,7 @@ func workflowAdmitDispatchRefused(state WorkflowAdmissionState, actionID string,
 			return true
 		}
 		if state.retryEscalated() && !state.RetryConvergence.valid() && state.FundedChecksRepairReviews == 0 {
-			decision.Failure = workflowRetryConvergenceFailure(state)
+			decision.Failure = workflowRetryConvergenceFailure(definition, state)
 			decision.ConvergenceRequired = true
 			return true
 		}
@@ -1182,7 +1204,7 @@ func workflowUnconsumedUnboundRejection(ctx context.Context, q queryer, workID, 
 	if beforeSeq <= 0 {
 		prefix = int64(1) << 62
 	}
-	history, err := workflowCorrectionWalk(ctx, q, workID, prefix, subject)
+	history, err := workflowCorrectionWalkWorkerSatisfaction(ctx, q, workID, prefix, subject)
 	if err != nil {
 		return false, err
 	}

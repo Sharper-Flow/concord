@@ -34,6 +34,9 @@ type workflowActionGuardContext struct {
 	entry         RegisteredDefinition
 	currentStep   string
 	instanceState string
+	// registry is the authoritative definition source the dispatch verified
+	// the entry through: nil selects the builtin registry.
+	registry DefinitionRegistry
 
 	staleRecovery             bool
 	lateVerdictRecovery       bool
@@ -615,7 +618,8 @@ func workflowCompleteStepCorrectionAvailable(ctx context.Context, q queryer, wor
 
 // workflowUnsettledWorkerAttempt reports a worker attempt that still holds
 // the work: a dispatched attempt, a completed report without an accepted or
-// rejected disposition, or a failed attempt without a recorded failure.
+// rejected disposition or split replacement, or a failed attempt without a
+// recorded failure.
 // Correction at the complete step never strands one.
 func workflowUnsettledWorkerAttempt(ctx context.Context, q queryer, workID, subject string, beforeSeq int64) (bool, error) {
 	var unsettled int
@@ -623,7 +627,7 @@ func workflowUnsettledWorkerAttempt(ctx context.Context, q queryer, workID, subj
  (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='dispatched') +
  (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='completed' AND NOT EXISTS (
     SELECT 1 FROM domain_events f WHERE f.subject_type='work_item' AND f.subject_id=a.work_id
-      AND f.kind=? AND json_extract(f.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result')
+      AND f.kind=? AND json_extract(f.payload,'$.action_id') IN (`+workerAttemptDisposalActions+`)
       AND json_extract(f.payload,'$.worker_attempt_id')=a.attempt_id AND (?=0 OR f.seq<?))) +
  (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='failed' AND NOT EXISTS (
     SELECT 1 FROM domain_events f WHERE f.subject_type='work_item' AND f.subject_id=a.work_id
@@ -1145,7 +1149,14 @@ func loadWorkflowVerifyRun(ctx context.Context, q queryer, workID, reference str
 	var acquiredAt string
 	var commandJSON string
 	var projectID string
-	err = q.QueryRowContext(ctx, `SELECT outcome,exit_code,acquired_at,command_json,project_id FROM worktree_verify_leases WHERE lease_id=? AND work_id=?`, result.LeaseID, workID).Scan(&outcome, &exitCode, &acquiredAt, &commandJSON, &projectID)
+	leaseQuery := `SELECT outcome,exit_code,acquired_at,command_json,project_id FROM worktree_verify_leases WHERE lease_id=? AND work_id=?`
+	if isWorkflowReplay(ctx) {
+		// Rebuild stages this same operational authority before clearing the
+		// projections (worker_failure_integration.go). The fold reads the
+		// retained snapshot under the identical validation.
+		leaseQuery = strings.Replace(leaseQuery, "FROM worktree_verify_leases", "FROM temp.rebuild_operational_worktree_verify_leases", 1)
+	}
+	err = q.QueryRowContext(ctx, leaseQuery, result.LeaseID, workID).Scan(&outcome, &exitCode, &acquiredAt, &commandJSON, &projectID)
 	if err == sql.ErrNoRows {
 		return nil, "", "the bound worktree.verify run names no verify lease for this work item", nil
 	}
@@ -1287,7 +1298,7 @@ func (g *workflowActionGuardContext) foldedAdmissionState() (*WorkflowAdmissionS
 	if g.admissionState != nil {
 		return g.admissionState, nil
 	}
-	state, proofRuns, integrationRuns, err := loadWorkflowAdmissionStateTx(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
+	state, proofRuns, integrationRuns, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
 	if err != nil {
 		return nil, err
 	}
@@ -1433,6 +1444,9 @@ type workflowActionAssemblyInput struct {
 	defaultVerdictEvidence bool
 	lateVerdictRecovery    bool
 	envelopeEvidenceRefs   []string
+	// registry is the authoritative definition source the dispatch verified
+	// the entry through: nil selects the builtin registry.
+	registry DefinitionRegistry
 	// admission carries the fold's derived admission state, so the assembly's
 	// payload checks read the folded conditions instead of re-deriving them.
 	admission *WorkflowAdmissionState
@@ -1516,6 +1530,15 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 			return out, semanticErr
 		}
 		events = append(events, semantic...)
+		// CD-0225 D3: after the semantic events, the action's pending
+		// verification bindings may complete a split's integration. The
+		// derivation appends the typed discharge events before the generic
+		// completion, whose version arithmetic adjusts already.
+		discharges, dischargeErr := workerJobSplitDischargeEventsTx(ctx, tx, in.entry.Definition, in.request, in.currentStep, actor, semantic, len(events))
+		if dischargeErr != nil {
+			return out, dischargeErr
+		}
+		events = append(events, discharges...)
 	default:
 		staleness, present, stalenessErr := workflowStalenessObservationEvent(in.request.OperationID+":staleness", in.request.WorkID, actor, in.request.AcceptedInputsDigest, in.payload, in.request.Now)
 		if stalenessErr != nil {
@@ -1575,6 +1598,11 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	if fieldsErr != nil {
 		return events, "", fieldsErr
 	}
+	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "accept_worker_evidence" || in.request.ActionID == "reject_worker_result" {
+		if err := refuseSplitReplacedWorkerAttemptTx(in.ctx, in.tx, in.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""), 0); err != nil {
+			return events, "", err
+		}
+	}
 	completionValues := map[string]any{
 		"step_id": in.currentStep, "action_id": in.request.ActionID, "attempt_epoch": attemptEpoch, "result_evidence_refs": in.evidenceRefs,
 		"changed_refs": []string{in.request.WorkID}, "actor_ref": in.eventActor,
@@ -1617,6 +1645,18 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		if job != nil {
 			completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}
 		}
+		// CD-0225 D2, CD-0227 D2: a capped job's implementation result is
+		// accepted only on an agreed, contained, in-cap production size.
+		acceptedSize, sizeErr := admitWorkerJobSizeAcceptanceTx(in.ctx, in.tx, in.request.WorkID, in.entry.Definition, job, workflowFieldStringDefault(fields, "attempt_id", ""), fields)
+		if sizeErr != nil {
+			return events, "", sizeErr
+		}
+		if acceptedSize != nil {
+			completionValues["worker_production_size"] = acceptedSize.size
+			if acceptedSize.supplemental != nil {
+				completionValues["supplemental_classifications"] = acceptedSize.supplemental
+			}
+		}
 	}
 	// CD-0198 D4: the combined accept asserts the same delivery fields on the
 	// same completion event a record_delivery appends, so delivery readers
@@ -1651,6 +1691,21 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "accept_worker_evidence" || in.request.ActionID == "record_worker_failure" || in.request.ActionID == "reject_worker_result" {
 		completionValues["attempt_epoch"] = workflowFieldInt(fields, "attempt_epoch", 0)
 		completionValues["worker_attempt_id"] = workflowFieldStringDefault(fields, "attempt_id", "")
+	}
+	if in.request.ActionID == "record_worker_job" {
+		for _, semantic := range events {
+			if semantic.Kind != WorkerJobSplit {
+				continue
+			}
+			var split WorkerJobSplitPayload
+			if err := json.Unmarshal(semantic.Payload, &split); err != nil {
+				return events, "", err
+			}
+			if split.ReplacedAttempt != nil {
+				completionValues["worker_attempt_id"] = split.ReplacedAttempt.AttemptID
+				completionValues["attempt_epoch"] = split.ReplacedAttempt.AttemptEpoch
+			}
+		}
 	}
 	// CD-0059 D1/D5: the dispatch_worker completion carries the authorized
 	// attempt_id into the durable record so the worker-dispatch evidence
@@ -1828,6 +1883,10 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 	if jobErr != nil {
 		return jobErr
 	}
+	subject := ""
+	if admittedContext != nil {
+		subject = admittedContext.SubjectCommit
+	}
 	// The confirming review's typed admission (CD-0205 D4, CD-0148
 	// amendment): a dispatch whose packet binds an open repair's exact
 	// satisfied repairing revision on a review lane records the admission on
@@ -1853,10 +1912,30 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 		completionValues["retry_convergence"] = in.admission.RetryConvergence
 	}
 	if in.admission != nil && in.admission.retryEscalated() && !in.admission.RetryConvergence.valid() && (repairReview == nil || !repairReview.Funded) {
-		return workflowRetryConvergenceFailure(*in.admission)
+		return workflowRetryConvergenceFailure(in.entry.Definition, *in.admission)
 	}
 	if job != nil {
 		completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}
+		// CD-0225 D1: the size-capable dispatch admission binds the cap,
+		// the correction base, and the measured-path serialization.
+		if err := admitWorkerJobSizeDispatchTx(in.ctx, in.tx, in.request.WorkID, in.entry.Definition, lane, *job, subject); err != nil {
+			return err
+		}
+		// The packet validation held the packet's caller exclusions equal to
+		// the core's computed set, so the completion retains them from the
+		// same bytes for the acceptance's containment check.
+		if exclusions := workerPacketCallerExclusions(packetRaw); len(exclusions) > 0 {
+			completionValues["worker_caller_exclusions"] = exclusions
+		}
+	}
+	// CD-0225 D3: an escalated dispatch funded by a split_leaf_progress
+	// acceptance targets one never-dispatched required sibling of the
+	// accepted leaf's lineage. The folded admission carries the basis; the
+	// guard binds the packet's job to the funding the log still supplies.
+	if in.admission != nil && in.admission.RetryConvergence.Basis == workflowSplitLeafProgressBasis {
+		if err := admitWorkerJobSplitProgressDispatchTx(in.ctx, in.tx, in.request.WorkID, in.admission.RetryConvergence, job, in.registry); err != nil {
+			return err
+		}
 	}
 	// Revalidate the sealed pre-transaction preparation with SQL only,
 	// including the accepted implementation subject for a review dispatch.

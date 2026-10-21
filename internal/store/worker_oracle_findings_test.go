@@ -156,7 +156,7 @@ func TestOwnerOracleRealPacketAcceptance(t *testing.T) {
 	lane := reviewGateLane(t, "implementation")
 	attempt := "attempt:" + workID
 	packet := joinPacketFor(t, s, workID, "repair", attempt, lane.ID, lane.Version, lane.Digest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, "implement")
 	contextView, err := readWorkContextView(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
@@ -564,6 +564,11 @@ func recordOracleJobRevision(t *testing.T, s *Store, workID string, actor Workfl
 		"ready":                true, "readiness_evidence": []string{"evidence:coordinator-ready"},
 		"acceptance_oracle": &graph,
 	}
+	if sizeCapablePinForWork(t, s, workID) {
+		for member, value := range workerJobSizeMembersForTest(t, s, workID, fields) {
+			fields[member] = value
+		}
+	}
 	if err := recordWorkerJobActionForTest(t, s, workID, actor, fields); err != nil {
 		t.Fatalf("record oracle job %s: %v", jobID, err)
 	}
@@ -695,7 +700,11 @@ func oracleCompletionEvent(t *testing.T, s *Store, workID, attemptID, eventKey s
 			}
 		}
 	}
-	return Event{EventID: eventKey + "-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
+	event := Event{EventID: eventKey + "-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
+	if err := attachCompletedReportSizeForTest(context.Background(), s, workID, attemptID, dispatched, &event); err != nil {
+		t.Fatal(err)
+	}
+	return event
 }
 
 // withReceipt attaches one typed receipt to the report's first evidence
@@ -835,7 +844,7 @@ func TestOwnerOracleFinding(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("out-of-scope P0 follow-up no_ship refused: %v", err)
 	}
-	nonProgress, err := workflowNonProgressAttemptCount(context.Background(), s.DatabaseForTesting(), workID, "worker_oracle_findings_test")
+	nonProgress, err := workflowNonProgressAttemptCountForRegistry(context.Background(), s.DatabaseForTesting(), workID, "worker_oracle_findings_test", BuiltinWorkflowRegistry())
 	if err != nil || nonProgress < 2 {
 		t.Fatalf("non-progress after no_ship reports = (%d, %v), want the two no_ship attempts counted", nonProgress, err)
 	}
@@ -1298,7 +1307,7 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	if err := reject(attempt2, []string{open[0]}); err != nil {
 		t.Fatalf("strict-subset rejection refused: %v", err)
 	}
-	convergence, err := workflowRetryConvergence(context.Background(), s.DatabaseForTesting(), workID, "repair")
+	convergence, err := workflowRetryConvergenceForRegistry(context.Background(), s.DatabaseForTesting(), workID, "repair", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1335,7 +1344,7 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	if err := reject(attempt3, sibling); err != nil {
 		t.Fatalf("replacement-set rejection refused: %v", err)
 	}
-	if convergence, err = workflowRetryConvergence(context.Background(), s.DatabaseForTesting(), workID, "repair"); err != nil || convergence.Basis != "" {
+	if convergence, err = workflowRetryConvergenceForRegistry(context.Background(), s.DatabaseForTesting(), workID, "repair", BuiltinWorkflowRegistry()); err != nil || convergence.Basis != "" {
 		t.Fatalf("convergence after replacement = (%#v, %v), want no basis", convergence, err)
 	}
 
@@ -1392,7 +1401,7 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	if err := reject(attempt5, []string{siblingID}); err != nil {
 		t.Fatalf("subset rejection after defect closure refused: %v", err)
 	}
-	if convergence, err = workflowRetryConvergence(context.Background(), s.DatabaseForTesting(), workID, "repair"); err != nil || convergence.Basis != "" {
+	if convergence, err = workflowRetryConvergenceForRegistry(context.Background(), s.DatabaseForTesting(), workID, "repair", BuiltinWorkflowRegistry()); err != nil || convergence.Basis != "" {
 		t.Fatalf("convergence after an oracle-defect shrink shape = (%#v, %v), want no basis: the defect closure never buys shrinkage", convergence, err)
 	}
 
@@ -1413,10 +1422,10 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attempt6, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, f.acceptor); err != nil {
 		t.Fatalf("accept the no_ship report: %v", err)
 	}
-	if count, countErr := workflowNonProgressAttemptCount(context.Background(), s.DatabaseForTesting(), workID, "worker_oracle_findings_test"); countErr != nil || count < 1 {
+	if count, countErr := workflowNonProgressAttemptCountForRegistry(context.Background(), s.DatabaseForTesting(), workID, "worker_oracle_findings_test", BuiltinWorkflowRegistry()); countErr != nil || count < 1 {
 		t.Fatalf("non-progress after the accepted no_ship = (%d, %v), want the no_ship attempt counted", count, countErr)
 	}
-	if convergence, err = workflowRetryConvergence(context.Background(), s.DatabaseForTesting(), workID, "repair"); err != nil || (convergence.Basis != "" && convergence.Basis != "approach_changed") {
+	if convergence, err = workflowRetryConvergenceForRegistry(context.Background(), s.DatabaseForTesting(), workID, "repair", BuiltinWorkflowRegistry()); err != nil || (convergence.Basis != "" && convergence.Basis != "approach_changed") {
 		t.Fatalf("convergence after an accepted no_ship = (%#v, %v), want no new basis family", convergence, err)
 	}
 }

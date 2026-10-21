@@ -69,6 +69,22 @@ On a repair-capable definition version, the repairing acceptance under
 CD-0205 D4 resets nothing, and only acceptance of its independent confirming
 review's ship verdict is productive for the repaired obligations.
 
+### D2a. Qualified obligation satisfaction may renew the nonprogress window on definitions that declare this policy.
+
+Workflow progress and permission for another worker attempt are distinct. The recorded-event semantics of the pinned workflow definition declare the obligations an event can satisfy. Execution mode, event presence, a caller's assessment, and step advancement are not productivity authority.
+
+The core derives qualified satisfaction from the same recorded-event semantics that enforce the obligation. Satisfaction names an existing approved predicate, required evidence obligation, required premise confirmation, or dispatched job obligation. It retains the exact recorded requirement, subject, validating authority, and immutable supporting evidence. Optional records create no satisfaction credit.
+
+On a definition declaring this policy, the first qualified coordinator-side satisfaction of a required obligation opens a new nonprogress window only when no failed job obligation and no unconfirmed checks repair remains. An unsupported, unhealthy, or incomparable verdict qualifies nothing. Predicate satisfaction requires qualifying evidence and the independent evaluator the contract requires. Evidence and premise satisfaction retain their existing evidence and actor requirements. A coordinator satisfaction cannot discharge failed job debt in place of CD-0205 D4's satisfying acceptance or confirming review.
+
+Re-recording, reopening, changing references, changing subject, or giving an obligation another identity creates no additional satisfaction credit. Comparable obligations carried across contract supersession retain their satisfaction identity. Creating or superseding a contract resets nothing. Work observations remain non-authoritative and renew no retry window.
+
+A satisfying worker acceptance continues to renew the window under D2 and CD-0205 D4. All distinct failed, rejected, and completed no_ship attempts after the applicable nonprogress anchor count for the whole work item. No failure kind is exempt, and the limit remains three. For the nonprogress population in D1, this rule defines the productive boundary on these pins. The dispatch-count population retains D2's satisfying-worker boundary.
+
+Coordinator-side satisfaction changes only the nonprogress window. It does not reset a dispatch-correction sequence, the exact failed-worker retry binding, or consumption of the host_changed allowance. Those retain the satisfying-worker anchor. The verification-request population and comparator in D4 retain their own healthy-verdict baseline. An independently escalated correction still requires its existing convergence basis or funded review.
+
+Admission and reads derive these facts from one immutable event-prefix interpretation. No caller writes a reset, productive flag, replacement anchor, or new progress event. Live interpretation and rebuild agree. Released definition pins retain their existing behavior; the core does not reinterpret historical events under a later progress policy.
+
 ### D3. The count survives contract supersession
 
 The counting window is scoped to the work item's attempt history, not to a
@@ -86,6 +102,12 @@ attempt may never return a judgeable result, so the failure path must count
 dispatches. A verification correction exists only after a judgeable verdict,
 so the verification path counts requests. This decision names both
 populations and fixes each to its comparator.
+
+### D5. The retry windows are readable where the wall is applied.
+
+The authoritative workflow trace and work pin expose the active retry populations, counts, limits, and counting prefix. Each derived anchor names its exact event identity, event kind, sequence, and qualification, or explicitly states that no anchor exists. Worker-satisfaction, nonprogress, and healthy-verdict boundaries remain distinguishable.
+
+A dispatch refusal identifies whether nonprogress, correction escalation, or both require convergence. It distinguishes a one-use basis or funded review from a renewed window. It does not imply that coordinator-only actions require another worker dispatch. Reads reuse the admission's derivation and persist no independent counter or anchor authority.
 
 ## Consequences
 

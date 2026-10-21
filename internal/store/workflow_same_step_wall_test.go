@@ -64,7 +64,7 @@ func TestSameStepFailuresRefuseTheFourthDispatch(t *testing.T) {
 	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
 		t.Fatalf("fourth same-step dispatch failure=%v, want missing_evidence", err)
 	}
-	if !strings.Contains(failure.Detail, "repair") || !strings.Contains(failure.Detail, "3 non-progress attempts since the last accepted productive result") {
+	if !strings.Contains(failure.Detail, "repair") || !strings.Contains(failure.Detail, "3 non-progress attempts since the applicable nonprogress anchor") {
 		t.Fatalf("refusal does not name the counted population: %q", failure.Detail)
 	}
 }
@@ -125,7 +125,7 @@ func TestConvergenceBasisAdmitsTheSameStepDispatch(t *testing.T) {
 	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
 		t.Fatalf("fifth same-step dispatch failure=%v, want missing_evidence", err)
 	}
-	if !strings.Contains(failure.Detail, "3 non-progress attempts since the last accepted productive result") {
+	if !strings.Contains(failure.Detail, "3 non-progress attempts since the applicable nonprogress anchor") {
 		t.Fatalf("refusal does not name the counted population: %q", failure.Detail)
 	}
 }
@@ -208,7 +208,7 @@ func TestAcceptedResultResetsTheSameStepCount(t *testing.T) {
 	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
 		t.Fatalf("post-return dispatch d5 failure=%v, want missing_evidence", err)
 	}
-	if !strings.Contains(failure.Detail, "3 non-progress attempts since the last accepted productive result") {
+	if !strings.Contains(failure.Detail, "3 non-progress attempts since the applicable nonprogress anchor") {
 		t.Fatalf("refusal counted outside the post-accept window: %q", failure.Detail)
 	}
 }
@@ -265,7 +265,7 @@ func TestAcceptedRefineReviewResetsTheSameStepCount(t *testing.T) {
 	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
 		t.Fatalf("fourth post-entry dispatch failure=%v, want missing_evidence", err)
 	}
-	if !strings.Contains(failure.Detail, "3 non-progress attempts since the last accepted productive result (step refine)") {
+	if !strings.Contains(failure.Detail, "3 non-progress attempts since the applicable nonprogress anchor (step refine)") {
 		t.Fatalf("refusal does not name the counted population: %q", failure.Detail)
 	}
 }
@@ -317,7 +317,7 @@ func TestCorrectionComparatorsKeepTheirPopulations(t *testing.T) {
 	if !errors.As(dispatchErr, &failure) || failure.Kind != KindMissingEvidence {
 		t.Fatalf("fourth correction dispatch failure=%v, want missing_evidence", dispatchErr)
 	}
-	if failure.Detail != "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step repair). Host recovery applies only to an eligible recorded host execution failure and an unused host basis in this nonprogress window: repair the fault, restart the host more than one minute after the failure, resume the item, then retry once" {
+	if failure.Detail != "worker correction reached the three-attempt limit without a convergence basis: both populations block the dispatch — 3 non-progress attempts since the applicable nonprogress anchor (step repair), and the correction window sits at its escalation threshold from historical recorded corrections, a distinct population from the active nonprogress window. Dispatched attempts escalate the correction window at three or more; correction requests escalate it past three. A convergence basis or funded confirming review admits exactly one dispatch and renews no window; only a satisfying worker acceptance reopens the nonprogress window. Host recovery applies only to an eligible recorded host execution failure and an unused host basis in the current worker-satisfaction window: repair the fault, restart the host more than one minute after the failure, resume the item, then retry once" {
 		t.Fatalf("correction wall detail = %q, want the convergence refusal", failure.Detail)
 	}
 }

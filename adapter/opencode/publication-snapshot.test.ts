@@ -22,6 +22,8 @@ const adapter = await import("./concord")
 // published size is pinned in UTF-8 bytes so a size regression is a visible
 // test change, not silent drift.
 const tools = [...new Set(contractOperations.map((operation: any) => operation.tool))]
+// Repository regression budget for both measured populations, not a provider limit.
+const SCHEMA_REGRESSION_BUDGET = 165_000
 
 const publishedBytes = (tool: string): number => Buffer.byteLength(JSON.stringify(adapter.publishedRequestSchema(tool)), "utf8")
 
@@ -99,7 +101,7 @@ test("published byte sizes are pinned in UTF-8 bytes", () => {
   for (const tool of tools) sizes[tool] = publishedBytes(tool)
   const total = Object.values(sizes).reduce((sum, size) => sum + size, 0)
   expect(total).toBe(PINNED_PUBLISHED_TOTAL_BYTES)
-  expect(total).toBeLessThan(153_000)
+  expect(total).toBeLessThan(SCHEMA_REGRESSION_BUDGET)
   expect(total).toBeGreaterThan(0)
   // Deterministic across publications: re-publishing must not move any byte
   // size.
@@ -157,7 +159,7 @@ test("all registered parameter schemas stay below the serving budget", async () 
   expect([...registered.keys()].sort()).toEqual([...tools, ...Object.keys(hostToolSchemas)].sort())
   const total = [...registered.values()].reduce((sum, size) => sum + size, 0)
   expect(total).toBeGreaterThan(0)
-  expect(total).toBeLessThan(153_000)
+  expect(total).toBeLessThan(SCHEMA_REGRESSION_BUDGET)
 })
 
 // The authored watcher contract is the published document: registration and
@@ -167,8 +169,8 @@ test("the watcher publishes the authored contract byte for byte", async () => {
   const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
   await publishCiWatchDefinition({ toolID: "concord_ci_watch" }, output)
   expect(output.jsonSchema).toEqual(hostToolSchemas.concord_ci_watch)
-  expect(Buffer.byteLength(JSON.stringify(output.jsonSchema), "utf8")).toBe(983)
-  expect(Buffer.byteLength(JSON.stringify(hostToolSchemas.concord_ci_watch), "utf8")).toBe(983)
+  expect(Buffer.byteLength(JSON.stringify(output.jsonSchema), "utf8")).toBe(1104)
+  expect(Buffer.byteLength(JSON.stringify(hostToolSchemas.concord_ci_watch), "utf8")).toBe(1104)
   const watcher = ciWatchTool()
   expect(watcher.description).toEqual(hostToolDescriptions.concord_ci_watch)
   expect(watcher.args).toEqual(hostToolSchemas.concord_ci_watch.properties)

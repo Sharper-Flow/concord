@@ -79,15 +79,15 @@ const refused = {outcome:"error", error:{reason_code:"authorization_denied", eff
 // branch schemas validateWorkStartArgs selects, so its message is the
 // executed adapter's bytes, never a hand-written copy;
 // the core owns the worktree_claim and continuity input boundaries and
-// answers a malformed payload with the same kind and effect but
-// recovery_action restart_query and the core's own diagnostics.
+// answers a malformed payload with the same invalid_input/none/
+// correct_request/retry_safe false triple and the core's own diagnostics.
 const [workStartCaptureBranch, workStartResumeBranch] = hostToolSchemas.concord_work_start.oneOf;
 // The usage line derives its field lists from the generated branches exactly
 // as the adapter's own workStartUsage does.
 const workStartUsage = `Capture requires ${workStartCaptureBranch.required.join(", ")}. Resume requires only ${workStartResumeBranch.required.join(", ")}, and names no Project: the resume claims in the Project the calling session resolves. Another Project of this repository is selected through concord_work_transition worktree_claim instead, and another repository needs a host-started session there that resumes by work_id. Do not combine capture and resume fields.`;
 const adapterInputRefusalMessage = detail => "work_start arguments failed the host-tool contract: " + detail + ". " + workStartUsage + " Submit a corrected request; resubmitting unchanged arguments will fail again.";
 const adapterInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"correct_request"},retry_safe:false,message}});
-const coreInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"restart_query"},retry_safe:false,message}});
+const coreInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"correct_request"},retry_safe:false,message}});
 // The core's executed payload classification, in the core's own order: the
 // closed per-operation rule names every missing required field in declared
 // order, then the payload schema validates each present value stop-at-first
@@ -98,6 +98,10 @@ const coreInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input
 // values never reach this classifier: the tool schema layer types every
 // field before it.
 const payloadFieldRules = PAYLOADRULES;
+const withFieldGuidance = (message, field) => {
+  const marker = typeof field.description === "string" ? field.description.indexOf("Accepted shape:") : -1;
+  return marker < 0 ? message : message + "; " + field.description.slice(marker).trim();
+};
 for (const operation of Object.values(payloadFieldRules))
   for (const field of Object.values(operation.fields))
     if (field.pattern !== undefined) field.patternRegex = new RegExp(field.pattern);
@@ -115,11 +119,11 @@ const coreInputDetail = (operation, data) => {
     if (field === undefined || value === undefined) continue;
     if (typeof value === "string") {
       const length = [...value].length;
-      if (field.minLength !== undefined && length < field.minLength) return "minLength at $." + name + ": carries " + length + " Unicode code points against a minimum of " + field.minLength;
-      if (field.maxLength !== undefined && length > field.maxLength) return "maxLength at $." + name + ": carries " + length + " Unicode code points against a limit of " + field.maxLength;
-      if (field.patternRegex !== undefined && !field.patternRegex.test(value)) return "pattern at $." + name;
+      if (field.minLength !== undefined && length < field.minLength) return withFieldGuidance("minLength at $." + name + ": carries " + length + " Unicode code points against a minimum of " + field.minLength, field);
+      if (field.maxLength !== undefined && length > field.maxLength) return withFieldGuidance("maxLength at $." + name + ": carries " + length + " Unicode code points against a limit of " + field.maxLength, field);
+      if (field.patternRegex !== undefined && !field.patternRegex.test(value)) return withFieldGuidance("pattern at $." + name, field);
     } else if (typeof value === "number" && field.minimum !== undefined && value < field.minimum) {
-      return "minimum at $." + name;
+      return withFieldGuidance("minimum at $." + name, field);
     }
   }
   return null;
@@ -317,6 +321,8 @@ def core_payload_field_rules(repo):
             prop = resolve_payload_property(schema["properties"][name], defs)
             rule = {key: prop[key] for key in SCALAR_CONSTRAINT_KEYS if key in prop}
             if rule:
+                if "description" in prop:
+                    rule["description"] = prop["description"]
                 fields[name] = rule
         table[operation] = {"required": list(schema["required"]), "fields": fields}
     return table
@@ -353,7 +359,7 @@ import { appendFileSync } from "node:fs";
 export default recordingTool("runtime_status", {description:"Read the owning synthetic runtime diagnostic; no mutations.",args:{},async execute(args){
 const value=VALUE; appendFileSync(TRACE,JSON.stringify({tool:"runtime_status",args,result:value})+"\\n");
 return {title:"Synthetic runtime",output:JSON.stringify(value),metadata:{synthetic:true}};
-}}, message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"restart_query"},retry_safe:false,message}}));
+}}, message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"correct_request"},retry_safe:false,message}}));
 '''
     runtime_source = runtime_source.replace("SDK", replacements["SDK"]).replace("TRACE", replacements["TRACE"]).replace("VALUE", json.dumps(runtime_response(case)))
     return {

@@ -70,7 +70,15 @@ const workflowActionCompletedWorkerJobVersion = 4
 const workflowActionCompletedAttributionVersion = 5
 
 // Native dispatch Project/claim provenance starts at this payload boundary.
-const workflowActionCompletedDispatchIdentityVersion = 6
+const workflowActionCompletedDispatchIdentityVersion = 8
+
+// workflowActionCompletedJobSizeVersion is the payload version at which a
+// workflow.action_completed completion may carry the job-size members
+// (CD-0225 D1, CD-0227 D1): the caller exclusions a size-capable
+// implementation dispatch bound to its packet, and the supplemental
+// classifications and final production size an acceptance recorded. Stored
+// completions below it carried none of these members.
+const workflowActionCompletedJobSizeVersion = 6
 
 type WorkflowVersionFields struct {
 	WorkID           string `json:"work_id"`
@@ -427,6 +435,23 @@ type workflowActionCompletedPayload struct {
 	// disposition and never on a name match against another job. Absent on
 	// every acceptance whose attempt was dispatched without a job binding.
 	WorkerJob *WorkerJobBinding `json:"worker_job,omitempty"`
+	// WorkerCallerExclusions is the caller_exclusions set the core computed
+	// and bound to a size-capable implementation dispatch's packet (CD-0227
+	// D1). The packet bytes are not retained, so acceptance reads the
+	// exclusions the worker was given from here. Absent when the set was
+	// empty.
+	WorkerCallerExclusions []string `json:"worker_caller_exclusions,omitempty"`
+	// SupplementalClassifications is the measurement classification an
+	// acceptance recorded for observed paths outside the job's inventory
+	// (CD-0225 D1). It is measurement content bound to the accepted job
+	// revision, attempt, base, and delivered tree; it never changes the job
+	// digest, path authority, cap, or an inventory classification.
+	SupplementalClassifications []WorkerJobMeasuredPath `json:"supplemental_classifications,omitempty"`
+	// WorkerProductionSize records the accepted count after the coordinator's
+	// supplemental classifications, bound to the same base and delivered tree
+	// as the report. The worker's immutable report keeps its inventory/default
+	// count; only acceptance supplies the final classification review.
+	WorkerProductionSize *WorkerProductionSize `json:"worker_production_size,omitempty"`
 	// VerdictEntryCount carries the number of entries one batched
 	// record_verdict operation judged, so the fold bounds the operation's
 	// result evidence at the schema-bounded batch union instead of the
@@ -2449,7 +2474,7 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ChangedRefs, 32, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid result fields", false, "supply bounded action result references")
 	}
-	if p.ActionID != "accept_worker_result" && p.ActionID != "accept_worker_evidence" && p.ActionID != "record_worker_failure" && p.ActionID != "reject_worker_result" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
+	if p.ActionID != "accept_worker_result" && p.ActionID != "accept_worker_evidence" && p.ActionID != "record_worker_failure" && p.ActionID != "reject_worker_result" && p.ActionID != "dispatch_worker" && p.ActionID != "record_worker_job" && p.WorkerAttemptID != "" {
 		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for worker result actions and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
 	}
 	// The worker-job binding is recorded authority (CD-0205): the
@@ -2461,6 +2486,32 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	if p.WorkerJob != nil {
 		if p.ActionID != "accept_worker_result" && p.ActionID != "dispatch_worker" || !workflowString(p.WorkerJob.JobID, 128) || p.WorkerJob.Revision < 1 || !workflowString(p.WorkerJob.Digest, 128) {
 			return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_job is reserved for dispatch_worker and accept_worker_result and requires job_id, revision, and digest", false, "record the disposition derived from the accepted attempt's dispatch binding")
+		}
+	}
+	if p.WorkerCallerExclusions != nil {
+		if p.ActionID != "dispatch_worker" || p.WorkerJob == nil || len(p.WorkerCallerExclusions) > WorkerJobCallerExclusionsMax {
+			return newFailure(KindInvalidPayload, "fold_event", fmt.Sprintf("action_completed worker_caller_exclusions is reserved for a job-bound dispatch_worker and carries at most %d paths", WorkerJobCallerExclusionsMax), false, "record the caller exclusions the dispatch admission computed")
+		}
+		for _, path := range p.WorkerCallerExclusions {
+			if problem := normalizedRelativeRepoPathProblem("action_completed worker_caller_exclusions", path); problem != "" {
+				return newFailure(KindInvalidPayload, "fold_event", problem, false, "record the caller exclusions the dispatch admission computed")
+			}
+		}
+	}
+	if p.SupplementalClassifications != nil {
+		if p.ActionID != "accept_worker_result" || p.WorkerJob == nil || len(p.SupplementalClassifications) < 1 || len(p.SupplementalClassifications) > WorkerJobMeasuredPathsMax {
+			return newFailure(KindInvalidPayload, "fold_event", fmt.Sprintf("action_completed supplemental_classifications is reserved for a job-bound accept_worker_result and carries 1 to %d paths", WorkerJobMeasuredPathsMax), false, "record the classifications the acceptance admitted")
+		}
+		if err := validateWorkerJobMeasuredPaths("action_completed supplemental_classifications", p.SupplementalClassifications, workerJobSizeFoldFailure); err != nil {
+			return err
+		}
+	}
+	if p.WorkerProductionSize != nil {
+		if p.ActionID != "accept_worker_result" || p.WorkerJob == nil {
+			return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_production_size is reserved for a job-bound accept_worker_result", false, "record the final production size derived by acceptance")
+		}
+		if err := validateWorkerProductionSize(p.WorkerProductionSize); err != nil {
+			return err
 		}
 	}
 	// The lane identity is the dispatch_worker completion's in-flight
@@ -2550,7 +2601,7 @@ func workflowCorrectionSchemaValuesFaultWithReference(predicateIDs, correctionRe
 
 // admitWorkflowActionOffStep decides whether an action the pinned step does
 // not declare may still fold under an engine-owned recovery route.
-func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, entry RegisteredDefinition, currentStep string) error {
+func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, entry RegisteredDefinition, currentStep string, registry DefinitionRegistry) error {
 	if p.ActionID == "accept_worker_evidence" {
 		return validateRefineReviewEvidenceAttempt(ctx, tx, event.SubjectID, entry.Definition, currentStep, p.WorkerAttemptID, p.AttemptEpoch, "fold_event", event.Seq)
 	}
@@ -2589,7 +2640,7 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		}
 		var recoveryErr error
 		var missing string
-		correctionRecovery, missing, recoveryErr = workflowCorrectionRequestAdmissionState(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq)
+		correctionRecovery, missing, recoveryErr = workflowCorrectionRequestAdmissionStateForRegistry(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq, registry)
 		if recoveryErr != nil {
 			return recoveryErr
 		}
@@ -2663,6 +2714,42 @@ func workflowCompletedActionAdvances(definition WorkflowDefinition, p workflowAc
 	return ok && mode == ActionAdvance && (p.ActionID != "accept_worker_result" || (!p.ReviewAdvanceHeld && !(p.WorkerJob != nil && p.DeliveryState == "")))
 }
 
+func foldWorkflowWorkerAttemptCompletionTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, definition WorkflowDefinition, currentStep string) error {
+	lifecycle := "completed"
+	switch p.ActionID {
+	case "accept_worker_result", "accept_worker_evidence", "reject_worker_result":
+	case "record_worker_job":
+		if p.WorkerAttemptID == "" {
+			return nil
+		}
+		if err := validateSplitReplacementCompletionTx(ctx, tx, event, p); err != nil {
+			return err
+		}
+	case "record_worker_failure":
+		lifecycle = "failed"
+	default:
+		return nil
+	}
+	if err := validateWorkerAttemptAction(ctx, tx, event, p, definition, currentStep, lifecycle); err != nil {
+		return err
+	}
+	switch p.ActionID {
+	case "reject_worker_result":
+		// A rejected confirming review voids provisional repair readiness
+		// at the strict prefix of this rejection (CD-0205 D4).
+		return voidWorkerJobRepairByAttemptTx(ctx, tx, event.SubjectID, p.WorkerAttemptID, event.Seq-1)
+	case "record_worker_failure":
+		var recorded int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=? AND seq<?`, string(SubjectWorkItem), event.SubjectID, WorkflowActionCompleted, p.WorkerAttemptID, event.Seq).Scan(&recorded); err != nil {
+			return workflowProjectionError(err, "cannot inspect recorded worker failures")
+		}
+		if recorded != 0 {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker failure is already recorded", false, "start a fresh workflow attempt")
+		}
+	}
+	return nil
+}
+
 func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
 	var p workflowActionCompletedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -2689,7 +2776,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	// the recorded pair, never later filesystem or auxiliary path state.
 	if p.WorkerProjectID != "" || p.WorkerClaimOpID != "" {
 		if event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowActionCompletedDispatchIdentityVersion {
-			return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_project_id/worker_claim_op_id is reserved for payload version >= 6", false, "record the dispatch identity through the native dispatch boundary")
+			return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_project_id/worker_claim_op_id is reserved for payload version >= 8", false, "record the dispatch identity through the native dispatch boundary")
 		}
 		if p.ActionID != "dispatch_worker" || p.WorkerProjectID == "" || p.WorkerClaimOpID == "" || !workflowString(p.WorkerProjectID, 128) || !workflowDigest(p.WorkerWorktreeIdentity) {
 			return newFailure(KindInvalidPayload, "fold_event", "action_completed native dispatch identity requires dispatch_worker and the complete recorded Project and claim pair", false, "record the pair the sealed dispatch preparation proved")
@@ -2700,6 +2787,12 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 				return newFailure(KindInvalidPayload, "fold_event", "action_completed native dispatch identity does not match this dispatch's sealed native preparation", false, "dispatch the attempt through the native boundary that seals its claim proof")
 			}
 		}
+	}
+	if (p.WorkerCallerExclusions != nil || p.SupplementalClassifications != nil || p.WorkerProductionSize != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowActionCompletedJobSizeVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_caller_exclusions, supplemental_classifications, and worker_production_size are reserved for payload version >= 6", false, "record the job-size members on the current completion payload")
+	}
+	if p.ActionID == "record_worker_job" && p.WorkerAttemptID != "" && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < 7 {
+		return invalidWorkerPayload("record_worker_job worker_attempt_id requires action_completed payload version >= 7")
 	}
 	// the attribution reference is the derived record's alone, and
 	// the source-version marker rules apply to both attribution members.
@@ -2731,7 +2824,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
 	}
 	if !definitionStepAllows(entry.Definition, currentStep, p.ActionID) {
-		if err := admitWorkflowActionOffStep(ctx, tx, event, p, entry, currentStep); err != nil {
+		if err := admitWorkflowActionOffStep(ctx, tx, event, p, entry, currentStep, scopeDefinitionRegistry(scope)); err != nil {
 			return err
 		}
 	}
@@ -2779,10 +2872,8 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 				return err
 			}
 		}
-		if p.ActionID == "accept_worker_result" || p.ActionID == "accept_worker_evidence" {
-			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
-				return err
-			}
+		if err := foldWorkflowWorkerAttemptCompletionTx(ctx, tx, event, p, entry.Definition, currentStep); err != nil {
+			return err
 		}
 		// accept_worker_result is the one advance that moves the shared step
 		// off a step holding live authorized work, so it waits while another
@@ -2793,29 +2884,6 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 				return err
 			}
 		}
-		if p.ActionID == "reject_worker_result" {
-			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
-				return err
-			}
-			// A rejected confirming review result voids its repair (CD-0205
-			// D4): the named revisions lose their provisional readiness at
-			// the strict prefix of this rejection.
-			if err := voidWorkerJobRepairByAttemptTx(ctx, tx, event.SubjectID, p.WorkerAttemptID, event.Seq-1); err != nil {
-				return err
-			}
-		}
-		if p.ActionID == "record_worker_failure" {
-			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "failed"); err != nil {
-				return err
-			}
-			var recorded int
-			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=? AND seq<?`, string(SubjectWorkItem), event.SubjectID, WorkflowActionCompleted, p.WorkerAttemptID, event.Seq).Scan(&recorded); err != nil {
-				return workflowProjectionError(err, "cannot inspect recorded worker failures")
-			}
-			if recorded != 0 {
-				return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker failure is already recorded", false, "start a fresh workflow attempt")
-			}
-		}
 		if p.ActionID == "request_correction" && !isWorkflowReplay(ctx) {
 			// The correction admission consults the current verdict state,
 			// which replay derives only as its folds reach it. The log stays
@@ -2823,7 +2891,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 			// correction request once — excludeSeq keeps its own in-flight
 			// completion out of the anchor's settled-entry judgment — and
 			// the payload check binds against that derivation.
-			context, missing, contextErr := workflowCorrectionRequestAdmission(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq)
+			context, missing, contextErr := workflowCorrectionRequestAdmissionForRegistry(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq, scopeDefinitionRegistry(scope))
 			if contextErr != nil {
 				return contextErr
 			}
@@ -3262,7 +3330,7 @@ func workflowCheckpointWriterAdmitted(ctx context.Context, q queryer, workID, ex
 
 // workerAttemptDisposalActions lists, as SQL literals, the workflow actions
 // that record a lane attempt's result decision and so end its hold.
-const workerAttemptDisposalActions = `'accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure'`
+const workerAttemptDisposalActions = `'accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure','record_worker_job'`
 
 // workflowFencedWriter names the actor that holds a fenced attempt's writing
 // authority before beforeSeq, and the sequence at which it took it: the lane
@@ -3478,6 +3546,11 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if payload.WorkerAttemptID == "" {
 		return newFailure(KindInvalidPayload, "fold_event", payload.ActionID+" requires worker_attempt_id", false, "supply the exact worker attempt identity")
 	}
+	if payload.ActionID != "record_worker_job" {
+		if err := refuseSplitReplacedWorkerAttemptTx(ctx, tx, event.SubjectID, payload.WorkerAttemptID, event.Seq); err != nil {
+			return err
+		}
+	}
 	var attemptWorkID, lifecycle, readback, capability string
 	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,readback_model,capability_class FROM worker_attempts WHERE attempt_id=?`, payload.WorkerAttemptID).Scan(&attemptWorkID, &lifecycle, &readback, &capability); err != nil {
 		if err == sql.ErrNoRows {
@@ -3503,7 +3576,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		}
 		return workflowProjectionError(err, "cannot read worker attempt dispatch")
 	}
-	if payload.ActionID == "reject_worker_result" && isWorkflowReplay(ctx) {
+	if payload.ActionID == "record_worker_job" || payload.ActionID == "reject_worker_result" && isWorkflowReplay(ctx) {
 		// Recorded executor identity does not depend on current rejection eligibility.
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.lane_actor_ref'),'') FROM domain_events WHERE seq=?`, attemptSeq).Scan(&target.ExecutorRef); err != nil {
 			return workflowProjectionError(err, "cannot read recorded worker executor")
@@ -3522,7 +3595,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	// current one. Live rejection skips that anchor: its exact target validation
 	// above owns the epoch and dispatch provenance at this bound.
 	anchorSeq := event.Seq
-	if step != nil && step.Kind == WorkflowStepHumanCheckpoint {
+	if step != nil && step.Kind == WorkflowStepHumanCheckpoint || payload.ActionID == "record_worker_job" {
 		anchorSeq = attemptSeq
 	}
 	startSeq, startEpoch, found, err := latestWorkflowActionStartAt(ctx, tx, event.SubjectID, currentStep, anchorSeq)
@@ -4354,8 +4427,20 @@ func upcastWorkflowActionCompletedV4(event Event) (Event, error) {
 	return event, nil
 }
 
-// Preserve historical bytes; no original claim is inferred for old records.
 func upcastWorkflowActionCompletedV5(event Event) (Event, error) {
+	event.PayloadVersion = 6
+	return event, nil
+}
+
+// A v6 completion retains its bytes; only v7 can dispose an attempt through
+// a worker-job split. The fold checks the recorded source version.
+func upcastWorkflowActionCompletedV6(event Event) (Event, error) {
+	event.PayloadVersion = 7
+	return event, nil
+}
+
+// Preserve historical bytes; no original claim is inferred for old records.
+func upcastWorkflowActionCompletedV7(event Event) (Event, error) {
 	var members map[string]json.RawMessage
 	if err := json.Unmarshal(event.Payload, &members); err != nil {
 		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.action_completed payload is not a JSON object", false, "repair the stored workflow action completion")

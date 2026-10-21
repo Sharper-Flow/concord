@@ -126,7 +126,7 @@ func TestWorkerFailureAttributionRequiredOnNewPins(t *testing.T) {
 		recordWorkerJobRevisionForTest(t, fixture.store, workID, fixture.owner, job)
 		packet := dispatchWorkerPacket(t, fixture.store, workID, "repair", attempt)
 		packet["schema_version"] = WorkerPacketSchemaVersion
-		packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, fixture.store, workID, *job)
+		packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, fixture.store, workID, *job, "implement")
 		if err := dispatchJobPacketForTest(t, fixture.store, workID, attempt, fixture.owner, "attribution-required-born-authorization", packet); err != nil {
 			t.Fatalf("the born-failed authorization refused: %v", err)
 		}
@@ -312,7 +312,7 @@ func TestWorkerFailureAttributionBornFailedDispatch(t *testing.T) {
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 	packet := dispatchWorkerPacket(t, s, workID, "repair", attempt)
 	packet["schema_version"] = WorkerPacketSchemaVersion
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "implement")
 	if err := dispatchJobPacketForTest(t, s, workID, attempt, fixture.owner, "attribution-born-authorization", packet); err != nil {
 		t.Fatalf("the born-failed authorization refused: %v", err)
 	}
@@ -454,7 +454,7 @@ func dispatchJobBoundAttemptWithPredicates(t *testing.T, s *Store, workID, stepI
 		entries = append(entries, attributionTiesPredicateEntry(id, index))
 	}
 	packet["inputs"].(map[string]any)["outcome_predicates"] = entries
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "implement")
 	if err := dispatchJobPacketForTest(t, s, workID, attemptID, actor, key, packet); err != nil {
 		t.Fatalf("dispatch job-bound attempt %s: %v", attemptID, err)
 	}
@@ -500,7 +500,7 @@ func TestWorkerPredicateTiesResolveFromTheJobRevisionOnAttributionPins(t *testin
 	// refuses and names pB.
 	tiedEvidence := laneCoveringEvidence(lane)
 	tiedEvidence[0].PredicateIDs = []string{"predicate:pB-tie"}
-	completion := jobBoundCompletionEvent(workID, "ties-completed-pb", attempt, lane, time.Unix(16, 0).UTC(), job, workerFixtureDirectory(t, s, workID))
+	completion := withReportedSizeForTest(t, s, jobBoundCompletionEvent(workID, "ties-completed-pb", attempt, lane, time.Unix(16, 0).UTC(), job, workerFixtureDirectory(t, s, workID)), unobservedTreeForTest)
 	var payload WorkerCompletedPayload
 	if err := json.Unmarshal(completion.Payload, &payload); err != nil {
 		t.Fatal(err)
@@ -905,6 +905,7 @@ func TestWorkerFailureAttributionCoordinatorResultReview(t *testing.T) {
 	if prepErr != nil {
 		t.Fatalf("the terminal delivery preparation refused: %v", prepErr)
 	}
+	completion = workerCompletionWithReportedSize(t, WithWorkerTerminalPreparation(context.Background(), prepared), s, completion)
 	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
 		_, err := ApplyWorkerEvidenceOperationTx(WithWorkerTerminalPreparation(context.Background(), prepared), transaction, completion)
 		return err
@@ -1220,7 +1221,7 @@ func TestWorkerFailureAttributionResultReviewSourceJoins(t *testing.T) {
 	earlier := "attempt:" + workID + ":earlier"
 	dispatchJobBoundAttempt(t, s, workID, "repair", earlier, nil, fixture.owner, 0, "attribution-sources-dispatch-earlier", job)
 	earlierCompleted := "completed-" + workID + "-earlier"
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{jobBoundCompletionEvent(workID, earlierCompleted, earlier, lane, time.Unix(24, 0).UTC(), job, workerFixtureDirectory(t, s, workID))}}); err != nil {
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{withReportedSizeForTest(t, s, jobBoundCompletionEvent(workID, earlierCompleted, earlier, lane, time.Unix(24, 0).UTC(), job, workerFixtureDirectory(t, s, workID)), unobservedTreeForTest)}}); err != nil {
 		t.Fatalf("the earlier completion refused: %v", err)
 	}
 	var earlierPayload string
@@ -1244,6 +1245,7 @@ func TestWorkerFailureAttributionResultReviewSourceJoins(t *testing.T) {
 	if prepErr != nil {
 		t.Fatalf("the terminal delivery preparation refused: %v", prepErr)
 	}
+	completion = workerCompletionWithReportedSize(t, WithWorkerTerminalPreparation(context.Background(), prepared), s, completion)
 	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
 		_, err := ApplyWorkerEvidenceOperationTx(WithWorkerTerminalPreparation(context.Background(), prepared), transaction, completion)
 		return err
@@ -1334,7 +1336,7 @@ func TestWorkerFailureAttributionResultReviewSourceJoins(t *testing.T) {
 	}
 	dispatchJobBoundAttempt(t, s, workID, "repair", later, correction, fixture.owner, 0, "attribution-sources-dispatch-later", job)
 	laterCompleted := "completed-" + workID + "-later"
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{jobBoundCompletionEvent(workID, laterCompleted, later, lane, time.Unix(45, 0).UTC(), job, workerFixtureDirectory(t, s, workID))}}); err != nil {
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{withReportedSizeForTest(t, s, jobBoundCompletionEvent(workID, laterCompleted, later, lane, time.Unix(45, 0).UTC(), job, workerFixtureDirectory(t, s, workID)), unobservedTreeForTest)}}); err != nil {
 		t.Fatalf("the later completion refused: %v", err)
 	}
 	var raw string
@@ -1410,7 +1412,7 @@ func TestWorkerFailureAttributionObserverFailureKindCoupling(t *testing.T) {
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 	packet := dispatchWorkerPacket(t, s, workID, "repair", bornAttempt)
 	packet["schema_version"] = WorkerPacketSchemaVersion
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "implement")
 	if err := dispatchJobPacketForTest(t, s, workID, bornAttempt, fixture.owner, "attribution-coupling-born-authorization", packet); err != nil {
 		t.Fatalf("the born authorization refused: %v", err)
 	}
@@ -1470,7 +1472,7 @@ func TestWorkerFailureAttributionAbandonmentTagCoupling(t *testing.T) {
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 	packet := dispatchWorkerPacket(t, s, workID, "repair", bornAttempt)
 	packet["schema_version"] = WorkerPacketSchemaVersion
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "implement")
 	if err := dispatchJobPacketForTest(t, s, workID, bornAttempt, fixture.owner, "attribution-abandonment-born-authorization", packet); err != nil {
 		t.Fatalf("the born authorization refused: %v", err)
 	}

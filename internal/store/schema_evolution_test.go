@@ -365,13 +365,17 @@ func TestValidateEventKindRegistryRejectsIncompleteRegistration(t *testing.T) {
 
 func TestWorkflowActionCompletedV1UpcastsWithoutWorkerAttemptIdentity(t *testing.T) {
 	t.Parallel()
+	registration, ok := registeredEventKind(WorkflowActionCompleted)
+	if !ok {
+		t.Fatal("workflow.action_completed is not registered")
+	}
 	event := Event{EventID: "legacy-action-completed", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: "legacy-work", Actor: "actor:legacy", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"work_id":"legacy-work","expected_version":1,"resulting_version":2,"step_id":"execution","action_id":"record_proposal","attempt_epoch":1,"result_evidence_refs":[],"changed_refs":[],"actor_ref":"actor:legacy"}`)}
 	upcasted, err := upcastEvent(event)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current := eventKindRegistry[WorkflowActionCompleted].CurrentVersion; upcasted.PayloadVersion != current {
-		t.Fatalf("upcast payload version=%d, want %d (workflow.action_completed current)", upcasted.PayloadVersion, current)
+	if upcasted.PayloadVersion != registration.CurrentVersion {
+		t.Fatalf("upcast payload version=%d, want %d (workflow.action_completed current)", upcasted.PayloadVersion, registration.CurrentVersion)
 	}
 	var payload workflowActionCompletedPayload
 	if err := json.Unmarshal(upcasted.Payload, &payload); err != nil {

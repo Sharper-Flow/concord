@@ -1,0 +1,17 @@
+{
+  "kind": "go_top_level_v1",
+  "package_cwd": "internal/store",
+  "test_files": [
+    "internal/store/selector_remedy_export_test.go",
+    "internal/store/selector_remedy_oracle_test.go"
+  ],
+  "fixture_files": [
+    "internal/store/knowledge_authority_defaults.v1.json",
+    "internal/store/testdata/native-target-uv/pyproject.toml",
+    "internal/store/testdata/native-target-uv/uv.lock"
+  ],
+  "cases": {
+    "case:selector-remedy-visible": ["TestNativeSelectorRemedyVisible"],
+    "case:selector-remedy-callable": ["TestNativeSelectorRemedyCallable"]
+  }
+}

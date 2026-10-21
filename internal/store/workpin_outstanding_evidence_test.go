@@ -241,6 +241,58 @@ func TestWorkPinOutstandingEvidenceKindsOmittedWithoutContractAuthority(t *testi
 	})
 }
 
+// seedSmallReturnRouteFixture seeds the same return-route shape as
+// seedWorkflowReturnRouteFixtureWithDefinition for a small composition: the
+// same required evidence and bound kinds, advanced to the same step. A small
+// contract owes its recorded footprint binding, which a raw seeded approval
+// cannot carry, so the initial contract is approved through the public
+// constructor and the fold records the binding the item's size assessment
+// derives.
+func seedSmallReturnRouteFixture(t *testing.T, workID string, registered RegisteredDefinition, completionStep string, requiredEvidence, boundKinds []string) *Store {
+	t.Helper()
+	ctx := context.Background()
+	if workflowCompositionSize(registered.Definition.Ref, registered.Definition.Version) != WorkSizeSmall {
+		t.Fatalf("%s@%d serves no small size", registered.Definition.Ref, registered.Definition.Version)
+	}
+	s, definition := footprintBindingItemWithChecks(t, workID, true, nil)
+	if definition.Version != registered.Definition.Version {
+		t.Fatalf("the small size pinned %s@%d, want @%d", definition.Ref, definition.Version, registered.Definition.Version)
+	}
+	ownerRef := footprintBindingActorRef(t, workID)
+	fields := footprintBindingFields(t, s, 1)
+	raw, err := json.Marshal(requiredEvidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields["required_evidence"] = raw
+	events, err := factWriteConstructInitialContract(t, s, definition, workID, ownerRef, fields, readWorkVersion(t, s, workID))
+	if err != nil {
+		t.Fatalf("approve the small contract: %v", err)
+	}
+	if err := appendFootprintBindingEvents(s, workID, readWorkVersion(t, s, workID), events); err != nil {
+		t.Fatalf("fold the small contract approval: %v", err)
+	}
+	base := readWorkVersion(t, s, workID)
+	var bound []Event
+	for index, kind := range boundKinds {
+		expected := base + int64(index)
+		evidenceRef := "evidence:return-route-" + kind
+		seedWorkflowAuthority(t, s, "return-authority-"+kind+"-"+workID, workID, "principal/return-route-"+kind, "request/return-route-"+kind, []string{evidenceRef})
+		bound = append(bound, workflowEventWithActor("return-evidence-"+kind+"-"+workID, WorkflowEvidenceBound, workID, ownerRef, map[string]any{
+			"work_id": workID, "expected_version": expected, "resulting_version": expected + 1, "evidence_kind": kind,
+			"immutable_subject_ref": evidenceRef, "producer_id": "principal/return-route-" + kind, "producer_run_ref": "return-authority-" + kind + "-" + workID,
+			"producer_watermark": "request/return-route-" + kind, "observed_at": "2026-09-12T00:00:00Z",
+		}))
+	}
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: bound, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): base}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, completionStep, ownerRef); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
 func TestWorkPinOutstandingEvidenceKindsRecoveryIntentAcrossDefinitions(t *testing.T) {
 	for _, ref := range []string{"workflow.implementation", "workflow.break_fix", "workflow.research"} {
 		current, err := BuiltinWorkflowDefinitionForRef(ref)
@@ -264,8 +316,14 @@ func TestWorkPinOutstandingEvidenceKindsRecoveryIntentAcrossDefinitions(t *testi
 				if completionStep == "" {
 					t.Fatalf("definition %s has no completion step", name)
 				}
-				f := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, completionStep, []string{"commit"}, []string{"verification", "review", "artifact"})
-				pin, err := ReadWorkPin(context.Background(), f.store, workID)
+				requiredEvidence, boundKinds := []string{"commit"}, []string{"verification", "review", "artifact"}
+				var s *Store
+				if workflowCompositionSize(ref, version) == WorkSizeSmall {
+					s = seedSmallReturnRouteFixture(t, workID, registered, completionStep, requiredEvidence, boundKinds)
+				} else {
+					s = seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, completionStep, requiredEvidence, boundKinds).store
+				}
+				pin, err := ReadWorkPin(context.Background(), s, workID)
 				if err != nil {
 					t.Fatal(err)
 				}

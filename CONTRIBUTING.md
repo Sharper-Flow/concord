@@ -79,5 +79,11 @@ bin/oc-test preflight
 environment, pin, glob routing, or the script-suite battery drifts from the
 CI steps that own the same commands.
 
+The real-tool tests in `scripts/test-pre-push.py` require Lefthook v2.1.14 on
+`PATH`; they fail if it is missing or has a different version. Prepare the
+binary with the `go install` command above; installing Git hooks is not needed
+to run these tests. CI prepares and caches that binary before testing. The
+tests never download or build it.
+
 Do not include credentials, private paths, private fixtures, or generated local
 state. See [SECURITY.md](SECURITY.md) for vulnerability reporting.

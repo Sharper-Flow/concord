@@ -25,9 +25,15 @@ type WorkflowComposition struct {
 	CompositionRules      WorkflowCompositionRules
 	EvaluatorIndependence WorkflowEvaluatorIndependence
 	ApprovalPolicy        string
-	ActionCatalogVersion  int
-	Parts                 []WorkflowPartUse
-	proofSteps            workflowProofStepRoles
+	// ProgressPolicy is the composition-level progress-policy discriminator
+	// (CD-0164 D2a). Absence compiles the released legacy definition shape;
+	// WorkflowProgressPolicyObligationSatisfactionV1 declares the
+	// obligation-satisfaction policy and compiles the canonical satisfaction
+	// taxonomy onto the resolved actions.
+	ProgressPolicy       string
+	ActionCatalogVersion int
+	Parts                []WorkflowPartUse
+	proofSteps           workflowProofStepRoles
 }
 
 // workflowProofStepRoles belongs to the versioned composition, like its capabilities.
@@ -109,6 +115,9 @@ func CompileWorkflowComposition(composition WorkflowComposition) (WorkflowDefini
 	if composition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
 		actions = withConsequenceConfirmPremise(actions)
 	}
+	if composition.ProgressPolicy == WorkflowProgressPolicyObligationSatisfactionV1 {
+		actions = withObligationSatisfactionTaxonomy(actions)
+	}
 	changesProductTruth := workKindMayChangeProductTruth(composition.WorkKind)
 	definition := cloneWorkflowDefinition(WorkflowDefinition{
 		Ref: composition.Ref, Version: composition.Version, WorkKind: composition.WorkKind, ChangesProductTruth: &changesProductTruth,
@@ -116,7 +125,7 @@ func CompileWorkflowComposition(composition WorkflowComposition) (WorkflowDefini
 		AvailableActions: available, ActionDefinitions: actions,
 		RequiredEvidenceKinds: composition.RequiredEvidenceKinds, OutcomeSchema: composition.OutcomeSchema, RigorRules: composition.RigorRules,
 		StalenessRules: composition.StalenessRules, CompositionRules: composition.CompositionRules, EvaluatorIndependence: composition.EvaluatorIndependence,
-		RecoveryRoutes: routes, ApprovalPolicy: composition.ApprovalPolicy,
+		RecoveryRoutes: routes, ApprovalPolicy: composition.ApprovalPolicy, ProgressPolicy: composition.ProgressPolicy,
 	})
 	if err := ValidateWorkflowDefinition(definition); err != nil {
 		return WorkflowDefinition{}, err
@@ -137,13 +146,11 @@ func mustCompileWorkflowComposition(composition WorkflowComposition) WorkflowDef
 // builtinWorkflowCompositions lists every released composition.
 func builtinWorkflowCompositions() []WorkflowComposition {
 	return []WorkflowComposition{
-		implementationCompositionV33(), implementationConsequenceV34(), implementationCompositionV35(),
-		implementationSmallV36(), implementationCompositionV37(),
-		implementationTimedSmallV38(), implementationTimedV39(),
-		breakFixCompositionV30(), breakFixConsequenceV31(), breakFixCompositionV32(),
-		breakFixTimedV33(),
-		researchCompositionV20(), researchConsequenceV21(),
-		researchTimedV22(),
+		implementationCompositionV33(), implementationConsequenceV34(), implementationCompositionV35(), implementationCompositionV36(),
+		breakFixCompositionV30(), breakFixConsequenceV31(), breakFixCompositionV32(), breakFixCompositionV33(),
+		researchCompositionV20(), researchConsequenceV21(), researchObligationV22(),
+		implementationObligationV37(), breakFixObligationV34(),
+		implementationTimedSmallV38(), implementationTimedV39(), breakFixTimedV35(), researchTimedV23(),
 	}
 }
 
@@ -152,7 +159,7 @@ func withSizedTiming(composition WorkflowComposition, version int64) WorkflowCom
 	if composition.ActionCatalogVersion == 1 {
 		composition.ActionCatalogVersion = 4
 	} else {
-		composition.ActionCatalogVersion = 3
+		composition.ActionCatalogVersion = 5
 	}
 	for index := range composition.Parts {
 		if composition.Parts[index].Ref == "part.close" {
@@ -163,19 +170,19 @@ func withSizedTiming(composition WorkflowComposition, version int64) WorkflowCom
 }
 
 func implementationTimedSmallV38() WorkflowComposition {
-	return withSizedTiming(implementationSmallV36(), 38)
+	return withSizedTiming(smallImplementation(implementationObligationV37()), 38)
 }
 
 func implementationTimedV39() WorkflowComposition {
-	return withSizedTiming(implementationCompositionV37(), 39)
+	return withSizedTiming(implementationObligationV37(), 39)
 }
 
-func breakFixTimedV33() WorkflowComposition {
-	return withSizedTiming(breakFixCompositionV32(), 33)
+func breakFixTimedV35() WorkflowComposition {
+	return withSizedTiming(breakFixObligationV34(), 35)
 }
 
-func researchTimedV22() WorkflowComposition {
-	return withSizedTiming(researchConsequenceV21(), 22)
+func researchTimedV23() WorkflowComposition {
+	return withSizedTiming(researchObligationV22(), 23)
 }
 
 // workflowCompositionCapabilities answers which capabilities a released
@@ -345,14 +352,13 @@ func implementationConsequenceV34() WorkflowComposition {
 	return withConsequencePolicy(implementationCompositionV33())
 }
 
-// implementationSmallV36 is the small implementation composition (CD-0229
+// smallImplementation declares the small implementation composition (CD-0229
 // D5): define is alignment and planning, then implement, review, and ship.
 // It keeps the full composition's outcome contract, evidence, approval
 // policy, and action catalog; a review finding returns to execution, which
 // fixes it in scope.
-func implementationSmallV36() WorkflowComposition {
-	composition := implementationCompositionV35()
-	composition.Version, composition.Size = 36, WorkSizeSmall
+func smallImplementation(composition WorkflowComposition) WorkflowComposition {
+	composition.Size = WorkSizeSmall
 	composition.proofSteps = workflowProofStepRoles{producer: "execution", review: "acceptance", explicitShip: true}
 	composition.Parts = []WorkflowPartUse{
 		{Ref: "part.alignment", Version: 1},
@@ -361,14 +367,6 @@ func implementationSmallV36() WorkflowComposition {
 		{Ref: "part.verdict", Version: 1, StepID: "acceptance", FailureTo: "execution", RecoveryTo: "execution"},
 		{Ref: "part.close", Version: 1, StepID: "release", RecoveryTo: "execution", DisprovedPremiseRoute: true},
 	}
-	return composition
-}
-
-// implementationCompositionV37 keeps the full composition the family head
-// above the small composition.
-func implementationCompositionV37() WorkflowComposition {
-	composition := implementationCompositionV35()
-	composition.Version = 37
 	return composition
 }
 
@@ -394,4 +392,66 @@ func breakFixCompositionV32() WorkflowComposition {
 	composition.Version = 32
 	composition.ActionCatalogVersion = 2
 	return composition
+}
+
+// implementationCompositionV36 ships the size-capable implementation head
+// (CD-0225 D1, CD-0227 D1): v35's every surface — the consequence_v1
+// approval policy and the checks-repair authoring members included — with
+// the v3 action catalog, whose record_worker_job adds the optional size
+// members beside the repair authoring members and the closed split variant.
+// A job under this head carries all three size members or none.
+func implementationCompositionV36() WorkflowComposition {
+	composition := implementationCompositionV35()
+	composition.Version = 36
+	composition.ActionCatalogVersion = 3
+	return composition
+}
+
+// breakFixCompositionV33 ships the size-capable break-fix head: v32's every
+// surface with the v3 action catalog.
+func breakFixCompositionV33() WorkflowComposition {
+	composition := breakFixCompositionV32()
+	composition.Version = 33
+	composition.ActionCatalogVersion = 3
+	return composition
+}
+
+// withObligationSatisfactionTaxonomy declares each compiled action's
+// satisfaction kind from the canonical action mapping (CD-0164 D2a). The
+// copy leaves the shared catalog declarations unmutated; validation binds
+// the compiled result to the same mapping, so a compiled definition and its
+// declared taxonomy cannot disagree.
+func withObligationSatisfactionTaxonomy(actions []WorkflowActionDefinition) []WorkflowActionDefinition {
+	selected := slices.Clone(actions)
+	for index := range selected {
+		selected[index].SatisfactionKind = workflowActionSatisfactionKind(selected[index].ID)
+	}
+	return selected
+}
+
+// withObligationSatisfactionPolicy promotes a released composition to the
+// next version under the obligation-satisfaction progress policy (CD-0164
+// D2a). Parts, approval policy, and action catalog stay pinned; the compiled
+// definition declares the policy and the closed satisfaction taxonomy on the
+// fresh head alone.
+func withObligationSatisfactionPolicy(composition WorkflowComposition) WorkflowComposition {
+	composition.Version++
+	composition.ProgressPolicy = WorkflowProgressPolicyObligationSatisfactionV1
+	return composition
+}
+
+// The obligation-satisfaction heads retain their predecessors' consequence
+// policy, parts, and action catalog — the v3 catalog on the implementation
+// and break-fix heads; the compiled definition declares the progress policy
+// and its closed satisfaction taxonomy.
+func implementationObligationV37() WorkflowComposition {
+	return withObligationSatisfactionPolicy(implementationCompositionV36())
+}
+
+func breakFixObligationV34() WorkflowComposition {
+	return withObligationSatisfactionPolicy(breakFixCompositionV33())
+}
+
+func researchObligationV22() WorkflowComposition {
+	return withObligationSatisfactionPolicy(researchConsequenceV21())
 }

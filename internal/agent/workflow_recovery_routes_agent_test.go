@@ -108,13 +108,17 @@ const (
 )
 
 // workflowRecoveryLiveVersions names the versions the live journeys run
-// on: each family's authoring head, plus the implementation family's small
-// composition, which serves small work. The store's live-authoring and
-// size owners resolve the same versions.
+// on: each family's timed authoring head, plus the implementation family's
+// small composition, which serves small work. The store's live-authoring
+// and size owners resolve the same versions. The small composition's
+// journeys are required and currently refused by the small ship review's
+// native-dispatch identity requirement (the small proof reads the
+// identity-stamped completions only the native dispatch boundary
+// records); they stay red until the native fixture boundary is repaired.
 var workflowRecoveryLiveVersions = map[string][]int64{
-	"workflow.implementation": {36, 37},
-	"workflow.break_fix":      {32},
-	"workflow.research":       {21},
+	"workflow.implementation": {38, 39},
+	"workflow.break_fix":      {35},
+	"workflow.research":       {23},
 }
 
 func workflowRecoveryVersionIsLive(ref string, version int64) bool {
@@ -825,12 +829,208 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			WorkflowID:       "research-v19-complete",
 		},
-		// The checks-repair heads: the same six journeys run at the
-		// v35/v32/v21 pins, whose compiled route tables equal their
-		// predecessors' tables; the implementation and break-fix heads
-		// inherit the consequence_v1 policy beside the checks-repair
-		// action catalog. Implementation v35 stays covered as recorded
-		// history next to the sized versions below.
+		// The timed heads: the same journeys run at the v38-small/v39-full/
+		// v35/v23 pins, whose compiled route tables equal their
+		// predecessors' tables; the timed heads inherit the consequence_v1
+		// policy and the obligation-satisfaction progress policy, and the
+		// completion-submission catalogs (v5 engineering, v4 research) pin
+		// the sized-timing close part. The small composition's execution
+		// produces the delivery and its review rides the acceptance
+		// checkpoint; its two journeys are required live rows and fail only
+		// on the native ship-review fixture gap (see
+		// workflowRecoveryLiveVersions).
+		{
+			Ref: "workflow.implementation", Version: 39,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v39-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 39,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v39-release",
+		},
+		{
+			Ref: "workflow.implementation", Version: 38,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v38-small-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 38,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v38-small-release",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 35,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v35-verify",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 35,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v35-complete",
+		},
+		{
+			Ref: "workflow.research", Version: 23,
+			Step: "conclude", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "conclude", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v23-conclude",
+		},
+		{
+			Ref: "workflow.research", Version: 23,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "complete", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v23-complete",
+		},
+		// The released obligation heads: the same journeys ran at the
+		// v37/v34 pins, whose compiled route tables equal their
+		// predecessors' tables; they stay covered as recorded history next
+		// to the timed heads.
+		{
+			Ref: "workflow.implementation", Version: 37,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v37-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 37,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v37-release",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 34,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v34-verify",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 34,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v34-complete",
+		},
+		// The size-capable heads: the same six live journeys ran at the
+		// v36/v33 pins, whose compiled route tables equal their
+		// predecessors' tables; they stay covered as recorded history next
+		// to the timed heads.
+		{
+			Ref: "workflow.implementation", Version: 36,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v36-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 36,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v36-release",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 33,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v33-verify",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 33,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v33-complete",
+		},
+		// The released research head: the same journeys ran at the v22
+		// pin; it stays covered as recorded history next to the timed
+		// head.
+		{
+			Ref: "workflow.research", Version: 22,
+			Step: "conclude", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "conclude", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v22-conclude",
+		},
+		{
+			Ref: "workflow.research", Version: 22,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "complete", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v22-complete",
+		},
+		// The obligation predecessor: the same journeys ran at the v21
+		// pin, whose compiled route table equals its predecessors' tables;
+		// it stays covered as recorded history next to the current head.
+		{
+			Ref: "workflow.research", Version: 21,
+			Step: "conclude", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "conclude", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v21-conclude",
+		},
+		{
+			Ref: "workflow.research", Version: 21,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "complete", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v21-complete",
+		},
+		// The checks-repair heads: the same six journeys ran at the
+		// v35/v32 pins, whose compiled route tables equal their
+		// predecessors' tables; they stay covered as recorded history next
+		// to the size-capable heads.
 		{
 			Ref: "workflow.implementation", Version: 35,
 			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
@@ -866,22 +1066,6 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
 			RecordWorkerJob:  true,
 			WorkflowID:       "break_fix-v32-complete",
-		},
-		{
-			Ref: "workflow.research", Version: 21,
-			Step: "conclude", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
-			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
-			VerdictStep: "conclude", BindStep: "investigate", BindKind: store.EvidenceArtifact,
-			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
-			WorkflowID:       "research-v21-conclude",
-		},
-		{
-			Ref: "workflow.research", Version: 21,
-			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
-			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
-			VerdictStep: "complete", BindStep: "investigate", BindKind: store.EvidenceArtifact,
-			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
-			WorkflowID:       "research-v21-complete",
 		},
 		// The first composed heads: the same six journeys ran at the
 		// v33/v30/v20 pins, whose compiled route tables equal their
@@ -942,7 +1126,7 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 		// The superseded consequence_v1 heads: the same journeys ran at the
 		// v34/v31 pins, whose compiled route tables equal their
 		// predecessors' tables; they stay covered as recorded history next
-		// to the current heads.
+		// to the timed heads.
 		{
 			Ref: "workflow.implementation", Version: 34,
 			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
@@ -960,44 +1144,6 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			RecordWorkerJob:  true,
 			WorkflowID:       "implementation-v34-release",
-		},
-		// The sized implementation versions: small v36 and full v37 run the
-		// same two journeys; small's execution produces the delivery.
-		{
-			Ref: "workflow.implementation", Version: 36,
-			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
-			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
-			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
-			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
-			RecordWorkerJob:  true,
-			WorkflowID:       "implementation-v36-acceptance",
-		},
-		{
-			Ref: "workflow.implementation", Version: 36,
-			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
-			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
-			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
-			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
-			RecordWorkerJob:  true,
-			WorkflowID:       "implementation-v36-release",
-		},
-		{
-			Ref: "workflow.implementation", Version: 37,
-			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
-			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
-			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
-			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
-			RecordWorkerJob:  true,
-			WorkflowID:       "implementation-v37-acceptance",
-		},
-		{
-			Ref: "workflow.implementation", Version: 37,
-			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
-			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
-			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
-			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
-			RecordWorkerJob:  true,
-			WorkflowID:       "implementation-v37-release",
 		},
 		{
 			Ref: "workflow.break_fix", Version: 31,
@@ -1085,8 +1231,8 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 // (ref, version) fails the test before the journey runs.
 func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 	tuples := workflowRecoveryRouteTuples()
-	if len(tuples) != 104 {
-		t.Fatalf("recovery-route journey table carries %d tuples, want 104 (32 archived-refusal rows + 64 recorded-history rows at the retained pins through v35/v31/v20 + eight live rows at implementation small v36 and full v37 and the v32/v21 heads)", len(tuples))
+	if len(tuples) != 118 {
+		t.Fatalf("recovery-route journey table carries %d tuples, want 118 (32 archived-refusal rows + 78 recorded-history rows at the retained pins through v37/v34/v22/v36/v33/v21/v35/v32/v34/v31/v33/v30/v20 + eight live rows at the v38-small/v39-full/v35/v23 timed heads)", len(tuples))
 	}
 	seen := map[string]bool{}
 	live, history, refusals := 0, 0, 0
@@ -1171,12 +1317,14 @@ func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 		}
 	}
 	// The disposition split is the CD-0218 battery shape: the eight live
-	// journeys run at the live versions (v36/v37/v32/v21), the
-	// retained-family released pins plus every retained predecessor-head row
-	// (v35/v34/v31, v33/v30/v20 now among them) as recorded history, and the
-	// 32 retired-family rows as archived-refusal coverage.
-	if live != 8 || history != 64 || refusals != 32 {
-		t.Fatalf("journey table dispositions: live=%d history=%d refusals=%d, want 8/64/32", live, history, refusals)
+	// journeys run at the timed heads (v38 small/v39 full/v35/v23), the
+	// retained-family released pins plus every retained predecessor-head
+	// row (v37/v34/v22, v36/v33/v21, v35/v32, v34/v31, v33/v30/v20 now
+	// among them) as recorded history, and the 32 retired-family rows as
+	// archived-refusal coverage. The small composition's journeys stay
+	// required: they are red only on the native ship-review fixture gap.
+	if live != 8 || history != 78 || refusals != 32 {
+		t.Fatalf("journey table dispositions: live=%d history=%d refusals=%d, want 8/78/32", live, history, refusals)
 	}
 	for _, tuple := range workflowRecoveryRouteSupersedeTuples() {
 		key := tuple.Ref + "|v" + strconv.FormatInt(tuple.Version, 10) + "|" + tuple.Step + "|" + string(store.WorkflowRecoveryTriggerDisprovedPremiseAtComplete)
@@ -1378,23 +1526,45 @@ func runWorkflowRecoveryRouteJourney(t *testing.T, tuple workflowRecoveryRouteTu
 	// The contract carries the outcome predicate the verdict cites and
 	// the required evidence kinds the work item must bind before the
 	// dispatch/verdict window opens (CD-0204 D1).
+	// A small composition owes its footprint binding on the approved
+	// contract, so its initial contract goes through the public boundary's
+	// approve_contract at planning — the approval derives the binding from
+	// the recorded small size — while the full compositions keep the
+	// seeded contract the binding-free fold accepts.
+	// The small composition is the implementation family's sized variant:
+	// it ships at release and has no refine step, unlike the full
+	// composition (which refines) and research (which completes).
+	hasStep := func(stepID string) bool {
+		return slices.ContainsFunc(definition.Definition.StepGraph.Steps, func(step store.WorkflowStep) bool { return step.ID == stepID })
+	}
+	smallComposition := hasStep("release") && !hasStep("refine")
 	requiredEvidence := make([]string, 0, len(tuple.RequiredEvidence))
 	for _, kind := range tuple.RequiredEvidence {
 		requiredEvidence = append(requiredEvidence, string(kind))
 	}
 	requiredEvidenceJSON, _ := json.Marshal(requiredEvidence)
 	predicateKind, predicatePayload := recoveryPredicate(tuple)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-		UPDATE workflow_instances SET current_step=?1 WHERE work_id='work-1';
-		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,?2,'internal_sqlite',?3,'[]','now',?4,'[]','[]',0,'prototype_internal');
-		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-1',1,'predicate:primary',0,?5,?6);
-		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?7,'project-1',?8,?9,?10,?11,?12,'active',?13);
-		DELETE FROM fold_guard`,
-		tuple.DeliveryStep,
-		"approved recovery route objective for "+tuple.WorkflowID, string(requiredEvidenceJSON), grantActorRef,
-		predicateKind, string(retryJSON(predicatePayload)),
-		store.WorktreeSetID("work-1"), "claim:"+tuple.WorkflowID, tuple.WorkflowID, strings.Repeat("a", 40), worktree, "repo:"+tuple.WorkflowID, fixedTime().Format(time.RFC3339Nano)); err != nil {
-		t.Fatalf("seed contract and worktree at delivery step %q: %v", tuple.DeliveryStep, err)
+	if smallComposition {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+			UPDATE workflow_instances SET current_step='planning' WHERE work_id='work-1';
+			INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?1,'project-1',?2,?3,?4,?5,?6,'active',?7);
+			DELETE FROM fold_guard`,
+			store.WorktreeSetID("work-1"), "claim:"+tuple.WorkflowID, tuple.WorkflowID, strings.Repeat("a", 40), worktree, "repo:"+tuple.WorkflowID, fixedTime().Format(time.RFC3339Nano)); err != nil {
+			t.Fatalf("seed small worktree at planning: %v", err)
+		}
+	} else {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+			UPDATE workflow_instances SET current_step=?1 WHERE work_id='work-1';
+			INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,?2,'internal_sqlite',?3,'[]','now',?4,'[]','[]',0,'prototype_internal');
+			INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-1',1,'predicate:primary',0,?5,?6);
+			INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?7,'project-1',?8,?9,?10,?11,?12,'active',?13);
+			DELETE FROM fold_guard`,
+			tuple.DeliveryStep,
+			"approved recovery route objective for "+tuple.WorkflowID, string(requiredEvidenceJSON), grantActorRef,
+			predicateKind, string(retryJSON(predicatePayload)),
+			store.WorktreeSetID("work-1"), "claim:"+tuple.WorkflowID, tuple.WorkflowID, strings.Repeat("a", 40), worktree, "repo:"+tuple.WorkflowID, fixedTime().Format(time.RFC3339Nano)); err != nil {
+			t.Fatalf("seed contract and worktree at delivery step %q: %v", tuple.DeliveryStep, err)
+		}
 	}
 
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -1411,6 +1581,10 @@ func runWorkflowRecoveryRouteJourney(t *testing.T, tuple workflowRecoveryRouteTu
 		return resp
 	}
 	version := func() int64 { return workVersion(t, s, "work-1") }
+	if smallComposition {
+		approveRecoveryRouteSmallContract(t, s, service, env, invoke, definition, tuple.WorkflowID,
+			"approved recovery route objective for "+tuple.WorkflowID, requiredEvidence, predicateKind, predicatePayload, tuple.DeliveryStep)
+	}
 	runWorkerRecoveryJourney(t, tuple, s, service, grant, privateKey, env, invoke, version)
 }
 
@@ -1928,12 +2102,13 @@ func advanceWorkerRecovery(t *testing.T, tuple workflowRecoveryRouteTuple, s *st
 			})})
 			appendLaneCompletion(t, s, grant, lane, attempt, suffix+"-review")
 			action("accept_worker_evidence", map[string]any{"attempt_id": attempt, "attempt_epoch": attemptEpoch(t, s, attempt)})
+			seedRecoverySmallShipProof(t, s)
 			return
 		}
 		if got := stepOf(t, s); got != "refine" {
 			t.Fatalf("repair acceptance reached %s, want refine", got)
 		}
-		// CD-0198 D3: the current heads derive the refine start from the
+		// CD-0198 D3: the timed heads derive the refine start from the
 		// qualifying checkpoint; released pins keep the callable start.
 		refineEntry := "start_refine"
 		var definitionVersion int64
@@ -2234,11 +2409,49 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			RecordWorkerJob: true,
 			WorkflowID:      "break_fix-v29-complete-supersede",
 		},
-		// The live versions republish the same complete-step supersede
-		// routes beside the checks-repair action catalog and the
-		// inherited consequence_v1 policy: implementation small v36 and
-		// full v37, and the break-fix head. The checks-repair head v35's
-		// route stays covered as recorded history.
+		// The timed heads republish the same complete-step supersede
+		// routes beside the completion-submission catalogs and the
+		// inherited consequence_v1 and obligation-satisfaction policies:
+		// the full head v39 and the small composition v38, and the
+		// break-fix head v35. The small supersede journey is required and
+		// fails only on the native ship-review fixture gap.
+		{
+			Ref: "workflow.implementation", Version: 39,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v39-release-supersede",
+		},
+		{
+			Ref: "workflow.implementation", Version: 38,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v38-small-release-supersede",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 35,
+			Step: "complete", Target: "repair",
+			RecordWorkerJob: true,
+			WorkflowID:      "break_fix-v35-complete-supersede",
+		},
+		// The released obligation heads republish the same complete-step
+		// supersede routes; they stay covered as recorded history next to
+		// the timed heads.
+		{
+			Ref: "workflow.implementation", Version: 37,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v37-release-supersede",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 34,
+			Step: "complete", Target: "repair",
+			RecordWorkerJob: true,
+			WorkflowID:      "break_fix-v34-complete-supersede",
+		},
+		// The size-capable heads republish the same complete-step
+		// supersede routes beside the checks-repair action catalog and
+		// the inherited consequence_v1 policy; they stay covered as
+		// recorded history next to the timed heads.
 		{
 			Ref: "workflow.implementation", Version: 36,
 			Step: "release", Target: "execution",
@@ -2246,11 +2459,13 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			WorkflowID:      "implementation-v36-release-supersede",
 		},
 		{
-			Ref: "workflow.implementation", Version: 37,
-			Step: "release", Target: "execution",
+			Ref: "workflow.break_fix", Version: 33,
+			Step: "complete", Target: "repair",
 			RecordWorkerJob: true,
-			WorkflowID:      "implementation-v37-release-supersede",
+			WorkflowID:      "break_fix-v33-complete-supersede",
 		},
+		// The checks-repair heads' supersede routes stay covered as recorded
+		// history next to the timed heads.
 		{
 			Ref: "workflow.implementation", Version: 35,
 			Step: "release", Target: "execution",
@@ -2264,7 +2479,7 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			WorkflowID:      "break_fix-v32-complete-supersede",
 		},
 		// The consequence_v1 heads' supersede routes stay covered as recorded
-		// history next to the current heads.
+		// history next to the timed heads.
 		{
 			Ref: "workflow.implementation", Version: 34,
 			Step: "release", Target: "execution",
@@ -2398,6 +2613,37 @@ func runWorkflowRecoveryRouteSupersede(t *testing.T, tuple workflowRecoveryRoute
 		return resp
 	}
 	version := func() int64 { return workVersion(t, s, "work-1") }
+	// A small composition owes its footprint binding on the predecessor
+	// contract, so its initial contract goes through the public boundary's
+	// approve_contract at planning before the fixture parks at the
+	// supersede route step; the successor's binding derives from the same
+	// recorded size at the public supersede_contract call.
+	// The small composition is the implementation family's sized variant:
+	// it ships at release and has no refine step, unlike the full
+	// composition (which refines) and research (which completes).
+	hasStep := func(stepID string) bool {
+		return slices.ContainsFunc(definition.Definition.StepGraph.Steps, func(step store.WorkflowStep) bool { return step.ID == stepID })
+	}
+	smallComposition := hasStep("release") && !hasStep("refine")
+	if smallComposition {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+			UPDATE workflow_instances SET current_step='planning' WHERE work_id='work-1';
+			INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?1,'project-1',?2,?3,?4,?5,?6,'active',?7);
+			DELETE FROM fold_guard`,
+			store.WorktreeSetID("work-1"), "claim:"+tuple.WorkflowID, tuple.WorkflowID, strings.Repeat("a", 40), worktree, "repo:"+tuple.WorkflowID, fixedTime().Format(time.RFC3339Nano)); err != nil {
+			t.Fatalf("seed small supersede worktree at planning: %v", err)
+		}
+		approveRecoveryRouteSmallContract(t, s, service, env, invoke, definition, tuple.WorkflowID,
+			"approved supersede objective for "+tuple.WorkflowID, []string{"artifact"}, "check",
+			map[string]any{"kind": "check", "check_ref": "check:regroute", "immutable_subject_ref": "commit:regroute", "expected_result": "pass"}, "execution")
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+			UPDATE workflow_instances SET current_step=? WHERE work_id='work-1';
+			DELETE FROM fold_guard`, tuple.Step); err != nil {
+			t.Fatalf("park small predecessor at complete step %q: %v", tuple.Step, err)
+		}
+		runWorkflowRecoveryRouteSupersedeSeeded(t, tuple, s, service, grant, privateKey, env, invoke, version, definition)
+		return
+	}
 	// The predecessor contract lands at the complete step (the supersede's
 	// route step) via the existing fold-guard fixture pattern. The
 	// duplicate projection (CD-0172 D6) is created after this contract
@@ -2414,6 +2660,15 @@ func runWorkflowRecoveryRouteSupersede(t *testing.T, tuple workflowRecoveryRoute
 		store.WorktreeSetID("work-1"), "claim:"+tuple.WorkflowID, tuple.WorkflowID, strings.Repeat("a", 40), worktree, "repo:"+tuple.WorkflowID, fixedTime().Format(time.RFC3339Nano)); err != nil {
 		t.Fatalf("seed contract at complete step %q: %v", tuple.Step, err)
 	}
+	runWorkflowRecoveryRouteSupersedeSeeded(t, tuple, s, service, grant, privateKey, env, invoke, version, definition)
+	return
+}
+
+// runWorkflowRecoveryRouteSupersedeSeeded continues the supersede journey
+// after the predecessor contract lands: the same-work observation, the
+// stale duplicate projection, and the public supersession.
+func runWorkflowRecoveryRouteSupersedeSeeded(t *testing.T, tuple workflowRecoveryRouteSupersedeTuple, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, invoke func(map[string]any) Envelope, version func() int64, definition store.RegisteredDefinition) {
+	ctx := context.Background()
 
 	// The healthy verdict and the same-work observation are
 	// recorded via the store-level admit; the supersede_contract
@@ -2778,6 +3033,21 @@ func readOperatorQuestionDigest(t *testing.T, s *store.Store, workID, actionID s
 	return question.DecisionContextDigest
 }
 
+// recordedDispatchPacketDigest reads the canonical packet digest the
+// dispatch authorization recorded for the attempt, so the lane evidence
+// names the exact bytes the window was opened for.
+func recordedDispatchPacketDigest(t *testing.T, s *store.Store, attemptID string) string {
+	t.Helper()
+	var digest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type='work_item' AND subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, store.WorkflowActionCompleted, attemptID).Scan(&digest); err != nil {
+		t.Fatalf("read the recorded packet digest for %s: %v", attemptID, err)
+	}
+	if digest == "" {
+		t.Fatalf("dispatch %s recorded no packet digest", attemptID)
+	}
+	return digest
+}
+
 // attemptEpoch reads the epoch of this exact authorized dispatch.
 func attemptEpoch(t *testing.T, s *store.Store, attemptID string) int64 {
 	t.Helper()
@@ -2825,7 +3095,7 @@ func appendLaneCompletionWithVerdict(t *testing.T, s *store.Store, grant Authori
 	t.Helper()
 	ctx := context.Background()
 	job := authorizedWorkerJob(t, s, attemptID)
-	payload := store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion}
+	payload := store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: recordedDispatchPacketDigest(t, s, attemptID), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion}
 	if job != nil {
 		payload.WorkerJob = job
 	}
@@ -2857,6 +3127,92 @@ func appendLaneCompletionWithVerdict(t *testing.T, s *store.Store, grant Authori
 
 var errRecoveryRouteFullComposition = errors.New("the definition is a full composition")
 
+// approveRecoveryRouteSmallContract drives the small composition's initial
+// contract through the public boundary at planning: the approval derives
+// and records the footprint binding a seeded-contract row cannot carry,
+// against the fresh registered domain hash and scanned watermark commit
+// the sized assessment names. The consequence approval stays routine on
+// an empty decision-domain set.
+func approveRecoveryRouteSmallContract(t *testing.T, s *store.Store, service *Service, env CallEnvelope, invoke func(map[string]any) Envelope, definition store.RegisteredDefinition, tupleWorkflowID, premise string, requiredEvidence []string, predicateKind string, predicatePayload map[string]any, stepAfter string) {
+	t.Helper()
+	fields := map[string]any{
+		"premise":            premise,
+		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": predicateKind, "outcome_payload": predicatePayload}},
+		"required_evidence":  requiredEvidence, "route_conventions": []string{},
+		"spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
+	}
+	if definition.Definition.ChangesProductTruth != nil && *definition.Definition.ChangesProductTruth {
+		binding := workflowArchitectureBindingFixture()
+		hash, root := recoveryRegistry(t, s)
+		binding["domain_registry_content_hash"] = hash
+		binding["home_domain_id"] = root
+		binding["affected_domain_ids"] = []string{root}
+		fields["architecture_binding"] = binding
+	}
+	if definition.Definition.ApprovalPolicy == store.WorkflowApprovalPolicyConsequenceV1 {
+		fields["decision_domains"] = []string{}
+	}
+	input := map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "approve_contract", "fields": fields, "idempotency_key": tupleWorkflowID + "-approve"}
+	var response Envelope
+	if definition.Definition.ApprovalPolicy == store.WorkflowApprovalPolicyConsequenceV1 {
+		response = invoke(input)
+	} else {
+		response = approvedRecoveryAction(t, s, service, env, input)
+	}
+	requireRecoveryOK(t, "small contract approval", response)
+	if got := stepOf(t, s); got != stepAfter {
+		t.Fatalf("small approval reached %s, want %s", got, stepAfter)
+	}
+}
+
+// seedRecoverySmallShipProof seeds the current verify receipt the small
+// proof's ship review must match: the review dispatch's recorded project,
+// claim, worktree identity, and subject commit, on the active worktree
+// entry. The native verify producer owns the real path; the journey seeds
+// the same producer record the worktree-verify seam writes, mirroring the
+// identity the public dispatch authorization stamped — never forging one.
+func seedRecoverySmallShipProof(t *testing.T, s *store.Store) {
+	t.Helper()
+	var project, claim, identity, commit string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_project_id'),json_extract(payload,'$.worker_claim_op_id'),json_extract(payload,'$.worker_worktree_identity'),json_extract(payload,'$.worker_subject_commit') FROM domain_events WHERE subject_type='work_item' AND subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionCompleted).Scan(&project, &claim, &identity, &commit); err != nil {
+		t.Fatalf("read the review dispatch identity: %v", err)
+	}
+	if project == "" || claim == "" || identity == "" || commit == "" {
+		t.Fatalf("review dispatch completion carries no stamped identity: project=%q claim=%q identity=%q commit=%q", project, claim, identity, commit)
+	}
+	var path, branch string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT path,branch FROM worktree_entries WHERE set_id=? AND project_id=? AND state='active' LIMIT 1`, store.WorktreeSetID("work-1"), project).Scan(&path, &branch); err != nil {
+		t.Fatalf("read the active worktree entry: %v", err)
+	}
+	leaseID := "small-ship-proof:worktree-verify:work-1"
+	opRef := "worktree_verify:small-ship-proof"
+	command := []string{"go", "vet", "./..."}
+	commandJSON, err := json.Marshal(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultJSON, err := json.Marshal(store.WorktreeVerifyResult{WorkID: "work-1", ProjectID: project, Branch: branch, Path: path, ClaimOpID: claim, WorktreeIdentity: identity, LeaseID: leaseID, OperationRef: opRef, SubjectRef: "commit:" + commit, Command: command, ExitCode: 0, TrackedFilesChanged: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	acquired := fixedTime().Add(time.Second).UTC().Format(time.RFC3339Nano)
+	released := fixedTime().Add(2 * time.Second).UTC().Format(time.RFC3339Nano)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,released_at,exit_code,outcome,result_json)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		leaseID, "work-1", project, path, "released", "client/fixture", "agent/fixture", "session/work-1", "principal/fixture",
+		string(commandJSON), acquired, released, 0, "completed", string(resultJSON)); err != nil {
+		t.Fatalf("seed the small ship verify lease: %v", err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations
+		(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,
+		 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,
+		 result_kind,result_payload,evidence_refs,changed_refs,completed_at)
+		VALUES(?,1,?,'worktree.verify',1,'','external_effect','sha256:small-ship-proof','{}','principal/fixture','request/small-ship-proof','`+acquired+`','','completed',?,?,'[]',?)`,
+		opRef, "work-1", string(resultJSON), `["`+opRef+`"]`, released); err != nil {
+		t.Fatalf("seed the small ship verify authority: %v", err)
+	}
+}
+
 // initializeRecoveryRouteWorkflow pins definition on work-1. A small
 // composition rests on a recorded small size whose checks all execute, so
 // the size is kept only when the selector then picks definition itself.
@@ -2869,6 +3225,18 @@ func initializeRecoveryRouteWorkflow(ctx context.Context, t *testing.T, s *store
 	}
 	footprint := payload["footprint"].(map[string]any)
 	footprint["checks_complete"], footprint["laws"], footprint["package_checks"] = true, []any{}, []any{}
+	// The live approval derives the small footprint binding against the
+	// current registry and knowledge index, so the assessment must name
+	// the same registered domain hash and scanned watermark commit the
+	// fixture seeds.
+	var registryHash, knowledgeCommit string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM domain_registries WHERE product_id='product-1'`).Scan(&registryHash); err != nil {
+		return err
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT scanned_commit_oid FROM knowledge_index_watermark ORDER BY rowid LIMIT 1`).Scan(&knowledgeCommit); err != nil {
+		return err
+	}
+	footprint["registry_content_hash"], footprint["knowledge_commit"] = registryHash, knowledgeCommit
 	sized.Payload, _ = json.Marshal(payload)
 	sized.PayloadVersion = 3
 	initialize := func(tx *store.Transaction) error {

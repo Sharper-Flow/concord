@@ -113,8 +113,8 @@ func init() {
 	// refusal form (expression > N beside a lower guard the helper never
 	// selects).
 	continuityPageLimit := goInlineBound("internal/store/workflow_continuity.go", "readWorkflowContinuityForRegistry", "req.Limit", boundItems)
-	observationRefBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(ref)", boundBytes)
-	observationTagBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(tag)", boundBytes)
+	observationRefBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(ref)", boundCharacters)
+	observationTagBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(tag)", boundCharacters)
 	productIdentityBound := goInlineBound("internal/store/workflow_continuity.go", "readWorkflowContinuityForRegistry", "len(out.ProductIdentity)", boundItems)
 	stepActionCount := goInlineBound("internal/store/workflow_registry.go", "validateWorkflowDefinitionWithReference", "len(step.Actions)", boundItems)
 	commitOIDBound := goInlineBound("internal/store/work_context.go", "workContextCommitOID", "len(oid)", boundBytes)
@@ -146,7 +146,7 @@ func init() {
 	checkpointPendingQuestions := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowList", "p.PendingQuestions", 1, boundItems)
 	checkpointPendingDecisions := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowList", "p.PendingDecisions", 1, boundItems)
 	boundarySummary := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextBoundaryCrossed", "workflowString", "p.Summary", 1, boundBytes)
-	observationStatementGuard := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(statement)", boundBytes)
+	observationStatementGuard := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(statement)", boundCharacters)
 	observationRefsCount := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(refs)", boundItems)
 	observationTagsCount := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(tags)", boundItems)
 	designApproachGuard := goInlineBound("internal/store/workflow_design.go", "validateWorkflowDesignContentWithReference", "len(p.Approach)", boundBytes)
@@ -608,6 +608,12 @@ func init() {
 	registerOutputBound("/$defs/workflow_read/properties/unreadable_conditions/maxItems",
 		unboundedOutput("deriveWorkflowReady scans every open workflow_external_conditions row with no LIMIT (internal/store/workflow_conditions.go:21) and appends one unknown entry per condition whose authority is not a durable_operation of this work (internal/store/workflow_conditions.go:44-52), while the add_condition fold admits one condition per call with per-field byte caps only (internal/store/workflow.go:3906-3927), so the open-condition count is uncapped", readSizeRefusalPath))
 	registerOutputBound("/$defs/workflow_read/properties/unresolved_conditions/maxItems", readPageLimit)
+
+	// Retry window: the unresolved obligation identity list is hard-truncated
+	// to the window's own limit constant with the explicit omitted count
+	// (workflow_retry_window.go:109-112), so the array rides that constant.
+	registerOutputBound("/$defs/workflow_retry_window/properties/unresolved_obligations/maxItems",
+		goConstantBound("internal/store/workflow_retry_window.go", "WorkflowRetryWindowObligationLimit", boundItems))
 
 	// Self-repair: the shape validator's own constant.
 	registerOutputBound("/$defs/workflow_self_repair/properties/evidence_refs/maxItems",

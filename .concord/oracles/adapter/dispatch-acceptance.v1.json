@@ -14,8 +14,8 @@
     "adapter/opencode/concord.test.ts",
     "adapter/opencode/lane_dispatch.test.ts",
     "adapter/opencode/dispatch-window.test.ts",
-    "adapter/opencode/native-subtask.test.ts",
-    "adapter/opencode/native-subtask-refusal.test.ts",
+    "adapter/opencode/native-task-refusal.test.ts",
+    "adapter/opencode/session-scope.test.ts",
     "adapter/opencode/concord-plugin.test.ts"
   ],
   "support_files": [],
@@ -42,8 +42,8 @@
         "python3",
         "acceptance.py",
         "dispatch-window.test.ts",
-        "native-subtask.test.ts",
-        "native-subtask-refusal.test.ts"
+        "native-task-refusal.test.ts",
+        "session-scope.test.ts"
       ]
     },
     {

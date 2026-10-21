@@ -1,6 +1,6 @@
 // Lane dispatch is the adapter surface that takes the orchestrator's
 // tool-level `fields.lane_id` (CD-0067 D5) and turns it into a core
-// dispatch_worker action plus a worker spawn. The orchestrator cannot author
+// dispatch_worker action plus a native Task authorization. The orchestrator cannot author
 // a lane packet: packet bounds are derived from the closed schema, lane
 // identity and digests are recorded in the generated lane registry, and the
 // pinned workflow step is held by the core. Splitting packet authorship
@@ -21,7 +21,7 @@ import type { ToolContext } from "@opencode-ai/plugin"
 import type { ConcordInvoke } from "./packet"
 import type { CredentialStore } from "./credentials"
 import { AdapterContractDefect } from "./adapter-contract-defect"
-import { canonicalDirectory, dispatchWindows, laneTaskArguments, type DispatchWindows } from "./dispatch-window"
+import { canonicalDirectory, type DispatchWindows } from "./dispatch-window"
 import { computeHostPromptProvenance, dispatchRetriedWorker, dispatchWorker, errorEnvelopeForLane, coreDispatchFailure, contextPreflightRefusal, provenanceRefusal, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner, type HostProvenance } from "./dispatch"
 import { agentLanes, agentUtilities, type AgentLane, type AgentUtility } from "./generated-agent-lanes"
 import { buildAgentLanePacket, readContinuityProjection, type AgentLanePacketFailureKind } from "./packet"
@@ -113,43 +113,14 @@ function mapPacketFailure(failure: { kind: AgentLanePacketFailureKind; message: 
   return errorEnvelopeForLane(laneForId(typeof partial.lane_id === "string" ? partial.lane_id : ""), partial, "error", "invalid_input", failure.message, "reconcile_operation")
 }
 
-async function queueAuthorizedWorker(directive: AgentResultEnvelope, packet: AgentLanePacket, deps: Pick<LaneDispatchDeps, "context" | "windows">): Promise<AgentResultEnvelope> {
-  if (directive.outcome !== "ok") return directive
-  const args = laneTaskArguments(packet)
-  const windows = deps.windows ?? dispatchWindows()
-  // Native subtasks bypass Task's parent-agent check. The dispatching tool's
-  // context retains that host permission boundary before anything is queued.
-  try {
-    await deps.context.ask({ permission: "task", patterns: [args.subagent_type], always: ["*"], metadata: { description: args.description, subagent_type: args.subagent_type } })
-  } catch (error) {
-    windows.close(deps.context.sessionID)
-    const refusal = errorEnvelopeForLane(laneForId(packet.lane_id), packet, "error", "unauthorized_dispatch", `the dispatch is authorized but the host Task permission check did not permit its worker: ${error instanceof Error ? error.message : String(error)}; reconcile the attempt before another dispatch`, "reconcile_operation", { details: { boundary: "host_task_permission", effect_state: "possible", dispatch_authorized: true, worker_launch: "not_started" } })
-    refusal.error!.retry_safe = false
-    return refusal
-  }
-  try {
-    await hostControlPlane().queueSubtask(deps.context.sessionID, deps.context.agent, {
-      agent: args.subagent_type,
-      description: args.description,
-      prompt: args.prompt,
-    }, deps.context.abort)
-    return directive
-  } catch (error) {
-    windows.close(deps.context.sessionID)
-    const refusal = errorEnvelopeForLane(laneForId(packet.lane_id), packet, "error", "transport_failure", `the dispatch is authorized but its native Task launch was not confirmed: ${error instanceof Error ? error.message : String(error)}; reconcile the attempt before another dispatch`, "reconcile_operation", { details: { effect_state: "possible", dispatch_authorized: true, worker_launch: "unconfirmed" } })
-    refusal.error!.retry_safe = false
-    return refusal
-  }
-}
-
 // dispatchLaneWorker completes the orchestrator's dispatch_worker request:
 // it derives the lane identity, product identity, and workflow step from
 // recorded state, builds the closed agent-lane-packet.v1, performs the
-// dispatch_worker action with the enriched fields, and spawns the worker
-// only after the core has authorized the attempt window. The returned
+// dispatch_worker action with the enriched fields, and arms the worker window
+// only after core authorization. The returned
 // envelope is the AgentResultEnvelope dispatchWorker produces on the happy
 // path, or one constructed by errorEnvelopeForLane on every refusal the
-// adapter raises before spawn; the orchestrator-facing call site in
+// adapter raises before execution; the orchestrator-facing call site in
 // concord.ts forwards whichever one lands.
 export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDispatchDeps): Promise<AgentResultEnvelope> {
   if (dispatchRequiresNextTurn(deps.context.sessionID)) {
@@ -348,7 +319,7 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   const directive = await dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows, workPins, workerDirectory, pinnedWorkerDirectory, authorizedWorktree, resolveWorkerDirectory: () => hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort), contextDirectory, provenance })
   // Native execution selects the persisted dispatch through the core's receipt,
   // which stays beside the launch directive just as on the combined retry route.
-  return { ...await queueAuthorizedWorker(directive, packet, deps), result: resultRecord ?? undefined }
+  return { ...directive, result: resultRecord ?? undefined }
 }
 
 // RetriedDispatchRecord is what a combined rejection's core response
@@ -378,5 +349,5 @@ export async function dispatchRetriedLaneWorker(retry: RetriedDispatchRecord, de
     resolveWorkerDirectory: () => hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort),
     contextDirectory: typeof deps.context.directory === "string" ? deps.context.directory : undefined,
   })
-  return queueAuthorizedWorker(directive, retry.packet as AgentLanePacket, deps)
+  return directive
 }

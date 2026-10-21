@@ -15,7 +15,7 @@ PACKAGE = ROOT / "adapter/opencode/package.json"
 LOCK = PACKAGE.with_name("bun.lock")
 CHECKS = {
     "adapter-dispatch": ["concord.test.ts", "lane_dispatch.test.ts"],
-    "adapter-guards": ["dispatch-window.test.ts", "native-subtask.test.ts", "native-subtask-refusal.test.ts"],
+    "adapter-guards": ["dispatch-window.test.ts", "native-task-refusal.test.ts", "session-scope.test.ts"],
     "adapter-publication": ["concord-plugin.test.ts"],
 }
 

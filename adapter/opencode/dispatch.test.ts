@@ -344,11 +344,14 @@ test("a sibling process cwd does not block dispatch and bind refuses the sibling
     expect(result.dispatch_state).toBe("awaiting_worker")
     expect(windows.has(SESSION)).toBe(true)
 
-    const args = { subagent_type: "general", prompt: "model input", description: "model task" }
+    // The exact native Task selector the coordinator issues after
+    // authorization: it names the recorded lane and attempt reference, so the
+    // bind refusal below is the directory fence and not a selector refusal.
+    const args = { subagent_type: `concord-${packet().lane_id}`, prompt: packet().attempt_id, description: "bounded worker" }
     await expect(
       windows.bind(TASK_TOOL_ID, SESSION, args, "call-sibling-instance", async () => claimed, sibling),
     ).rejects.toThrow(/does not match the active claimed worktree/i)
-    expect(args.subagent_type).toBe("general")
+    expect(args).toEqual({ subagent_type: `concord-${packet().lane_id}`, prompt: packet().attempt_id, description: "bounded worker" })
     expect(windows.has(SESSION)).toBe(false)
     expect(windows.inFlightAttempt(SESSION)).toBeNull()
   } finally {
@@ -2215,7 +2218,7 @@ test("completion records the manifest the dispatch captured, not a recomputation
       workerDirectory: worktree,
     })
     expect(result.outcome).toBe("ok")
-    await windows.bind(TASK_TOOL_ID, SESSION, { subagent_type: "general", prompt: "x" }, undefined, async () => worktree, worktree)
+    await windows.bind(TASK_TOOL_ID, SESSION, { subagent_type: `concord-${packet().lane_id}`, prompt: packet().attempt_id, description: "bounded worker" }, undefined, async () => worktree, worktree)
     const record = windows.takeInFlight(SESSION)
     expect(record?.provenance?.sources).toHaveLength(32)
     // The host config grows past the bound while the worker runs; the

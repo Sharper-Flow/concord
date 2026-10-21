@@ -14,7 +14,7 @@ async function fixture(laneID = "verify", subject?: string, subjectRunner?: Disp
   if (subject) packet.inputs.work_context = { source_event_frontier: 1, required_reading: [], findings: [], domain_groups: [], subject_commit: subject }
   const windows = new DispatchWindows()
   windows.open("parent", packet, "sha256:" + "a".repeat(64), process.cwd())
-  await windows.bind("task", "parent", {}, "task-call", async () => process.cwd(), process.cwd())
+  await windows.bind("task", "parent", { subagent_type: `concord-${laneID}`, prompt: "capability-attempt", description: "bounded worker" }, "task-call", async () => process.cwd(), process.cwd())
   const state = { agent: `concord-${laneID}`, openingAgent: `concord-${laneID}`, openingRole: "user", openingSession: undefined as string | undefined, parentScope: "managed" as "managed" | "unmanaged" | null, opening: serializeLanePacket(packet), extraPart: false, readerUnavailable: false, paginate: false, messageReads: 0, nestedParent: false, failedReads: new Set<string>(), failedAncestry: new Set<string>() }
   const reader = {
     get: async (id: string) => {

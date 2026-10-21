@@ -174,41 +174,30 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
         if (!Object.hasOwn(tools, input.tool)) await workerCapabilities.before(input, output)
         return
       }
-      try {
-        const windows = dispatchWindows()
-        const concordLane = isLaneAgent(output.args.subagent_type)
-        // A lane runs only inside the window an authorized dispatch_worker
-        // opened. Without one, a direct lane Task is exactly the coordinator
-        // Task-list competition the registry forbids: the call is refused with
-        // the correcting route instead of consuming a lane's attempt unbound.
-        if (concordLane) {
-          if (!windows.has(input.sessionID)) {
-            throw new DispatchWindowError(`a Concord lane runs only through dispatch_worker: ${String(output.args.subagent_type)} was called with no open dispatch window; dispatch_worker schedules its authorized native Task without a separate Task call`)
-          }
+      const windows = dispatchWindows()
+      const concordLane = isLaneAgent(output.args.subagent_type)
+      if (concordLane) {
+        if (!windows.has(input.sessionID)) {
+          throw new DispatchWindowError(`a Concord lane requires dispatch_worker authorization first: ${String(output.args.subagent_type)} has no open window; after authorization, issue the native Task with the exact lane and attempt reference returned by dispatch`)
+        }
+        await windows.bind(input.tool, input.sessionID, output.args, input.callID, async () => {
           if (await hostControlPlane().hasManagedParent(input.sessionID)) throw new DispatchWindowError("a Task cannot run from a session with a managed parent")
-          await windows.bind(input.tool, input.sessionID, output.args, input.callID, () => hostControlPlane().sessionDirectory(input.sessionID), instanceDirectory)
-          return
+          return hostControlPlane().sessionDirectory(input.sessionID)
+        }, instanceDirectory)
+        return
+      }
+      const scope = await hostControlPlane().taskScope(input.sessionID)
+      if (scope === null) throw new SessionScopeUnavailable("cannot resolve managed Task scope: the calling host session does not exist")
+      if (scope === "managed" && await hostControlPlane().hasManagedParent(input.sessionID)) throw new DispatchWindowError("a Task cannot run from a session with a managed parent")
+      // A native Task may resume a session that belongs to another parent.
+      // Caller participation alone cannot authorize a managed resume target.
+      const target = output.args.task_id
+      if (typeof target === "string" && target.length > 0) {
+        const targetScope = await hostControlPlane().taskScope(target)
+        if (scope === "unmanaged" && targetScope === "managed") throw new DispatchWindowError("an unmanaged Task cannot resume a managed Concord session; use a fresh authorized dispatch")
+        if (scope === "managed" && targetScope !== null && !await workerCapabilities.isNativeChildOf(target, input.sessionID)) {
+          throw new DispatchWindowError("a managed Task may resume only its own originally ordinary host child; use a fresh Task for another assignment")
         }
-        const scope = await hostControlPlane().taskScope(input.sessionID)
-        if (scope === null) throw new SessionScopeUnavailable("cannot resolve managed Task scope: the calling host session does not exist")
-        if (scope === "managed" && await hostControlPlane().hasManagedParent(input.sessionID)) throw new DispatchWindowError("a Task cannot run from a session with a managed parent")
-        // A native Task may resume a session that belongs to another parent.
-        // Caller participation alone cannot authorize a managed resume target.
-        const target = output.args.task_id
-        if (typeof target === "string" && target.length > 0) {
-          const targetScope = await hostControlPlane().taskScope(target)
-          if (scope === "unmanaged" && targetScope === "managed") throw new DispatchWindowError("an unmanaged Task cannot resume a managed Concord session; use a fresh authorized dispatch")
-          if (scope === "managed" && targetScope !== null && !await workerCapabilities.isNativeChildOf(target, input.sessionID)) {
-            throw new DispatchWindowError("a managed Task may resume only its own originally ordinary host child; use a fresh Task for another assignment")
-          }
-        }
-      } catch (error) {
-        try {
-          await hostControlPlane().cleanupRefusedSubtask(input, output.args, error instanceof Error ? error.message : String(error), dispatchWindows().inFlightAttempt(input.sessionID)?.callID)
-        } catch (cleanupError) {
-          console.warn("Concord could not clean up the refused native subtask:", cleanupError)
-        }
-        throw error
       }
     },
     // CD-0102 D5. The host ran the worker between the two hooks. This one

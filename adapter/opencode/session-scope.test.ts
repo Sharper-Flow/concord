@@ -46,6 +46,18 @@ const session = (id: string, managed = false): Session => ({ id, directory: proc
 const task = (sessionID: string) => ({ tool: "task", sessionID, callID: "scope-call" })
 const args = (): { subagent_type: string; prompt: string; description: string; task_id?: string } => ({ subagent_type: "general", prompt: "Read the bounded source", description: "Read source", task_id: "prior-host-worker" })
 
+// The window seed the new dispatch opens and the exact native Task selector
+// its response instructs: the caller passes only the attempt reference, and
+// the hook overwrites the full packet from authorization.
+const scopePacket = (attempt = "scope-attempt") => ({ schema_version: "1.0" as const, attempt_id: attempt, lane_id: "implement", lane_version: 1, lane_digest: "sha256:" + "a".repeat(64), work_id: "scope-work", step_id: "repair", inputs: { task: "Approved task", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" } } })
+const exactScopeSelector = (attempt = "scope-attempt") => ({ subagent_type: "concord-implement", prompt: attempt, description: "bounded worker" })
+
+function pendingRead() {
+  let resolve!: () => void
+  const promise = new Promise<void>((resolvePromise) => { resolve = resolvePromise })
+  return { promise, resolve }
+}
+
 afterEach(() => {
   dispatchWindows().close("scope-window")
   dispatchWindows().takeInFlight("scope-window")
@@ -145,7 +157,7 @@ test("a coordinator utility cannot consume a queued lane's authorization window"
   expect(utility.args).toEqual(original)
   expect(dispatchWindows().has("scope-window")).toBe(true)
   expect(dispatchWindows().inFlightAttempt("scope-window")).toBeNull()
-  const native = { args: { subagent_type: "concord-implement", prompt: serializeLanePacket(packet), description: "implement lane, attempt scope-attempt" } }
+  const native = { args: { subagent_type: "concord-implement", prompt: "scope-attempt", description: "bounded worker" } }
   await plugin["tool.execute.before"]({ ...task("scope-window"), callID: "native-call" }, native)
   expect(dispatchWindows().has("scope-window")).toBe(false)
   expect(dispatchWindows().inFlight("scope-window", "native-call")).not.toBeNull()
@@ -194,10 +206,89 @@ test("an authorized lane binds once while an ordinary Task cannot steal its wind
     expect(dispatchWindows().has("scope-window")).toBe(true)
     expect(dispatchWindows().inFlightAttempt("scope-window")).toBeNull()
   }
-  const output = { args: { ...args(), subagent_type: "concord-implement" } }
+  const output = { args: { subagent_type: "concord-implement", prompt: "scope-attempt", description: "bounded worker" } }
   await plugin["tool.execute.before"](task("scope-window"), output)
   expect(output.args).toEqual({ subagent_type: "concord-implement", prompt: serializeLanePacket(packet), description: "implement lane, attempt scope-attempt" })
-  await expect(plugin["tool.execute.before"](task("scope-window"), { args: { ...args(), subagent_type: "concord-implement" } })).rejects.toThrow("dispatch_worker")
+  await expect(plugin["tool.execute.before"](task("scope-window"), { args: { subagent_type: "concord-implement", prompt: "scope-attempt", description: "bounded worker" } })).rejects.toThrow("dispatch_worker")
+})
+
+// A stale attempt reference, the old full-packet prompt, another lane, and
+// each execution-control field miss the exact instructed selector. Each is
+// refused on the selector alone, before any ancestry or directory read, and
+// the valid window stays open for the exact call that follows.
+test("selector variants leave the valid window for the exact native call", async () => {
+  const fixture = host([session("scope-window", true)])
+  const plugin = await fixture.plugin()
+  const packet = scopePacket()
+  dispatchWindows().open("scope-window", packet, "", process.cwd())
+  const exact = exactScopeSelector()
+  const variants: Record<string, Record<string, unknown>> = {
+    stale: { ...exact, prompt: "scope-earlier-attempt" },
+    fullpacket: { ...exact, prompt: serializeLanePacket(packet) },
+    wronglane: { ...exact, subagent_type: "concord-research" },
+    "control-resume": { ...exact, task_id: "scope-somewhere" },
+    "control-background": { ...exact, background: true },
+    "control-command": { ...exact, command: "bun run worker" },
+  }
+  for (const [variant, selector] of Object.entries(variants)) {
+    const output = { args: structuredClone(selector) }
+    await expect(plugin["tool.execute.before"]({ ...task("scope-window"), callID: `variant-${variant}` }, output)).rejects.toThrow(/exact authorized lane and attempt reference/)
+    expect(output.args).toEqual(selector)
+    expect(dispatchWindows().has("scope-window")).toBe(true)
+    expect(dispatchWindows().inFlightAttempt("scope-window")).toBeNull()
+  }
+  expect(fixture.reads).toEqual([])
+  const output = { args: { ...exact } }
+  await plugin["tool.execute.before"]({ ...task("scope-window"), callID: "exact-call" }, output)
+  expect(output.args).toEqual({ subagent_type: "concord-implement", prompt: serializeLanePacket(packet), description: "implement lane, attempt scope-attempt" })
+  expect(fixture.reads).toEqual(["scope-window", "scope-window"])
+  expect(dispatchWindows().has("scope-window")).toBe(false)
+  expect(dispatchWindows().inFlight("scope-window", "exact-call")?.packet).toBe(packet)
+})
+
+// The captured record, not the still-open window map, must authorize the call:
+// a release that lands during the awaited ancestry read leaves the in-flight
+// caller with untouched arguments and no attempt.
+test("a window released during the ancestry read refuses the call on its captured record", async () => {
+  const fixture = host([session("scope-window", true)])
+  const plugin = await fixture.plugin()
+  const packet = scopePacket()
+  dispatchWindows().open("scope-window", packet, "", process.cwd())
+  const ancestry = pendingRead()
+  const entered = pendingRead()
+  const innerGet = fixture.client.get
+  let gated = 0
+  fixture.client.get = async (request: Parameters<typeof innerGet>[0]) => {
+    gated++
+    if (gated === 1) { entered.resolve(); await ancestry.promise }
+    return innerGet(request)
+  }
+  const output = { args: exactScopeSelector() }
+  const binding = plugin["tool.execute.before"](task("scope-window"), output)
+  await entered.promise
+  expect(gated).toBe(1)
+  expect(dispatchWindows().releaseRetained("scope-window", "scope-attempt", "implement")).toBe(true)
+  ancestry.resolve()
+  await expect(binding).rejects.toThrow(/no authorized dispatch window/)
+  expect(output.args).toEqual(exactScopeSelector())
+  expect(dispatchWindows().has("scope-window")).toBe(false)
+  expect(dispatchWindows().inFlightAttempt("scope-window")).toBeNull()
+})
+
+// Native permission denial happens after the binding hook and before any
+// child: no after-hook result exists, so completion leaves the consumed
+// attempt for the existing no-report recovery route.
+test("a native denial without a result retains the consumed attempt", async () => {
+  const fixture = host([session("scope-window", true)])
+  const plugin = await fixture.plugin()
+  dispatchWindows().open("scope-window", scopePacket(), "", process.cwd())
+  const output = { args: exactScopeSelector() }
+  await plugin["tool.execute.before"]({ ...task("scope-window"), callID: "denied-call" }, output)
+  expect(dispatchWindows().has("scope-window")).toBe(false)
+  expect(dispatchWindows().inFlightAttempt("scope-window")?.callID).toBe("denied-call")
+  await plugin["tool.execute.after"]({ ...task("scope-window"), callID: "denied-call", args: output.args }, undefined)
+  expect(dispatchWindows().inFlightAttempt("scope-window")?.callID).toBe("denied-call")
+  expect(dispatchWindows().has("scope-window")).toBe(false)
 })
 
 test("managed callers resume only their own originally ordinary children, including utility calls", async () => {
@@ -251,7 +342,7 @@ test("an ordinary Task result beside a live lane attempt settles nothing", async
   const plugin = await fixture.plugin()
   const packet = { schema_version: "1.0" as const, attempt_id: "scope-live", lane_id: "implement", lane_version: 1, lane_digest: "sha256:" + "a".repeat(64), work_id: "scope-work", step_id: "repair", inputs: { task: "Approved task", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" } } }
   dispatchWindows().open("scope-window", packet, "", process.cwd())
-  await plugin["tool.execute.before"]({ ...task("scope-window"), callID: "lane-call" }, { args: { ...args(), subagent_type: "concord-implement" } })
+  await plugin["tool.execute.before"]({ ...task("scope-window"), callID: "lane-call" }, { args: { subagent_type: "concord-implement", prompt: "scope-live", description: "bounded worker" } })
   const native = { args: { ...args(), task_id: undefined } }
   await plugin["tool.execute.before"]({ ...task("scope-window"), callID: "native-call" }, native)
   const result = { title: "native task", output: "native result", metadata: {} }

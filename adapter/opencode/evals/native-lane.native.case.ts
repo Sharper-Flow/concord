@@ -19,10 +19,16 @@ assert.equal(version, "1.18.35")
 const loopback = Object.values(networkInterfaces()).flat().find(address => address?.internal && address.family === "IPv4")?.address
 assert(loopback, "the native fixture requires an IPv4 loopback interface")
 const { testProviderConfig } = await import(pathToFileURL(join(source, "packages/opencode/test/lib/test-provider.ts")).href)
-const scratch = mkdtempSync(join(tmpdir(), "concord-native-subtask-"))
+const scratch = mkdtempSync(join(tmpdir(), "concord-native-task-"))
 const lanes = ["research", "implement", "design", "review", "verify"]
-const provider = Bun.serve({ hostname: loopback, port: 0, fetch() {
-  const chunk = (delta: object, finish_reason: string | null) => `data: ${JSON.stringify({ id: "chatcmpl-subtask-fixture", object: "chat.completion.chunk", created: 1, model: "test-model", choices: [{ index: 0, delta, finish_reason }] })}\n\n`
+let currentLane = ""
+const provider = Bun.serve({ hostname: loopback, port: 0, async fetch(request) {
+  const body = await request.json() as { tools?: Array<{ function?: { name?: string } }>; messages?: Array<{ role: string }> }
+  const chunk = (delta: object, finish_reason: string | null) => `data: ${JSON.stringify({ id: "chatcmpl-task-fixture", object: "chat.completion.chunk", created: 1, model: "test-model", choices: [{ index: 0, delta, finish_reason }] })}\n\n`
+  if (body.tools?.some(tool => tool.function?.name === "task") && !body.messages?.some(message => message.role === "tool")) {
+    const call = { index: 0, id: "call-native-task", type: "function", function: { name: "task", arguments: JSON.stringify({ subagent_type: `concord-${currentLane}`, description: "Advisory native Task", prompt: "Return the synthetic completion marker." }) } }
+    return new Response(chunk({ tool_calls: [call] }, null) + chunk({}, "tool_calls") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } })
+  }
   return new Response(chunk({ content: "native-subagent-complete" }, null) + chunk({}, "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } })
 } })
 const config = {
@@ -48,6 +54,7 @@ try {
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
   const completedAgents: string[] = []
   for (const lane of lanes) {
+    currentLane = lane
     const evaluated = await new NativeLaneProvider({ config: { lane } }).callApi("Return the synthetic completion marker.")
     const collected = readWorkerReportTexts(evaluated.output, { protocol: WORKER_REPORT_PROTOCOL })
     assert.equal(collected.detail, undefined)

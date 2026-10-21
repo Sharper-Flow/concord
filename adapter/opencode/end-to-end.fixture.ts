@@ -8,6 +8,12 @@ import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 
 export type JSONRecord = Record<string, any>
 
+export function nativeTaskSelector(directive: { output?: string }): JSONRecord {
+  expect(directive.output).toContain("Authorized only: dispatch launches no worker")
+  const text = directive.output!
+  return JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1))
+}
+
 const PRIVATE_KEY_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex")
 
 export function fixturePrivateKey(seed: Uint8Array): KeyObject {

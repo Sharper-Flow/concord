@@ -25,7 +25,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:edb9c896c15f153d0878f4e17a47b4a15ba00967c205a2446e91a87aaa405209",
+  "sha256": "sha256:7bf5b15c85791ccb44207269777f8dd59f317435f3de7863df1b2b060088bedb",
   "status": "accepted",
   "summary": "The verdict actor, distinct from the executor, evaluates outcome strength and records verdict_kind and incomparable_with_approved. Completion refuses with outcome_mismatch unless every approved predicate's latest verdict is ok and comparable. Until a check catalog or surface registry exists, no registry resolves surface and check_ref values; approval checks their grammar and the verdict actor interprets them.",
   "tags": [

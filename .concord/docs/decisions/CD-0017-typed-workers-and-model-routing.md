@@ -5,8 +5,9 @@
 **Spike:** [`../research/R6-typed-workers-and-model-routing.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R6-typed-workers-and-model-routing.md)
 **Issue:** [#57](https://github.com/Sharper-Flow/concord/issues/57)
 **Amends:** CD-0005 (adds the worker-lane dimension above the D6 adapter boundary; D1–D9 unchanged)
-**Preserves:** R1 (forward-linked composition), CD-0013 (attempt model, §D5 executing-identity distinctness), CD-0016 (pinned continuity projections)
+**Preserves:** R1 (forward-linked composition), CD-0013 (attempt model, §D5 actor identity), CD-0016 (pinned continuity projections)
 **Cites:** #42/CD-0016 (context continuity — separate decision; lane dispatch consumes its pinned projections)
+**Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5, D6
 
 ## Context
 
@@ -21,7 +22,7 @@ process, and Concord records the executing identity through readback.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, CD-0013 D11 and CD-0059 D2 replace failed-retry consent with exact transactional attempt, epoch, contract, and job binding. The fresh attempt, capability, signed evidence, worker boundary, model distinctness, and convergence requirements remain. Earlier pins retain the approval prerequisite below.
+For `approval_policy=consequence_v1`, CD-0013 D11 and CD-0059 D2 replace failed-retry consent with exact transactional attempt, epoch, contract, and job binding. The fresh attempt, capability, signed evidence, worker boundary, and convergence requirements remain; [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs the loop, so no model-distinctness requirement is retained. Earlier pins retain the approval prerequisite below.
 
 
 ### D1. Concord owns a canonical lane registry
@@ -62,8 +63,7 @@ workflow authority. Durable workflow authority remains with the owning Concord
 workflow; a worker result can complete a gate only when the owning workflow
 transition explicitly permits that typed effect. The owning actor uses the declared
 `accept_worker_result` action, bound to the exact completed attempt and its current
-step epoch. The workflow fold rechecks successful model readback and requires the
-owning actor to differ from the recorded executor before advancing. Workers cannot
+step epoch. [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: the owning workflow advances through Main's recorded review acceptance, with no owner-versus-executor distinctness beyond the loop. Workers cannot
 invoke another advancing action once a worker attempt is dispatched in the current
 step window. This preserves R1 and CD-0013 by construction: the prohibition binds
 authority, not labor.
@@ -105,16 +105,7 @@ a later terminal event cannot replace failure with success or success with failu
 
 ### D6. Reviewer/model distinctness is structurally available and workflow-declared
 
-CD-0013 §D5 evaluates evaluator distinctness against the *executing* identity. This
-decision extends that principle one dimension: where a workflow declares independent
-evaluation, implementation and review resolving to the **same readback model
-identity** is a structural rejection. The check evaluates actual readback
-identities.
-
-Distinctness is available to every workflow and declared per workflow; it is not
-globally mandatory. R6 §5 records the measurement protocol (same-model vs
-cross-model review on seeded-defect synthetic scenarios) whose result decides any
-mandatory scope.
+[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: Main's dispatch of Review carries the loop's distinctness, and no model-identity distinctness requirement exists beyond it.
 
 ### D7. Behavioral evaluation boundary
 
@@ -158,8 +149,7 @@ schema or state checks.
   versioned contract change.
 - The adapter gains dispatch/readback mechanics while staying envelope-thin; the
   boundary must be defended in review.
-- Reviewer distinctness adds a scheduling constraint: a distinct model must be
-  available, or the attempt blocks with a typed outcome.
+- Review is Main's dispatched loop stage: [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs, so no distinct-model availability constraint or typed blocking outcome exists.
 
 ## Rejected alternatives
 
@@ -179,7 +169,7 @@ schema or state checks.
   rejection tests for unknown type/version/digest and for generic-agent dispatch.
 - Actual executing-model readback recorded per attempt; missing or ambiguous
   readback produces a typed failed attempt under D5.
-- Reviewer/model distinctness rejection is deterministic where declared.
+- No reviewer/model distinctness rejection is required: [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs, and the implementing change instead proves Review's disposition and Main's acceptance record as current rows.
 - Research, implementation, and review lanes complete an end-to-end synthetic
   workflow with typed evidence.
 - Worker execution demonstrably creates no nested workflow authority and weakens no

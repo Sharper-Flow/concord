@@ -11,7 +11,7 @@
   records no transition, no workflow verdict, and no completion, and a worker
   still cannot accept its own result
 - **Related:** CD-0017, CD-0043, CD-0056, CD-0058
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5
 - **Approval:** The operator accepted the work item contract that carries
   this record on 2026-09-30.
 
@@ -37,9 +37,12 @@ deserves a typed shape, the way `base_comparison` typed its checks in place.
 
 `agent-lane-report.v1` gains an optional top-level `review` object.
 The dispatch pins the report schema identity: `1.0` for pre-job reports,
-`1.1` for job-capable reports. The block carries:
+`1.1` for job-capable reports.
+[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
+governs the verdict: a review report names one disposition, continue,
+correction required, revision required, or ready for final proof. The block
+carries:
 
-- `verdict`: `ship` or `no_ship`.
 - `findings`: an array of 0 to 64 findings.
 - Each finding: `severity` from the closed `P0`-`P3` scale, `confidence`
   from the closed `low`, `medium`, `high` set, and a detail of 1 to 512
@@ -99,18 +102,11 @@ requirements; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-
 
 ### D4. The verdict couplings are structural
 
-The adapter and the store refuse a review block with a `ship` verdict and any
-`P0` finding, and one with a `no_ship` verdict and zero findings. A `P0` is
-by definition a ship blocker. A `no_ship` with no finding is an unexplained
-verdict. Nothing else is ranked or judged: the content of a finding stays a
-review question, not a validator question.
-
-An oracle-bound report also refuses `ship` with any delivery blocker,
-uncovered case, or oracle defect. A `no_ship` justified only by follow-ups
-below P0 refuses. An out-of-scope P0 follow-up remains a valid retained
-`no_ship` for the existing decision owner, without entering the repair open
-set. Severity stays independent of classification; P1 is not automatically
-blocking, and validators do not decide semantic scope.
+[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
+governs: the review reports one disposition, continue, correction required,
+revision required, or ready for final proof, and Main records its acceptance;
+an open in-scope blocking finding blocks both a new assignment and leaving
+execution.
 
 ### D5. Terminal payload versions preserve recorded content
 
@@ -122,16 +118,10 @@ recorded dispatch requirements.
 
 ### D6. The lane verdict is report content only
 
-The lane verdict maps to no workflow field and records no transition. The
-coordinator reads the verdict and the per-severity finding counts from the
-attempt summary, and records the workflow verdict through `record_verdict`
-as today (CD-0056 D8; CD-0017 D4). An automatic mapping would hand a lane
-workflow authority, and reusing the `verdict_kind` vocabulary in the report
-would conflate two authorities.
-
-The shared work-context reader exposes canonical ranked IDs, bindings,
-openness, and prior receipts. These remain reported content, not native-run
-proof, criterion discharge, or automatic workflow acceptance.
+[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
+governs: Main records its acceptance of the review's disposition, and the
+review report itself records no transition, no workflow verdict, and no
+completion.
 
 ## Alternatives considered
 

@@ -26,7 +26,7 @@ outcome-contract acceptance criterion 3 (vacuity is judged at review); and
 [CD-0238](CD-0238-point-in-time-reconstruction-runs-outside-the-core.md) amends D13's
 `ReconstructSubjectAt` paragraph and acceptance criterion 36 (point-in-time
 reconstruction runs outside the core).
-**Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D11, D13, D14
+**Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D11, D13, D14
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/28>
 **Historical surface note:** CD-0042 supersedes the pre-go-live agent-surface
 version, negotiation, migration, and deprecation requirements described in D11.
@@ -138,37 +138,7 @@ The registry is closed. Adding a new predicate kind requires an accepted CD-NNNN
 
 ### D5. Actor identity is the existing authenticated tuple
 
-Evaluator distinctness and authorship fencing reuse the agent authority tuple
-already bound by every workflow mutation:
-
-- `principal_ref` — the human authenticating the invocation;
-- `client_ref` — the registered trusted client key/version;
-- `agent_ref` — the OpenCode session agent identity;
-- `session_ref` — the durable session identity from grant bootstrap.
-
-Concord is permanently single-operator (CD-0006 D8), so `principal_ref` is not a
-distinguishing identity and must never carry this check alone.
-
-The existing `domain_events` row records one `actor` string, which is insufficient
-for this comparison. The tuple is therefore persisted explicitly: a
-`workflow.actor_recorded` event writes an immutable `workflow_actors` row whose
-`actor_ref` is the content hash of the tuple, and every event and projection that
-must support the distinctness check carries that `actor_ref` — including
-`workflow_instances.execution_actor_ref`, `workflow_checkpoints.actor_ref`, and the
-`verdict_actor_ref` on `workflow.verdict_recorded`. A rebuild therefore reconstructs
-the full comparison from the log alone.
-
-Distinctness is evaluated against the executing identity, not the authenticating
-human:
-
-- A verdict whose `agent_ref` and `session_ref` both equal the recorded executing
-  values is refused.
-- A verdict recorded through the operator confirmation path is always distinct from
-  an agent executor, because the operator is not the executing agent.
-- A verdict with an empty or partial actor tuple is refused.
-
-This preserves CD-0012 D7 — the executing agent cannot evaluate its own delivery —
-without making operator evaluation of agent-run work impossible.
+Actor identity stays the existing authenticated tuple, and [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: no executing-actor distinctness beyond the sequential loop's rules is required.
 
 ### D6. Evidence, approvals, and external conditions reuse existing machinery
 
@@ -256,7 +226,7 @@ A workflow reaches `terminal` only when:
 1. All required evidence is bound and verified.
 2. All declared external conditions are resolved or canceled.
 3. All `modifies` edges match their declared scope and the spec mandate is satisfied.
-4. The verdict is recorded by a distinct actor with a non-empty tuple.
+4. [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: verdicts are recorded through the loop's review acceptance, with no distinct-actor requirement beyond it.
 5. The premise is confirmed by an operator-typed actor.
 6. The contract, verdict, evidence, and terminal transition commit in one
    transaction (PM4 invariant 7 extension).
@@ -290,7 +260,7 @@ An authenticated non-worker coordinator declares the field with the contract. On
 
 For this policy, `supersede_contract`, `request_correction`, `record_verdict`, `complete`, failed-worker retry dispatch, and routine acceptance records require no consent. Removed approvals do not remove evidence, version, source, scope, current-step, recovery, or convergence checks. Supersession grants no legislative authority or automatic overlap exemption.
 
-A verdict still comes from an independently authenticated evaluator distinct from execution. An executing coordinator cannot submit its own verdict or impersonate its evaluator. It uses the existing independent evaluator route without an operator challenge. Completion records the caller while validating the stored independent verdict; workers gain no completion authority.
+[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: Review inspects the accumulated solution and reports one disposition that Main records; workers gain no completion authority.
 
 An engineering premise confirmation records the actual coordinator actor after investigation and acceptance deliverables pass. Decision-bearing confirmation retains the exact human question, choice, digest, and verified operator identity. For `ui_ux`, human premise confirmation records the operator's review and acceptance of the UI/UX change at the current contract version; contract approval alone does not satisfy that acceptance. Completion requires confirmation at the current contract version, with authority appropriate to that contract. D5 and D10's universal operator assertions are qualified by this paragraph for this policy only.
 
@@ -384,8 +354,9 @@ The implementation acceptance suite must exercise:
 11. End-state supersession re-enters planning and records an audit shape matching
     `specs-as-laws.md` §6.
 12. The executing agent cannot author, replace, or disable its own end-state check.
-13. A completion verdict whose actor equals the executing actor is refused; a
-    verdict with no actor is refused.
+13. Review's corrective edits are accepted without further review, and Main's
+    recorded acceptance of the review disposition, not a distinct verdict actor,
+    completes the item.
 14. A delivery route relying on an undeclared convention is refused at approval.
 15. The lowest maturity × audience band still requires an approved contract; only
     proof depth differs.

@@ -14,7 +14,7 @@
   D6's independent-verdict obligation
 - **Approval:** 2026-10-17. Coordinator approval under the operator's delegation
   for [Concord (CON) issue 1079](https://linear.app/sharper-flow/issue/CON-1079).
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D9
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5, D9
 
 ## Context
 
@@ -31,16 +31,11 @@ an actor distinct from the executor (CD-0013 D10).
 
 ### D1. The independent verdict actor evaluates strength
 
-For each approved predicate, the verdict actor applies CD-0012 D3's
-strengthen-only rule and the per-kind rules of the workflow-engine contract
-§6. It records the result as `verdict_kind` and `incomparable_with_approved`,
-bound to evidence. It records `ok` only when the delivered end-state is equal
-to or stronger than the approved one and holds on the named surface. An
-approved absence that was archived, relocated, renamed, or disabled is
-`outcome_mismatch`. A result that cannot be read or determined is never `ok`.
-For a definition that requires a decision record, it records `ok` only when
-the latest accepted decision record's token is in the approved allowed set.
-The verdict actor is distinct from the executing actor (CD-0012 D7).
+[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
+governs: no separate final evaluator exists; Review inspects the accumulated
+solution, may commit corrective changes, verifies the corrected candidate, and
+reports one disposition, Main records its acceptance, and Implement cannot
+accept its own result.
 
 ### D2. Completion refuses on the recorded verdict
 
@@ -53,8 +48,10 @@ in-scope blocking finding, every applicable approval, and delivery evidence.
 
 Until an accepted decision supplies the check catalog or the ground-truth
 surface registry (CD-0013 deferred items 2 and 3), no registry resolves
-`surface` and `check_ref` values. Approval checks their grammar, and the
-verdict actor interprets them.
+`surface` and `check_ref` values. Approval checks their grammar, and
+[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
+governs: no verdict actor exists — the review pass that verifies the candidate
+interprets them, and the receipts record what ran.
 
 ## Alternatives considered
 
@@ -66,22 +63,19 @@ verdict actor interprets them.
 
 ## Consequences
 
-The test-only evaluator in `internal/store/workflow_outcome.go` is deleted.
-CD-0012 scenarios 4 and 5 and CD-0013 criteria 4 and 5 are proved by
-recorded verdicts. Refusal of a relocated absence is proved by a recorded
-`outcome_mismatch` verdict on an `absent` predicate. A weaker delivery is
-refused only when the independent evaluator records it as weaker or
-incomparable. An evaluator error is not caught mechanically; the operator's premise confirmation (CD-0012 D9) remains.
+The loop carries the strength judgment:
+[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
+governs — Review inspects the accumulated solution, verifies the corrected
+candidate, and reports one disposition Main records, and Implement cannot
+accept its own result. A weaker or incomparable delivery is Review's finding
+against the approved criteria; the operator's premise confirmation
+(CD-0012 D9) remains.
 
 ## Verification
 
-- Completion refuses a recorded `outcome_mismatch` verdict and a recorded
-  incomparable verdict, and appends no `workflow.completed` event
-  (`WF04-weaker-delivery`, `WF50-one-conjunct-weaker`,
-  `internal/store.TestConjunctiveCompletionRefusesOnTheRecordedVerdict`).
-- Completion accepts when every approved predicate has an `ok`, comparable,
-  independent verdict (`WF05-stronger-delivery`,
-  `internal/store.TestPinnedConjunctiveContractCompletes`).
-- Completion refuses a verdict whose actor executed a step of the item
-  (`internal/store.TestLaneDispatchRotatesTheLeaseNotTheAuthorship`,
-  `WF13-verdict-actor-distinctness`).
+- [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
+  governs: no separate final evaluator exists, and no verdict-actor
+  distinctness is required. The implementing change binds the anchor for the
+  accepted ready disposition on the final candidate; until it lands,
+  `python3 scripts/check-knowledge-index.py` is the executable anchor for
+  this record's law registration.

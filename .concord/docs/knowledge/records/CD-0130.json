@@ -36,9 +36,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7ebeacfb13b82f7ac9f713c5448a8167e39df515363461ff7fd63a114a0b3fa9",
+  "sha256": "sha256:8b769a6e4f64221413a365f6efcb21ad98d6338e82ee4f901348795f887564b3",
   "status": "accepted",
-  "summary": "Makes failed-attempt closure an engine-owned recovery action for historical workflow pins, preserves released definition digests, and keeps current payload, identity, epoch, authorization, and failed-state checks.",
+  "summary": "Makes failed-attempt closure an engine-owned recovery action, keeps current payload, identity, epoch, authorization, and failed-state checks, and retains no released definition version for history.",
   "tags": [
     "workflow",
     "worker",

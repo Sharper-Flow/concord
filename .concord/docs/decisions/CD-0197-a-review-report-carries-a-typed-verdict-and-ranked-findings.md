@@ -11,6 +11,7 @@
   records no transition, no workflow verdict, and no completion, and a worker
   still cannot accept its own result
 - **Related:** CD-0017, CD-0043, CD-0056, CD-0058
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 - **Approval:** The operator accepted the work item contract that carries
   this record on 2026-09-30.
 
@@ -76,16 +77,15 @@ The generator projects the requirement into the Go registry, the TypeScript
 registry, the lane contract docs, and the lane prompts. For the review lane,
 the typed block discharges the `severity` obligation, so severity has one
 source: a completed review report needs no separate free-text severity entry.
-The store fold and the adapter admission refuse a free-text severity entry
-beside the block. The gate is the carried block, not the live boundary, so
-stored completions replay exactly as they were accepted.
+The store admission and the adapter admission refuse a free-text severity entry
+beside the block. The gate is the carried block, not the live boundary; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: completions are current rows, and no replay exists.
 
 ### D3. The adapter and the store both refuse a review completion without the block
 
 The adapter refuses at admission (CD-0056 D7), because it is the only
 component that sees worker output. The store validates block shape at
-`worker.completed` and enforces the per-lane requirement in the fold
-(CD-0056 D4), because the fold is the one point where the attempt's lane and
+`worker.completed` acceptance and enforces the per-lane requirement there
+(CD-0056 D4), because acceptance is the one point where the attempt's lane and
 the reported block are both in hand. A refusal is not a completion: the
 caller records `worker.failed` with `invalid_report`.
 
@@ -95,7 +95,7 @@ manufacturing one.
 
 Oracle enforcement joins the attempt's dispatched job revision, not the
 current definition. Historical reports retain their recorded content and
-requirements; upcasting fabricates no tie, receipt, or closure.
+requirements; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded facts stay as recorded, and no upcast fabricates a tie, receipt, or closure.
 
 ### D4. The verdict couplings are structural
 
@@ -114,12 +114,7 @@ blocking, and validators do not decide semantic scope.
 
 ### D5. Terminal payload versions preserve recorded content
 
-`worker.completed` version 6 carries typed oracle receipts, finding ties,
-and closures. The recorded source-version boundaries remain: review at v3,
-job binding at v4, and context findings at v5. Upcasts preserve old content
-without invented findings or success. Replay forgives requirements absent
-when the event was recorded. `worker.failed` stays at version 2 with context
-findings; it gains no oracle review or closure members.
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each terminal result is a recorded current fact, and no payload version, upcast, or replay reinterprets a recorded result.
 
 A dispatch recorded under the pre-CD-0197 review digest still resolves: the
 digest joins the lane's legacy set, and the completion answers to its
@@ -166,7 +161,7 @@ The lane verdict holds no workflow authority. The coordinator still owns the
 workflow verdict, so a ship verdict and a `verdict_kind` can disagree without
 either surface recording the other.
 
-Stored completions replay unchanged, and a full rebuild succeeds. An
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: stored completions are current rows, so no replay or rebuild participates. An
 in-flight attempt completes under its recorded dispatch requirements.
 
 ## Verification
@@ -190,12 +185,12 @@ Scenario: The verdict couplings refuse the two broken shapes
 Scenario: Severity has one source
   Given a dispatched review attempt
   When a completion carries the typed block and a free-text severity entry
-  Then the store refuses it, and a block-only completion folds and replays
+  Then the store refuses it, and a block-only completion records and reads back unchanged
 
-Scenario: A stored completion replays without the block
+Scenario: A stored completion stays a recorded fact
   Given a stored review completion recorded before this requirement
-  When the log rebuilds
-  Then the replay reaches the same projection, twice
+  When the store reads it back
+  Then the recorded content is returned unchanged, with no replay or rebuild
 
 Scenario: The adapter refuses at admission and the summary carries typed counts
   Given a completed review report without the block
@@ -204,13 +199,15 @@ Scenario: The adapter refuses at admission and the summary carries typed counts
 ```
 
 - `go test ./internal/store/ -run TestReviewLaneCompletionRequiresTheTypedReviewBlock` proves the first and second scenarios.
-- `go test ./internal/store/ -run 'TestReviewLaneCompletionRefusesAFreeTextSeverityEntryBesideTheBlock|TestReviewLaneBlockOnlyCompletionFoldsAndReplays'` proves the fifth scenario.
+- `go test ./internal/store/ -run TestReviewLaneCompletionRefusesAFreeTextSeverityEntryBesideTheBlock` proves the fourth scenario's refusal half; the implementing change binds the current-state anchor for stored completions, which read back unchanged with no fold or replay (CD-0242 D2).
 - `go test ./internal/store/ -run TestWorkerCompletionReviewBlockShapeIsClosed` proves the verdict couplings and the closed scales at the store boundary.
-- `go test ./internal/store/ -run TestWorkerCompletedV2ReplaysWithoutTheReviewBlock` proves the fourth scenario.
-- `go test ./internal/store/ -run TestLegacyReviewLaneDigestCompletesWithTheRequiredBlock` proves the pre-CD-0197 dispatch identity still completes.
+- `go test ./internal/store/ -run TestLegacyReviewLaneDigestCompletesWithTheRequiredBlock` proves the pre-CD-0197 dispatch identity still completes, answering to its recorded dispatch requirements; the implementing change binds the current-state anchor: no payload version, upcast, or replay reinterprets a recorded terminal result (CD-0242 D2).
 - `bun test adapter/opencode/dispatch.test.ts` proves the adapter refusals and the typed ride-through.
 - `bun test adapter/opencode/lane_completion.test.ts` proves the attempt summary carries the verdict and the per-severity counts.
 - `python3 scripts/generate-agent-lanes.py --check` proves the generated Go, TypeScript, docs, and lane prompts carry the requirement.
 - `python3 scripts/check-doc-contract.py` proves this record carries the current decision outline and passes the writing rules.
 - `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0197 identifier allocates once.
-- `TestOwnerOracleFinding`, `TestOwnerOracleLineage`, and `TestOwnerOracleReplay` cover classified verdicts, canonical lineage, and historical replay.
+- `TestOwnerOracleFinding`, `TestOwnerOracleLineage`, and `TestOwnerOracleReplay`
+  cover classified verdicts and canonical lineage; the cutover retires the
+  replay half, and its implementing change binds the current-state anchor for
+  recorded results (CD-0242 D2).

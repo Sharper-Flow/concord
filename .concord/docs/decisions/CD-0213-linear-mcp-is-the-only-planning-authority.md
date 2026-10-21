@@ -12,6 +12,7 @@
 - **Approval:** The operator approved this route on 2026-10-09 under CON-801.
   The decision cancels CON-35 and CON-501 and rejects repair of the Concord
   planning mirror.
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 
 ## Context
 
@@ -82,12 +83,7 @@ server.
 
 ### D8. History stays replayable
 
-The event log stays immutable. The event kinds that recorded planning mode and
-Initiative entries stay readable for replay, and a new append of those kinds
-refuses. A work unit captured with the `initiative` kind stays a readable
-historical record with no Initiative behavior. Before the retirement migration
-runs, the operator exports Initiative and outbox state for reconciliation in
-Linear.
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current state and finite verified snapshots, not an event log or replay; retired planning kinds are not retained as history.
 
 ## Alternatives considered
 
@@ -96,8 +92,7 @@ Linear.
   second planning copy.
 - Keep a local-only mode for Products without Linear. This keeps the full
   planning store for one route that no current Product uses.
-- Rewrite the event log to drop planning events. This breaks the append-only
-  log authority and replay determinism.
+- Rewrite retired planning records in place. Rejected: [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded facts stay as recorded, and the one documented cutover migration, not an in-place rewrite, retires old tables.
 
 ## Consequences
 
@@ -113,9 +108,11 @@ Linear.
 - `python3 scripts/check-pr-linear-link.py` enforces D5 on each pull request.
 - `internal/agent.TestDispatchIssueLinkRecordStoresReportedIdentity` exercises
   D3's record-only issue identity through the public dispatch boundary.
-- `internal/store.TestRetiredPlanningEventsReplayWithoutInitiativeState` and
-  `internal/store.TestRetiredPlanningEventsRefuseNewAppends` exercise D8's
-  historical replay and refusal of new planning appends.
+- The implementing change binds the current-state anchor: retired planning
+  records carry no Initiative behavior, and new planning writes refuse
+  (CD-0242 D2). Until that change lands,
+  `python3 scripts/check-knowledge-index.py` is the executable anchor for this
+  record's law registration.
 - `python3 scripts/check-law-coverage.py` resolves the coverage shard's typed
   anchors and checks their required-CI wiring. Anchor presence does not report
   the outcome of a test run.

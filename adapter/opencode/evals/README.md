@@ -35,9 +35,9 @@ evidence record containing a known defect, and a passing review names it in its
 findings. The seeded markers live in `assertions/lane-report.js` as the
 seeded-eval contract.
 
-Providers send a native subtask part to an ephemeral OpenCode server. Every
-target must resolve as a hidden subagent. The provider checks the child session
-and assistant agent identities, then projects only that child's persisted parts
+Providers prompt a parent on an ephemeral OpenCode server to issue one native
+Task. Every target must resolve as a hidden subagent. The provider checks the
+child session and assistant agent identities, then projects only that child's persisted parts
 into the shared assertion's event stream. The parent dispatch is not worker
 delegation and never enters that stream; any nested child task still does.
 

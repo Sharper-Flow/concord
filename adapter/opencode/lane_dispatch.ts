@@ -251,6 +251,12 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
     if (error instanceof AdapterContractDefect) throw error
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", `concord_work_transition.workflow_action threw before reaching the core: ${String(error)}`, "reconcile_operation")
   }
+  if (isRecord(coreResponse) && coreResponse.outcome === "ok" && coreResponse.replayed === true) {
+    const refusal = errorEnvelopeForLane(laneForId(packet.lane_id), packet, "error", "unauthorized_dispatch", `replayed authorization for attempt ${packet.attempt_id} cannot recreate a dispatch window; recover the original attempt with worker_reconcile, or worker_abandon when no worker report exists`, "reconcile_operation")
+    refusal.error!.retry_safe = false
+    return refusal
+  }
+
   // A retry-safe failure with a possible effect means the dispatch boundary
   // may have committed before the failure reached the adapter. The
   // same request replays the committed authorization through the core's
@@ -340,7 +346,7 @@ export interface RetriedDispatchRecord {
 // post-commit launch owner — with no second dispatch_worker call, no second
 // authorizer, and no adapter-built packet.
 export async function dispatchRetriedLaneWorker(retry: RetriedDispatchRecord, deps: Pick<LaneDispatchDeps, "context" | "credentials" | "windows">): Promise<AgentResultEnvelope> {
-  const directive = await dispatchRetriedWorker(retry.packet, {
+  return dispatchRetriedWorker(retry.packet, {
     credentials: deps.credentials,
     packetDigest: retry.packetDigest,
     sessionID: deps.context.sessionID,
@@ -349,5 +355,4 @@ export async function dispatchRetriedLaneWorker(retry: RetriedDispatchRecord, de
     resolveWorkerDirectory: () => hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort),
     contextDirectory: typeof deps.context.directory === "string" ? deps.context.directory : undefined,
   })
-  return directive
 }

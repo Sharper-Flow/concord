@@ -2647,7 +2647,10 @@ async function launchRetriedWorkerDispatch(args: HostToolArgs, context: ToolCont
   const attemptID = typeof result.retry_attempt_id === "string" ? result.retry_attempt_id : ""
   const digest = typeof result.worker_packet_digest === "string" ? result.worker_packet_digest : ""
   const worktree = typeof result.worker_worktree === "string" ? result.worker_worktree : ""
-  const launch = await dispatchRetriedLaneWorker({ packet: result.retry_worker_packet, packetDigest: digest, attemptID, authorizedWorktree: worktree }, { context, credentials: credentialsOverride ?? undefined })
+  const launch = envelope.replayed === true
+    ? errorEnvelopeForLane(null, { attempt_id: attemptID }, "error", "unauthorized_dispatch", `the combined rejection replay names retry attempt ${attemptID}; it cannot recreate a lost dispatch window or authorize another Task. Recover the original attempt with worker_reconcile, or worker_abandon when no worker report exists; never redispatch this attempt`, "reconcile_operation", { details: { retry_attempt_id: attemptID, committed_dispatch: true } })
+    : await dispatchRetriedLaneWorker({ packet: result.retry_worker_packet, packetDigest: digest, attemptID, authorizedWorktree: worktree }, { context, credentials: credentialsOverride ?? undefined })
+  if (envelope.replayed === true) launch.error!.retry_safe = false
   if (!record(launch)) return launch as HostConcordEnvelope
   const receipt = Array.isArray(envelope.changed_refs) ? envelope.changed_refs : undefined
   const intents = Array.isArray(envelope.next_valid_intents) ? envelope.next_valid_intents : undefined

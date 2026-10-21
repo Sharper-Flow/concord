@@ -799,6 +799,27 @@ test("a malformed core error never becomes a retry-safe authorization refusal", 
   expect(windows.has("session-1")).toBe(false)
 })
 
+test("an initially replayed ordinary authorization cannot recreate a missing window", async () => {
+  const windows = new DispatchWindows()
+  const request = { work_id: WORK_ID, expected_version: 1, idempotency_key: "initial-replay", lane_id: lane.id }
+  let workflowCalls = 0
+  const invoke = async (toolName: string): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    if (toolName === "concord_work_transition") { workflowCalls++; return { ...coreOkEnvelope(), replayed: true } }
+    throw new Error(`unscripted ${toolName}`)
+  }
+  const result = await dispatchLaneWorker(request, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("unauthorized_dispatch")
+  expect(result.error?.retry_safe).toBe(false)
+  expect(result.error?.recovery_action).toBe("reconcile_operation")
+  expect(result.error?.message).toContain(dispatchAttemptID(request))
+  expect(result.dispatch_state).toBeUndefined()
+  expect(windows.has("session-1")).toBe(false)
+  expect(workflowCalls).toBe(1)
+})
+
 // A core failure after the dispatch boundary committed carries effect_state
 // possible and retry_safe true. The adapter must replay the byte-identical
 // request itself: a caller-level retry rebuilds the packet against the work
@@ -881,7 +902,7 @@ test("a retry-safe possible effect replays into the committed authorization", as
           error: { kind: "unreachable", retry_safe: true, recovery_action: { kind: "retry_same_request" }, effect_state: "possible", message: "durability checkpoint did not complete: busy=1 log=45 checkpointed=4" },
         })
       }
-      return coreOkEnvelope()
+      return { ...coreOkEnvelope(), replayed: true }
     }
     throw new Error(`unscripted ${toolName}.${args.operation}`)
   }

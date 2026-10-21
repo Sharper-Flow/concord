@@ -183,7 +183,7 @@ test("a replayed combined response never launches twice and names the exact orig
   // The first response was lost after the window armed; the coordinator
   // reconciles and the combined response replays. The open window must not
   // be duplicated and the committed attempt identity must surface.
-  const replay = await runTransition([answer])
+  const replay = await runTransition([() => ({ exitCode: 0, stdout: JSON.stringify({ ...combinedOkEnvelope(), replayed: true }), stderr: "" })])
   expect(replay.result.outcome).toBe("error")
   expect(transcriptWrites).toBe(0)
   expect(replay.result.error?.message).toContain(RETRY_ATTEMPT)
@@ -195,11 +195,32 @@ test("a replayed combined response never launches twice and names the exact orig
   expect(args.prompt).toBe(serializeLanePacket(retryPacket() as any))
   // Once the host is running the worker, a further replay names the in-flight
   // attempt and cannot launch a second worker.
-  const third = await runTransition([answer])
+  const third = await runTransition([() => ({ exitCode: 0, stdout: JSON.stringify({ ...combinedOkEnvelope(), replayed: true }), stderr: "" })])
   expect(third.result.outcome).toBe("error")
   expect(transcriptWrites).toBe(0)
   expect(third.result.error?.message).toContain(RETRY_ATTEMPT)
   expect(dispatchWindows().has(SESSION)).toBe(false)
+})
+
+test.each(["open", "in-flight"] as const)("a replay cannot recreate a lost %s retry authorization", async state => {
+  const first = await runTransition([() => ({ exitCode: 0, stdout: JSON.stringify(combinedOkEnvelope()), stderr: "" })])
+  expect(first.result.dispatch_state).toBe("awaiting_worker")
+  if (state === "in-flight") await bindTaskArgs().bind()
+  dispatchWindows().close(SESSION)
+  dispatchWindows().takeInFlight(SESSION)
+  const replay = await runTransition([() => ({ exitCode: 0, stdout: JSON.stringify({ ...combinedOkEnvelope(), replayed: true }), stderr: "" })])
+  expect(replay.result.outcome).toBe("error")
+  expect(replay.result.error?.kind).toBe("unauthorized_dispatch")
+  expect(replay.result.error?.retry_safe).toBe(false)
+  expect(replay.result.error?.message).toContain(RETRY_ATTEMPT)
+  expect(replay.result.dispatch_state).toBeUndefined()
+  expect(replay.result.output).toBeUndefined()
+  expect(replay.result.changed_refs).toEqual(okMembers.changed_refs)
+  expect(replay.result.result?.retry_attempt_id).toBe(RETRY_ATTEMPT)
+  expect(replay.result.result?.retry_worker_packet).toBeUndefined()
+  expect(dispatchWindows().has(SESSION)).toBe(false)
+  expect(dispatchWindows().inFlightAttempt(SESSION)).toBeNull()
+  await expect(bindTaskArgs().bind()).rejects.toThrow("no authorized dispatch window")
 })
 
 test("stale, full-packet, wrong-lane, and execution-control seeds leave the armed retry window usable; the matching selector binds the core's packet once", async () => {

@@ -28,9 +28,9 @@
   CD-0138 D1, mandatory refinement for break-fix and for `larger` and
   `crucial` implementation;
   [CD-0201](CD-0201-workflow-action-admission-is-derived-once-and-every-reachable-state-stays-live.md),
-  the single admission derivation;
-  [CD-0225](CD-0225-worker-job-size-overruns-split-without-raising-the-cap.md),
-  worker-job size caps
+  the single admission derivation.
+  [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
+  governs: no worker-job size cap, size measurement, or mandatory split exists.
 - **Approval:** The Snowball coordinator approved this record on 2026-10-17
   under the operator's delegation. The record is serious under P12 because it
   affects more than one Domain.
@@ -45,7 +45,7 @@
   rule, and changes no UI/UX. It is not serious under
   [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
   D4.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D13, D14
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D6, D13, D14
 
 ## Context
 
@@ -157,19 +157,10 @@ model input, and the model returns `crucial` for them.
 
 ### D6. Only the model and the operator change a size
 
-The operator may move a size up or down. The record keeps the operator's size
-beside the model's result, and the operator's size governs until the operator
-changes it.
-
-An agent may only ask the model to run again with the inputs that changed. A
-task that proves bigger than its size stops at its current step, and the model
-runs again. When the size changes, a successor work item at the new size
-supersedes the work item through a forward link and pins its own composition.
-The superseded item ends without completing. The successor takes over the
-item's Linear issue identity; this amends CD-0213 D3 for a resize successor
-only. The successor references the recorded evidence, which still binds only
-its unchanged immutable subject (CD-0008 D2). No approval carries to a step
-the earlier instance did not reach.
+[CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
+governs: Main sizes each assignment by complexity and relatedness, no
+production-line cap, size measurement, or mandatory split applies, and scope,
+prerequisite, ownership, and safety checks remain.
 
 ### D7. A sized workflow records its own timing
 
@@ -223,10 +214,11 @@ goals.md §2 names. This record does not move that point.
 - `go test ./internal/store` must prove that the decision model gives the same
   size for the same inputs and model version, that the record keeps the size,
   model version, and inputs, and that a size an agent proposes is refused.
-- `go test ./internal/store` must prove the operator override, the agent
-  rerun route, the `crucial` result for open `larger` findings, and a resize
-  whose successor supersedes the item without completing it, takes over its
-  issue identity, keeps evidence by reference, and carries no approval forward.
+- The operator-override, rerun, and resize probes bind the CD-0242 D6 anchor:
+  no production-line cap, size measurement, or mandatory split exists, so no
+  resize successor supersedes an item for outgrowing a size. Until that change
+  lands, `python3 scripts/check-knowledge-index.py` is the executable anchor
+  for this record's law registration.
 - `go test ./internal/store` must prove that a `small` implementation item
   cannot ship without its outcome contract, its footprint checks, and one
   independent review, and that the define-start and merge-queue records exist.

@@ -47,7 +47,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:54ace821d6af99e5079d2e87fd8eaf5b8d00565a59a5acd22b291911fa8d116e",
+  "sha256": "sha256:39db76bbcc0917597176edae8ccbafa3b0c49c5d6dca16cc9d27358cb8e10088",
   "status": "accepted",
   "summary": "Immutable worker-job revisions bind every admitted lane end to end. Implementation v27 and break-fix v24 require one typed owner/case/control acceptance oracle in the job digest, with closed source and authority joins and retained readiness evidence. Earlier pins remain oracle-free. Local acceptance holds the step without delivery; whole-work delivery keeps complete parent admission and integration evidence. Earlier unresolved obligations require unchanged base content and byte-identical old controls; added coverage can strengthen them, but control deletion or recipe re-pinning cannot discharge debt or reset retries. On repair-capable pins, a checks-only repair under the same contract and byte-identical oracle satisfies named failed revisions for readiness only and funds one confirming independent review, even at the wall. Only an accepted ship verdict confirms requirement preservation, and it resets the window only when no other obligation stays unresolved; a failed, abandoned, rejected or no_ship confirming review, or a contract supersession before confirmation, voids the repair. Repeats gain no admission of their own and at the wall need a store-derived convergence basis.",
   "tags": [

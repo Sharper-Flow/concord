@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7291dc1eccb36b2eacada68a4e5faff1167cfea8b81ae97b51e2f9c01ee0bdab",
+  "sha256": "sha256:829b466f4a60f505aea8f99f49d8c9d387de1efb7068a0abeb001c05ab8893a7",
   "status": "accepted",
   "summary": "Defines the Concord-owned model-neutral lane registry, host-owned model selection, actual executing-model readback, typed missing or ambiguous readback failures, workflow-declared model distinctness, and the worker authority boundary.",
   "tags": [

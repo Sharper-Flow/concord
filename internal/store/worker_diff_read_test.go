@@ -46,12 +46,9 @@ func workerDiffDispatch(t *testing.T, j *candidateJourney, attempt string) Worke
 		"stopping_condition": "the bounded review delta is read", "path_scope": []string{"internal/store"},
 		"checks": []string{}, "ready": true, "readiness_evidence": []string{"evidence:ready"},
 	}
-	if sizeCapablePinForWork(t, j.s, j.workID) {
+	if oracleCapablePinForWork(t, j.s, j.workID) {
 		bootstrapOracleFixtureSubject(t, j.s, j.workID)
 		fields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, j.s, j.workID)
-		for member, value := range workerJobSizeMembersForTest(t, j.s, j.workID, fields) {
-			fields[member] = value
-		}
 	}
 	if err := recordWorkerJobActionForTest(t, j.s, j.workID, j.fixture.owner, fields); err != nil {
 		t.Fatalf("record diff-read job: %v", err)

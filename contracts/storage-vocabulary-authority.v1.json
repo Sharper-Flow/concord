@@ -293,18 +293,6 @@
       "authority": "check"
     },
     {
-      "table": "work_size_assessments",
-      "column": "size_class",
-      "authority": "contract",
-      "validator": "scripts/check-work-sizes.py"
-    },
-    {
-      "table": "work_size_overrides",
-      "column": "size_class",
-      "authority": "contract",
-      "validator": "scripts/check-work-sizes.py"
-    },
-    {
       "table": "worker_attempts",
       "column": "capability_class",
       "authority": "check"

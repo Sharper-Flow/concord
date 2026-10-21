@@ -2079,9 +2079,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	// CD-0205: record_worker_job records one immutable worker-job revision
 	// under the work aggregate and holds the step. The caller authors the
 	// bounded job; the core derives the parent contract version, the Project
-	// scope, the next revision, and the digest. A size-capable pin also
-	// declares the closed split variant (CD-0225 D3): a call carries the
-	// ordinary group or the split alone.
+	// scope, the next revision, and the digest.
 	"record_worker_job": actionPolicyWithAlternatives(actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
 		actionRefField("job_id", true),
 		actionStringField("objective", true, 4096),
@@ -2096,18 +2094,13 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionListField("readiness_evidence", false, 0, 16),
 	),
 		WorkflowPayloadAlternative{Fields: workerJobOrdinaryGroup},
-		WorkflowPayloadAlternative{Fields: []string{"split"}, Forbids: workerJobSplitForbids, Remedy: "carry each successor's content inside split.successors"},
 	),
 }
 
 // workerJobOrdinaryGroup is record_worker_job's ordinary field group: the
 // members every released version declares and requires, so an engine group
-// over them admits every frozen pin unchanged. workerJobSplitForbids names
-// the ordinary optional members, which cannot ride beside a split.
-var (
-	workerJobOrdinaryGroup = []string{"job_id", "objective", "stopping_condition", "ready"}
-	workerJobSplitForbids  = []string{"path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration", "readiness_evidence", "acceptance_oracle", "production_size_max", "measurement_basis", "direct_caller_allowance", "repair_revisions", "repair_reason"}
-)
+// over them admits every frozen pin unchanged.
+var workerJobOrdinaryGroup = []string{"job_id", "objective", "stopping_condition", "ready"}
 
 // workflowCallerEvidenceBinders names the actions whose completed event binds
 // the evidence kind the call submitted. Each payload declares the

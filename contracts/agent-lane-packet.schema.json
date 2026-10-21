@@ -929,67 +929,6 @@
         "checks_repair": {
           "$ref": "#/$defs/lane_worker_checks_repair"
         },
-        "production_size_max": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647,
-          "description": "The recorded production-size cap (CD-0225 D1). Optional and omitted on every read-only revision; carried beside the measurement basis by every editing revision."
-        },
-        "measurement_basis": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "The recorded measurement basis of the selected revision: the immutable base commit the delta is counted against and the classified path inventory. Optional and omitted on every read-only revision.",
-          "required": [
-            "base_commit",
-            "paths"
-          ],
-          "properties": {
-            "base_commit": {
-              "type": "string",
-              "minLength": 40,
-              "maxLength": 64,
-              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
-              "description": "The raw commit oid of the clean integration foundation the production delta is measured against."
-            },
-            "paths": {
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 64,
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "path",
-                  "class"
-                ],
-                "properties": {
-                  "path": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 512,
-                    "description": "A normalized relative repository-contained path, unique within the inventory."
-                  },
-                  "class": {
-                    "type": "string",
-                    "enum": [
-                      "production",
-                      "test",
-                      "documentation",
-                      "generated"
-                    ],
-                    "description": "The closed classification vocabulary."
-                  },
-                  "generator_ref": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 512,
-                    "description": "The owning generator's normalized relative repository path. Required when class is generated; refused on every other classification."
-                  }
-                }
-              }
-            }
-          }
-        },
         "direct_caller_allowance": {
           "type": "object",
           "additionalProperties": false,
@@ -1056,28 +995,66 @@
     "lane_worker_checks_repair": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["reason", "revisions"],
+      "required": [
+        "reason",
+        "revisions"
+      ],
       "description": "Core-recorded checks repair: the stated reason and each named revision's exact binding and old checks. The containing job's checks are the new checks. Present only on repair-capable recorded revisions, covered by their immutable digest.",
       "properties": {
-        "reason": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
         "revisions": {
-          "type": "array", "minItems": 1, "maxItems": 64,
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
           "items": {
-            "type": "object", "additionalProperties": false,
-            "required": ["worker_job", "checks"],
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "worker_job",
+              "checks"
+            ],
             "properties": {
               "worker_job": {
-                "type": "object", "additionalProperties": false,
-                "required": ["job_id", "revision", "digest"],
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "job_id",
+                  "revision",
+                  "digest"
+                ],
                 "properties": {
-                  "job_id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$" },
-                  "revision": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
-                  "digest": { "type": "string", "minLength": 71, "maxLength": 71, "pattern": "^sha256:[0-9a-f]{64}$" }
+                  "job_id": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647
+                  },
+                  "digest": {
+                    "type": "string",
+                    "minLength": 71,
+                    "maxLength": 71,
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  }
                 }
               },
               "checks": {
-                "type": "array", "minItems": 0, "maxItems": 64,
-                "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+                "type": "array",
+                "minItems": 0,
+                "maxItems": 64,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
               }
             }
           }
@@ -1586,150 +1563,871 @@
       }
     },
     "lane_native_oracle_stream": {
-      "type": "object", "additionalProperties": false,
-      "required": ["stream", "length", "sha256", "complete", "ref"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stream",
+        "length",
+        "sha256",
+        "complete",
+        "ref"
+      ],
       "properties": {
-        "stream": {"type": "string", "enum": ["stdout", "stderr"]},
-        "length": {"type": "integer", "minimum": 0, "maximum": 2097152},
-        "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-        "complete": {"type": "boolean"},
-        "ref": {"type": "string", "minLength": 0, "maxLength": 512}
+        "stream": {
+          "type": "string",
+          "enum": [
+            "stdout",
+            "stderr"
+          ]
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2097152
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512
+        }
       },
       "description": "Native producer descriptor only. One raw BLOB per stream stays on the existing verify lease. A complete ref requires atomic full capture; incomplete and abandoned output cannot supply full-output acceptance. Preview truncation does not imply stream truncation.",
-      "if": {"properties": {"complete": {"const": true}}, "required": ["complete"]},
-      "then": {"properties": {"ref": {"minLength": 1}}},
-      "else": {"properties": {"ref": {"const": ""}}}
+      "if": {
+        "properties": {
+          "complete": {
+            "const": true
+          }
+        },
+        "required": [
+          "complete"
+        ]
+      },
+      "then": {
+        "properties": {
+          "ref": {
+            "minLength": 1
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "ref": {
+            "const": ""
+          }
+        }
+      }
     },
     "lane_native_oracle_file": {
-      "type": "object", "additionalProperties": false,
-      "required": ["path", "blob_oid", "sha256"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "blob_oid",
+        "sha256"
+      ],
       "properties": {
-        "path": {"type": "string", "minLength": 1, "maxLength": 512},
-        "blob_oid": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$", "minLength": 40, "maxLength": 64},
-        "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71}
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "blob_oid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "minLength": 40,
+          "maxLength": 64
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        }
       }
     },
     "lane_native_oracle_test_name": {
-      "type": "string", "pattern": "^Test[A-Z][A-Za-z0-9_]*$", "minLength": 5, "maxLength": 64
+      "type": "string",
+      "pattern": "^Test[A-Z][A-Za-z0-9_]*$",
+      "minLength": 5,
+      "maxLength": 64
     },
     "lane_native_oracle_preparation": {
-      "type": "object", "additionalProperties": false,
-      "required": ["protocol", "phase", "qualification", "run_ref", "work_id", "project_id", "contract_version", "subject_commit", "bundle_digest", "logical_argv_digest", "logical_cwd", "recipe_source", "manifest_blob", "manifest_digest", "files", "toolchain_identity", "build_environment_digest", "selected_distinct_count", "native_plan_sha256", "stdout", "stderr", "streams_complete"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol",
+        "phase",
+        "qualification",
+        "run_ref",
+        "work_id",
+        "project_id",
+        "contract_version",
+        "subject_commit",
+        "bundle_digest",
+        "logical_argv_digest",
+        "logical_cwd",
+        "recipe_source",
+        "manifest_blob",
+        "manifest_digest",
+        "files",
+        "toolchain_identity",
+        "build_environment_digest",
+        "selected_distinct_count",
+        "native_plan_sha256",
+        "stdout",
+        "stderr",
+        "streams_complete"
+      ],
       "properties": {
-        "protocol": {"type": "string", "const": "native_oracle_v2"},
-        "phase": {"type": "string", "const": "prepare"},
-        "qualification": {"type": "string", "enum": ["ready", "unavailable"]},
-        "run_ref": {"type": "string", "minLength": 1, "maxLength": 512},
-        "work_id": {"type": "string", "minLength": 1, "maxLength": 128},
-        "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
-        "contract_version": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
-        "subject_commit": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$", "minLength": 40, "maxLength": 64},
-        "bundle_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-        "logical_argv_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-        "logical_cwd": {"type": "string", "minLength": 1, "maxLength": 512},
-        "recipe_source": {"$ref": "#/$defs/lane_work_context_reading_source_repository_file"},
-        "manifest_blob": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$", "minLength": 40, "maxLength": 64},
-        "manifest_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-        "files": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/lane_native_oracle_file"}},
-        "toolchain_identity": {"type": "string", "minLength": 1, "maxLength": 512},
-        "build_environment_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-        "recipe_kind": {"type": "string", "const": "target_runner_v1", "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."},
-        "target_materializer": {"type": "string", "enum": ["none", "uv", "bun"], "description": "The closed materializer axis. It owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled scripts, and the runtime fingerprints. none declares a dependency-free recipe."},
-        "target_runner": {"type": "string", "enum": ["pytest", "check"], "description": "The closed runner axis. It owns collection, the exact witness population, and the result grammar; check pins each declared check's full bounded argv and grades the host-observed exit status."},
-        "selected_witness_ids": {"type": "array", "minItems": 1, "maxItems": 40, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\x00-\\x1f\\x7f]*$"}, "description": "The runner-defined exact witness identities the qualified preparation selected: unique bounded visible strings of at most 256 bytes. The rendered selector still obeys the bounded verify command shape, so the nominal maximum derives from the shared witness allowance, not an independent one. No truncation or omitted witness."},
-        "case_to_witness_map": {"type": "object", "additionalProperties": false, "minProperties": 1, "maxProperties": 64, "patternProperties": {"^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\x00-\\x1f\\x7f]*$"}}}, "description": "Each control case maps to 1 to 8 selected witness IDs; the map covers exactly the control's cases, and the union of its values is exactly selected_witness_ids."},
-        "selected_test_names": {"type": "array", "minItems": 1, "maxItems": 40, "uniqueItems": true, "items": {"$ref": "#/$defs/lane_native_oracle_test_name"}, "description": "The nominal maximum derives from floor((256-13)/6), not an independent test allowance. Every rendered selector still obeys sum(name bytes)+N+13 <= 256. No truncation or omitted witness."},
-        "case_to_test_map": {"type": "object", "additionalProperties": false, "minProperties": 1, "maxProperties": 64, "patternProperties": {"^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"$ref": "#/$defs/lane_native_oracle_test_name"}}}},
-        "selected_distinct_count": {"type": "integer", "minimum": 1, "maximum": 40},
-        "native_plan_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-        "stdout": {"$ref": "#/$defs/lane_native_oracle_stream"},
-        "stderr": {"$ref": "#/$defs/lane_native_oracle_stream"},
-        "streams_complete": {"type": "boolean"}
+        "protocol": {
+          "type": "string",
+          "const": "native_oracle_v2"
+        },
+        "phase": {
+          "type": "string",
+          "const": "prepare"
+        },
+        "qualification": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "unavailable"
+          ]
+        },
+        "run_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "work_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "contract_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "subject_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "minLength": 40,
+          "maxLength": 64
+        },
+        "bundle_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        },
+        "logical_argv_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        },
+        "logical_cwd": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "recipe_source": {
+          "$ref": "#/$defs/lane_work_context_reading_source_repository_file"
+        },
+        "manifest_blob": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "minLength": 40,
+          "maxLength": 64
+        },
+        "manifest_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/lane_native_oracle_file"
+          }
+        },
+        "toolchain_identity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "build_environment_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        },
+        "recipe_kind": {
+          "type": "string",
+          "const": "target_runner_v1",
+          "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."
+        },
+        "target_materializer": {
+          "type": "string",
+          "enum": [
+            "none",
+            "uv",
+            "bun"
+          ],
+          "description": "The closed materializer axis. It owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled scripts, and the runtime fingerprints. none declares a dependency-free recipe."
+        },
+        "target_runner": {
+          "type": "string",
+          "enum": [
+            "pytest",
+            "check"
+          ],
+          "description": "The closed runner axis. It owns collection, the exact witness population, and the result grammar; check pins each declared check's full bounded argv and grades the host-observed exit status."
+        },
+        "selected_witness_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 40,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+          },
+          "description": "The runner-defined exact witness identities the qualified preparation selected: unique bounded visible strings of at most 256 bytes. The rendered selector still obeys the bounded verify command shape, so the nominal maximum derives from the shared witness allowance, not an independent one. No truncation or omitted witness."
+        },
+        "case_to_witness_map": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "maxProperties": 64,
+          "patternProperties": {
+            "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+              }
+            }
+          },
+          "description": "Each control case maps to 1 to 8 selected witness IDs; the map covers exactly the control's cases, and the union of its values is exactly selected_witness_ids."
+        },
+        "selected_test_names": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 40,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/lane_native_oracle_test_name"
+          },
+          "description": "The nominal maximum derives from floor((256-13)/6), not an independent test allowance. Every rendered selector still obeys sum(name bytes)+N+13 <= 256. No truncation or omitted witness."
+        },
+        "case_to_test_map": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "maxProperties": 64,
+          "patternProperties": {
+            "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/lane_native_oracle_test_name"
+              }
+            }
+          }
+        },
+        "selected_distinct_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 40
+        },
+        "native_plan_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        },
+        "stdout": {
+          "$ref": "#/$defs/lane_native_oracle_stream"
+        },
+        "stderr": {
+          "$ref": "#/$defs/lane_native_oracle_stream"
+        },
+        "streams_complete": {
+          "type": "boolean"
+        }
       },
       "oneOf": [
         {
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "description": "The pure-Go family: the legacy selected test names and case map, with no target-runner host property.",
-          "required": ["protocol", "phase", "qualification", "run_ref", "work_id", "project_id", "contract_version", "subject_commit", "bundle_digest", "logical_argv_digest", "logical_cwd", "recipe_source", "manifest_blob", "manifest_digest", "files", "toolchain_identity", "build_environment_digest", "selected_test_names", "case_to_test_map", "selected_distinct_count", "native_plan_sha256", "stdout", "stderr", "streams_complete"],
+          "required": [
+            "protocol",
+            "phase",
+            "qualification",
+            "run_ref",
+            "work_id",
+            "project_id",
+            "contract_version",
+            "subject_commit",
+            "bundle_digest",
+            "logical_argv_digest",
+            "logical_cwd",
+            "recipe_source",
+            "manifest_blob",
+            "manifest_digest",
+            "files",
+            "toolchain_identity",
+            "build_environment_digest",
+            "selected_test_names",
+            "case_to_test_map",
+            "selected_distinct_count",
+            "native_plan_sha256",
+            "stdout",
+            "stderr",
+            "streams_complete"
+          ],
           "properties": {
-            "protocol": {"type": "string", "const": "native_oracle_v2"},
-            "phase": {"type": "string", "const": "prepare"},
-            "qualification": {"type": "string", "enum": ["ready", "unavailable"]},
-            "run_ref": {"type": "string", "minLength": 1, "maxLength": 512},
-            "work_id": {"type": "string", "minLength": 1, "maxLength": 128},
-            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
-            "contract_version": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
-            "subject_commit": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$", "minLength": 40, "maxLength": 64},
-            "bundle_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-            "logical_argv_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-            "logical_cwd": {"type": "string", "minLength": 1, "maxLength": 512},
-            "recipe_source": {"$ref": "#/$defs/lane_work_context_reading_source_repository_file"},
-            "manifest_blob": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$", "minLength": 40, "maxLength": 64},
-            "manifest_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-            "files": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/lane_native_oracle_file"}},
-            "toolchain_identity": {"type": "string", "minLength": 1, "maxLength": 512},
-            "build_environment_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-            "selected_test_names": {"type": "array", "minItems": 1, "maxItems": 40, "uniqueItems": true, "items": {"$ref": "#/$defs/lane_native_oracle_test_name"}},
-            "case_to_test_map": {"type": "object", "additionalProperties": false, "minProperties": 1, "maxProperties": 64, "patternProperties": {"^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"$ref": "#/$defs/lane_native_oracle_test_name"}}}},
-            "selected_distinct_count": {"type": "integer", "minimum": 1, "maximum": 40},
-            "native_plan_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-            "stdout": {"$ref": "#/$defs/lane_native_oracle_stream"},
-            "stderr": {"$ref": "#/$defs/lane_native_oracle_stream"},
-            "streams_complete": {"type": "boolean"}
+            "protocol": {
+              "type": "string",
+              "const": "native_oracle_v2"
+            },
+            "phase": {
+              "type": "string",
+              "const": "prepare"
+            },
+            "qualification": {
+              "type": "string",
+              "enum": [
+                "ready",
+                "unavailable"
+              ]
+            },
+            "run_ref": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "work_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "project_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "contract_version": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "subject_commit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "minLength": 40,
+              "maxLength": 64
+            },
+            "bundle_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "logical_argv_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "logical_cwd": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "recipe_source": {
+              "$ref": "#/$defs/lane_work_context_reading_source_repository_file"
+            },
+            "manifest_blob": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "minLength": 40,
+              "maxLength": 64
+            },
+            "manifest_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "files": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": {
+                "$ref": "#/$defs/lane_native_oracle_file"
+              }
+            },
+            "toolchain_identity": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "build_environment_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "selected_test_names": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 40,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/lane_native_oracle_test_name"
+              }
+            },
+            "case_to_test_map": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "maxProperties": 64,
+              "patternProperties": {
+                "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/lane_native_oracle_test_name"
+                  }
+                }
+              }
+            },
+            "selected_distinct_count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 40
+            },
+            "native_plan_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "stdout": {
+              "$ref": "#/$defs/lane_native_oracle_stream"
+            },
+            "stderr": {
+              "$ref": "#/$defs/lane_native_oracle_stream"
+            },
+            "streams_complete": {
+              "type": "boolean"
+            }
           },
-          "if": {"properties": {"qualification": {"const": "ready"}}, "required": ["qualification"]},
-          "then": {"properties": {
-            "streams_complete": {"const": true},
-            "stdout": {"properties": {"stream": {"const": "stdout"}, "complete": {"const": true}, "ref": {"minLength": 1}}},
-            "stderr": {"properties": {"stream": {"const": "stderr"}, "complete": {"const": true}, "ref": {"minLength": 1}}}
-          }},
-          "not": {"anyOf": [{"required": ["recipe_kind"]}, {"required": ["target_materializer"]}, {"required": ["target_runner"]}, {"required": ["selected_witness_ids"]}, {"required": ["case_to_witness_map"]}]}
+          "if": {
+            "properties": {
+              "qualification": {
+                "const": "ready"
+              }
+            },
+            "required": [
+              "qualification"
+            ]
+          },
+          "then": {
+            "properties": {
+              "streams_complete": {
+                "const": true
+              },
+              "stdout": {
+                "properties": {
+                  "stream": {
+                    "const": "stdout"
+                  },
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  }
+                }
+              },
+              "stderr": {
+                "properties": {
+                  "stream": {
+                    "const": "stderr"
+                  },
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "recipe_kind"
+                ]
+              },
+              {
+                "required": [
+                  "target_materializer"
+                ]
+              },
+              {
+                "required": [
+                  "target_runner"
+                ]
+              },
+              {
+                "required": [
+                  "selected_witness_ids"
+                ]
+              },
+              {
+                "required": [
+                  "case_to_witness_map"
+                ]
+              }
+            ]
+          }
         },
         {
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "description": "The target_runner_v1 family: the closed materializer/runner pair and the real selected witness population, never fabricated Go test names. Exactly three pairs are admitted; every other combination refuses as unsupported.",
-          "required": ["protocol", "phase", "qualification", "run_ref", "work_id", "project_id", "contract_version", "subject_commit", "bundle_digest", "logical_argv_digest", "logical_cwd", "recipe_source", "manifest_blob", "manifest_digest", "files", "toolchain_identity", "build_environment_digest", "recipe_kind", "target_materializer", "target_runner", "selected_witness_ids", "case_to_witness_map", "selected_distinct_count", "native_plan_sha256", "stdout", "stderr", "streams_complete"],
+          "required": [
+            "protocol",
+            "phase",
+            "qualification",
+            "run_ref",
+            "work_id",
+            "project_id",
+            "contract_version",
+            "subject_commit",
+            "bundle_digest",
+            "logical_argv_digest",
+            "logical_cwd",
+            "recipe_source",
+            "manifest_blob",
+            "manifest_digest",
+            "files",
+            "toolchain_identity",
+            "build_environment_digest",
+            "recipe_kind",
+            "target_materializer",
+            "target_runner",
+            "selected_witness_ids",
+            "case_to_witness_map",
+            "selected_distinct_count",
+            "native_plan_sha256",
+            "stdout",
+            "stderr",
+            "streams_complete"
+          ],
           "properties": {
-            "protocol": {"type": "string", "const": "native_oracle_v2"},
-            "phase": {"type": "string", "const": "prepare"},
-            "qualification": {"type": "string", "enum": ["ready", "unavailable"]},
-            "run_ref": {"type": "string", "minLength": 1, "maxLength": 512},
-            "work_id": {"type": "string", "minLength": 1, "maxLength": 128},
-            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
-            "contract_version": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
-            "subject_commit": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$", "minLength": 40, "maxLength": 64},
-            "bundle_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-            "logical_argv_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-            "logical_cwd": {"type": "string", "minLength": 1, "maxLength": 512},
-            "recipe_source": {"$ref": "#/$defs/lane_work_context_reading_source_repository_file"},
-            "manifest_blob": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$", "minLength": 40, "maxLength": 64},
-            "manifest_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-            "files": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/lane_native_oracle_file"}},
-            "toolchain_identity": {"type": "string", "minLength": 1, "maxLength": 512},
-            "build_environment_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-            "recipe_kind": {"type": "string", "const": "target_runner_v1"},
-            "target_materializer": {"type": "string", "enum": ["none", "uv", "bun"]},
-            "target_runner": {"type": "string", "enum": ["pytest", "check"]},
-            "selected_witness_ids": {"type": "array", "minItems": 1, "maxItems": 40, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\x00-\\x1f\\x7f]*$"}},
-            "case_to_witness_map": {"type": "object", "additionalProperties": false, "minProperties": 1, "maxProperties": 64, "patternProperties": {"^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\x00-\\x1f\\x7f]*$"}}}},
-            "selected_distinct_count": {"type": "integer", "minimum": 1, "maximum": 40},
-            "native_plan_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-            "stdout": {"$ref": "#/$defs/lane_native_oracle_stream"},
-            "stderr": {"$ref": "#/$defs/lane_native_oracle_stream"},
-            "streams_complete": {"type": "boolean"}
+            "protocol": {
+              "type": "string",
+              "const": "native_oracle_v2"
+            },
+            "phase": {
+              "type": "string",
+              "const": "prepare"
+            },
+            "qualification": {
+              "type": "string",
+              "enum": [
+                "ready",
+                "unavailable"
+              ]
+            },
+            "run_ref": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "work_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "project_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "contract_version": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "subject_commit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "minLength": 40,
+              "maxLength": 64
+            },
+            "bundle_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "logical_argv_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "logical_cwd": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "recipe_source": {
+              "$ref": "#/$defs/lane_work_context_reading_source_repository_file"
+            },
+            "manifest_blob": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "minLength": 40,
+              "maxLength": 64
+            },
+            "manifest_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "files": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": {
+                "$ref": "#/$defs/lane_native_oracle_file"
+              }
+            },
+            "toolchain_identity": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "build_environment_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "recipe_kind": {
+              "type": "string",
+              "const": "target_runner_v1"
+            },
+            "target_materializer": {
+              "type": "string",
+              "enum": [
+                "none",
+                "uv",
+                "bun"
+              ]
+            },
+            "target_runner": {
+              "type": "string",
+              "enum": [
+                "pytest",
+                "check"
+              ]
+            },
+            "selected_witness_ids": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 40,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+              }
+            },
+            "case_to_witness_map": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "maxProperties": 64,
+              "patternProperties": {
+                "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+                  }
+                }
+              }
+            },
+            "selected_distinct_count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 40
+            },
+            "native_plan_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "stdout": {
+              "$ref": "#/$defs/lane_native_oracle_stream"
+            },
+            "stderr": {
+              "$ref": "#/$defs/lane_native_oracle_stream"
+            },
+            "streams_complete": {
+              "type": "boolean"
+            }
           },
-          "if": {"properties": {"qualification": {"const": "ready"}}, "required": ["qualification"]},
-          "then": {"properties": {
-            "streams_complete": {"const": true},
-            "stdout": {"properties": {"stream": {"const": "stdout"}, "complete": {"const": true}, "ref": {"minLength": 1}}},
-            "stderr": {"properties": {"stream": {"const": "stderr"}, "complete": {"const": true}, "ref": {"minLength": 1}}}
-          }},
-          "not": {"anyOf": [{"required": ["selected_test_names"]}, {"required": ["case_to_test_map"]}]},
+          "if": {
+            "properties": {
+              "qualification": {
+                "const": "ready"
+              }
+            },
+            "required": [
+              "qualification"
+            ]
+          },
+          "then": {
+            "properties": {
+              "streams_complete": {
+                "const": true
+              },
+              "stdout": {
+                "properties": {
+                  "stream": {
+                    "const": "stdout"
+                  },
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  }
+                }
+              },
+              "stderr": {
+                "properties": {
+                  "stream": {
+                    "const": "stderr"
+                  },
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "selected_test_names"
+                ]
+              },
+              {
+                "required": [
+                  "case_to_test_map"
+                ]
+              }
+            ]
+          },
           "oneOf": [
-            {"description": "uv materializes the pinned dependencies offline; pytest collects the pinned node IDs.", "properties": {"target_materializer": {"const": "uv"}, "target_runner": {"const": "pytest"}}},
-            {"description": "none declares a dependency-free recipe; check grades each declared check's host-observed exit status.", "properties": {"target_materializer": {"const": "none"}, "target_runner": {"const": "check"}}},
-            {"description": "uv materializes the pinned dependencies offline; check grades each declared check's host-observed exit status.", "properties": {"target_materializer": {"const": "uv"}, "target_runner": {"const": "check"}}},
-            {"description": "bun materializes the pinned bun.lock closure offline from integrity-verified cached npm tarballs, with no package manager or lifecycle script; check grades each declared check's host-observed exit status.", "properties": {"target_materializer": {"const": "bun"}, "target_runner": {"const": "check"}}}
+            {
+              "description": "uv materializes the pinned dependencies offline; pytest collects the pinned node IDs.",
+              "properties": {
+                "target_materializer": {
+                  "const": "uv"
+                },
+                "target_runner": {
+                  "const": "pytest"
+                }
+              }
+            },
+            {
+              "description": "none declares a dependency-free recipe; check grades each declared check's host-observed exit status.",
+              "properties": {
+                "target_materializer": {
+                  "const": "none"
+                },
+                "target_runner": {
+                  "const": "check"
+                }
+              }
+            },
+            {
+              "description": "uv materializes the pinned dependencies offline; check grades each declared check's host-observed exit status.",
+              "properties": {
+                "target_materializer": {
+                  "const": "uv"
+                },
+                "target_runner": {
+                  "const": "check"
+                }
+              }
+            },
+            {
+              "description": "bun materializes the pinned bun.lock closure offline from integrity-verified cached npm tarballs, with no package manager or lifecycle script; check grades each declared check's host-observed exit status.",
+              "properties": {
+                "target_materializer": {
+                  "const": "bun"
+                },
+                "target_runner": {
+                  "const": "check"
+                }
+              }
+            }
           ]
         }
       ],
@@ -1794,8 +2492,12 @@
           "description": "The prior typed control-execution receipts this work retained, in log order: reported regression baselines with their exact identities, never current-subject acceptance."
         },
         "oracle_preparations": {
-          "type": "array", "minItems": 0, "maxItems": 512,
-          "items": {"$ref": "#/$defs/lane_native_oracle_preparation"},
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 512,
+          "items": {
+            "$ref": "#/$defs/lane_native_oracle_preparation"
+          },
           "description": "Only native preparation records selected by the immutable job's readiness refs. No raw output or alternative readiness authority."
         },
         "subject_commit": {

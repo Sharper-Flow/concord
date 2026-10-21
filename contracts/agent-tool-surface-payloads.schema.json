@@ -1533,9 +1533,6 @@
         },
         "defect_intake": {
           "$ref": "#/$defs/defect_classification"
-        },
-        "size": {
-          "$ref": "#/$defs/work_size_summary"
         }
       }
     },
@@ -4191,64 +4188,6 @@
         }
       }
     },
-    "worker_job_measurement_basis": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "The measurement basis that binds one recorded job's production-size cap (CD-0225 D1): the immutable Git base commit the delta is counted against and the exact path inventory with its classifications. An editing job under a size-capable definition carries it beside the cap; a read-only job carries neither.",
-      "required": [
-        "base_commit",
-        "paths"
-      ],
-      "properties": {
-        "base_commit": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
-          "description": "The raw commit oid of the clean integration foundation the production delta is measured against, never an arbitrary recent commit."
-        },
-        "paths": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 64,
-          "items": {
-            "$ref": "#/$defs/worker_job_measured_path"
-          },
-          "description": "The explicit edit paths known before dispatch, each classified once. Every path must be contained by the job's path_scope. Bounds: 1..64 items inclusive"
-        }
-      }
-    },
-    "worker_job_measured_path": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "One measured inventory entry: a normalized relative repository path and its closed classification. A generated exclusion requires its owning generator reference; every other classification carries none.",
-      "required": [
-        "path",
-        "class"
-      ],
-      "properties": {
-        "path": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "description": "A normalized relative repository-contained path, unique within the inventory. Bounds: 1..512 code points inclusive"
-        },
-        "class": {
-          "type": "string",
-          "enum": [
-            "production",
-            "test",
-            "documentation",
-            "generated"
-          ],
-          "description": "The closed classification vocabulary. Production paths enter the counted delta; test, documentation, and verified generated outputs do not."
-        },
-        "generator_ref": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "description": "The owning generator's normalized relative repository path. Required when class is generated; refused on every other classification. Bounds: 1..512 code points inclusive"
-        }
-      }
-    },
     "worker_job_direct_caller_allowance": {
       "type": "object",
       "additionalProperties": false,
@@ -4296,324 +4235,6 @@
             "$ref": "#/$defs/worker_oracle_law_binding"
           },
           "description": "The pinned law revisions the allowance keeps, joined like the oracle joins law. Bounds: 0..8 items inclusive"
-        }
-      }
-    },
-    "worker_job_split": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "The closed split variant of record_worker_job (CD-0225 D3): one atomic record that replaces the current predecessor revision with two or more new successor jobs under the predecessor's cap, with an evidenced allocation of the predecessor's measured paths. The store checks reference coverage and exact retained content, not prose equivalence.",
-      "required": [
-        "predecessor",
-        "successors",
-        "allocation"
-      ],
-      "properties": {
-        "predecessor": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "The predecessor's current recorded revision, named exactly by job_id, revision, and digest.",
-          "required": [
-            "job_id",
-            "revision",
-            "digest"
-          ],
-          "properties": {
-            "job_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "x-minBytes": 2,
-              "x-maxBytes": 128,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
-            },
-            "revision": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 2147483647
-            },
-            "digest": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            }
-          }
-        },
-        "successors": {
-          "type": "array",
-          "minItems": 2,
-          "maxItems": 64,
-          "items": {
-            "$ref": "#/$defs/worker_job_split_successor"
-          },
-          "description": "The successor jobs, each a new job_id recorded at revision 1 with the ordinary job content."
-        },
-        "allocation": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 64,
-          "items": {
-            "$ref": "#/$defs/worker_job_split_allocation"
-          },
-          "description": "The evidenced allocation of the predecessor's measured paths to successors. Every predecessor inventory path is allocated."
-        }
-      }
-    },
-    "worker_job_split2": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "predecessor",
-        "successors",
-        "allocation"
-      ],
-      "properties": {
-        "predecessor": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "job_id",
-            "revision",
-            "digest"
-          ],
-          "properties": {
-            "job_id": {
-              "$ref": "#/$defs/reference",
-              "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "revision": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 2147483647,
-              "description": "Bounds: 1..2147483647 value inclusive"
-            },
-            "digest": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            }
-          }
-        },
-        "successors": {
-          "type": "array",
-          "minItems": 2,
-          "maxItems": 64,
-          "items": {
-            "$ref": "#/$defs/worker_job_split_successor"
-          },
-          "description": "Bounds: 2..64 items inclusive"
-        },
-        "allocation": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 64,
-          "items": {
-            "$ref": "#/$defs/worker_job_split_allocation"
-          },
-          "description": "Bounds: 1..64 items inclusive"
-        },
-        "replaced_attempt": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "attempt_id",
-            "attempt_epoch"
-          ],
-          "properties": {
-            "attempt_id": {
-              "$ref": "#/$defs/reference",
-              "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "attempt_epoch": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 2147483647,
-              "description": "Bounds: 1..2147483647 value inclusive"
-            },
-            "supplemental_classifications": {
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 64,
-              "items": {
-                "$ref": "#/$defs/worker_job_measured_path"
-              },
-              "description": "Bounds: 1..64 items inclusive"
-            }
-          },
-          "description": "The exact completed overrun attempt this split replaces. Supplemental classifications serve only its overrun evidence; they change no inventory or descendant authority."
-        }
-      }
-    },
-    "worker_job_split_successor": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "One successor job's content: the ordinary record_worker_job members. Its revision, Project scope, contract version, and digest are core-derived exactly as for an ordinary recording.",
-      "required": [
-        "job_id",
-        "objective",
-        "stopping_condition",
-        "ready",
-        "acceptance_oracle"
-      ],
-      "properties": {
-        "job_id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128,
-          "x-minBytes": 2,
-          "x-maxBytes": 128,
-          "pattern": "^[^\\x09-\\x0d    -     　]+$",
-          "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-        },
-        "objective": {
-          "type": "string",
-          "maxLength": 4096,
-          "x-maxBytes": 4096,
-          "minLength": 1,
-          "pattern": "\\S",
-          "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
-        },
-        "stopping_condition": {
-          "type": "string",
-          "maxLength": 2048,
-          "x-maxBytes": 2048,
-          "minLength": 1,
-          "pattern": "\\S",
-          "description": "Bounds: 1..2048 code points inclusive; <=2048 UTF-8 bytes inclusive"
-        },
-        "path_scope": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-          },
-          "minItems": 0,
-          "maxItems": 64,
-          "description": "Bounds: 0..64 items inclusive"
-        },
-        "predicate_ids": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/id",
-            "description": "Bounds: 1..128 code points inclusive"
-          },
-          "minItems": 0,
-          "maxItems": 8,
-          "description": "Bounds: 0..8 items inclusive"
-        },
-        "checks": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/worker_job_text",
-            "description": "Bounds: 1..256 code points inclusive"
-          },
-          "minItems": 0,
-          "maxItems": 64,
-          "description": "Bounds: 0..64 items inclusive"
-        },
-        "prerequisites": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/worker_job_prerequisite"
-          },
-          "minItems": 0,
-          "maxItems": 64,
-          "description": "Bounds: 0..64 items inclusive"
-        },
-        "unresolved_refs": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/worker_job_text",
-            "description": "Bounds: 1..256 code points inclusive"
-          },
-          "minItems": 0,
-          "maxItems": 64,
-          "description": "Bounds: 0..64 items inclusive"
-        },
-        "reserved_integration": {
-          "type": "string",
-          "maxLength": 4096,
-          "x-maxBytes": 4096,
-          "minLength": 1,
-          "pattern": "\\S",
-          "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
-        },
-        "ready": {
-          "type": "boolean"
-        },
-        "readiness_evidence": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-          },
-          "minItems": 0,
-          "maxItems": 16,
-          "description": "Bounds: 0..16 items inclusive"
-        },
-        "acceptance_oracle": {
-          "$ref": "#/$defs/worker_acceptance_oracle"
-        },
-        "production_size_max": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647,
-          "description": "Bounds: 1..2147483647 value inclusive"
-        },
-        "measurement_basis": {
-          "$ref": "#/$defs/worker_job_measurement_basis"
-        },
-        "direct_caller_allowance": {
-          "$ref": "#/$defs/worker_job_direct_caller_allowance"
-        }
-      }
-    },
-    "worker_job_split_allocation": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "One allocation entry: the successor that owns the listed predecessor paths and the evidence for the assignment.",
-      "required": [
-        "job_id",
-        "paths",
-        "evidence_refs"
-      ],
-      "properties": {
-        "job_id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128,
-          "x-minBytes": 2,
-          "x-maxBytes": 128,
-          "pattern": "^[^\\x09-\\x0d    -     　]+$",
-          "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-        },
-        "paths": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 64,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 512,
-            "description": "Bounds: 1..512 code points inclusive"
-          },
-          "description": "Normalized relative repository paths, each inside the named successor's path_scope. Bounds: 1..64 items inclusive"
-        },
-        "evidence_refs": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 16,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-          },
-          "description": "The evidence for the assignment. Bounds: 1..16 items inclusive"
         }
       }
     },
@@ -5643,9 +5264,6 @@
                   "rule_id",
                   "rule_source_hash",
                   "catalog_generation",
-                  "size_assessment_sequence",
-                  "model_version",
-                  "size",
                   "outcome",
                   "settlement_ref"
                 ],
@@ -5661,22 +5279,6 @@
                   "catalog_generation": {
                     "type": "integer",
                     "minimum": 1
-                  },
-                  "size_assessment_sequence": {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  "model_version": {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  "size": {
-                    "type": "string",
-                    "enum": [
-                      "small",
-                      "larger",
-                      "crucial"
-                    ]
                   },
                   "outcome": {
                     "type": "string",
@@ -6196,9 +5798,6 @@
         "defect_intake": {
           "$ref": "#/$defs/defect_intake",
           "description": "Capture admission record (defect intake). Required for kind bug, optional for kind research, refused for every other kind; the core enforces the kind rules and the admission decision."
-        },
-        "size_inputs": {
-          "$ref": "#/$defs/work_size_inputs"
         }
       }
     },
@@ -6281,14 +5880,6 @@
             "$ref": "#/$defs/evidence"
           },
           "description": "Bounds: <=32 items inclusive"
-        },
-        "operator_size": {
-          "$ref": "#/$defs/work_size_class",
-          "description": "The operator's size for the work item (CD-0229 D6). It needs a consumed operator approval, and reason is the override's reason. A size change supersedes the item with a forward-linked successor (CD-0237)."
-        },
-        "size_inputs": {
-          "$ref": "#/$defs/work_size_inputs",
-          "description": "Reruns the size model on fresh declared inputs; reason says why. The core re-derives every other input. A size change supersedes the item with a forward-linked successor (CD-0237)."
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds",
@@ -12018,16 +11609,6 @@
         "checks_repair": {
           "$ref": "#/$defs/worker_checks_repair"
         },
-        "production_size_max": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647,
-          "description": "The recorded production-size cap (CD-0225 D1). Optional and omitted on every read-only revision; carried beside the measurement basis by every editing revision."
-        },
-        "measurement_basis": {
-          "$ref": "#/$defs/worker_job_measurement_basis",
-          "description": "The recorded measurement basis of this revision: the immutable base commit and the classified path inventory. Optional and omitted on every read-only revision."
-        },
         "direct_caller_allowance": {
           "$ref": "#/$defs/worker_job_direct_caller_allowance",
           "description": "The recorded conditional direct-caller scope of this revision (CD-0227 D1). Optional and omitted on every read-only revision."
@@ -14587,104 +14168,6 @@
         }
       }
     },
-    "work_size_inputs": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "What this change will touch, for the work-item size model (CD-0229 D4). Name the files, a behavior phrase, or both. The tool derives kind, stage, audience, Domains, packages, and repositories; the model decides the size. There is no size field: a proposed size is refused.",
-      "required": [
-        "security",
-        "user_visible",
-        "blast_radius",
-        "estimated_production_lines"
-      ],
-      "properties": {
-        "paths": {
-          "description": "Repository-relative files or directories the change will edit. Bounds: <=64 items inclusive",
-          "type": "array",
-          "maxItems": 64,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 512,
-            "description": "Bounds: 1..512 code points inclusive"
-          }
-        },
-        "behavior": {
-          "description": "A phrase for the behavior the change will alter, when the files are not known yet. Bounds: 1..256 code points inclusive",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256
-        },
-        "security": {
-          "description": "True when the change touches authentication, authorization, secrets, or data safety.",
-          "type": "boolean"
-        },
-        "user_visible": {
-          "description": "True when the change removes or reverses behavior users see, or changes UI or UX.",
-          "type": "boolean"
-        },
-        "blast_radius": {
-          "description": "The widest thing a defect could break: one function, one package, several packages, or a public surface (CLI, tool, schema, wire format).",
-          "type": "string",
-          "enum": [
-            "contained",
-            "package",
-            "cross_package",
-            "external"
-          ]
-        },
-        "estimated_production_lines": {
-          "description": "Production lines you expect to add or change, tests excluded. Bounds: 1..100000 value inclusive",
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 100000
-        }
-      }
-    },
-    "work_size_class": {
-      "type": "string",
-      "enum": [
-        "small",
-        "larger",
-        "crucial"
-      ]
-    },
-    "work_size_summary": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "The work item's current size record: the effective size (the operator's size when one is recorded, otherwise the versioned model's), the model's own size and any operator size, the model version, and when the model recorded it. Absent when the work was never sized.",
-      "required": [
-        "size",
-        "model_version",
-        "recorded_at"
-      ],
-      "properties": {
-        "size": {
-          "type": "string",
-          "enum": [
-            "small",
-            "larger",
-            "crucial"
-          ]
-        },
-        "model_size": {
-          "$ref": "#/$defs/work_size_class"
-        },
-        "operator_size": {
-          "$ref": "#/$defs/work_size_class"
-        },
-        "model_version": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "recorded_at": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64
-        }
-      }
-    },
     "outside_repair_release_tag": {
       "type": "string",
       "minLength": 1,
@@ -15500,15 +14983,6 @@
               "enum": [
                 "asserted"
               ]
-            },
-            "supplemental_classifications": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/worker_job_measured_path"
-              },
-              "minItems": 1,
-              "maxItems": 64,
-              "description": "Bounds: 1..64 items inclusive"
             }
           },
           "required": [
@@ -20608,170 +20082,143 @@
           "description": "Bounds: 8..128 code points inclusive"
         },
         "fields": {
-          "oneOf": [
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "maxProperties": 32,
-              "properties": {
-                "job_id": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 128,
-                  "x-minBytes": 2,
-                  "x-maxBytes": 128,
-                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
-                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-                },
-                "objective": {
-                  "type": "string",
-                  "maxLength": 4096,
-                  "x-maxBytes": 4096,
-                  "minLength": 1,
-                  "pattern": "\\S",
-                  "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
-                },
-                "stopping_condition": {
-                  "type": "string",
-                  "maxLength": 2048,
-                  "x-maxBytes": 2048,
-                  "minLength": 1,
-                  "pattern": "\\S",
-                  "description": "Bounds: 1..2048 code points inclusive; <=2048 UTF-8 bytes inclusive"
-                },
-                "path_scope": {
-                  "type": "array",
-                  "uniqueItems": true,
-                  "items": {
-                    "$ref": "#/$defs/reference",
-                    "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-                  },
-                  "minItems": 0,
-                  "maxItems": 64,
-                  "description": "Bounds: 0..64 items inclusive"
-                },
-                "predicate_ids": {
-                  "type": "array",
-                  "uniqueItems": true,
-                  "items": {
-                    "$ref": "#/$defs/id",
-                    "description": "Bounds: 1..128 code points inclusive"
-                  },
-                  "minItems": 0,
-                  "maxItems": 8,
-                  "description": "Bounds: 0..8 items inclusive"
-                },
-                "checks": {
-                  "type": "array",
-                  "uniqueItems": true,
-                  "items": {
-                    "$ref": "#/$defs/worker_job_text",
-                    "description": "Bounds: 1..256 code points inclusive"
-                  },
-                  "minItems": 0,
-                  "maxItems": 64,
-                  "description": "Bounds: 0..64 items inclusive"
-                },
-                "prerequisites": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/$defs/worker_job_prerequisite"
-                  },
-                  "minItems": 0,
-                  "maxItems": 64,
-                  "description": "Bounds: 0..64 items inclusive"
-                },
-                "unresolved_refs": {
-                  "type": "array",
-                  "uniqueItems": true,
-                  "items": {
-                    "$ref": "#/$defs/worker_job_text",
-                    "description": "Bounds: 1..256 code points inclusive"
-                  },
-                  "minItems": 0,
-                  "maxItems": 64,
-                  "description": "Bounds: 0..64 items inclusive"
-                },
-                "reserved_integration": {
-                  "type": "string",
-                  "maxLength": 4096,
-                  "x-maxBytes": 4096,
-                  "minLength": 1,
-                  "pattern": "\\S",
-                  "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
-                },
-                "ready": {
-                  "type": "boolean"
-                },
-                "readiness_evidence": {
-                  "type": "array",
-                  "uniqueItems": true,
-                  "items": {
-                    "$ref": "#/$defs/reference",
-                    "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-                  },
-                  "minItems": 0,
-                  "maxItems": 16,
-                  "description": "Bounds: 0..16 items inclusive"
-                },
-                "acceptance_oracle": {
-                  "$ref": "#/$defs/worker_acceptance_oracle"
-                },
-                "repair_revisions": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/$defs/worker_job_repair_revision",
-                    "description": "Bounds: 1..9223372036854775807 value inclusive"
-                  },
-                  "minItems": 1,
-                  "maxItems": 64,
-                  "description": "Bounds: 1..64 items inclusive"
-                },
-                "repair_reason": {
-                  "type": "string",
-                  "maxLength": 4096,
-                  "x-maxBytes": 4096,
-                  "minLength": 1,
-                  "pattern": "\\S",
-                  "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
-                },
-                "production_size_max": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 2147483647,
-                  "description": "Bounds: 1..2147483647 value inclusive"
-                },
-                "measurement_basis": {
-                  "$ref": "#/$defs/worker_job_measurement_basis"
-                },
-                "direct_caller_allowance": {
-                  "$ref": "#/$defs/worker_job_direct_caller_allowance"
-                }
-              },
-              "required": [
-                "job_id",
-                "objective",
-                "stopping_condition",
-                "ready",
-                "acceptance_oracle"
-              ],
-              "description": "Bounds: <=32 properties inclusive"
+          "type": "object",
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "x-minBytes": 2,
+              "x-maxBytes": 128,
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
             },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "maxProperties": 32,
-              "properties": {
-                "split": {
-                  "$ref": "#/$defs/worker_job_split2"
-                }
+            "objective": {
+              "type": "string",
+              "maxLength": 4096,
+              "x-maxBytes": 4096,
+              "minLength": 1,
+              "pattern": "\\S",
+              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
+            },
+            "stopping_condition": {
+              "type": "string",
+              "maxLength": 2048,
+              "x-maxBytes": 2048,
+              "minLength": 1,
+              "pattern": "\\S",
+              "description": "Bounds: 1..2048 code points inclusive; <=2048 UTF-8 bytes inclusive"
+            },
+            "path_scope": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/reference",
+                "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
               },
-              "required": [
-                "split"
-              ],
-              "description": "Bounds: <=32 properties inclusive"
+              "minItems": 0,
+              "maxItems": 64,
+              "description": "Bounds: 0..64 items inclusive"
+            },
+            "predicate_ids": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/id",
+                "description": "Bounds: 1..128 code points inclusive"
+              },
+              "minItems": 0,
+              "maxItems": 8,
+              "description": "Bounds: 0..8 items inclusive"
+            },
+            "checks": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/worker_job_text",
+                "description": "Bounds: 1..256 code points inclusive"
+              },
+              "minItems": 0,
+              "maxItems": 64,
+              "description": "Bounds: 0..64 items inclusive"
+            },
+            "prerequisites": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/worker_job_prerequisite"
+              },
+              "minItems": 0,
+              "maxItems": 64,
+              "description": "Bounds: 0..64 items inclusive"
+            },
+            "unresolved_refs": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/worker_job_text",
+                "description": "Bounds: 1..256 code points inclusive"
+              },
+              "minItems": 0,
+              "maxItems": 64,
+              "description": "Bounds: 0..64 items inclusive"
+            },
+            "reserved_integration": {
+              "type": "string",
+              "maxLength": 4096,
+              "x-maxBytes": 4096,
+              "minLength": 1,
+              "pattern": "\\S",
+              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
+            },
+            "ready": {
+              "type": "boolean"
+            },
+            "readiness_evidence": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/reference",
+                "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+              },
+              "minItems": 0,
+              "maxItems": 16,
+              "description": "Bounds: 0..16 items inclusive"
+            },
+            "acceptance_oracle": {
+              "$ref": "#/$defs/worker_acceptance_oracle"
+            },
+            "repair_revisions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/worker_job_repair_revision",
+                "description": "Bounds: 1..9223372036854775807 value inclusive"
+              },
+              "minItems": 1,
+              "maxItems": 64,
+              "description": "Bounds: 1..64 items inclusive"
+            },
+            "repair_reason": {
+              "type": "string",
+              "maxLength": 4096,
+              "x-maxBytes": 4096,
+              "minLength": 1,
+              "pattern": "\\S",
+              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
+            },
+            "direct_caller_allowance": {
+              "$ref": "#/$defs/worker_job_direct_caller_allowance"
             }
-          ]
+          },
+          "required": [
+            "job_id",
+            "objective",
+            "stopping_condition",
+            "ready",
+            "acceptance_oracle"
+          ],
+          "description": "Bounds: <=32 properties inclusive"
         }
       },
       "not": {
@@ -27495,7 +26942,7 @@
       }
     },
     "worker_packet5": {
-      "description": "The size-capable packet identity the size-capable definition heads record and replay. It mirrors $defs/worker_packet4 shape for shape under a versioned name — the same 2.0 schema_version, with the inputs' worker_job member anchored at worker_packet5_worker_job, which adds the recorded production-size members and the dispatch-time caller exclusions beside the repair-capable checks_repair metadata — so the frozen decoder carries it beside the byte-exact packet2, packet3, and packet4 closures, and the size content rides the unchanged packet aggregate. The retained packet2, packet3, and packet4 pins replay exactly the closures they recorded and refuse the size-bearing packets the packet5 declaration admits.",
+      "description": "The caller-scope packet identity the definition heads record and replay. It mirrors $defs/worker_packet4 shape for shape under a versioned name — the same 2.0 schema_version, with the inputs' worker_job member anchored at worker_packet5_worker_job, which adds the direct-caller allowance and the dispatch-time caller exclusions beside the repair-capable checks_repair metadata — so the frozen decoder carries it beside the byte-exact packet2, packet3, and packet4 closures, and the caller scope rides the unchanged packet aggregate. The retained packet2, packet3, and packet4 pins replay exactly the closures they recorded and refuse the caller-scope packets the packet5 declaration admits.",
       "type": "object",
       "additionalProperties": false,
       "required": [

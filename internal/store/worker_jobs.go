@@ -80,14 +80,15 @@ type WorkerJobRecordedPayload struct {
 	// immutable as the rest of its content, and it reads back only from
 	// this event — no projection column carries it.
 	AcceptanceOracle *AcceptanceOracle `json:"acceptance_oracle,omitempty"`
-	// The production-size members (CD-0225 D1, CD-0227 D1), optional on
-	// every revision a pre-size definition recorded. They enter the content
-	// digest after the oracle, so every historical digest is unchanged, and
-	// they read back only from this event. An editing job carries all
-	// three; a read-only job carries none.
-	ProductionSizeMax     *int64                     `json:"production_size_max,omitempty"`
-	MeasurementBasis      *WorkerJobMeasurementBasis `json:"measurement_basis,omitempty"`
-	DirectCallerAllowance *WorkerJobCallerAllowance  `json:"direct_caller_allowance,omitempty"`
+	// The production-size members are retired (CD-0242 D6). They decode
+	// the history a v1 revision may carry — they entered that revision's
+	// content digest, so the digest derivation keeps them — and a live v2
+	// recording refuses them. DirectCallerAllowance stays live content
+	// (CD-0227 D1 as amended): a caller-capable definition records it
+	// beside the explicit path scope.
+	ProductionSizeMax     *int64                    `json:"production_size_max,omitempty"`
+	MeasurementBasis      json.RawMessage           `json:"measurement_basis,omitempty"`
+	DirectCallerAllowance *WorkerJobCallerAllowance `json:"direct_caller_allowance,omitempty"`
 	// ChecksRepair is the core-derived checks repair metadata (CD-0205 D4):
 	// the stated reason and, for every named unresolved revision, its
 	// binding beside the old checks the exact recorded events hold. The
@@ -108,24 +109,24 @@ type WorkerJobRecordedPayload struct {
 // did before the member existed, so every historical digest still holds.
 func DeriveWorkerJobDigest(payload WorkerJobRecordedPayload) string {
 	content := struct {
-		JobID                 string                     `json:"job_id"`
-		Revision              int64                      `json:"revision"`
-		ContractVersion       int64                      `json:"contract_version"`
-		Objective             string                     `json:"objective"`
-		StoppingCondition     string                     `json:"stopping_condition"`
-		ProjectScope          string                     `json:"project_scope,omitempty"`
-		PathScope             []string                   `json:"path_scope"`
-		PredicateIDs          []string                   `json:"predicate_ids"`
-		Checks                []string                   `json:"checks"`
-		Prerequisites         []WorkerJobPrerequisite    `json:"prerequisites"`
-		UnresolvedRefs        []string                   `json:"unresolved_refs"`
-		ReservedIntegration   string                     `json:"reserved_integration,omitempty"`
-		Readiness             *WorkerJobReadiness        `json:"readiness,omitempty"`
-		AcceptanceOracle      *AcceptanceOracle          `json:"acceptance_oracle,omitempty"`
-		ProductionSizeMax     *int64                     `json:"production_size_max,omitempty"`
-		MeasurementBasis      *WorkerJobMeasurementBasis `json:"measurement_basis,omitempty"`
-		DirectCallerAllowance *WorkerJobCallerAllowance  `json:"direct_caller_allowance,omitempty"`
-		ChecksRepair          *WorkerJobChecksRepair     `json:"checks_repair,omitempty"`
+		JobID                 string                    `json:"job_id"`
+		Revision              int64                     `json:"revision"`
+		ContractVersion       int64                     `json:"contract_version"`
+		Objective             string                    `json:"objective"`
+		StoppingCondition     string                    `json:"stopping_condition"`
+		ProjectScope          string                    `json:"project_scope,omitempty"`
+		PathScope             []string                  `json:"path_scope"`
+		PredicateIDs          []string                  `json:"predicate_ids"`
+		Checks                []string                  `json:"checks"`
+		Prerequisites         []WorkerJobPrerequisite   `json:"prerequisites"`
+		UnresolvedRefs        []string                  `json:"unresolved_refs"`
+		ReservedIntegration   string                    `json:"reserved_integration,omitempty"`
+		Readiness             *WorkerJobReadiness       `json:"readiness,omitempty"`
+		AcceptanceOracle      *AcceptanceOracle         `json:"acceptance_oracle,omitempty"`
+		ProductionSizeMax     *int64                    `json:"production_size_max,omitempty"`
+		MeasurementBasis      json.RawMessage           `json:"measurement_basis,omitempty"`
+		DirectCallerAllowance *WorkerJobCallerAllowance `json:"direct_caller_allowance,omitempty"`
+		ChecksRepair          *WorkerJobChecksRepair    `json:"checks_repair,omitempty"`
 	}{payload.JobID, payload.Revision, payload.ContractVersion, payload.Objective, payload.StoppingCondition, payload.ProjectScope, payload.PathScope, payload.PredicateIDs, payload.Checks, payload.Prerequisites, payload.UnresolvedRefs, payload.ReservedIntegration, payload.Readiness, payload.AcceptanceOracle, payload.ProductionSizeMax, payload.MeasurementBasis, payload.DirectCallerAllowance, payload.ChecksRepair}
 	raw, err := json.Marshal(content)
 	if err != nil {
@@ -208,6 +209,12 @@ func validateWorkerJobRecordedPayload(event Event, payload WorkerJobRecordedPayl
 	if payload.Readiness != nil && len(payload.Readiness.Evidence) > 16 {
 		return invalidWorkerPayload("worker.job_recorded readiness carries too many evidence references")
 	}
+	// The retired size members decode history but record nothing new
+	// (CD-0242 D6). A live recording is payload version 2; a replayed v1
+	// revision keeps the members it may carry.
+	if event.replaySourcePayloadVersion == 0 && (payload.ProductionSizeMax != nil || len(payload.MeasurementBasis) != 0) {
+		return invalidWorkerPayload("worker.job_recorded production_size_max and measurement_basis are retired by CD-0242 D6: no production-line cap, size measurement, or mandatory split applies")
+	}
 	// The oracle graph is re-proved from the payload's own retained content:
 	// the closed shape and the job's declared predicates decide, never a
 	// registry read, so a replayed historical oracle holds without today's
@@ -217,10 +224,13 @@ func validateWorkerJobRecordedPayload(event Event, payload WorkerJobRecordedPayl
 			return err
 		}
 	}
-	// The size members re-prove their closed shape from the payload's own
-	// retained content, like the oracle graph: presence and bounds decide, never a registry read.
-	if err := validateWorkerJobSizeShape(payload.ProjectScope, payload.ProductionSizeMax, payload.MeasurementBasis, payload.DirectCallerAllowance, workerJobSizeFoldFailure); err != nil {
-		return err
+	// The direct-caller allowance re-proves its closed shape from the
+	// payload's own retained content, like the oracle graph: presence and
+	// bounds decide, never a registry read.
+	if payload.DirectCallerAllowance != nil {
+		if err := validateWorkerJobAllowanceShape(payload.ProjectScope, payload.DirectCallerAllowance, invalidWorkerPayloadFailure); err != nil {
+			return err
+		}
 	}
 	if payload.ChecksRepair != nil {
 		metadata, err := json.Marshal(payload.ChecksRepair)
@@ -338,9 +348,6 @@ func foldWorkerJobRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	case err != sql.ErrNoRows:
 		return wrapFailure(KindUnavailable, "fold_event", "cannot compare the recorded worker-job revision", true, "retry once the worker-job projection is readable", err)
 	}
-	if err := refuseWorkerJobReplacedBeforeTx(ctx, tx, event, payload.JobID, "record another revision"); err != nil {
-		return err
-	}
 	next, err := nextWorkerJobRevision(ctx, tx, event.SubjectID, payload.JobID)
 	if err != nil {
 		return err
@@ -397,18 +404,11 @@ func nextWorkerJobRevision(ctx context.Context, q queryer, workID, jobID string)
 }
 
 // workflowRecordWorkerJobEvents builds the events the record_worker_job
-// action appends: the split variant's successor and split events, or one
-// worker.job_recorded event authored through the shared builder and held to
-// any split lineage the job belongs to.
+// action appends: one worker.job_recorded event authored through the shared
+// builder.
 func workflowRecordWorkerJobEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	if raw, split := fields["split"]; split {
-		return workflowRecordWorkerJobSplitEvents(ctx, tx, request, actor, raw, eventID, expected)
-	}
 	payload, err := authorWorkerJobRevisionTx(ctx, tx, request, fields)
 	if err != nil {
-		return nil, err
-	}
-	if err := admitWorkerJobLineageRevisionTx(ctx, tx, request.WorkID, payload); err != nil {
 		return nil, err
 	}
 	event, err := workerJobRecordedEvent(eventID, request, actor, expected, payload)
@@ -541,11 +541,11 @@ func authorWorkerJobRevisionTx(ctx context.Context, tx *sql.Tx, request Workflow
 			return nil, err
 		}
 	}
-	// The size members author through the pinned definition's declared
-	// members like the oracle: a pre-size version refuses every member, and
-	// a size-capable version parses, joins, and inherits them here, at
-	// author time, inside the caller's transaction.
-	if err := authorWorkerJobSizeTx(ctx, tx, request.WorkID, contractVersion, registered.Definition, fields, &payload); err != nil {
+	// The direct-caller allowance authors through the pinned definition's
+	// declared member like the oracle: a pre-caller version refuses the
+	// member, and a caller-capable version parses and joins it here, at
+	// author time, inside the caller's transaction (CD-0227 D1).
+	if err := authorWorkerJobAllowanceTx(ctx, tx, request.WorkID, contractVersion, registered.Definition, fields, &payload); err != nil {
 		return nil, err
 	}
 	if len(repairRevisions) != 0 || repairReason != "" {
@@ -600,7 +600,7 @@ func verifyWorkerDispatchedJobBindingTx(ctx context.Context, tx *sql.Tx, event E
 			return newFailure(KindIllegalLifecycleTransition, "fold_event", "a satisfied worker-job revision cannot redispatch", false, "record a new revision of the job or dispatch another ready job")
 		}
 	}
-	return refuseWorkerJobReplacedBeforeTx(ctx, tx, event, binding.JobID, "dispatch")
+	return nil
 }
 
 // dispatchConsumedChecksRepairReviewTx reports whether the attempt's
@@ -777,35 +777,31 @@ type WorkerJobRevisionView struct {
 	ReservedIntegration string                  `json:"reserved_integration"`
 	// AcceptanceOracle reads back from the job-recorded event — never a
 	// projection column — so the view carries exactly the content the
-	// revision's digest covers. The size members join beside it from the
-	// same events.
-	AcceptanceOracle      *AcceptanceOracle          `json:"acceptance_oracle,omitempty"`
-	ProductionSizeMax     *int64                     `json:"production_size_max,omitempty"`
-	MeasurementBasis      *WorkerJobMeasurementBasis `json:"measurement_basis,omitempty"`
-	DirectCallerAllowance *WorkerJobCallerAllowance  `json:"direct_caller_allowance,omitempty"`
-	ChecksRepair          *WorkerJobChecksRepair     `json:"checks_repair,omitempty"`
-	State                 string                     `json:"state"`
-	Ready                 bool                       `json:"ready"`
-	SatisfiedResultRef    string                     `json:"satisfied_result_ref,omitempty"`
-	RecordedAt            string                     `json:"recorded_at"`
+	// revision's digest covers. The direct-caller allowance joins beside it
+	// from the same events.
+	AcceptanceOracle      *AcceptanceOracle         `json:"acceptance_oracle,omitempty"`
+	DirectCallerAllowance *WorkerJobCallerAllowance `json:"direct_caller_allowance,omitempty"`
+	ChecksRepair          *WorkerJobChecksRepair    `json:"checks_repair,omitempty"`
+	State                 string                    `json:"state"`
+	Ready                 bool                      `json:"ready"`
+	SatisfiedResultRef    string                    `json:"satisfied_result_ref,omitempty"`
+	RecordedAt            string                    `json:"recorded_at"`
 }
 
 // workerJobReadyPredicate is the one admission rule for selecting a revision
 // (CD-0205), evaluated over the worker_job_revisions row aliased j: the
 // revision is the latest recorded revision of its job, it is not yet
 // satisfied, its recorded parent authority is still the work's active
-// approved contract so a supersession strands old-authority revisions, no
-// split replaced its job, its
+// approved contract so a supersession strands old-authority revisions, its
 // coordinator readiness is asserted ready with evidence, its unresolved
 // references are empty, and every exact prerequisite revision is recorded and
 // satisfied — pinned, when the prerequisite names a result reference, to the
-// exact recorded acceptance or split discharge that satisfied it.
+// exact recorded acceptance that satisfied it.
 const workerJobReadyPredicate = `j.state='recorded'
   AND j.revision=(SELECT MAX(latest.revision) FROM worker_job_revisions latest WHERE latest.work_id=j.work_id AND latest.job_id=j.job_id)
   AND j.contract_version=(SELECT MAX(contract.contract_version) FROM workflow_contracts contract WHERE contract.work_id=j.work_id AND contract.superseded_by IS NULL)
   AND j.readiness IS NOT NULL AND json_extract(j.readiness,'$.ready')=1 AND COALESCE(json_array_length(j.readiness,'$.evidence'),0)>0
   AND json_array_length(j.unresolved_refs)=0
-  AND NOT EXISTS (SELECT 1 FROM domain_events split WHERE split.subject_type='work_item' AND split.subject_id=j.work_id AND split.kind='worker.job_split' AND json_extract(split.payload,'$.predecessor.job_id')=j.job_id)
   AND NOT EXISTS (SELECT 1 FROM json_each(j.prerequisites) prerequisite
     WHERE NOT EXISTS (SELECT 1 FROM worker_job_revisions satisfied
       WHERE satisfied.work_id=j.work_id
@@ -813,14 +809,7 @@ const workerJobReadyPredicate = `j.state='recorded'
         AND satisfied.revision=json_extract(prerequisite.value,'$.revision')
         AND satisfied.state='satisfied'
         AND (COALESCE(json_extract(prerequisite.value,'$.result_ref'),'')=''
-          OR COALESCE(json_extract(prerequisite.value,'$.result_ref'),'')=COALESCE(satisfied.satisfied_result_ref,'')))
-      AND NOT EXISTS (SELECT 1 FROM domain_events discharged
-        WHERE discharged.subject_type='work_item' AND discharged.subject_id=j.work_id
-          AND discharged.kind='worker.job_split_discharged'
-          AND json_extract(discharged.payload,'$.predecessor.job_id')=json_extract(prerequisite.value,'$.job_id')
-          AND json_extract(discharged.payload,'$.predecessor.revision')=json_extract(prerequisite.value,'$.revision')
-          AND (COALESCE(json_extract(prerequisite.value,'$.result_ref'),'')=''
-            OR json_extract(prerequisite.value,'$.result_ref')=discharged.event_id)))`
+          OR COALESCE(json_extract(prerequisite.value,'$.result_ref'),'')=COALESCE(satisfied.satisfied_result_ref,''))))`
 
 // readWorkerJobRevisions reads every recorded revision of the work, in job
 // and revision order, with the derived readiness of each. The oracle member
@@ -864,7 +853,7 @@ FROM worker_job_revisions j WHERE j.work_id=? ORDER BY j.job_id,j.revision`, wor
 	if err != nil {
 		return nil, err
 	}
-	sizeContent, err := readWorkerJobSizeContentTx(ctx, q, workID)
+	allowances, err := readWorkerJobAllowancesTx(ctx, q, workID)
 	if err != nil {
 		return nil, err
 	}
@@ -878,23 +867,12 @@ FROM worker_job_revisions j WHERE j.work_id=? ORDER BY j.job_id,j.revision`, wor
 			return nil, wrapFailure(KindInvariantViolation, "worker_job", "a worker-job revision holds no job-recorded event for its oracle", false, "rebuild the worker-job events from the authoritative log", nil)
 		}
 		views[index].AcceptanceOracle = oracle
-		if entry, recorded := sizeContent[views[index].Binding]; recorded {
-			views[index].ProductionSizeMax = memberOrNil(entry.sizeCap, entry.basis != nil)
-			views[index].MeasurementBasis = entry.basis
-			views[index].DirectCallerAllowance = entry.allowance
+		if allowance, recorded := allowances[views[index].Binding]; recorded {
+			views[index].DirectCallerAllowance = allowance
 		}
 		views[index].ChecksRepair = repairs[views[index].Binding]
 	}
 	return views, nil
-}
-
-// memberOrNil projects the recorded cap beside its basis: the members are
-// present together, so a revision without a basis carries no cap.
-func memberOrNil(sizeCap int64, present bool) *int64 {
-	if !present {
-		return nil
-	}
-	return &sizeCap
 }
 
 // requireWorkerJobRevisionReadyTx is the dispatch-time admission of one
@@ -950,7 +928,7 @@ func requireWorkerJobRevisionStateReadyTx(ctx context.Context, q queryer, workID
 		return newFailure(KindInvalidOperation, "workflow_action", "the selected worker-job revision carries contract authority of version "+fmt.Sprint(contractVersion)+" while the active parent contract is version "+fmt.Sprint(active), false, "record a new revision of the job under the active contract before dispatching it")
 	}
 	if !ready {
-		return newFailure(KindInvalidOperation, "workflow_action", "the selected worker-job revision is not ready: it is satisfied, superseded by a later revision, replaced by a split, lacks coordinator readiness, carries unresolved references, or waits on an unsatisfied prerequisite", false, "select a ready revision from the work's worker jobs, or record a new revision")
+		return newFailure(KindInvalidOperation, "workflow_action", "the selected worker-job revision is not ready: it is satisfied, superseded by a later revision, lacks coordinator readiness, carries unresolved references, or waits on an unsatisfied prerequisite", false, "select a ready revision from the work's worker jobs, or record a new revision")
 	}
 	return nil
 }
@@ -989,17 +967,16 @@ type WorkerPacketJob struct {
 	// review, and verify packets bind. Optional and omitted on every
 	// revision a pre-oracle definition recorded.
 	AcceptanceOracle *AcceptanceOracle `json:"acceptance_oracle,omitempty"`
-	// The recorded size members (CD-0225 D1, CD-0227 D1), projected onto
-	// every admitted lane beside the oracle. Optional and omitted on every
-	// read-only revision.
-	ProductionSizeMax     *int64                     `json:"production_size_max,omitempty"`
-	MeasurementBasis      *WorkerJobMeasurementBasis `json:"measurement_basis,omitempty"`
-	DirectCallerAllowance *WorkerJobCallerAllowance  `json:"direct_caller_allowance,omitempty"`
+	// DirectCallerAllowance rides a caller-capable revision's packet
+	// (CD-0227 D1): the conditional caller scope the worker may use
+	// without another coordinator turn. Optional and omitted on every
+	// revision recorded without one.
+	DirectCallerAllowance *WorkerJobCallerAllowance `json:"direct_caller_allowance,omitempty"`
 	// ChecksRepair rides the repairing revision's packet (CD-0205 D4): the
 	// confirming review's packet carries the old checks, the new checks, and
 	// the stated reason. Optional and omitted on every non-repair revision.
 	ChecksRepair *WorkerJobChecksRepair `json:"checks_repair,omitempty"`
-	// CallerExclusions is the measured paths of the work's other jobs in
+	// CallerExclusions is the recorded paths of the work's other jobs in
 	// correction, computed by the core at dispatch admission and bound to
 	// the packet, never the job digest. Only the implementation capability
 	// class carries it.
@@ -1014,8 +991,6 @@ func packetJobFromView(view WorkerJobRevisionView) WorkerPacketJob {
 		PathScope: nonNilStrings(view.PathScope), PredicateIDs: nonNilStrings(view.PredicateIDs), Checks: nonNilStrings(view.Checks),
 		Prerequisites: nonNilPrerequisites(view.Prerequisites), UnresolvedRefs: nonNilStrings(view.UnresolvedRefs), ReservedIntegration: view.ReservedIntegration,
 		AcceptanceOracle:      view.AcceptanceOracle,
-		ProductionSizeMax:     view.ProductionSizeMax,
-		MeasurementBasis:      view.MeasurementBasis,
 		DirectCallerAllowance: view.DirectCallerAllowance,
 		ChecksRepair:          view.ChecksRepair,
 	}
@@ -1087,16 +1062,16 @@ func validateWorkerPacketJob(ctx context.Context, q queryer, definition Workflow
 		}
 		expected := packetJobFromView(view)
 		// The caller exclusions are the core's own computed set: an
-		// implementation dispatch of a size-capable pin carries exactly
-		// what the core computes, and every other lane carries none.
-		if lane.CapabilityClass == "implementation" && workflowJobSizeActive(definition) {
+		// implementation dispatch on a caller-capable pin carries exactly
+		// what the core computes, and every other lane or pin carries none.
+		if lane.CapabilityClass == "implementation" && workflowCallerScopeActive(definition) {
 			exclusions, err := workerJobCallerExclusionsTx(ctx, q, workID, binding.JobID)
 			if err != nil {
 				return nil, nil, err
 			}
 			expected.CallerExclusions = exclusions
 		} else if claimed.CallerExclusions != nil {
-			return refuse("inputs.worker_job carries caller_exclusions, which only an implementation lane of a size-capable definition admits", "build the worker job from the recorded revision without caller exclusions")
+			return refuse("inputs.worker_job carries caller_exclusions, which only an implementation lane admits", "build the worker job from the recorded revision without caller exclusions")
 		}
 		recorded, _ := json.Marshal(expected)
 		normalized, _ := json.Marshal(claimed)

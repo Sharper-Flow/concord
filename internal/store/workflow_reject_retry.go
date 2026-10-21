@@ -375,7 +375,7 @@ func retryPacketWorkerJobTx(ctx context.Context, tx *sql.Tx, definition Workflow
 		// A size-capable implementation retry carries the same computed
 		// caller exclusions first dispatch would, so the packet binds the
 		// work's other corrections identically.
-		if lane.CapabilityClass == "implementation" && workflowJobSizeActive(definition) {
+		if lane.CapabilityClass == "implementation" && workflowCallerScopeActive(definition) {
 			exclusions, exclusionsErr := workerJobCallerExclusionsTx(ctx, tx, workID, view.Binding.JobID)
 			if exclusionsErr != nil {
 				return exclusionsErr

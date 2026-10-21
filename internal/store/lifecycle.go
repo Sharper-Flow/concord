@@ -27,7 +27,8 @@ type workCreatedPayload struct {
 	ExternalRef      string        `json:"external_ref,omitempty"`
 	RaisedFromWorkID string        `json:"raised_from_work_id,omitempty"`
 	DefectIntake     *DefectIntake `json:"defect_intake,omitempty"`
-	// ResizeOf names the predecessor a resize successor replaces (v4).
+	// ResizeOf decodes a historical v4 payload only; the resize core is
+	// retired (CD-0242 D6) and no new event carries the member.
 	ResizeOf string `json:"resize_of,omitempty"`
 }
 
@@ -263,21 +264,14 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "raised_from_work_id requires an external_ref collision", false,
 			"supply raised_from_work_id only when acknowledging a live external reference conflict")
 	}
+	// ResizeOf decodes a historical v4 payload: a resize successor replays
+	// as an ordinary creation of the intent its payload carries (CD-0242
+	// D6 retired the resize core). No new event carries the member.
 	// The live-owner check refuses a fresh append that claims an external
 	// reference a live work item already owns. A replay cannot run it: the
 	// work_items rows mid-replay are the log's own prefix, and events recorded
 	// before this check existed hold external references history resolved
 	// later, so the log's ordering is the replay's only authority.
-	var resizedIntent string
-	if payload.ResizeOf != "" {
-		intent, err := checkResizeOriginCreatedTx(ctx, tx, event, payload)
-		if err != nil {
-			return err
-		}
-		resizedIntent = intent
-	}
-	// A resize successor takes the reference over from the predecessor the
-	// same resize supersedes, so the predecessor is no rival owner.
 	if payload.ExternalRef != "" && !isWorkflowReplay(ctx) {
 		var existingWorkID string
 		err := tx.QueryRowContext(ctx, `SELECT id FROM work_items WHERE json_extract(intent_json, '$.external_ref')=? AND terminal_time IS NULL AND id<>? LIMIT 1`, payload.ExternalRef, payload.ResizeOf).Scan(&existingWorkID)
@@ -314,9 +308,6 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 	})
 	if err != nil {
 		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode work intent", false, "supply a JSON-safe intent", err)
-	}
-	if resizedIntent != "" {
-		intent = []byte(resizedIntent)
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO work_items (id, kind, title, lifecycle, priority, urgency, version, created_at, updated_at, terminal_time, intent_json)
@@ -481,16 +472,9 @@ func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) e
 	// capture paths share where Product scope is known, so the defect intake
 	// admission owner runs here, inside the capture's own transaction: a
 	// refusal rolls the capture back before any durable or native effect.
-	// A resize successor keeps its predecessor's admitted classification.
 	if payload.ExpectedVersion == 1 {
-		origin, err := workResizeOriginTx(ctx, tx, event.SubjectID)
-		if err != nil {
+		if err := admitDefectIntakeTx(ctx, tx, event.SubjectID); err != nil {
 			return err
-		}
-		if origin == "" {
-			if err := admitDefectIntakeTx(ctx, tx, event.SubjectID); err != nil {
-				return err
-			}
 		}
 	}
 	if err := updateWorkVersion(ctx, tx, event, current.version, payload.ResultingVersion); err != nil {
@@ -637,21 +621,8 @@ func refuseUnreconciledDelivery(ctx context.Context, tx *sql.Tx, registry Defini
 	return newFailure(KindNotTerminal, "fold_event", "workflow has an unreconciled delivery", false, "record the delivery with record_delivery, then complete the workflow with the workflow_action complete action")
 }
 
-// refuseResizeLineageReopenTx keeps a resize's supersession final: no
-// operation reopens work, and stored reopen events predate the lineage.
-func refuseResizeLineageReopenTx(ctx context.Context, tx *sql.Tx, workID string) error {
-	member, err := workInResizeLineageTx(ctx, tx, workID)
-	if err != nil || !member {
-		return err
-	}
-	return newFailure(KindInvalidTransition, "fold_event", "a resized work item or its successor is never reopened", false, "revise the size of the current successor")
-}
-
 func foldWorkReopened(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
-		return err
-	}
-	if err := refuseResizeLineageReopenTx(ctx, tx, event.SubjectID); err != nil {
 		return err
 	}
 	var payload workReopenedPayload
@@ -764,9 +735,6 @@ func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 
 func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
-		return err
-	}
-	if err := refuseResizeLineageReopenTx(ctx, tx, event.SubjectID); err != nil {
 		return err
 	}
 	var payload workReopenedFromSupersededPayload

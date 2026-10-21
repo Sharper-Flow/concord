@@ -98,14 +98,11 @@
         }
       }
     },
-    "production_size": {
-      "$ref": "#/$defs/production_size"
-    },
     "direct_caller_repairs": {
       "type": "array",
       "minItems": 1,
       "maxItems": 8,
-      "description": "The evidenced direct-caller repairs this report made under the dispatched job's allowance (CD-0227 D2). Reserved for a capped implementation job's report: the core refuses the member on any other completion, and every changed path outside the job's explicit scope must match one evidenced repair.",
+      "description": "The evidenced direct-caller repairs this report made under the dispatched job's allowance (CD-0227 D2). Implementation-only report content (CD-0227 D2 as amended by CD-0242 D6): every changed path outside the job's explicit scope must match one evidenced repair.",
       "items": {
         "$ref": "#/$defs/direct_caller_repair"
       }
@@ -701,37 +698,6 @@
         },
         "oracle": {
           "$ref": "#/$defs/oracle_finding"
-        }
-      }
-    },
-    "production_size": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "The declared production size of this report (CD-0225 D2): the added plus deleted production lines between the dispatched job's recorded measurement base and the delivered tree. Required on a capped implementation job's completed report; the core binds base and tree to the recorded basis and the host's sealed observation and holds the count to the cap at acceptance. Missing on such a report is malformed output, and any other completion refuses the member.",
-      "required": [
-        "base",
-        "tree",
-        "count"
-      ],
-      "properties": {
-        "base": {
-          "type": "string",
-          "minLength": 40,
-          "maxLength": 64,
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
-          "description": "The dispatched job's recorded measurement base_commit: copy it from the packet's inputs.worker_job.measurement_basis.base_commit."
-        },
-        "tree": {
-          "type": "string",
-          "minLength": 40,
-          "maxLength": 64,
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
-          "description": "The delivered tree this count measures: the raw commit OID the completion's observed delivery records."
-        },
-        "count": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 2147483647
         }
       }
     },

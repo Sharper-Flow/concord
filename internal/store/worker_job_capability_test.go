@@ -157,11 +157,6 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 			if oracleCapablePinForWork(t, s, workID) {
 				unreadyFields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, s, workID)
 			}
-			if sizeCapablePinForWork(t, s, workID) {
-				for member, value := range workerJobSizeMembersForTest(t, s, workID, unreadyFields) {
-					unreadyFields[member] = value
-				}
-			}
 			if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, unreadyFields); err != nil {
 				t.Fatal(err)
 			}

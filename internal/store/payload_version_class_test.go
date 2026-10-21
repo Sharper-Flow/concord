@@ -27,10 +27,15 @@ func breakingAt(migration int) payloadVersionClass {
 // The class is the author's signed claim: the test below holds it to this
 // vocabulary and to its floor consequence, and review owns whether it is true.
 var payloadVersionClasses = map[string]map[int]payloadVersionClass{
-	"project.created":                  {2: replayOnly},
-	"project.locator_added":            {2: breakingAt(128)},
-	"project.locator_updated":          {2: breakingAt(128)},
-	"work.created":                     {2: replayOnly, 3: replayOnly, 4: replayOnly},
+	"project.created":         {2: replayOnly},
+	"project.locator_added":   {2: breakingAt(128)},
+	"project.locator_updated": {2: breakingAt(128)},
+	"work.created":            {2: replayOnly, 3: replayOnly, 4: replayOnly},
+	WorkConflictApplied:       {2: replayOnly},
+	// The retired size and split kinds stay registered at v2 so a stored
+	// log still replays; no route appends either kind (CD-0242 D6).
+	WorkSized:                          {2: replayOnly},
+	WorkerJobSplit:                     {2: replayOnly},
 	"work.worktree_occupancy_released": {2: replayOnly},
 	"work.session_vacated":             {2: replayOnly},
 	"work.session_claim_landed":        {2: replayOnly},
@@ -38,7 +43,6 @@ var payloadVersionClasses = map[string]map[int]payloadVersionClass{
 	WorkerDispatched:                   {2: replayOnly, 3: replayOnly, 4: replayOnly, 5: replayOnly, 6: replayOnly},
 	WorkerCompleted:                    {2: replayOnly, 3: replayOnly, 4: replayOnly, 5: replayOnly, 6: replayOnly, 7: replayOnly, 8: replayOnly},
 	WorkerFailed:                       {2: replayOnly, 3: replayOnly, 4: replayOnly},
-	WorkerJobSplit:                     {2: replayOnly},
 	WorkflowContractApproved:           {2: replayOnly, 3: replayOnly, 4: replayOnly, 5: replayOnly, 6: replayOnly},
 	WorkflowNativeRunRecorded:          {2: replayOnly},
 	WorkflowContractSuperseded:         {2: replayOnly, 3: replayOnly, 4: replayOnly, 5: replayOnly},
@@ -47,7 +51,6 @@ var payloadVersionClasses = map[string]map[int]payloadVersionClass{
 	WorkflowSuccessorLinked:            {2: replayOnly, 3: replayOnly},
 	WorkflowImpactNoticeRecorded:       {2: replayOnly},
 	WorkflowCompleted:                  {2: replayOnly},
-	WorkSized:                          {2: replayOnly},
 	WorkflowPremiseConfirmed:           {2: replayOnly},
 	// Both bumps admit an empty approval_ref for unsigned routine writes.
 	// The previous release reads the correction approval_ref outside the

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 
@@ -178,16 +177,6 @@ type ExternalRefConflict struct {
 	ExternalRef    string `json:"external_ref"`
 }
 
-// SizeOverrun names the worker job revision an acceptance refused because
-// its observed production size exceeds the recorded cap (CD-0225 D2).
-type SizeOverrun struct {
-	JobID    string `json:"job_id"`
-	Revision int64  `json:"revision"`
-	Cap      int64  `json:"cap"`
-	Observed int64  `json:"observed"`
-	Subject  string `json:"subject"`
-}
-
 type InterveningAction struct {
 	ActionID   string `json:"action_id"`
 	SessionRef string `json:"session_ref"`
@@ -220,7 +209,6 @@ type TypedError struct {
 	StaleLawRevision    *StaleLawRevision    `json:"stale_law_revision,omitempty"`
 	DomainOverlap       *DomainOverlap       `json:"domain_overlap,omitempty"`
 	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`
-	SizeOverrun         *SizeOverrun         `json:"size_overrun,omitempty"`
 	SessionPlacement    *SessionPlacement    `json:"session_placement,omitempty"`
 	// ConsequenceSummary is the CD-0037 typed approval prompt. It is derived
 	// at challenge mint from the exact facts the challenge binds, so nothing
@@ -825,12 +813,6 @@ func validateError(err TypedError) error {
 	if err.ExternalRefConflict != nil {
 		if err.Kind != "operation_conflict" || !bounded(err.ExternalRefConflict.ExistingWorkID, 1, 128) || !bounded(err.ExternalRefConflict.ExternalRef, 1, 256) {
 			return errors.New("external reference conflict coupling violated")
-		}
-	}
-	if overrun := err.SizeOverrun; overrun != nil {
-		if err.Kind != "invalid_input" || err.RecoveryAction.Kind != "use_declared_route" || !slices.Contains(err.RecoveryAction.RequiredRefs, "record_worker_job") ||
-			!bounded(overrun.JobID, 1, 128) || overrun.Revision < 1 || overrun.Cap < 1 || overrun.Cap > store.WorkerJobSizeCapMax || overrun.Observed <= overrun.Cap || !commitOIDRE.MatchString(overrun.Subject) {
-			return errors.New("size overrun coupling violated")
 		}
 	}
 	if want, coupled := enforcedRecoveryCouplings[err.Kind]; coupled && err.RecoveryAction.Kind != want {

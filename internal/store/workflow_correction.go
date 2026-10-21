@@ -550,7 +550,6 @@ func workflowCorrectionWalkCore(ctx context.Context, q queryer, workID string, p
 		nonSettling:     make(map[string]bool),
 		reviewVerdict:   make(map[string]string),
 		checksRepairs:   make(map[string]*workflowChecksRepairState),
-		splits:          make(map[string]WorkerJobSplitPayload),
 		progress:        newWorkflowProgressHistory(),
 	}
 	for _, row := range events {
@@ -591,11 +590,8 @@ type workflowCorrectionHistory struct {
 	// its admission marker names, and the confirm or void that ended it.
 	reviewVerdict map[string]string
 	checksRepairs map[string]*workflowChecksRepairState
-	// splits retains each walked split's payload beside its event id, so a
-	// recorded discharge joins the exact split record it closes.
-	splits      map[string]WorkerJobSplitPayload
-	records     []workflowCorrectionRecordState
-	completions []workflowCorrectionDispatchCompletion
+	records       []workflowCorrectionRecordState
+	completions   []workflowCorrectionDispatchCompletion
 }
 
 // workflowChecksRepairState is one recorded checks repair's state at the
@@ -705,34 +701,6 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 					contractVersion: recorded.ContractVersion,
 				}
 			}
-		}
-	case string(WorkerJobSplit):
-		var split WorkerJobSplitPayload
-		if err := json.Unmarshal([]byte(row.payload), &split); err != nil {
-			return newFailure(KindInvariantViolation, subject, "worker job split payload is malformed", false, "rebuild workflow projections from the event log")
-		}
-		h.unresolved[workerJobKey(split.Predecessor.JobID, split.Predecessor.Revision)] = true
-		h.splits[row.eventID] = split
-	case string(WorkerJobSplitDischarged):
-		// The recorded integration discharge closes the exact split's
-		// predecessor debt (CD-0225 D3): the join is the split id beside the
-		// full predecessor binding that split recorded, only that
-		// predecessor's debt clears, and the window boundary opens at the
-		// discharge sequence only when no other obligation remains.
-		var discharge workerJobSplitDischargePayload
-		if err := json.Unmarshal([]byte(row.payload), &discharge); err != nil {
-			return newFailure(KindInvariantViolation, subject, "worker job split discharge payload is malformed", false, "rebuild workflow projections from the event log")
-		}
-		split, recorded := h.splits[discharge.SplitID]
-		if !recorded {
-			return newFailure(KindInvariantViolation, subject, "worker job split discharge names split "+discharge.SplitID+", which the walked prefix holds no record of", false, "rebuild the worker-job events from the authoritative log")
-		}
-		if split.Predecessor != discharge.Predecessor {
-			return newFailure(KindInvariantViolation, subject, "worker job split discharge names predecessor job "+discharge.Predecessor.JobID+", which the discharged split did not record", false, "rebuild the worker-job events from the authoritative log")
-		}
-		delete(h.unresolved, workerJobKey(discharge.Predecessor.JobID, discharge.Predecessor.Revision))
-		if len(h.unresolved) == 0 {
-			h.boundary = row.seq
 		}
 	}
 	if row.kind != string(WorkflowActionCompleted) {

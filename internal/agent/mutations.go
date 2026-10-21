@@ -46,11 +46,8 @@ type captureMutationInput struct {
 	// carries (CD-0035 D3/D4). It confers no authority: the core refuses when it
 	// fails to cover the requirements the target scope declares, and the caller
 	// cannot assert satisfaction or mark a requirement inapplicable.
-	GoverningRequirements []string `json:"governing_requirements"`
-	// SizeInputs is what the change will touch, for the work-size model
-	// (CD-0229 D4). It carries no size: the model decides it.
-	SizeInputs *store.WorkSizeCaptureInput `json:"size_inputs"`
-	Approval   *approvalInput              `json:"approval"`
+	GoverningRequirements []string       `json:"governing_requirements"`
+	Approval              *approvalInput `json:"approval"`
 }
 type reviseMutationInput struct {
 	WorkID          string         `json:"work_id"`
@@ -67,11 +64,6 @@ type reviseMutationInput struct {
 	IdempotencyKey  string         `json:"idempotency_key"`
 	Evidence        []EvidenceRef  `json:"evidence"`
 	Approval        *approvalInput `json:"approval"`
-	// OperatorSize is the operator's size for the work item; it needs a
-	// consumed operator approval, and Reason is the override's reason.
-	OperatorSize *store.WorkSize `json:"operator_size"`
-	// SizeInputs reruns the size model on fresh declared inputs.
-	SizeInputs *store.WorkSizeCaptureInput `json:"size_inputs"`
 }
 type lifecycleMutationInput struct {
 	WorkID          string         `json:"work_id"`
@@ -1731,18 +1723,6 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 	if err := r.Store.ValidateCaptureGoverningRequirements(ctx, productIDs, applicable, in.GoverningRequirements); err != nil {
 		return failureEnvelope(base, err), nil, true
 	}
-	// The size reads one Product's knowledge home, so a sized capture names
-	// Projects of exactly one Product.
-	var sizePlan *store.WorkSizePlan
-	if in.SizeInputs != nil {
-		if len(productIDs) != 1 {
-			return coreError(base, "ambiguous_scope", "size_inputs needs the capture's Projects to belong to exactly one Product", "resolve_ambiguity", false), nil, true
-		}
-		var sizeErr error
-		if sizePlan, sizeErr = r.Store.PlanWorkSize(ctx, productIDs[0], *in.SizeInputs); sizeErr != nil {
-			return failureEnvelope(base, sizeErr), nil, true
-		}
-	}
 	for _, products := range productsByProject {
 		for _, product := range products {
 			if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
@@ -1793,14 +1773,6 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 			return nil, nil, nil, err
 		}
 		eventIDs := result.EventIDs
-		if sizePlan != nil {
-			sized, err := store.RecordWorkSizeTx(ctx, tx, sizePlan, workID, digest+":sized", grant.PrincipalRef, now)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			eventIDs = append(eventIDs, sized...)
-		}
-		// work.sized does not change the work item's version.
 		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: "4"}}
 		return mutationPayload(changed, nil), eventIDs, changed, nil
 	}
@@ -1829,25 +1801,6 @@ func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte
 		registeredDefinition, definitionErr = store.LiveWorkflowDefinitionForRef(in.WorkflowTypeRef)
 		if definitionErr != nil {
 			return failureEnvelope(base, definitionErr), nil, true
-		}
-	}
-	if in.OperatorSize != nil && in.SizeInputs != nil {
-		return coreError(base, "invalid_input", "operator_size and size_inputs are separate size revisions", "reread_entities", false), nil, true
-	}
-	if in.OperatorSize != nil {
-		plan.requiresApproval = true
-	}
-	var sizePlan *store.WorkSizePlan
-	if in.SizeInputs != nil {
-		productID, sizeErr := r.workProductForSize(ctx, in.WorkID)
-		if sizeErr != nil {
-			return failureEnvelope(base, sizeErr), nil, true
-		}
-		if productID == "" {
-			return coreError(base, "ambiguous_scope", "size_inputs needs the work item's Projects to belong to exactly one Product", "resolve_ambiguity", false), nil, true
-		}
-		if sizePlan, sizeErr = r.Store.PlanWorkSize(ctx, productID, *in.SizeInputs); sizeErr != nil {
-			return failureEnvelope(base, sizeErr), nil, true
 		}
 	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
@@ -1890,63 +1843,10 @@ func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte
 			changedVersion++
 		}
 		eventIDs := result.EventIDs
-		var revision store.WorkSizeRevisionResult
-		switch {
-		case in.SizeInputs != nil:
-			revision, err = store.RerunWorkSizeTx(ctx, tx, store.WorkSizeRerunRequest{Plan: sizePlan, WorkID: in.WorkID, EventID: digest + ":sized", Actor: actor, Now: r.Authority.now()})
-		case in.OperatorSize != nil:
-			consumedApprovalRef, _ := plan.scope["approval_ref"].(string)
-			approvalScopeJSON, _ := json.Marshal(boundedApprovalScope(plan.scope))
-			approvalVersionsJSON, _ := json.Marshal(plan.versions)
-			revision, err = store.OverrideWorkSizeTx(ctx, tx, store.WorkSizeOverrideRequest{
-				WorkID: in.WorkID, ExpectedVersion: changedVersion, Size: *in.OperatorSize, Reason: in.Reason,
-				EventID: digest + ":size-override", OccurredAt: r.Authority.now(),
-				ApprovalRef: consumedApprovalRef, ApprovalOperationDigest: digest,
-				ApprovalScopeJSON: string(approvalScopeJSON), ApprovalVersionsJSON: string(approvalVersionsJSON),
-				ApprovalConsequence: plan.consequence,
-			})
-		}
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		eventIDs = append(eventIDs, revision.EventIDs...)
-		if revision.WorkVersion != 0 {
-			changedVersion = revision.WorkVersion
-		}
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
-		if revision.SuccessorWorkID != "" {
-			changed = append(changed, ChangedRef{EntityKind: "work_item", ID: revision.SuccessorWorkID, Version: strconv.FormatInt(revision.SuccessorVersion, 10)})
-		}
 		return mutationPayload(changed, plan.intents), eventIDs, changed, nil
 	}
 	return Envelope{}, nil, false
-}
-
-// workProductForSize names the one Product whose knowledge home sizes the
-// work item, or nothing when its Projects span more or fewer Products.
-func (r runtime) workProductForSize(ctx context.Context, workID string) (string, error) {
-	memberships, err := r.Store.ProjectsForWork(ctx, workID)
-	if err != nil {
-		return "", err
-	}
-	projectIDs := make([]string, 0, len(memberships))
-	for _, membership := range memberships {
-		projectIDs = append(projectIDs, membership.ID)
-	}
-	productsByProject, err := r.Store.ProductsForProjectIDs(ctx, projectIDs)
-	if err != nil {
-		return "", err
-	}
-	product := ""
-	for _, ids := range productsByProject {
-		for _, id := range ids {
-			if product != "" && product != id {
-				return "", nil
-			}
-			product = id
-		}
-	}
-	return product, nil
 }
 
 // planWorkerAbandon records the adapter's durable idempotency receipt after the

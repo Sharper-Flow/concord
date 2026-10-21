@@ -140,14 +140,9 @@ func RefineProofManifestRequired(ctx context.Context, s *Store, workID, actionID
 	case "accept_worker_result":
 		return workflowAcceptDeliveryAdmissionActive(entry.Definition, currentStep), nil
 	case "bind_evidence":
-		if !workflowJobSizeActive(entry.Definition) {
-			return false, nil
-		}
-		var splits int
-		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=?`, string(SubjectWorkItem), workID, WorkerJobSplit).Scan(&splits); err != nil {
-			return false, wrapFailure(KindUnavailable, "project_tooling", "cannot read the work's recorded job splits", true, "retry once the event log is readable", err)
-		}
-		return splits > 0, nil
+		// The split-integration proof obligation is retired with the split
+		// system (CD-0242 D6); bind_evidence carries no derived obligation.
+		return false, nil
 	default:
 		return false, nil
 	}

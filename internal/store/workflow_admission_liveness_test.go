@@ -365,7 +365,6 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		CompleteStepCorrection:      admissionCompleteStepCorrection(definition, state),
 		ContractCorrectionAvailable: admissionContractCorrection(definition, state),
 		Delivery:                    delivery,
-		SizeRerunRequired:           state.sizeStop,
 	}
 	// The classification dimension folds the confirmation authority beside
 	// the question: an engineering contract records the coordinator's own

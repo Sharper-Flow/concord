@@ -564,11 +564,6 @@ func recordOracleJobRevision(t *testing.T, s *Store, workID string, actor Workfl
 		"ready":                true, "readiness_evidence": []string{"evidence:coordinator-ready"},
 		"acceptance_oracle": &graph,
 	}
-	if sizeCapablePinForWork(t, s, workID) {
-		for member, value := range workerJobSizeMembersForTest(t, s, workID, fields) {
-			fields[member] = value
-		}
-	}
 	if err := recordWorkerJobActionForTest(t, s, workID, actor, fields); err != nil {
 		t.Fatalf("record oracle job %s: %v", jobID, err)
 	}

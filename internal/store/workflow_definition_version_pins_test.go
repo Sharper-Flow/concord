@@ -281,8 +281,8 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	// The size-capable heads derive their digests in the merge test window;
 	// the zero digests fail loudly until the draft test below supplies the
 	// computed values.
-	{"workflow.implementation", "36"}:     "sha256:34cb51a2e26e208d613627e88c97d7ab5afded7671ace79961df440b93fea895",
-	{"workflow.break_fix", "33"}:          "sha256:1cd9d8a70f67d3622ab37204a5821b8ab8c1ed72ee94a3770948683f8173984a",
+	{"workflow.implementation", "36"}:     "sha256:e66b745c5901ae113903db6b787955dbe793a5e33951158167de4ee45648600f",
+	{"workflow.break_fix", "33"}:          "sha256:deddc83dbb3ee857452e4258cb4361903a0ccebee1d7da9206a308eb873cf0ee",
 	{"workflow.architecture_spike", "17"}: "sha256:3e9d434cba63d47aadea18399c3f950b89e93a5cc69317b8685fbbee2d245e55",
 	{"workflow.ops_runbook", "18"}:        "sha256:354390116b3faf7a73524ca4bfbbfe962650f8ed8eaf73a68845d812daade63a",
 	{"workflow.static_analysis", "15"}:    "sha256:5a561e9d53d26fc0ddec0f84aa72ca5cd2a0018e92dfa5dd0732efd0a8b32ade",
@@ -290,8 +290,8 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	// The obligation-satisfaction heads derive their digests in the merge
 	// test window; the zero digests fail loudly until the draft test above
 	// supplies the computed values.
-	{"workflow.implementation", "37"}: "sha256:27379015255636ef43ef65cc81ccd279ea86975bc8c1fb80795e90c1368e1e4c",
-	{"workflow.break_fix", "34"}:      "sha256:d8e81a6fd7df6c55df2fda70e6671ac9d93f68cbbd94f8fc417dd8ddca77a550",
+	{"workflow.implementation", "37"}: "sha256:b26c3754ef2fb2fa56545aed3329be44a64f3cddd65f2e876782b3ce3aa0da3e",
+	{"workflow.break_fix", "34"}:      "sha256:e63a8d834be0b29a4b85512364d62c63f599a6c407d328d54febb487eeafd207",
 	{"workflow.research", "22"}:       "sha256:4108141b47f055806cd0f2f3e3e0cfba5e3c44b22c2b90f53a47364a820abea5",
 }
 

@@ -142,19 +142,10 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The delivered edit is the dispatched job's own work: on a size-capable
-	// pin the job's measurement basis inventories one scope, so the edit
-	// lands inside it. A pre-size pin keeps the historical root edit.
+	// The delivered edit is the dispatched job's own work at the root: the
+	// retired measurement basis no longer moves the edit into an inventoried
+	// path (CD-0242 D6).
 	editPath := "implementation.txt"
-	if job != nil {
-		content, contentErr := readWorkerJobSizeContentTx(ctx, s.DatabaseForTesting(), workID)
-		if contentErr != nil {
-			t.Fatal(contentErr)
-		}
-		if sizeEntry, recorded := content[*job]; recorded && sizeEntry.basis != nil && len(sizeEntry.basis.Paths) > 0 {
-			editPath = filepath.Join(sizeEntry.basis.Paths[0].Path, "implementation.txt")
-		}
-	}
 	if directory := filepath.Dir(editPath); directory != "." {
 		if err := os.MkdirAll(filepath.Join(entry.Path, directory), 0o755); err != nil {
 			t.Fatal(err)

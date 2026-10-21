@@ -415,17 +415,11 @@ type workflowActionCompletedPayload struct {
 	// exclusions the worker was given from here. Absent when the set was
 	// empty.
 	WorkerCallerExclusions []string `json:"worker_caller_exclusions,omitempty"`
-	// SupplementalClassifications is the measurement classification an
-	// acceptance recorded for observed paths outside the job's inventory
-	// (CD-0225 D1). It is measurement content bound to the accepted job
-	// revision, attempt, base, and delivered tree; it never changes the job
-	// digest, path authority, cap, or an inventory classification.
+	// SupplementalClassifications and WorkerProductionSize decode the
+	// measurement content a v6+ acceptance may carry; the measurement is
+	// retired (CD-0242 D6) and no live acceptance records either member.
 	SupplementalClassifications []WorkerJobMeasuredPath `json:"supplemental_classifications,omitempty"`
-	// WorkerProductionSize records the accepted count after the coordinator's
-	// supplemental classifications, bound to the same base and delivered tree
-	// as the report. The worker's immutable report keeps its inventory/default
-	// count; only acceptance supplies the final classification review.
-	WorkerProductionSize *WorkerProductionSize `json:"worker_production_size,omitempty"`
+	WorkerProductionSize        *WorkerProductionSize   `json:"worker_production_size,omitempty"`
 	// VerdictEntryCount carries the number of entries one batched
 	// record_verdict operation judged, so the fold bounds the operation's
 	// result evidence at the schema-bounded batch union instead of the
@@ -2402,22 +2396,6 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 			}
 		}
 	}
-	if p.SupplementalClassifications != nil {
-		if p.ActionID != "accept_worker_result" || p.WorkerJob == nil || len(p.SupplementalClassifications) < 1 || len(p.SupplementalClassifications) > WorkerJobMeasuredPathsMax {
-			return newFailure(KindInvalidPayload, "fold_event", fmt.Sprintf("action_completed supplemental_classifications is reserved for a job-bound accept_worker_result and carries 1 to %d paths", WorkerJobMeasuredPathsMax), false, "record the classifications the acceptance admitted")
-		}
-		if err := validateWorkerJobMeasuredPaths("action_completed supplemental_classifications", p.SupplementalClassifications, workerJobSizeFoldFailure); err != nil {
-			return err
-		}
-	}
-	if p.WorkerProductionSize != nil {
-		if p.ActionID != "accept_worker_result" || p.WorkerJob == nil {
-			return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_production_size is reserved for a job-bound accept_worker_result", false, "record the final production size derived by acceptance")
-		}
-		if err := validateWorkerProductionSize(p.WorkerProductionSize); err != nil {
-			return err
-		}
-	}
 	// The lane identity is the dispatch_worker completion's in-flight
 	// binding input, so it is reserved for that action and must arrive all
 	// together: a partial identity would bind an attempt the fold cannot
@@ -2626,9 +2604,6 @@ func foldWorkflowWorkerAttemptCompletionTx(ctx context.Context, tx *sql.Tx, even
 		if p.WorkerAttemptID == "" {
 			return nil
 		}
-		if err := validateSplitReplacementCompletionTx(ctx, tx, event, p); err != nil {
-			return err
-		}
 	case "record_worker_failure":
 		lifecycle = "failed"
 	default:
@@ -2676,11 +2651,14 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	if p.WorkerJob != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowActionCompletedWorkerJobVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_job is reserved for payload version >= 4", false, "record the worker-job disposition on the current completion payload")
 	}
-	if (p.WorkerCallerExclusions != nil || p.SupplementalClassifications != nil || p.WorkerProductionSize != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowActionCompletedJobSizeVersion {
-		return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_caller_exclusions, supplemental_classifications, and worker_production_size are reserved for payload version >= 6", false, "record the job-size members on the current completion payload")
-	}
 	if p.ActionID == "record_worker_job" && p.WorkerAttemptID != "" && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < 7 {
 		return invalidWorkerPayload("record_worker_job worker_attempt_id requires action_completed payload version >= 7")
+	}
+	// SupplementalClassifications and WorkerProductionSize are retired
+	// measurement members (CD-0242 D6). A stored v6+ acceptance replays
+	// unchanged; every live acceptance records neither member.
+	if (p.SupplementalClassifications != nil || p.WorkerProductionSize != nil) && (event.replaySourcePayloadVersion == 0 || event.replaySourcePayloadVersion < workflowActionCompletedJobSizeVersion) {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed supplemental_classifications and worker_production_size are retired by CD-0242 D6: no production-line cap, size measurement, or mandatory split applies", false, "accept without measurement content")
 	}
 	// the attribution reference is the derived record's alone, and
 	// the source-version marker rules apply to both attribution members.
@@ -3431,11 +3409,6 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if payload.WorkerAttemptID == "" {
 		return newFailure(KindInvalidPayload, "fold_event", payload.ActionID+" requires worker_attempt_id", false, "supply the exact worker attempt identity")
 	}
-	if payload.ActionID != "record_worker_job" {
-		if err := refuseSplitReplacedWorkerAttemptTx(ctx, tx, event.SubjectID, payload.WorkerAttemptID, event.Seq); err != nil {
-			return err
-		}
-	}
 	var attemptWorkID, lifecycle, readback, capability string
 	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,readback_model,capability_class FROM worker_attempts WHERE attempt_id=?`, payload.WorkerAttemptID).Scan(&attemptWorkID, &lifecycle, &readback, &capability); err != nil {
 		if err == sql.ErrNoRows {
@@ -3869,11 +3842,9 @@ func foldWorkflowSuccessorLinked(ctx context.Context, tx *sql.Tx, event Event) e
 		return err
 	}
 	if p.Resize {
-		var lineage bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_resize_lineage WHERE predecessor_work_id=? AND successor_work_id=?)`, event.SubjectID, p.SuccessorWorkID).Scan(&lineage); err != nil {
-			return workflowProjectionError(err, "cannot read the resize lineage")
-		}
-		if !lineage || successorFamily != source.Definition.WorkKind {
+		// A stored resize link stays same-family; the retired lineage table
+		// holds no rows to join (CD-0242 D6).
+		if successorFamily != source.Definition.WorkKind {
 			return newFailure(KindInvalidRelation, "fold_event", "a resize link joins a resized item to its own same-family successor", false, "link a resize successor through the resize")
 		}
 	} else if !slices.Contains(source.Definition.CompositionRules.AllowedSuccessorWorkKinds, successorFamily) {

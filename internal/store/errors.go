@@ -266,9 +266,6 @@ type Failure struct {
 	// ExternalRefConflict identifies the live work item that owns a colliding
 	// external reference.
 	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`
-	// SizeOverrun carries the typed details of an acceptance a worker job's
-	// observed production size refused (CD-0225 D2).
-	SizeOverrun *SizeOverrun `json:"size_overrun,omitempty"`
 	// Clause identifies the ordered workflow completion clause that refused the
 	// operation. Zero means the failure did not originate in that gate.
 	Clause int `json:"clause,omitempty"`
@@ -301,17 +298,6 @@ type SubjectCurrentVersion struct {
 	SubjectType SubjectType `json:"subject_type"`
 	SubjectID   string      `json:"subject_id"`
 	Version     int64       `json:"version"`
-}
-
-// SizeOverrun names the job revision whose observed production size exceeds
-// its recorded cap, the cap, the observed count, and the delivered subject
-// commit the count was observed at. The recovery is the recorded split.
-type SizeOverrun struct {
-	JobID    string `json:"job_id"`
-	Revision int64  `json:"revision"`
-	Cap      int64  `json:"cap"`
-	Observed int64  `json:"observed"`
-	Subject  string `json:"subject"`
 }
 
 // ExternalRefConflict identifies the live work item that already owns an

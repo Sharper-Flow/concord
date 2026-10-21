@@ -181,36 +181,15 @@ func workflowActionCatalogV1() workflowActionCatalog {
 	}}
 }
 
-// workerJobSizeActionFields declares the three optional size members the v3
-// catalog appends to record_worker_job (CD-0225 D1, CD-0227 D1): the
-// production-size cap, the measurement basis that binds it, and the
-// conditional direct-caller allowance. Whether one job carries all three or
-// none is the authoring rule the store guard enforces; the declared action
-// contract admits both shapes.
-func workerJobSizeActionFields() []WorkflowPayloadField {
+// workerJobCallerScopeActionFields declares the optional direct-caller
+// allowance the v3 catalog appends to record_worker_job (CD-0227 D1 as
+// amended by CD-0242 D6). Whether one job carries it or not is the
+// authoring rule the store guard enforces; the declared action contract
+// admits both shapes.
+func workerJobCallerScopeActionFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
-		actionIntegerField("production_size_max", false, 2147483647),
-		actionObjectField("measurement_basis", false, "worker_job_measurement_basis"),
 		actionObjectField("direct_caller_allowance", false, "worker_job_direct_caller_allowance"),
 	}
-}
-
-// workerJobSplitRevision adds record_worker_job's closed split variant
-// (CD-0225 D3). The ordinary group's members stop being individually
-// required: the engine's alternative groups require either the whole
-// ordinary group or the split alone. The acceptance oracle stays required
-// beside the ordinary group; the split group forbids it, which exempts it.
-func workerJobSplitRevision(action WorkflowActionDefinition) WorkflowActionDefinition {
-	fields := make([]WorkflowPayloadField, 0, len(action.Payload.Fields)+1)
-	for _, field := range action.Payload.Fields {
-		if slices.Contains(workerJobOrdinaryGroup, field.Name) {
-			field.Required = false
-		}
-		fields = append(fields, field)
-	}
-	fields = append(fields, actionObjectField("split", false, "worker_job_split2"))
-	action.Payload.Fields = fields
-	return action
 }
 
 // workflowActionCatalogV2 restates record_worker_job with the checks repair's
@@ -232,30 +211,24 @@ func workflowActionCatalogV2() workflowActionCatalog {
 	return workflowActionCatalog{Version: 2, revisions: revisions}
 }
 
-// workflowActionCatalogV3 composes the size-capable delta over the v2
-// checks-repair catalog (CD-0225 D1, CD-0227 D1, CD-0225 D3): the three
-// optional size members appended beside record_worker_job's repair authoring
-// members, the closed split variant, dispatch_worker re-anchored at the
-// worker_packet5 closure that projects the size-bearing worker_job beside
-// its repair metadata and the caller exclusions, and the acceptance's
-// optional supplemental classifications. Every other action's contract is
-// v2's.
+// workflowActionCatalogV3 composes the caller-scope delta over the v2
+// checks-repair catalog (CD-0227 D1 as amended by CD-0242 D6): the optional
+// direct-caller allowance appended beside record_worker_job's repair
+// authoring members, and dispatch_worker re-anchored at the worker_packet5
+// closure that projects the worker_job beside its repair metadata and the
+// dispatch-time caller exclusions. Every other action's contract is v2's.
 func workflowActionCatalogV3() workflowActionCatalog {
 	v2 := workflowActionCatalogV2()
 	revisions := make(map[string][]workflowActionRevision, len(v2.revisions))
 	for actionID, actionRevisions := range v2.revisions {
 		revisions[actionID] = actionRevisions
 	}
-	revisions["record_worker_job"] = append(slices.Clone(revisions["record_worker_job"]), withAppendedPayloadFields(workerJobSizeActionFields), workerJobSplitRevision)
+	revisions["record_worker_job"] = append(slices.Clone(revisions["record_worker_job"]), withAppendedPayloadFields(workerJobCallerScopeActionFields))
 	revisions["dispatch_worker"] = append(slices.Clone(revisions["dispatch_worker"]), withWorkerPacketRef(workerPacket5Schema))
-	revisions["accept_worker_result"] = append(slices.Clone(revisions["accept_worker_result"]), withAppendedPayloadFields(func() []WorkflowPayloadField {
-		return []WorkflowPayloadField{actionItemArrayField("supplemental_classifications", false, 1, WorkerJobMeasuredPathsMax, "worker_job_measured_path")}
-	}))
 	return workflowActionCatalog{Version: 3, revisions: revisions}
 }
 
-// workerPacket5Schema is the size-capable packet closure the v3 catalog's
-// dispatch_worker anchors: the checks-repair packet4's shape with the
-// size-bearing worker_job beside its repair metadata and the dispatch-time
-// caller exclusions.
+// workerPacket5Schema is the packet closure the v3 catalog's dispatch_worker
+// anchors: the checks-repair packet4's shape with the worker_job beside its
+// repair metadata and the dispatch-time caller exclusions.
 const workerPacket5Schema = "worker_packet5"

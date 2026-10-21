@@ -567,8 +567,8 @@ func validateWorkerProductionSize(size *WorkerProductionSize) error {
 	if !worktreeSHAPattern.MatchString(size.Base) || !worktreeSHAPattern.MatchString(size.Tree) {
 		return invalidWorkerPayload("worker.completed production_size base and tree must each be one raw commit OID")
 	}
-	if size.Count < 0 || size.Count > WorkerJobSizeCapMax {
-		return invalidWorkerPayload("worker.completed production_size count must be between 0 and " + fmt.Sprint(WorkerJobSizeCapMax))
+	if size.Count < 0 || size.Count > retiredWorkerCompletedProductionCountMax {
+		return invalidWorkerPayload("worker.completed production_size count must be between 0 and " + fmt.Sprint(retiredWorkerCompletedProductionCountMax))
 	}
 	return nil
 }
@@ -1901,15 +1901,11 @@ func validateWorkerCompletedLaneEvidence(ctx context.Context, tx *sql.Tx, event 
 		if err != nil {
 			return err
 		}
-		// The report's size members bind the dispatched job's recorded
-		// measurement (CD-0225 D2, CD-0227 D2). The live fold holds every
-		// completion to it: a capped implementation job's report carries
-		// production_size bound to the job's base and the observed tree —
-		// a missing member is malformed output — and every other report
-		// carries neither member. Replay trusts the recorded log: the live
-		// fold already held it when it landed.
+		// The retired production_size member records nothing new
+		// (CD-0242 D6). Replay trusts the recorded log: a stored completion
+		// at or above the size boundary keeps the member it carried.
 		if live {
-			if err := bindWorkerCompletedReportSizeTx(ctx, tx, attempt, dispatchedJob, lane, event.replaySourcePayloadVersion, payload); err != nil {
+			if err := refuseWorkerCompletedProductionSize(event.replaySourcePayloadVersion, payload); err != nil {
 				return err
 			}
 		}
@@ -1977,39 +1973,18 @@ func verifyWorkerCompletedPredicateTies(ctx context.Context, tx *sql.Tx, workID 
 	return nil
 }
 
-// bindWorkerCompletedReportSizeTx is the live fold's size binding (CD-0225
-// D2, CD-0227 D2): a completed implementation attempt whose dispatched job
-// records a measurement basis must report production_size with that
-// recorded base — a missing member is malformed output — and with the
-// observed delivered tree whenever the core sealed an observation. A
-// payload version below the size boundary cannot carry the member, so it
-// owes none. Every other completion carries neither size member. A capped
-// completion without a sealed observation has no measured delta, which
-// acceptance refuses as unavailable evidence.
-func bindWorkerCompletedReportSizeTx(ctx context.Context, tx *sql.Tx, attempt workerTerminalAttempt, dispatchedJob *WorkerJobBinding, lane LaneDefinition, sourceVersion int, payload WorkerCompletedPayload) error {
-	basisBase, err := workerJobBasisBase(ctx, tx, attempt.WorkID, dispatchedJob)
-	if err != nil {
-		return err
-	}
-	if basisBase != "" && lane.CapabilityClass == "implementation" {
-		if sourceVersion != 0 && sourceVersion < workerCompletedJobSizeVersion {
-			return nil
-		}
-		if payload.ProductionSize == nil {
-			return invalidWorkerPayload("worker.completed production_size is required for a completed report of a capped implementation job: missing production_size is malformed output")
-		}
-		if payload.ProductionSize.Base != basisBase {
-			return invalidWorkerPayload("worker.completed production_size base " + payload.ProductionSize.Base + " does not equal the dispatched job's recorded base_commit " + basisBase)
-		}
-		if payload.ObservedDelivery != nil && payload.ProductionSize.Tree != payload.ObservedDelivery.Commit {
-			return invalidWorkerPayload("worker.completed production_size tree must equal the observed delivery commit")
-		}
+// refuseWorkerCompletedProductionSize is the live fold's size refusal
+// (CD-0242 D6): production_size is retired measurement, so a live completion
+// records none; a stored completion at or above the size boundary replays
+// unchanged.
+func refuseWorkerCompletedProductionSize(sourceVersion int, payload WorkerCompletedPayload) error {
+	if payload.ProductionSize == nil {
 		return nil
 	}
-	if payload.ProductionSize != nil || payload.DirectCallerRepairs != nil {
-		return invalidWorkerPayload("worker.completed production_size and direct_caller_repairs are reserved for a capped implementation job's report; an uncapped job or another lane carries neither member")
+	if sourceVersion != 0 && sourceVersion >= workerCompletedJobSizeVersion {
+		return nil
 	}
-	return nil
+	return invalidWorkerPayload("worker.completed production_size is retired by CD-0242 D6: no production-line cap, size measurement, or mandatory split applies")
 }
 
 func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {

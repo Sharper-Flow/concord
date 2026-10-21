@@ -214,25 +214,19 @@ func agentPinRecordsJobField(t *testing.T, s *store.Store, workID, name string) 
 	return false
 }
 
-// addAgentJobSizeMembers authors the CD-0225 size members an editing job
-// carries on a size-capable pin: a per-job path scope and inventory, so
-// coexisting jobs never share measured paths, the measurement base at the
-// work's qualified subject, and an allowance inside the oracle owner's
-// Project and Domain. The oracle fields must already be present.
+// addAgentJobSizeMembers authors the direct-caller allowance (CD-0227 D1 as
+// amended by CD-0242 D6) an editing job carries on a caller-capable pin: a
+// per-job path scope and an allowance inside the oracle owner's Project and
+// Domain. The oracle fields must already be present.
 func addAgentJobSizeMembers(t *testing.T, s *store.Store, workID string, fields map[string]any) {
 	t.Helper()
-	if !agentPinRecordsJobField(t, s, workID, "production_size_max") {
+	if !agentPinRecordsJobField(t, s, workID, "direct_caller_allowance") {
 		return
 	}
 	owner := fields["acceptance_oracle"].(map[string]any)["owners"].([]any)[0].(map[string]any)
 	project := owner["mechanism"].(map[string]any)["project_id"]
 	inventory := "generated/" + strings.NewReplacer(":", "-", " ", "-").Replace(fmt.Sprint(fields["job_id"]))
 	fields["path_scope"] = []string{inventory}
-	fields["production_size_max"] = 400
-	fields["measurement_basis"] = map[string]any{
-		"base_commit": fixtureOracleSubjectFor(t, s, workID),
-		"paths":       []map[string]any{{"path": inventory, "class": "production"}},
-	}
 	fields["direct_caller_allowance"] = map[string]any{
 		"project_id":   project,
 		"mechanisms":   []map[string]any{{"project_id": project, "path": inventory, "entry_point": "recorded job"}},
@@ -438,30 +432,11 @@ func deliverAgentFixtureChange(t *testing.T, s *store.Store, workID, attemptID s
 	}
 }
 
-// Size-capable fixtures record one production path. Deliver there rather than
-// changing an unscoped path and claiming an unevidenced caller repair.
+// The delivery fixture delivers at the root: the retired measurement basis no
+// longer moves an edit into an inventoried path (CD-0242 D6).
 func recordedJobDeliveryPath(t *testing.T, s *store.Store, workID, attemptID string) string {
 	t.Helper()
-	binding := authorizedWorkerJobFor(t, s, workID, attemptID)
-	if binding == nil {
-		return "delivery.txt"
-	}
-	var raw []byte
-	err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=?`, workID, store.WorkerJobRecorded, binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
-	if err != nil {
-		t.Fatalf("read the authorized worker job %+v: %v", binding, err)
-	}
-	var job store.WorkerJobRecordedPayload
-	if err := json.Unmarshal(raw, &job); err != nil {
-		t.Fatal(err)
-	}
-	if job.MeasurementBasis == nil {
-		return "delivery.txt"
-	}
-	if len(job.MeasurementBasis.Paths) != 1 || job.MeasurementBasis.Paths[0].Class != "production" {
-		t.Fatalf("delivery fixture requires one recorded production path: %+v", job.MeasurementBasis.Paths)
-	}
-	return job.MeasurementBasis.Paths[0].Path
+	return "delivery.txt"
 }
 
 // seedOraclePreparationReceiptForWork records the exact native preparation

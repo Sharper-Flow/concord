@@ -147,11 +147,6 @@ func (j *candidateJourney) recordReadyJob(t *testing.T, jobID string, preparatio
 		"ready":                true, "readiness_evidence": []string{preparation.OperationRef},
 		"acceptance_oracle": json.RawMessage(oracle),
 	}
-	if sizeCapablePinForWork(t, j.s, j.workID) {
-		for member, value := range workerJobSizeMembersForTest(t, j.s, j.workID, fields) {
-			fields[member] = value
-		}
-	}
 	if err := recordWorkerJobActionForTest(t, j.s, j.workID, j.fixture.owner, fields); err != nil {
 		t.Fatalf("record ready job %s: %v", jobID, err)
 	}

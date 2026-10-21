@@ -21,7 +21,6 @@ import { contractOperations } from "./generated-contracts"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
 import { dbRows, dbValue, fixturePublicKeyBase64, git, nativeTaskSelector, reportText, reportWorkerJob, requiredFields, routeDeclaration, runJSON, runProcess, type JSONRecord } from "./end-to-end.fixture"
-import { headCommit, jobSizeFields, reportedProductionSize } from "./job-size.fixture"
 
 const PRODUCT_ID = "product-e2e"
 const PROJECT_ID = "project-e2e"
@@ -371,7 +370,6 @@ async function driveWorkflowToContract(
     ready: true,
     readiness_evidence: ["evidence:route-e2e-ready"],
     acceptance_oracle: { owners: [owner], cases: [oracleCase], controls: [{ ...control, readiness_evidence_refs: [preparationRef] }] },
-    ...jobSizeFields(owner, jobPathScope[0], subjectCommit),
   })
   expect(response.outcome, JSON.stringify(response.error ?? null)).toBe("ok")
   const jobRead = (await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID, page: { cursor: null, limit: 1 } } }, context)).result as JSONRecord
@@ -389,7 +387,6 @@ function routeWorkerReport(lane: (typeof agentLanes)[number], packet: JSONRecord
     readback_model: READBACK_MODEL,
     status: "completed",
     ...((packet.inputs as JSONRecord).worker_job ? { worker_job: reportWorkerJob(packet) } : {}),
-    ...reportedProductionSize(packet, subjectCommit),
     ...(review ? { review } : {}),
     evidence: lane.evidence_obligations
       .filter((obligation: string) => !(review && obligation === "severity"))
@@ -577,7 +574,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
         const { readiness_evidence_refs: _, ...control } = oracle!.controls[0]
         const prepared = await verify(a, `${key}-producer-prepare`, { oracle: { phase: "prepare", expected_contract_version: 1, control_bundle: { owner: oracle!.owners[0], cases: oracle!.cases, control } } })
         oracle = { ...oracle!, controls: [{ ...control, readiness_evidence_refs: [prepared.oracle.run_ref] }] }
-        await action(a, "record_worker_job", `${key}-job`, { job_id: `${key}-producer`, predicate_ids: oracle!.owners[0].predicate_ids, objective: "Apply the corrected marker.", stopping_condition: "The corrected marker is committed.", path_scope: [".concord/docs/dispatch-marker.txt"], checks: ["git status --short"], ready: true, readiness_evidence: ["evidence:corrected-marker-ready"], acceptance_oracle: oracle!, ...jobSizeFields(oracle!.owners[0], ".concord/docs/dispatch-marker.txt", (await runProcess(["git", "rev-parse", "HEAD"], "", worktree)).stdout.trim()) })
+        await action(a, "record_worker_job", `${key}-job`, { job_id: `${key}-producer`, predicate_ids: oracle!.owners[0].predicate_ids, objective: "Apply the corrected marker.", stopping_condition: "The corrected marker is committed.", path_scope: [".concord/docs/dispatch-marker.txt"], checks: ["git status --short"], ready: true, readiness_evidence: ["evidence:corrected-marker-ready"], acceptance_oracle: oracle!,  })
       }
       const producer = await dispatch(a, "implement", `${key}-implement`)
       oracle = producer.packet.inputs.worker_job.acceptance_oracle
@@ -588,7 +585,6 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
       expect(subject).not.toBe(previousSubject)
       expect(await Bun.file(join(worktree, ".concord/docs/dispatch-marker.txt")).text()).toBe(`synthetic marker pass ${pass}\n`)
       const report = routeWorkerReport(lane, producer.packet, subject)
-      report.production_size.count = pass === 0 ? 1 : 2
       if (pass === 1) loseAcknowledgement = true
       const receipt = await completeRouteTask(producer, report, runner, binary)
       const retained = host.retain(producer, report)
@@ -1630,7 +1626,7 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
       // The synthetic original completed report claims exactly the binding
       // the authorized packet carries (CD-0205): the packet's schema version
       // and its dispatched worker-job revision, never invented job metadata.
-      const report = { schema_version: packet.schema_version, readback_model: READBACK_MODEL, status: "completed", worker_job: reportWorkerJob(packet), ...reportedProductionSize(packet, headCommit(worktree)), evidence: lane.evidence_obligations.map((obligation, index) => ({ obligation, detail: `original ${obligation}`, ...(index === 0 ? { predicate_ids: [WORKFLOW_PREDICATE.predicate_id] } : {}) })) }
+      const report = { schema_version: packet.schema_version, readback_model: READBACK_MODEL, status: "completed", worker_job: reportWorkerJob(packet), evidence: lane.evidence_obligations.map((obligation, index) => ({ obligation, detail: `original ${obligation}`, ...(index === 0 ? { predicate_ids: [WORKFLOW_PREDICATE.predicate_id] } : {}) })) }
       const output = { title: "task", output: taskResult(report), metadata: {} }
       await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION_ID, callID: "recovery-task-call", args: taskArgs }, output, { windows, credentials, runner, concordBinary: binary })
       const pending = JSON.parse(output.output.split("<concord_attempt>\n")[1].split("\n</concord_attempt>")[0])
@@ -1812,7 +1808,6 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
       readback_model: READBACK_MODEL,
       status: "completed",
       worker_job: reportWorkerJob(packet as JSONRecord),
-      ...reportedProductionSize(packet as JSONRecord, headCommit(worktree)),
       evidence: lane.evidence_obligations.map((obligation: string, index: number) => ({
         obligation,
         detail: `discharged ${obligation}`,
@@ -1894,7 +1889,6 @@ routeDeclaration("records an oversized worker session through the real CLI and s
       readback_model: READBACK_MODEL,
       status: "completed",
       worker_job: reportWorkerJob(packet as JSONRecord),
-      ...reportedProductionSize(packet as JSONRecord, headCommit(worktree)),
       evidence: lane.evidence_obligations.map((obligation: string, index: number) => ({
         obligation,
         detail: `discharged ${obligation}`,
@@ -1977,7 +1971,6 @@ routeDeclaration("records a refused readback as a durable failed attempt through
       readback_model: READBACK_MODEL,
       status: "completed",
       worker_job: reportWorkerJob(packet as JSONRecord),
-      ...reportedProductionSize(packet as JSONRecord, headCommit(worktree)),
       evidence: lane.evidence_obligations.map((obligation) => ({ obligation, detail: `discharged ${obligation}` })),
     }
     const completionOutput = { title: "task", output: taskResult(report), metadata: {} }

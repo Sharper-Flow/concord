@@ -1517,15 +1517,6 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 			return out, semanticErr
 		}
 		events = append(events, semantic...)
-		// CD-0225 D3: after the semantic events, the action's pending
-		// verification bindings may complete a split's integration. The
-		// derivation appends the typed discharge events before the generic
-		// completion, whose version arithmetic adjusts already.
-		discharges, dischargeErr := workerJobSplitDischargeEventsTx(ctx, tx, in.entry.Definition, in.request, in.currentStep, actor, semantic, len(events))
-		if dischargeErr != nil {
-			return out, dischargeErr
-		}
-		events = append(events, discharges...)
 	default:
 		staleness, present, stalenessErr := workflowStalenessObservationEvent(in.request.OperationID+":staleness", in.request.WorkID, actor, in.request.AcceptedInputsDigest, in.payload, in.request.Now)
 		if stalenessErr != nil {
@@ -1585,11 +1576,6 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	if fieldsErr != nil {
 		return events, "", fieldsErr
 	}
-	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "accept_worker_evidence" || in.request.ActionID == "reject_worker_result" {
-		if err := refuseSplitReplacedWorkerAttemptTx(in.ctx, in.tx, in.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""), 0); err != nil {
-			return events, "", err
-		}
-	}
 	completionValues := map[string]any{
 		"step_id": in.currentStep, "action_id": in.request.ActionID, "attempt_epoch": attemptEpoch, "result_evidence_refs": in.evidenceRefs,
 		"changed_refs": []string{in.request.WorkID}, "actor_ref": in.eventActor,
@@ -1632,18 +1618,6 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		if job != nil {
 			completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}
 		}
-		// CD-0225 D2, CD-0227 D2: a capped job's implementation result is
-		// accepted only on an agreed, contained, in-cap production size.
-		acceptedSize, sizeErr := admitWorkerJobSizeAcceptanceTx(in.ctx, in.tx, in.request.WorkID, in.entry.Definition, job, workflowFieldStringDefault(fields, "attempt_id", ""), fields)
-		if sizeErr != nil {
-			return events, "", sizeErr
-		}
-		if acceptedSize != nil {
-			completionValues["worker_production_size"] = acceptedSize.size
-			if acceptedSize.supplemental != nil {
-				completionValues["supplemental_classifications"] = acceptedSize.supplemental
-			}
-		}
 	}
 	// CD-0198 D4: the combined accept asserts the same delivery fields on the
 	// same completion event a record_delivery appends, so delivery readers
@@ -1678,21 +1652,6 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "accept_worker_evidence" || in.request.ActionID == "record_worker_failure" || in.request.ActionID == "reject_worker_result" {
 		completionValues["attempt_epoch"] = workflowFieldInt(fields, "attempt_epoch", 0)
 		completionValues["worker_attempt_id"] = workflowFieldStringDefault(fields, "attempt_id", "")
-	}
-	if in.request.ActionID == "record_worker_job" {
-		for _, semantic := range events {
-			if semantic.Kind != WorkerJobSplit {
-				continue
-			}
-			var split WorkerJobSplitPayload
-			if err := json.Unmarshal(semantic.Payload, &split); err != nil {
-				return events, "", err
-			}
-			if split.ReplacedAttempt != nil {
-				completionValues["worker_attempt_id"] = split.ReplacedAttempt.AttemptID
-				completionValues["attempt_epoch"] = split.ReplacedAttempt.AttemptEpoch
-			}
-		}
 	}
 	// CD-0059 D1/D5: the dispatch_worker completion carries the authorized
 	// attempt_id into the durable record so the worker-dispatch evidence
@@ -1864,10 +1823,6 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 	if jobErr != nil {
 		return jobErr
 	}
-	subject := ""
-	if admittedContext != nil {
-		subject = admittedContext.SubjectCommit
-	}
 	// The confirming review's typed admission (CD-0205 D4, CD-0148
 	// amendment): a dispatch whose packet binds an open repair's exact
 	// satisfied repairing revision on a review lane records the admission on
@@ -1897,25 +1852,11 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 	}
 	if job != nil {
 		completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}
-		// CD-0225 D1: the size-capable dispatch admission binds the cap,
-		// the correction base, and the measured-path serialization.
-		if err := admitWorkerJobSizeDispatchTx(in.ctx, in.tx, in.request.WorkID, in.entry.Definition, lane, *job, subject); err != nil {
-			return err
-		}
 		// The packet validation held the packet's caller exclusions equal to
 		// the core's computed set, so the completion retains them from the
-		// same bytes for the acceptance's containment check.
+		// same bytes for the caller-scope boundary (CD-0227 D1).
 		if exclusions := workerPacketCallerExclusions(packetRaw); len(exclusions) > 0 {
 			completionValues["worker_caller_exclusions"] = exclusions
-		}
-	}
-	// CD-0225 D3: an escalated dispatch funded by a split_leaf_progress
-	// acceptance targets one never-dispatched required sibling of the
-	// accepted leaf's lineage. The folded admission carries the basis; the
-	// guard binds the packet's job to the funding the log still supplies.
-	if in.admission != nil && in.admission.RetryConvergence.Basis == workflowSplitLeafProgressBasis {
-		if err := admitWorkerJobSplitProgressDispatchTx(in.ctx, in.tx, in.request.WorkID, in.admission.RetryConvergence, job, in.registry); err != nil {
-			return err
 		}
 	}
 	// Revalidate the sealed pre-transaction preparation with SQL only,

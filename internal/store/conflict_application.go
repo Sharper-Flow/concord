@@ -16,24 +16,37 @@ import (
 
 // WorkConflictApplied records one applied conflict rule as an event-only
 // record in domain_events (CD-0230 D3). It is settlement evidence: it names
-// the rule, the effective size it was applied against, and the outcome. It
-// grants no approval, law authority, verification result, or permission to
-// execute a blocked action, and it never advances the work version or writes
-// a projection.
+// the rule and the outcome. It grants no approval, law authority,
+// verification result, or permission to execute a blocked action, and it
+// never advances the work version or writes a projection. The v1 payload's
+// recorded size fields are retired history (CD-0242 D6): a v1 event still
+// validates and folds, and a v2 event records none of them.
 const WorkConflictApplied = "work.conflict_applied"
 
 // ConflictApplication is one recorded conflict-rule application. The JSON
-// names are the closed v1 payload shape; the recorded copy of the size is
-// historical evidence, never a second current-size owner.
+// names are the closed payload shape; the v1 size fields are historical
+// evidence, never a second current-size owner.
 type ConflictApplication struct {
-	RuleID                 string   `json:"rule_id"`
-	RuleSourceHash         string   `json:"rule_source_hash"`
-	CatalogGeneration      int      `json:"catalog_generation"`
-	SizeAssessmentSequence int      `json:"size_assessment_sequence"`
-	ModelVersion           int      `json:"model_version"`
-	Size                   WorkSize `json:"size"`
-	Outcome                string   `json:"outcome"`
-	SettlementRef          string   `json:"settlement_ref"`
+	RuleID            string `json:"rule_id"`
+	RuleSourceHash    string `json:"rule_source_hash"`
+	CatalogGeneration int    `json:"catalog_generation"`
+	// SizeAssessmentSequence, ModelVersion, and Size are the v1 payload's
+	// recorded size members. A v1 event requires all three; a v2 event, the
+	// only version a live write produces, records none of them.
+	SizeAssessmentSequence *int    `json:"size_assessment_sequence,omitempty"`
+	ModelVersion           *int    `json:"model_version,omitempty"`
+	Size                   *string `json:"size,omitempty"`
+	Outcome                string  `json:"outcome"`
+	SettlementRef          string  `json:"settlement_ref"`
+}
+
+// conflictSizeV1 is the frozen v1 size vocabulary the v1 validator accepts.
+// It is a compatibility fact about recorded payloads, not a live vocabulary.
+var conflictSizeV1 = map[string]struct{}{"small": {}, "larger": {}, "crucial": {}}
+
+func conflictSizeV1Known(size string) bool {
+	_, ok := conflictSizeV1[size]
+	return ok
 }
 
 // conflictRuleIDV1 is the frozen v1 rule ID vocabulary the event
@@ -58,13 +71,14 @@ const (
 
 var conflictSourceHashShape = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
-// validateWorkConflictAppliedPayload is the frozen v1 semantic validator. It
-// holds every field required, nonblank, and inside its bound, and never
-// consults the current generated table, so a later table or goals change
+// validateWorkConflictAppliedPayload is the frozen semantic validator. A
+// stored v1 payload must carry its recorded size members; a v2 event records
+// none. It holds every field required, nonblank, and inside its bound, and
+// never consults the current generated table, so a later table or goals change
 // cannot refuse replay of a recorded event.
-func validateWorkConflictAppliedPayload(_ Event, p ConflictApplication) error {
+func validateWorkConflictAppliedPayload(event Event, p ConflictApplication) error {
 	invalid := func(message string) error {
-		return newFailure(KindInvalidPayload, "validate_event", message, false, "record the application inside the v1 payload shape")
+		return newFailure(KindInvalidPayload, "validate_event", message, false, "record the application inside the closed payload shape")
 	}
 	if _, ok := conflictRuleIDV1[p.RuleID]; !ok {
 		return invalid(fmt.Sprintf("rule ID %q is outside the frozen v1 vocabulary", p.RuleID))
@@ -72,15 +86,28 @@ func validateWorkConflictAppliedPayload(_ Event, p ConflictApplication) error {
 	if !conflictSourceHashShape.MatchString(p.RuleSourceHash) {
 		return invalid("rule source hash is not a sha256 digest")
 	}
-	switch {
-	case p.CatalogGeneration < 1:
+	if p.CatalogGeneration < 1 {
 		return invalid("catalog generation must be positive")
-	case p.SizeAssessmentSequence < 1:
-		return invalid("size assessment sequence must be positive")
-	case p.ModelVersion < 1:
-		return invalid("size model version must be positive")
-	case !validWorkSize(p.Size):
-		return invalid(fmt.Sprintf("size %q is outside the stored size vocabulary", p.Size))
+	}
+	// The stored version decides the shape: a replayed v1 keeps the size
+	// members it carried; every live write records none.
+	recordedVersion := event.replaySourcePayloadVersion
+	if recordedVersion == 0 {
+		recordedVersion = event.PayloadVersion
+	}
+	if recordedVersion <= 1 {
+		switch {
+		case p.SizeAssessmentSequence == nil || *p.SizeAssessmentSequence < 1:
+			return invalid("size assessment sequence must be positive")
+		case p.ModelVersion == nil || *p.ModelVersion < 1:
+			return invalid("size model version must be positive")
+		case p.Size == nil:
+			return invalid("size is required on a v1 payload")
+		case !conflictSizeV1Known(*p.Size):
+			return invalid(fmt.Sprintf("size %q is outside the stored size vocabulary", *p.Size))
+		}
+	} else if p.SizeAssessmentSequence != nil || p.ModelVersion != nil || p.Size != nil {
+		return invalid("a v2 conflict application records no size members (CD-0242 D6)")
 	}
 	// The text bounds stay if statements: the output-bound ledger reads them
 	// as the guards that bound history output.
@@ -99,35 +126,16 @@ func validateWorkConflictAppliedPayload(_ Event, p ConflictApplication) error {
 	return nil
 }
 
-// foldWorkConflictApplied checks the payload against the size projection at
-// this event position, including the operator override when present. Rebuild
-// folds the prefix in order, so later sizes cannot rewrite the historical
-// record. It never consults the current rule table, writes a projection, or
-// advances the work version.
+// foldWorkConflictApplied writes no projection and advances no work version.
+// Its payload shape the registered validator already proved; the size
+// projection the v1 fold compared against is retired (CD-0242 D6), so a
+// recorded event folds unchanged.
 func foldWorkConflictApplied(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
 	}
 	var p ConflictApplication
-	if err := decodePayload(event, &p); err != nil {
-		return err
-	}
-	decision, sized, err := readEffectiveWorkSize(ctx, tx, event.SubjectID)
-	if err != nil {
-		return err
-	}
-	if !sized || p.SizeAssessmentSequence > decision.Model.Sequence {
-		return newFailure(KindProjectionNotFound, "fold_event",
-			fmt.Sprintf("event %s references size assessment sequence %d, which is not recorded for work %s", event.EventID, p.SizeAssessmentSequence, event.SubjectID),
-			false, "reference a recorded size assessment for this work item")
-	}
-	if decision.Model.Sequence != p.SizeAssessmentSequence || decision.Model.ModelVersion != p.ModelVersion || decision.Effective != p.Size {
-		return newFailure(KindInvariantViolation, "fold_event",
-			fmt.Sprintf("event %s claims assessment sequence %d model version %d size %q, but this event position has assessment sequence %d model version %d effective size %q",
-				event.EventID, p.SizeAssessmentSequence, p.ModelVersion, p.Size, decision.Model.Sequence, decision.Model.ModelVersion, decision.Effective),
-			false, "record the effective size at this event position")
-	}
-	return nil
+	return decodePayload(event, &p)
 }
 
 // ConflictApplicationRequest carries what a trusted caller asserts about one
@@ -146,28 +154,28 @@ type ConflictApplicationRequest struct {
 }
 
 // conflictApplicationEventID derives one settlement's event identity from the
-// authenticated actor, the work, the computed settlement reference, the rule
-// ID, and the stored assessment sequence, so a later assessment or another
-// settlement reference or principal records a distinct settlement. The
-// inputs are JSON-encoded as a primitive field array, so field boundaries
-// survive and no separator inside a field can forge another identity.
-func conflictApplicationEventID(request ConflictApplicationRequest, sequence int) string {
-	canonical, _ := json.Marshal([]any{"conflict-identity", request.Actor, request.WorkID, request.SettlementRef, request.RuleID, sequence})
+// authenticated actor, the work, the computed settlement reference, and the
+// rule ID, so a later settlement reference or principal records a distinct
+// settlement. The inputs are JSON-encoded as a primitive field array, so
+// field boundaries survive and no separator inside a field can forge another
+// identity.
+func conflictApplicationEventID(request ConflictApplicationRequest) string {
+	canonical, _ := json.Marshal([]any{"conflict-identity", request.Actor, request.WorkID, request.SettlementRef, request.RuleID})
 	sum := sha256.Sum256(canonical)
 	return "conflict-" + hex.EncodeToString(sum[:])
 }
 
 // RecordConflictApplicationTx records one conflict-rule application inside the
-// caller's transaction. It refuses an unsized work item without any effects,
-// validates the rule against the current generated table, freezes the live
-// source hash and catalog generation into the immutable event, and folds the
-// event with the same registration live application and replay share.
+// caller's transaction. It validates the rule against the current generated
+// table, freezes the live source hash and catalog generation into the
+// immutable event, and folds the event with the same registration live
+// application and replay share.
 //
-// Event identity is settlement identity, derived from the settlement inputs
-// and the stored assessment sequence: an exact retry carrying the same
-// inputs reports the already-recorded event as the durable effect and
-// returns it, while the same derived identity carrying different content
-// refuses as divergent. It returns the one recorded event ID. The caller's transaction rolls back on error, so a
+// Event identity is settlement identity, derived from the settlement inputs:
+// an exact retry carrying the same inputs reports the already-recorded event
+// as the durable effect and returns it, while the same derived identity
+// carrying different content refuses as divergent. It returns the one
+// recorded event ID. The caller's transaction rolls back on error, so a
 // refusal leaves no effects.
 func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, request ConflictApplicationRequest) (string, error) {
 	const op = "record_conflict_application"
@@ -194,31 +202,18 @@ func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, 
 	if !validConflictRuleID(request.RuleID) {
 		return "", newFailure(KindInvalidPayload, op, fmt.Sprintf("rule ID %q is not in the checked conflict-rule table", request.RuleID), false, "record a rule the checked table carries")
 	}
-	decision, sized, err := readEffectiveWorkSize(ctx, tx, request.WorkID)
-	if err != nil {
-		return "", err
-	}
-	if !sized {
-		return "", newFailure(KindProjectionNotFound, op,
-			fmt.Sprintf("work %s carries no recorded size; conflict applications refuse without effects until it is sized", request.WorkID),
-			false, "size the work item through its sizing route first")
-	}
-	record := decision.Model
 	application := ConflictApplication{
-		RuleID:                 request.RuleID,
-		RuleSourceHash:         conflictRuleSourceHash,
-		CatalogGeneration:      conflictRuleCatalogGeneration,
-		SizeAssessmentSequence: record.Sequence,
-		ModelVersion:           record.ModelVersion,
-		Size:                   decision.Effective,
-		Outcome:                request.Outcome,
-		SettlementRef:          request.SettlementRef,
+		RuleID:            request.RuleID,
+		RuleSourceHash:    conflictRuleSourceHash,
+		CatalogGeneration: conflictRuleCatalogGeneration,
+		Outcome:           request.Outcome,
+		SettlementRef:     request.SettlementRef,
 	}
 	encoded, err := json.Marshal(application)
 	if err != nil {
 		return "", wrapFailure(KindInvalidPayload, op, "cannot encode the conflict application", false, "repair the settlement fields", err)
 	}
-	eventID := conflictApplicationEventID(request, record.Sequence)
+	eventID := conflictApplicationEventID(request)
 	event := Event{
 		EventID:        eventID,
 		Kind:           WorkConflictApplied,
@@ -226,7 +221,7 @@ func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, 
 		SubjectID:      request.WorkID,
 		Actor:          request.Actor,
 		OccurredAt:     request.OccurredAt,
-		PayloadVersion: 1,
+		PayloadVersion: 2,
 		Payload:        encoded,
 	}
 	if _, err := AppendEvent(ctx, tx, event); err != nil {
@@ -242,4 +237,12 @@ func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, 
 		return "", err
 	}
 	return eventID, nil
+}
+
+// upcastConflictApplicationV1 reads a stored v1 payload unchanged: its size
+// members are retired history the validator still requires on the recorded
+// version.
+func upcastConflictApplicationV1(event Event) (Event, error) {
+	event.PayloadVersion = 2
+	return event, nil
 }

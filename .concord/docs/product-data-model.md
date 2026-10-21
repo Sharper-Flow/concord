@@ -169,8 +169,9 @@ CD-0222 and CD-0213 replace the predecessor Epic shape. Business grouping lives 
 Linear. Product embeds no grouping record, and grouping is not a second Product,
 Domain, or architecture authority.
 [CD-0213 D8](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d8-history-stays-replayable)
-keeps the event log immutable and historical planning events replayable while
-refusing new planning appends.
+keeps planning history in Linear; the local store keeps current state and finite
+snapshots, with no event log or replay
+([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 Member records carry **identity + role + metadata** — not credentials, not live
 connections.
@@ -275,16 +276,17 @@ prototype is not obliged to carry a regression suite that will be invalidated by
 next week's redesign, which is precisely the brittleness this model exists to
 avoid.
 
-### 8.5 Transitions are appends
+### 8.5 Transitions write current rows
 
-Stage changes are **appended**, never edited in place, per
-[`design-constraints.md`](./design-constraints.md) §4 (append-only, no history
-repair).
+Each stage change writes a current row checked by its expected version
+(CD-0242 D2), per
+[`design-constraints.md`](./design-constraints.md) §4.
 
 Consequently, **evidence is judged under the stage in force when it was
 produced.** Promoting a project from `prototype` to `production` does not
 retroactively invalidate its prototype-era evidence, and it does not retroactively
-bless it either. The stage history is what makes an old completion claim
+bless it either. A recorded stage exit stays true of the subject it recorded
+(CD-0242 D7), which is what makes an old completion claim
 interpretable — "this was accepted at prototype rigor in March" is a fact an agent
 can act on; "this was accepted" is not.
 
@@ -365,7 +367,7 @@ question is:
 | `feature-inventory.md` §3.18 | Managed-resource inventory with cross-Product linking — §9 and accepted C15 define the resource-first shape. |
 | [CD-0222](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) | Domain `replaces` and PM4 work-item `supersedes` remain bounded relation mechanisms. |
 | `priorities.md` §3 | Proportional rigor is the quality attribute that §8 supplies the input for. |
-| `design-constraints.md` §4 | The ownership record is Concord-owned state → lock-free, append-only, no repair. Stage transitions are appends (§8.5). |
+| `design-constraints.md` §4 | The ownership record is Concord-owned state → lock-free, current rows with finite snapshots, no history to repair (CD-0242 D2). Stage transitions write current rows (§8.5). |
 | `self-documentation.md` §1 | The browse surface uses Product → Domain navigation. |
 | `workflows.md` §2.5 | Workflows are reached from Product → Domain. |
 | `vertical-integration.md` | Whether lgrep/vision become Product-scoped touches this model. |

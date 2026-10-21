@@ -120,8 +120,9 @@ This design does not weaken work-note compaction publication or fold guards.
 Current workflow approvals also capture one `law_revisions` pin per mandated
 ID. The immutable identity is `(law_id, content_hash)`; scanned commit OIDs are
 audit context only. Same-ID hash amendments remain compatible, while an
-accepted successor with `supersedes` over a `status=superseded` law strictly
-quiesces old consumers through typed `stale_law_revision` recovery.
+accepted successor with `supersedes` over a `status=superseded` law marks stale
+exactly the contracts that consumed the superseded revision, through typed
+`stale_law_revision` recovery (CD-0242 D7).
 The rebuild path already has typed proof handling for accepted non-work kinds;
 the missing mechanism was canonical manifest ingestion and explicit kind
 coverage, not a work-note-only compaction rule.

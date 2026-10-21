@@ -253,6 +253,7 @@ test("a worker directory retargeted during authorization is refused", async () =
   fs.symlinkSync(claimed, alias)
   const windows = new DispatchWindows()
   const result = await dispatchWorker(packet(), {
+    credentials: testCredentials,
     authorize: async () => {
       fs.unlinkSync(alias)
       fs.symlinkSync(other, alias)

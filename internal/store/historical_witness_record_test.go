@@ -266,4 +266,26 @@ func TestHistoricalWitnessRecordsOnlyAdmittedRows(t *testing.T) {
 	if observedRow != 1 || dismissedRow != 1 {
 		t.Fatalf("domain observation corpus recorded %d rows (recorded=%d dismissed=%d), want one each", len(domains), observedRow, dismissedRow)
 	}
+	// The same journal now records its full-endpoint relation pair: the added
+	// row carries both to_* version members, and the removed row records too.
+	var relationAdded, relationRemoved int
+	for _, row := range domains {
+		switch {
+		case strings.Contains(row, `"kind":"relation.added"`):
+			relationAdded++
+			if !strings.Contains(row, "to_resulting_version") {
+				t.Fatalf("recorded relation row lacks the target version members: %s", row)
+			}
+		case strings.Contains(row, `"kind":"relation.removed"`):
+			relationRemoved++
+		}
+	}
+	if relationAdded != 1 || relationRemoved != 1 {
+		t.Fatalf("relation corpus recorded %d rows (added=%d removed=%d), want one each", len(domains), relationAdded, relationRemoved)
+	}
+	// The managed-resource update records its complete replacement form.
+	managed := witnessRowsOf(t, "TestManagedResourceHistoricalUpdateRebuildsAndRecords")
+	if len(managed) != 1 || !strings.Contains(managed[0], `"kind":"managed_resource.updated"`) || !strings.Contains(managed[0], "metadata_schema_version") {
+		t.Fatalf("managed resource corpus recorded %q, want one complete updated row", managed)
+	}
 }

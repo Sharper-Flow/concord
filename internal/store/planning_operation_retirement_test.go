@@ -97,10 +97,23 @@ func TestRetiredPlanningEventsReplay(t *testing.T) {
 	dismissed := operationEvent("replay-observation-dismissed", "domain.observation_dismissed", SubjectProduct, "product", map[string]any{
 		"observation_id": "dob:9270000000000001", "product_id": "product", "domain_id": "replay-domain",
 	})
+	fullRelation := func(eventID, kindName, from, to string, expected, resulting int64) Event {
+		return operationEvent(eventID, kindName, SubjectWorkItem, from, map[string]any{
+			"from": from, "to": to, "kind": "blocks", "reason": "test",
+			"expected_version": expected, "resulting_version": resulting,
+			"to_expected_version": expected, "to_resulting_version": resulting,
+		})
+	}
+	// The link rows carry both endpoint version pairs — the exact shape the
+	// released planLink and unlinkEffect writers emitted — so the replay
+	// advances both endpoints and the rows record as full corpus witnesses.
+	linkKept := fullRelation("replay-link-kept", "relation.added", "replay-link-a", "replay-link-b", 2, 3)
+	linkAddedThenRemoved := fullRelation("replay-link-removed", "relation.added", "replay-link-c", "replay-link-d", 2, 3)
+	linkUnlinked := fullRelation("replay-link-unlinked", "relation.removed", "replay-link-c", "replay-link-d", 3, 4)
 	journal := []Event{
-		relationAddedEvent("replay-link-kept", "blocks", "replay-link-a", "replay-link-b", 2, 3),
-		relationAddedEvent("replay-link-removed", "blocks", "replay-link-c", "replay-link-d", 2, 3),
-		relationRemovedEvent("replay-link-unlinked", "blocks", "replay-link-c", "replay-link-d", 3, 4),
+		linkKept,
+		linkAddedThenRemoved,
+		linkUnlinked,
 		workSupersededEvent("replay-superseded", "replay-successor", "replay-predecessor", 2, 3),
 		workReopenedFromSupersededEvent("replay-reopened", "replay-predecessor", "replay-successor", 3, 4),
 		observed,
@@ -115,10 +128,13 @@ func TestRetiredPlanningEventsReplay(t *testing.T) {
 	if after := planningEventCount(t, db); after != before {
 		t.Fatalf("replay changed the log: %d events after rebuild, want %d", after, before)
 	}
-	// The retired Domain-observation pair records as corpus witnesses: the
-	// passing replay above proves the candidate folds both rows unchanged.
+	// The retired Domain-observation pair and the full-endpoint link pair
+	// record as corpus witnesses: the passing replay above proves the
+	// candidate folds each row unchanged.
 	recordHistoricalWitness(t, s, observed.EventID, observed.Kind, observed.PayloadVersion, observed.Payload)
 	recordHistoricalWitness(t, s, dismissed.EventID, dismissed.Kind, dismissed.PayloadVersion, dismissed.Payload)
+	recordHistoricalWitness(t, s, linkKept.EventID, linkKept.Kind, linkKept.PayloadVersion, linkKept.Payload)
+	recordHistoricalWitness(t, s, linkUnlinked.EventID, linkUnlinked.Kind, linkUnlinked.PayloadVersion, linkUnlinked.Payload)
 	// The kept link edge survives; the removed edge and the supersession edge
 	// the reopen deleted stay gone.
 	assertTableCount(t, s, "relations", 1)
@@ -141,7 +157,9 @@ func TestRetiredPlanningEventsReplay(t *testing.T) {
 	assertWorkNeededVersion(t, db, "replay-predecessor", 4)
 	assertWorkNeededVersion(t, db, "replay-successor", 2)
 	assertWorkNeededVersion(t, db, "replay-link-a", 3)
+	assertWorkNeededVersion(t, db, "replay-link-b", 3)
 	assertWorkNeededVersion(t, db, "replay-link-c", 4)
+	assertWorkNeededVersion(t, db, "replay-link-d", 4)
 	// The recorded observation is dismissed, still readable for audit, and
 	// holds no open row on the Domain.
 	var state, dismissedAt string

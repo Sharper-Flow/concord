@@ -21,9 +21,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c6480085a64d0f7cf96a25a6da548750b2f65ab540749cf29eb457bea096f2b1",
+  "sha256": "sha256:1574b3bd19b8a92b9120b1fa5ecd4782cf858bf777bce9b468cfbf118a9e1048",
   "status": "accepted",
-  "summary": "Messages are durable events addressed to work items: direct or Product-broadcast, pull-at-next-call delivery with a continuity pending pointer, withdrawable-with-visibility, structurally authority-free.",
+  "summary": "Messages are durable rows addressed to work items: direct or Product-broadcast, pull-at-next-call delivery with a continuity pending pointer, withdrawable-with-visibility, structurally authority-free.",
   "tags": [
     "messaging",
     "concurrency",

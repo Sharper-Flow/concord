@@ -14,11 +14,12 @@
   CD-0031's agent-surface identity; CD-0222's pre-go-live surface sequencing; TS7,
   TS8, and TS9
 - **Preserves:** One generated canonical manifest and digest; strict schemas; signed
-  client bootstrap; fail-closed unknown input; durable Product/event authority; release
-  automation
+  client bootstrap; fail-closed unknown input; durable Product state authority; release
+  automation ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current rows; no event log exists)
 - **Supersedes:** Pre-go-live agent-surface SemVer, range negotiation, compatibility
   windows, deprecation metadata, supported-model release trials, and replay/upcast code
   retained only for unreleased surface revisions
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — the store keeps current rows; no event log exists.
 
 ## Context
 

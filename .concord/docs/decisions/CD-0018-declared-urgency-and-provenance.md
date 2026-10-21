@@ -11,6 +11,7 @@ D4's unstructured parallel-safety judgement with Domain-overlap detection and
 operator-approved, version-pinned resolution. Concord (CON) issue CON-910 (2026-10-13)
 drops the retired launcher query from the ranking claims under the Snowball
 coordinator's operator-delegated approval.
+**Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — capture writes current rows; no event exists.
 **Amends:** CD-0005 (adds `urgency` to the capture/revise/read surface and one
 `relation_kind` member — both TS8 MAJOR); C14 §5 and C17 §5 (records an explicit,
 declared urgency, restated not to introduce owners or assignments).
@@ -94,9 +95,10 @@ other relation.
 
 `raised_from` is an ordinary relation kind. It is not special-cased: it has no Epic
 guard (unlike `parent`), no composite-operation path (unlike `supersedes`), and no
-exemption from the fold's cycle check (unlike `implements`). It is created only by capture's
-`raised_from_work_id` input: the `work.created` fold inserts the relation row, that
-input appends no `relation.added` event, and no operation removes it. It records provenance
+exemption from the relation cycle check (unlike `implements`). It is created only by capture's
+`raised_from_work_id` input: capture inserts the relation row in the same transaction, and
+no operation removes it ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each mutation writes current rows in one
+transaction; no event exists). It records provenance
 only; it asserts no dependency, no hierarchy, and no replacement.
 
 One symmetric kind is sufficient for the motivating pairings — an ops task beside a
@@ -225,7 +227,7 @@ happen to be in the same area — the edge records provenance, not topic similar
   to its `ORDER BY`; deterministic tests assert expedite sorts above standard and
   within-band ordering is preserved.
 - `raised_from` is created by capture's `raised_from_work_id` input inside the
-  `work.created` fold, appends no `relation.added` event, and is confirmed NOT to
+  capture transaction and is confirmed NOT to
   exclude the target from PM1.Q5.
 - Deterministic tests assert: an agent capturing with `urgency: expedite` and
   `raised_from` provenance produces an item that sorts above standard items in the

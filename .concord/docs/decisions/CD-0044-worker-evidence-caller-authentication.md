@@ -11,14 +11,15 @@
   required-outcome section
 - **Related:** CD-0017 (D2, D4, D5), CD-0034, CD-0013 D5, CD-0042 D3/D4
 - **Preserves:** The worker authority boundary; pinned-model readback identity;
-  reviewer/model distinctness; owner-only result acceptance; short-lived CLI
-  transport with no daemon
+  owner-only result acceptance; short-lived CLI
+  transport with no daemon ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) governs: no reviewer/model distinctness exists beyond D5)
 - **Supersedes:** The unauthenticated worker-evidence path and its literal
   `worker:cli` actor string
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 and D5 — evidence writes are current-row writes; no reviewer/model distinctness exists beyond D5.
 
 ## Context
 
-Three CLI verbs append durable worker evidence. Before this decision they
+Three CLI verbs write durable worker evidence. Before this decision they
 validated payload shape, lane identity, routing identity, and attempt linkage —
 and then recorded `Actor: "worker:cli"`, a literal string, without
 authenticating the caller or its authority to write that attempt.
@@ -66,7 +67,7 @@ than a silently weakened boundary.
 
 ### D2. Authentication and evidence share one transaction
 
-The assertion nonce is consumed in the same transaction that appends the event.
+The assertion nonce is consumed in the same transaction that writes the evidence.
 Authorization that commits without its evidence, or evidence that commits
 without its authorization, would both be defects. This is the same transaction
 discipline CD-0013 requires of approval consumption.
@@ -139,7 +140,7 @@ reachability D3 removes.
 
 - Unauthenticated, forged-key, unknown-client, wrong-attempt, cross-work,
   verb-swapped, stale, and provenance-mismatched writes all fail before any
-  event is appended.
+  evidence row is written.
 - A byte-identical replay of an accepted assertion is refused.
 - A client without the `worker_evidence` capability, and a revoked client, are
   both refused.

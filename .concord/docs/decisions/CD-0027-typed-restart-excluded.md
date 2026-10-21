@@ -4,7 +4,7 @@
 - **Date:** 2026-08-15
 - **Scope:** Context continuity; worker lane dispatch
 - **Related:** CD-0016 (context continuity), CD-0017 (typed workers), issue #120
-- **Amended:** CD-0148 (failed worker retries require a fresh approved dispatch)
+- **Amended:** [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) governs: each launch is one admitted request with its own authority; no attempt count, escalation wall, or approval-gated fresh retry exists.
 - **Supersedes:** nothing; records a deliberate exclusion against the
   predecessor enumeration
 

@@ -27,7 +27,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7bc7f36261c75f88b29c7e124b786dce1df4886e40ccb8539c643644c34c5158",
+  "sha256": "sha256:1c76f985654cbfb3948abb2a596d6b66cd862f75d486caae354e101a333ba310",
   "status": "accepted",
   "summary": "Defines unreadable-record isolation and durable evidence hardening.",
   "tags": [

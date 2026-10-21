@@ -9,6 +9,7 @@
   ([`agent-adapter-transport-contract.md`](../agent-adapter-transport-contract.md)),
   TS7 ([`agent-result-envelope.md`](../agent-result-envelope.md))
 - **Supersedes:** nothing
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — the store keeps current rows; no event history or replay exists.
 
 ## Context
 
@@ -125,8 +126,7 @@ The major-cutover obligations are closed here:
    original prompt lacked the required summary; consumed approvals remain audit
    history.
 4. Old/new adapter-core compatibility tests prove fail-closed negotiation.
-5. Durable domain operations and event history do not change. Their replay uses
-   the new envelope; no event is rewritten.
+5. Durable domain operations and their current rows do not change ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no event history or replay exists).
 6. This record carries explicit operator acceptance.
 
 ## Rejected alternatives

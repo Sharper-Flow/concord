@@ -8,6 +8,7 @@ continuity supply to work-start preparation under the Snowball coordinator's
 operator-delegated approval.
 **Research-context amendment approval:** The Snowball coordinator approved this law change on 2026-10-14 under the operator's delegation.
 **Bounded-context amendment approval:** The Snowball coordinator approved this law change on 2026-10-16 under the operator's delegation.
+**Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — the store keeps current rows; no event log, fold, or replay exists.
 
 > **Subsequent decision:** CD-0031 supplies core-derived continuity to operator sessions through work-start preparation. The absence statement in §Consequences records the state when CD-0016 was accepted.
 >
@@ -34,7 +35,7 @@ carry authority, approval, law, workflow position, or evidence claims.
 
 ## Durable mechanism
 
-Workflow events own two fold-only projections:
+Two current-row tables hold the continuity state ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each mutation writes current rows in one transaction; no event log, fold, or replay exists):
 
 - `workflow_context_checkpoints`: one immutable bounded working-state record per
   work/version/sequence;
@@ -42,12 +43,11 @@ Workflow events own two fold-only projections:
   checkpoint reference, source workflow/attempt identity, and reserved typed
   agent identity fields for the future restart dispatcher.
 
-The closed event kinds are `workflow.context_checkpointed` and
-`workflow.context_boundary_crossed`. Generic workflow actions expose
-`checkpoint_context` and `cross_context_boundary` through the existing
+The `checkpoint_context` and `cross_context_boundary` actions record the
+checkpoint and boundary rows through the existing
 `concord_work_transition.workflow_action` operation. The latter currently
 accepts `summary` only; `restart` produces a typed unavailable failure and no
-event or row.
+row.
 Both actions are closed, unapproved actions owned by every built-in definition
 and every step through one definition builder. They use the normal definition
 lookup, step allowance, payload validation, and operator-selection paths.
@@ -76,7 +76,7 @@ obligations remain unchanged.
 
 The next version of each built-in definition adds the closed, unapproved
 `record_work_context` action to every step except the delivery gates. The
-action records `workflow.work_context_recorded` with ordered required reading,
+action records the work-context state with ordered required reading,
 references to earlier findings, selected research references, and new typed
 findings. A reading source is a
 repository file pinned by Project, path, and commit OID, or a law revision
@@ -84,22 +84,22 @@ pinned by source, law ID, and content hash. Each reading and finding names a
 registry Domain.
 
 One transaction-scoped reader assembles the current work-context view from
-these events, the terminal worker reports that follow them, and exact research
+these records, the terminal worker reports that follow them, and exact research
 selections resolved from the research authority. The reader
 adds no table and no migration. The work pin and the continuity snapshot carry
 the view. The view holds at most 32 readings and 32 findings within 64 KiB. A
-view past these bounds refuses the read and leaves the events unchanged. Each
-event-owned finding keeps its source event and ordinal and stays a reported
-claim. A research entry keeps its selection event and ordinal, exact pack,
+view past these bounds refuses the read and leaves the records unchanged. Each
+recorded finding keeps its source record and ordinal and stays a reported
+claim. A research entry keeps its selection record and ordinal, exact pack,
 revision, finding identity, native finding fields, and complete linked source
 descriptors. Research entries and event-owned findings share the 32-finding
-bound. A research selection stores references, never corpus content, in events.
+bound. A research selection stores references, never corpus content, in the store.
 Completion, checkpoints, and context boundaries copy no work-context content
 into another record.
 
 A declaration refuses without effects if its resulting shared view exceeds the bounds. The
-check runs once in the live action transaction after its events fold and never
-during replay. A declaration that restores a bounded view remains admissible.
+check runs once in the live action transaction that records the declaration. A
+declaration that restores a bounded view remains admissible.
 Valid completed and failed worker reports, oracle blockers, retained receipts,
 acceptance, job records, and native verification evidence remain retained even
 when the resulting view exceeds its read bound.
@@ -142,7 +142,7 @@ a source, fetches from the network, or mutates the declared readings. The
 resolution runs before the dispatch transaction opens, and the admission
 revalidates the sampled source identities inside it. A failure names the
 reading's ordinal and source identity and commits no dispatch effect.
-Replay and rebuild resolve nothing again.
+No replay or rebuild re-resolves a reading ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: neither exists).
 
 The view bounds above constrain the derived view, not retained terminal
 evidence. The dispatch context is a separate capacity. The canonical JSON object
@@ -154,7 +154,7 @@ fit. The per-entry and view bounds above stay unchanged.
 
 ## Consequences
 
-Context continuity is rebuildable from SQLite event authority and does not add a
+Context continuity is held in current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) and does not add a
 mutable daemon or a second agent identity authority. Future issue #57 dispatch
 must inject this canonical projection on every typed-agent call; this decision
 does not claim that current OpenCode calls receive automatic pinned-context

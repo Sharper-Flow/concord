@@ -3,7 +3,8 @@
 > **Status:** **Accepted — binding until superseded.**
 > **Type:** Architecture decision record.
 > **Supersedes:** none.
-> **Superseded in part by:** [`../product-memory-domain-schema.md`](../product-memory-domain-schema.md) (PM3, 2026-08-05) replaces D1's generic materialized `entities` spine with explicit typed Product-memory projections. D1's generic authoritative log and typed-edge integrity principle, plus D2/D3, remain binding.
+> **Superseded in part by:** [`../product-memory-domain-schema.md`](../product-memory-domain-schema.md) (PM3, 2026-08-05) replaces D1's generic materialized `entities` spine with explicit typed Product-memory projections, and [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) replaces the append-only event log with current-state rows. D1's typed-edge integrity principle and D2/D3 remain binding.
+> **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — the store keeps current state; no event log exists.
 > **Decided:** 2026-08-05.
 > **Resolves:** [`CD-0002-concord-state-authority.md`](./CD-0002-concord-state-authority.md) §5 (invocation boundary, binding) and §7 (entity shape is the remaining fork inside the authority).
 > **Sourced basis:** CD-0002 (Accepted) + the measured ADV profile (§2a of CD-0002: <0.1 writes/sec, ~8 true concurrent writers, 3–6 KB artifacts, 50–300 entities) + documented library characteristics (modernc.org/sqlite, mattn/go-sqlite3, SQLite WAL).
@@ -24,8 +25,7 @@ Each is decided below with reasoning. None violates CD-0002 invariants I1–I6.
 
 ### Decision
 A later accepted decision, PM3, replaces the generic materialized `entities`
-projection below with explicit typed Product-memory projections. The generic
-append-only event log and typed-edge integrity principle remain current. The
+projection below with explicit typed Product-memory projections. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current state in current rows, and no append-only event log exists; the typed-edge integrity principle remains current. The
 original decision follows for rationale and supersession history.
 
 A **universal spine** serves every entity type:
@@ -103,8 +103,8 @@ The Go core uses **[`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)
 
 ### What this gives
 - **A coherent current storage/schema baseline.** PM2 fixes one global local DB;
-  PM3 fixes one generic authoritative event log plus explicit typed Product-memory
-  projections. PM4 fixes lifecycle/relation semantics; PM5 fixes membership/scope. This
+  PM3 fixes one authoritative current-row store plus explicit typed Product-memory
+  projections ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no event log exists). PM4 fixes lifecycle/relation semantics; PM5 fixes membership/scope. This
   record remains binding only where PM3 did not supersede it.
 - **Explicit core + bounded extension richness.** Stable identity, joins,
   invariants, and PM1 filters are typed; versioned JSON is reserved for rare

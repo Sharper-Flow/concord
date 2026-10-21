@@ -14,13 +14,14 @@
 - **Preserves:** the CD-0044 signed-evidence boundary in full; lane identity
   validation; the worker authority boundary
 - **Amended by:** CD-0143 for verification-verdict correction after completed and accepted worker delivery
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D6, D14 — dispatch writes current rows; no attempt count, convergence wall, or historical pin exists.
 - **Supersedes:** nothing
 
 ## Context
 
 The result side of the worker boundary is modeled. `accept_worker_result` is a
 registered action with a consequence class, an approval policy, and an
-execution mode; it is folded; and an agent reaches it through
+execution mode; an agent reaches it through
 `concord_work_transition.workflow_action`.
 
 The dispatch side has no counterpart. The registered action set is
@@ -36,22 +37,24 @@ of 246 lane-agent calls ran that way. The evidence boundary was not violated.
 It was bypassed, because nothing admits a worker attempt in the first place.
 
 CD-0017 D4 states that a worker "cannot invoke another advancing action once a
-worker attempt is dispatched in the current step window." Nothing can enforce
-that today, because dispatch is not a folded event and so opens no window.
+worker attempt is dispatched in the current step window." Nothing enforced
+that before dispatch was registered, because no recorded dispatch opened a
+window.
 
 ## Decision
 
 ### D1. Dispatch is a registered workflow action
 
-Register `dispatch_worker` in the workflow action registry. Its fold opens the
-worker attempt window against the current step epoch. The adapter then runs
+Register `dispatch_worker` in the workflow action registry. The dispatch
+admission opens the worker attempt window against the current step epoch in
+one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each mutation writes current rows; no fold exists). The adapter then runs
 authorize, spawn, append evidence, in that order. The core authorizes before
 any process starts, replacing an arrangement where `worker-dispatch` records an
 attempt that already happened.
 
 The same completion records the admitted core subject for native oracle
 execution under CD-0067 D2. This snapshot belongs to the existing fenced
-dispatch; it grants no new capability, attempt window, or retry budget.
+dispatch; it grants no new capability ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) governs: no attempt count or retry budget exists; each launch carries its own authority).
 
 This is the placement `.concord/docs/capability-placement.md` §4 selects: a capability
 that mutates durable state and needs validation, authorization, and approval is
@@ -61,7 +64,12 @@ and identity only.
 
 ### D2. Its action policy matches `start_execution`
 
-For `approval_policy=consequence_v1`, the routine policy includes failed-worker retry dispatch. The exact failed attempt, epoch, active contract, and job binding remain transactional prerequisites; a fresh attempt and epoch remain required. The convergence wall is unchanged and operator approval cannot open it. Historical pins retain CD-0148's approval rule.
+For `approval_policy=consequence_v1`, [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) governs: a failed-worker
+retry is a launch admitted like any other, with its own scope, assignment, and
+subject bindings; no attempt count, convergence basis, escalation wall, or
+approval-gated fresh retry exists, and a launch with an unknown effect is
+reconciled before another launch for that assignment. No historical pins are
+retained ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 
 `dispatch_worker` is registered as
@@ -140,7 +148,7 @@ the check in the worker rather than in the core.
 ## Verification
 
 - `dispatch_worker` appears in the registered action set with the D2 policy.
-- A dispatch fold opens a fenced window; a second advancing action in the same
+- A dispatch admission opens a fenced window; a second advancing action in the same
   step window is refused.
 - A principal without `worker_dispatch` is refused; the capability cannot be
   obtained through a bearer grant request.

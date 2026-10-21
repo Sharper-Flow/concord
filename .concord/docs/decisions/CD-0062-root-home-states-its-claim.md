@@ -9,8 +9,10 @@
 - **Related:** CD-0060 (partitions the corpus; D2 gives the root Product-wide
   law), CD-0222 D2/D3/D9.2, CD-0042 D1 (pre-go-live), CD-0002, PM1.Q10
 - **Preserves:** CD-0222 D3's one-home invariant; the derived-projection role of
-  SQLite; the CD-0222 D9.2 upcast
+  SQLite; the one-schema manifest rule ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no upcast exists;
+  [CD-0076](CD-0076-current-knowledge-manifest-has-no-legacy-migration.md) ends the legacy-manifest migration)
 - **Supersedes:** nothing
+- **Amended by:** [CD-0076](CD-0076-current-knowledge-manifest-has-no-legacy-migration.md) ends D3's legacy-manifest upcast; [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 governs: no upcast or rebuild exists.
 
 ## Context
 
@@ -54,22 +56,15 @@ reach the home contradicts, so carrying the field on a child-homed record is
 refused. Non-law records carry no law-home fields at all, and this field
 follows them.
 
-### D3. The upcast marks an undecided home rather than inventing a claim
+### D3. No legacy-manifest upcast exists
 
-CD-0222 D9.2 assigns the root to legacy law carrying zero or several component
-IDs. That home is undecided by construction. The migration cannot invent a
-reason, and emitting none would recreate the silent default this record
-removes.
-
-`MigrateLegacyKnowledgeManifest` therefore writes an explicit undecided marker.
-The marker is a legal transient and an illegal resting state:
-`scripts/check-domain-registry.py` fails on any record still carrying it, so an
-unreviewed home cannot age into a claim nobody made.
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no upcaster exists. [CD-0076](CD-0076-current-knowledge-manifest-has-no-legacy-migration.md) removes the legacy-manifest migration and its undecided-root marker; schema 1.2 is the only knowledge-manifest schema, and root-home claims follow D1 and D2.
 
 ### D4. The claim is projected, not merely parsed
 
-PM1.Q10 rebuilds a declared record from SQLite and requires byte equality with
-the manifest. A field the projection drops therefore makes every root-homed
+PM1.Q10 compares the manifest against the store's current projected rows and
+requires byte equality
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: consumers read current rows; no rebuild exists). A field the projection drops therefore makes every root-homed
 record fail its own proof.
 
 `law_domain_homes` gains `product_wide_rationale` under migration 45, the

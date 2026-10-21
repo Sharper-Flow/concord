@@ -25,9 +25,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:037eceaed277b5f4c825621d4b78b15552ef9ebe0064387d0ad8ab5aa8ee4fb8",
+  "sha256": "sha256:d4c7bc803784d303551cfa74be68c49178b65a3fffb26a79defd661f0ede81d9",
   "status": "accepted",
-  "summary": "Governing requirements bind to a Project rather than to a rule, and capture refuses by set difference against the requirements its target scope declares: invariant_violation naming the omitted requirements, typed operator options, no events, and a minted challenge the approved scope cut resolves against.",
+  "summary": "Governing requirements bind to a Project rather than to a rule, and capture refuses by set difference against the requirements its target scope declares: invariant_violation naming the omitted requirements, typed operator options, no store write, and a minted challenge the approved scope cut resolves against.",
   "tags": [
     "agent-surface",
     "governing-law",

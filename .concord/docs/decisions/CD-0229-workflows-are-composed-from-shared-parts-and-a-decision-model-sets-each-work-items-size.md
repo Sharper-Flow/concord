@@ -111,17 +111,15 @@ retained for history.
 
 ### D4. Every sized work item has one size from the decision model
 
-[CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)
-governs: the decision model sets each work item's size; the operator may move
-a size up or down; an agent may ask only for a rerun and may add steps, never
-remove one.
+[Goal B](../goals.md) and [CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum) govern: a versioned decision model sets each
+work item's size from goal B's inputs, never from an agent's proposal; the
+operator may move it; agents may only request a rerun or add steps.
 
 ### D5. The size selects the composition and its least proof
 
-[CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)
-governs: families compose shared stages, the decision model sets each work
-item's minimum steps, proof, and testing, and a small change runs its
-footprint checks and one review.
+[CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum) and [goal B](../goals.md) govern: change type and risk set each item's
+mandatory stages, and a small change runs define, implement, review, and ship
+with its footprint checks and one review.
 
 ### D6. Only the model and the operator change a size
 

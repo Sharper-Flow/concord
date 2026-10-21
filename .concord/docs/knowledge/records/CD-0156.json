@@ -34,9 +34,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:231e34a511765ac071958ab8f1cadee6d9f13f7475e05f895b4d704400ffe157",
+  "sha256": "sha256:6082f9e46ee6e5c7ae36a4f451e80a6a5e1ffddd65ea22a9460038c5d45045d8",
   "status": "accepted",
-  "summary": "Splices a mandatory alignment step into implementation and break-fix whose single advance action records the backlog search and its closed outcome in a new fold-only projection table, shipping new frozen definition versions 13 and 11.",
+  "summary": "Splices a mandatory alignment step into implementation and break-fix whose single advance action records the backlog search and its closed outcome in a dedicated alignment table, composed into the families' canonical source.",
   "tags": [
     "workflow",
     "alignment",

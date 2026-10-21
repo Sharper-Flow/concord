@@ -14,9 +14,12 @@
   CD-0209 D2, the registration gate that refuses a late-verdict step
   that declares no declared return; CD-0209 D6, the work-pin sequence
   the late-verdict step reaches the producer through
-- **Preserves:** CD-0201 D2, the liveness law; CD-0115 D1, released
-  definition content and digests; every other route refusal keeps its scope
+- **Preserves:** CD-0201 D2, the liveness law; the digests derived from the
+  one canonical source
+  ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14);
+  every other route refusal keeps its scope
   (CD-0186)
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D3, D14
 - **Related:** CD-0116, CD-0197, CD-0203
 - **Approval:** The operator directed in session chat on 2026-10-02 that the
   checks stay strict, with no named exception, and that the engine routes
@@ -48,13 +51,14 @@ refused the missing verdict, and no action could record it.
 
 ## Decision
 
-### D1. The folded state carries the acceptance gate
+### D1. Admission carries the acceptance gate
 
 The admission loader runs the acceptance-deliverables check while a premise
-question is open for `confirm_premise`. A typed refusal of that check becomes
-part of the folded state, and `workflowAdmit` refuses `confirm_premise` with
-it. The preflight, the work pin, and execution read the same refusal. An
-unreadable projection fails the fold.
+question is open for `confirm_premise`, and `workflowAdmit` refuses
+`confirm_premise` with that typed refusal
+([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).
+The preflight, the work pin, and execution read the same refusal. An
+unreadable read fails admission.
 
 ### D2. Only the accept defers the fresh-review refusal
 
@@ -71,8 +75,9 @@ hosts the premise question for `confirm_premise` without declaring
 earlier step that declares `record_verdict`, and a predicate without an `ok`
 verdict. A late verdict does not move the step.
 
-No definition version changes. Admission code is not definition content
-(CD-0115 D1).
+[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
+governs: the gate lives in the admission code derived from the one canonical
+source, not in declared definition content.
 
 ## Alternatives considered
 
@@ -80,9 +85,10 @@ No definition version changes. Admission code is not definition content
   Rejected: a second copy is the drift that CD-0201 D1 removes.
 - Defer every fresh-review refusal and give `record_delivery` a guard.
   Rejected: the refusal reads no payload, and a guard copy is a second owner.
-- Publish a new ops-runbook version that declares `record_verdict` on cleanup.
-  Rejected: items pinned to version 1 to version 4 stay stranded
-  (CD-0115 D2).
+- Publish the `record_verdict` declaration for cleanup in the canonical source.
+  Rejected: the recorded runbook items keep their recorded state, and the
+  late-verdict route already serves them
+  ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 - Let the cleanup confirmation pass without a verdict. Rejected: completion
   requires the verdict, so the work strands one step later.
 
@@ -90,9 +96,10 @@ No definition version changes. Admission code is not definition content
 
 A caller that asks the preflight or reads the work pin gets the refusal that
 execution applies, for the confirmation and for a delivery behind review
-debt. A frozen ops runbook at cleanup without a verdict records the verdict
-there, then confirms. The liveness checks fold the recorded verdict at the
-premise question.
+debt. A recorded ops runbook at cleanup without a verdict records the verdict
+there, then confirms. The liveness checks read the recorded verdict at the
+premise question
+([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).
 
 ## Verification
 

@@ -36,9 +36,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:443172b4f65f0f74a72b7f47e7de90d0db6d71a702dfd4b0deaaba1e1dc4a596",
+  "sha256": "sha256:1b43ab23ce8ea39d5175b31dc03f536e74b7c7d0b57f34738a77d4d02af451aa",
   "status": "accepted",
-  "summary": "The folded admission state carries the acceptance-deliverables refusal while a premise question is open, so the preflight, the work pin, and execution refuse confirm_premise alike; the fresh-review refusal defers to the guards only for accept_worker_result, so every site refuses record_delivery behind review debt; and the late record_verdict route serves a premise-question step that does not declare record_verdict, so frozen ops runbooks at cleanup without a verdict record it there. No definition version changes.",
+  "summary": "Admission carries the acceptance-deliverables refusal while a premise question is open, so the preflight, the work pin, and execution refuse confirm_premise alike; the fresh-review refusal defers to the guards only for accept_worker_result, so every site refuses record_delivery behind review debt; and the late record_verdict route serves a premise-question step that does not declare record_verdict, so recorded ops runbooks at cleanup without a verdict record it there. The gate lives in admission code derived from the canonical source.",
   "tags": [
     "workflow",
     "workflow-engine",

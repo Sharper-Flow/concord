@@ -34,7 +34,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5c78168b69e1a3924b9c35fe8e665f111f0541c973d56dd8c417bd075944478c",
+  "sha256": "sha256:6aab0ac9c60fa38bf91f398c4abc165f3ff777c1406f35879034345276f87b1a",
   "status": "accepted",
   "summary": "Withholds every approval-required operator question until the work item carries an observation whose refs resolve to a current Domain and another work item, refuses contract approval while recorded pending questions lack a bound research pack revision, and leaves architecture mandatory where it already binds, at approval for Product-changing work.",
   "tags": [

@@ -12,6 +12,7 @@
 - **Extends:** CD-0059 (worker dispatch actions) at the composition rule the
   action pair was attached by; amends the CD-0059 authoring decision that
   excluded the research family
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D3, D14
 
 ## Context
 
@@ -55,10 +56,11 @@ its read steps like any other family.
 ### D3. Dispatch time enforces the lane against the step
 
 Definition composition is per-step and the join is per-lane, so the
-`dispatch_worker` fold resolves the packet's lane identity through the lane
+`dispatch_worker` admission resolves the packet's lane identity through the lane
 registry and refuses with `unauthorized_dispatch` when that lane's
-capability class is not admitted at the current step's kind. A step that
-carries the action does not by itself admit every lane.
+capability class is not admitted at the current step's kind
+([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).
+A step that carries the action does not by itself admit every lane.
 
 ### D4. The generator is the reachability gate
 
@@ -69,13 +71,11 @@ or a binding no lane carries, fails generation and CI. The generated
 `internal/store/generated_lane_step_dispatch.go` is the only table the
 composition and the dispatch-time gate read.
 
-### D5. Released definitions keep their content
+### D5. Definitions derive from one source
 
-Per CD-0115, the pre-join content of every family stays registered: the
-four families with frozen version 1 gain a frozen pre-join version 2, and
-the three families that shipped version 1 content keep it registered as
-version 1 beside the joined version 2. The shipped shapes carry the join at
-the next version, and the version pins table gains one row per new version.
+[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
+governs: the join composes the families' one canonical source, and no released
+version or pin is retained for it.
 
 ## Acceptance Criteria
 
@@ -83,7 +83,7 @@ the next version, and the version pins table gains one row per new version.
 Scenario: A read-only lane dispatches at a read step
   Given a break_fix item at the reproduce step
   When the coordinator dispatches the research lane
-  Then the dispatch folds and the attempt window opens
+  Then the dispatch is admitted and the attempt opens
 
 Scenario: An editing lane is refused at a read step
   Given a break_fix item at the reproduce step
@@ -115,5 +115,6 @@ pinned contract, so a contract's outcome predicates are the lane's mandate:
 predicates that name a file invite a file-shaped delivery, which is how
 issue #892's first attempt produced a stub. The coordinator prompt rule that
 names the research-lane trigger is host configuration and lands separately
-(issue #893). Every family's definition version moves by one, and the
-registry carries all released versions forever.
+(issue #893). [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
+governs: the registry derives from the one canonical source, so no released
+version list is retained.

@@ -22,6 +22,7 @@
   the work item contract that carries this record on 2026-10-06.
   The Snowball coordinator approved the 2026-10-17 amendment under the
   operator's delegation.
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 
 ## Context
 
@@ -76,7 +77,7 @@ before pull request 1558, but D3 never named them. The enumeration adds them:
 |---|---|---|
 | Bootstrap journal and worktree claim | `internal/store/bootstrap.go` `claimCrossProjectWorktree`, `prepareBootstrapMode`, `setBootstrapState`, `rollbackBootstrap`, `finalizeBootstrap`; `internal/store/worktrees.go` `ClaimWorktree` | The journal and the claim decide which work item owns a worktree on disk. A claim lost after its acknowledgement permits a second owner of the same worktree. |
 | Predecessor import | `cmd/concord/predecessor_import.go` `writeProductAndProjects`, `writeSecondaryProjects`, `writeSelectedWork` | The acknowledged import is the record of which Products, Projects, and work items migrated. A loss after the acknowledgement misstates the migration. |
-| Fold-guard recovery | `internal/store/recovery.go` `RecoverFoldGuard` | Recovery clears a stranded fold guard and rebuilds every projection in one transaction. Its acknowledgement admits ordinary writes again. |
+| Recovery | `internal/store/recovery.go` `RecoverFoldGuard` | Recovery restores current state in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Its acknowledgement admits ordinary writes again. |
 
 Four of the five CD-0050 D3 families remain. The standalone workflow
 completion family is withdrawn: `CompleteWorkflowWithRegistry` had no shipped

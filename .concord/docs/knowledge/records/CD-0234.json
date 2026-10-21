@@ -25,9 +25,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:83221a111dbaf3600c8a6622904540937f5e52cd84a3339d96e7f2f0fddd0f12",
+  "sha256": "sha256:9565e53a76245eb1b35dcbf41c45256f6da9ee1df07b5e50dd69d81293d94b4c",
   "status": "accepted",
-  "summary": "No retained workflow family declares add_condition, resolve_condition, or cancel_condition, and the engine has no condition resolver. A family may declare one only under an accepted decision that adds a resolver bound to the closed await_type set. An open condition refuses consequential actions before any write, and recorded conditions stay readable and rebuild unchanged.",
+  "summary": "No retained workflow family declares add_condition, resolve_condition, or cancel_condition, and the engine has no condition resolver. A family may declare one only under an accepted decision that adds a resolver bound to the closed await_type set. An open condition refuses consequential actions before any write, and recorded conditions stay readable as current rows.",
   "tags": [
     "workflow",
     "external-conditions",

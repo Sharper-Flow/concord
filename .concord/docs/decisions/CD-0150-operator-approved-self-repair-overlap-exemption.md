@@ -7,6 +7,7 @@
 - **Related:** CD-0222, CD-0144, and CD-0148
 - **Amends:** CD-0145 D1 and CD-0147 D3
 - **Preserves:** Typed refusals, visible overlap detail, ordinary overlap admission, contract authority, and all non-overlap gates
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D13
 
 ## Context
 
@@ -33,8 +34,10 @@ A `self_repair` classification has these fields:
 
 Only the Concord Product can use this classification. A signed operator
 decision must approve the exact successor contract through
-`supersede_contract`. The event fold verifies the operator identity and the
-Product registry key before it stores the classification. The operator decision
+`supersede_contract`. The supersession mutation verifies the operator identity
+and the Product registry key before it stores the classification
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+The operator decision
 is the authority. The evidence references remain its auditable support.
 
 ### D2. The exemption changes only overlap admission
@@ -53,11 +56,11 @@ Workflow reads, work pins, and continuity include the active classification.
 The overlap read surfaces continue to report every unresolved intersection for
 classified work.
 
-### D4. Historical contracts stay unclassified
+### D4. Prior contracts stay unclassified
 
-The schema migration stores `null` for existing contracts. Event upcasters add
-the same `null` value to historical contract approvals and supersessions. A
-replay cannot infer self-repair authority from old data.
+The cutover migration stores `null` for existing contracts, and nothing infers
+self-repair authority from prior data
+([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
 ## Consequences
 
@@ -71,5 +74,6 @@ replay cannot infer self-repair authority from old data.
 - Store tests prove the Product and operator restrictions.
 - Store tests prove classified admission and ordinary-work refusal.
 - Agent tests prove signed contract supersession and visible overlap detail.
-- Migration and upcaster tests prove that historical contracts stay unclassified.
+- Migration tests prove that existing contracts stay unclassified
+  ([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 - Generated payload checks prove the closed `self_repair` schema.

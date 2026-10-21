@@ -8,6 +8,7 @@
   [Concord (CON) issue 509](https://linear.app/sharper-flow/issue/CON-509)
 - **Amends:** CD-0178 D3 at the stored occupant
 - **Amended by:** [CD-0190](CD-0190-cd-0179-d1-and-d4-release-at-the-verified-vacate-landing.md) at D1's release clause and D4's release order: the vacate commit records the relocation request and releases nothing, and the verified landing the adapter-only verb records releases the session's rows in one transaction.
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 - **Preserves:** CD-0178 D1, D2, and D4 in full, and every content gate the
   removal operations run
 - **Related:** CD-0096, CD-0104, CD-0111, CD-0118, CD-0176
@@ -45,8 +46,10 @@ to reclaim.
 The host runs a session in one directory at a time. A verified landing of a
 session, or a session_vacate of that session, therefore proves every other
 occupancy row of the same session stale, in any work item, and releases all
-of them. The landing records the released source paths in its event, and the
-vacate fold releases them with the vacated row. A row another session holds
+of them. The landing records the released source paths, and the
+vacate mutation releases them with the vacated row
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+A row another session holds
 is never released by a rule of this record.
 
 ### D2. A claim records the host process identity at creation

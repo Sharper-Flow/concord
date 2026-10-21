@@ -12,6 +12,7 @@
 - **Preserves:** CD-0117 D2–D5, the research binding, the terminal-step
   exclusion, and worker fences; CD-0187 carries the review binding's own
   confirmation-step reach
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14
 
 ## Context
 
@@ -45,7 +46,9 @@ produces work, and the existing refusal test keeps that property.
 ### D2. No other surface moves
 
 Definition composition already places the dispatch pair on `external_effect`
-steps, so no workflow definition, version pin, or digest changes. The generated
+steps, so the canonical source and its derived digest are unchanged
+([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+The generated
 projection is regenerated from the amended contract, and its digest moves with
 the contract.
 
@@ -55,7 +58,7 @@ the contract.
 Scenario: The review lane dispatches at an effect step
   Given a break_fix item at the repair step
   When the coordinator dispatches the review lane
-  Then the dispatch folds and the attempt window opens
+  Then the dispatch is admitted and the attempt opens
 
 Scenario: The research lane is still refused at an effect step
   Given a break_fix item at the repair step

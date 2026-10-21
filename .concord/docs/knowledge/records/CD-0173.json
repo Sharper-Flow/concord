@@ -27,7 +27,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:529d948bc280dad6495f2045f65eb56081d9ebf1180f503a878ec2225a60d5d4",
+  "sha256": "sha256:3fd96f7a0de6e31abb64078a55881d56c59fb2f9fa3966f3dff269fc1d12ff4c",
   "status": "accepted",
   "summary": "Under CD-0242 D6 no convergence basis, escalation wall, or attempt count exists, so no pin advertises an escalated retry. The investigation gate demands the comparison work ref only when the item's Product holds another work item in any lifecycle, counted by the core in the same transaction.",
   "tags": [
@@ -36,5 +36,5 @@
     "correction",
     "investigation-gate"
   ],
-  "title": "The escalation wall stays visible and the gate counts the Product"
+  "title": "The investigation gate counts the Product"
 }

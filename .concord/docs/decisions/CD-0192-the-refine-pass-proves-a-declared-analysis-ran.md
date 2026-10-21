@@ -8,8 +8,9 @@
 - **Amends:** CD-0138 D3 at its second sentence ("The step is agent-worked,
   not scanner-driven.")
 - **Preserves:** CD-0138 D1, D2, and D4, the agent-judgment rule of CD-0138 D3,
-  CD-0055 D4, CD-0096 D3, and every earlier definition version's behavior and
-  digest
+  CD-0055 D4, CD-0096 D3, and the digests derived from the one canonical
+  source ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14)
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14
 - **Related:** CD-0013, CD-0055, CD-0096, CD-0138, CD-0156
 - **Approval:** The operator approved the work item contract that carries this
   record on 2026-09-29.
@@ -33,11 +34,12 @@ default ref.
 
 ### D1. The refine exit runs a guard at record_delivery
 
-Leaving `refine` through `record_delivery` on `workflow.implementation`
-version 18 and later, and `workflow.break_fix` version 16 and later, runs a
+Leaving `refine` through `record_delivery` in the implementation and
+break-fix families runs a
 guard registered next to the delivery admission guards. The guard is active
-only at the refinement step of those versions. Items pinned to earlier
-definition versions keep the behavior and digest they shipped with.
+only at the refinement step; [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
+governs: the families' one canonical source carries the guard, and no earlier
+version or pin is retained.
 
 ### D2. The proof is a green worktree_verify run bound in the epoch
 

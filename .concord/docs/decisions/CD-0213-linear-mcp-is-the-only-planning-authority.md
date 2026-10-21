@@ -81,7 +81,7 @@ The Concord binary makes no Linear API call. A resume reports the recorded
 issue key and URL. The agent reads current issue state through the Linear MCP
 server.
 
-### D8. History stays replayable
+### D8. Retired planning kinds keep no history
 
 [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current state and finite verified snapshots, not an event log or replay; retired planning kinds are not retained as history.
 

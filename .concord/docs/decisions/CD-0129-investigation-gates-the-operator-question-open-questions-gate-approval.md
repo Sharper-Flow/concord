@@ -12,7 +12,9 @@
 - **Amends:** Nothing. This record adds the obligation the earlier
   investigation contract omitted.
 - **Preserves:** Contract authority, architecture binding at approval,
-  event history, evidence provenance, and released definition pins
+  evidence provenance, and the recorded facts the store keeps
+  ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2)
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
 
 ## Context
 

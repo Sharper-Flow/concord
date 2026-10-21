@@ -61,9 +61,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e3cb16dec25e913df57ffe1a718df4d9033a6a45551f24ab7ea6997fa9caff57",
+  "sha256": "sha256:bb4e0036410287231a65609c483f93697c2432f6b37e58a5519e856ee6bd7bde",
   "status": "accepted",
-  "summary": "Ten planning and browsing operations retire from the agent surface: domain active_work, observation record and dismiss, relate link, unlink, supersede, and restore_superseded, product_view portfolio, work_compact lesson_publish, and knowledge unprocessed. Relation writing keeps three scoped writers: resolve_overlap with its five kinds and per-kind approval, capture raised_from inside the work.created fold, and the workflow link_successor forward_link. Lessons publish through a reviewed pull request, the unprocessed negative is resolve_note knowledge_missing, the Domain list, detail, attachments, and overlaps reads remain with observation rows readable, and planning history stays replayable. CD-0068 is superseded; the Product-row glance contract C14 retires by deletion with its read, and no C14 statement governs a live surface.",
+  "summary": "Ten planning and browsing operations retire from the agent surface: domain active_work, observation record and dismiss, relate link, unlink, supersede, and restore_superseded, product_view portfolio, work_compact lesson_publish, and knowledge unprocessed. Relation writing keeps three scoped writers: resolve_overlap with its five kinds and per-kind approval, capture raised_from with the work item's creation, and the workflow link_successor forward_link. Lessons publish through a reviewed pull request, the unprocessed negative is resolve_note knowledge_missing, the Domain list, detail, attachments, and overlaps reads remain with observation rows readable, and relation kinds stay closed and relation changes write current rows. CD-0068 is superseded; the Product-row glance contract C14 retires by deletion with its read, and no C14 statement governs a live surface.",
   "tags": [
     "agent-surface",
     "planning-retirement",

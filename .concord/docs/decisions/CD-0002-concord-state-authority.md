@@ -6,9 +6,9 @@
 > **Superseded/amended in part by:**
 >
 > - [`../product-memory-authority-scope.md`](../product-memory-authority-scope.md) (PM2, 2026-08-05) replaces only the physical per-Project file scope with one global local SQLite authority.
-> - [`../product-memory-domain-schema.md`](../product-memory-domain-schema.md) (PM3, 2026-08-05) names the generic log `domain_events` and replaces the generic materialized spine with explicit typed projections.
+> - [`../product-memory-domain-schema.md`](../product-memory-domain-schema.md) (PM3, 2026-08-05) replaces the generic materialized spine with explicit typed projections.
 > - [`../canonical-git-note-placement.md`](../canonical-git-note-placement.md) (PM6, 2026-08-05) fixes git proof before eligibility.
-> - [`../compaction-retention-policy.md`](../compaction-retention-policy.md) (2026-10-09) fixes bounded lazy projection pruning while retaining `domain_events`.
+> - [`../compaction-retention-policy.md`](../compaction-retention-policy.md) (2026-10-09) fixes bounded retention of store state; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current rows and finite verified snapshots, not an event log.
 > - [`CD-0215-retained-research-context.md`](./CD-0215-retained-research-context.md) (2026-10-09) keeps the sole narrow direct-table exception for research context, retained until explicit retirement.
 > - [`CD-0011-retain-sqlite-after-conformance.md`](./CD-0011-retain-sqlite-after-conformance.md) (2026-08-07) records the post-falsifier review and retains SQLite with explicit future reopen conditions.
 > - [`CD-0238-point-in-time-reconstruction-runs-outside-the-core.md`](./CD-0238-point-in-time-reconstruction-runs-outside-the-core.md) (2026-10-18) moves point-in-time reconstruction out of the core, onto the operator's machine.

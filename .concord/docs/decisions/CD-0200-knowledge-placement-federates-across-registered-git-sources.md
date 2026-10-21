@@ -16,6 +16,7 @@
 - **Preserves:** [CD-0194](CD-0194-product-knowledge-lives-under-concord.md)
   in full (the `.concord/` default stays); PM6's one-note-per-work-item rule
   stays; CD-0020 D2, D4, D5, D6, and Invariants 1, 3, 4, 5, 6 stay
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 - **Approval:** The operator approved this work item contract in chat on
   2026-10-01, including the finding that CD-0020's reopen condition 1 is met.
 
@@ -40,9 +41,10 @@ copy.
 
 A Product resolves Product-wide knowledge over one designated shared-law
 home plus the member Project canonical-path locators the operator registers
-as sources. Registration is explicit operator configuration through the
-`product.knowledge_source_registered` and `product.knowledge_source_removed`
-events; discovery never makes a repository law. The designated home stays
+as sources. Registration is explicit operator configuration written as
+current rows in one transaction; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+governs: the store keeps current rows, not an event log. Discovery never
+makes a repository law. The designated home stays
 the single shared-law home and is always a source. It never appears in the
 registration table, so its removal is a typed not-found refusal.
 

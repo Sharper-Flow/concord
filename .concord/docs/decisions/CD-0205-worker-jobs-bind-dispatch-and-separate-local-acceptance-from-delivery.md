@@ -4,27 +4,31 @@
 - **Date:** 2026-10-05
 - **Scope:** The worker-job revision record, its binding through the packet,
   the dispatch evidence, the report, and the acceptance; the step hold of a
-  local acceptance; the correction window of a failed job
-- **Refines:** CD-0164 D1 and D2, which count every dispatch and reset the
-  count on any accepted result
+  local acceptance; the acceptance of a failed job's terminal result
+- **Refines:** [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
+  governs: each launch is one admitted request with its own scope, assignment,
+  and subject bindings, with no dispatch count or count reset
 - **Amends:** CD-0198 D4 at a job-capable refine step: a plain accept of a
   job-bound attempt is local acceptance, not a refusal
-- **Preserves:** CD-0067, the core-authorized packet; CD-0115, released
-  definition content and digests; CD-0148, the exact retry approval and fresh
-  fencing; CD-0201, the single admission derivation and the liveness law
+- **Preserves:** CD-0067, the core-authorized packet; CD-0201, the single
+  admission derivation and the liveness law; [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
+  governs: definitions generate from one canonical source, and [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
+  governs: each launch carries its own authority
 - **Related:** CD-0137, CD-0192
 - **Amended by:** [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
-  D4 (the recorded observer and phase are an eligibility condition of the
-  `host_changed` basis)
+  D4 (attribution records the observer and phase its producer observed;
+  [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
+  governs: no `host_changed` or other convergence basis exists)
 - **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D6, D14
 - **Amended:** 2026-10-19, approved by the operator as exact text for
   [Concord (CON) issue 1221](https://linear.app/sharper-flow/issue/CON-1221).
-  D4 adds the checks repair and amends CD-0148 and CD-0164: the escalation
-  wall admits the one confirming review a checks repair funds, without a
-  convergence basis. The change is serious under P12: an accepted ship
-  verdict on that review closes a failed job's correction window, the wall
-  admits a dispatch no basis bought, and the repair reason is a
-  caller-supplied claim that grants authority. The Domain test counts one
+  D4 adds the checks repair; [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
+  governs: each launch is one admitted request with its own authority, and no
+  escalation wall, convergence basis, or correction window exists. The change
+  is serious under P12: an accepted ship verdict on that review settles the
+  failed job's terminal result. The repair dispatch carries its own
+  authority. The repair reason is a caller-supplied claim that feeds the
+  admission checks. The Domain test counts one
   child Domain, `workflow-engine`. It changes no UI/UX.
 - **Approval:** The operator approved contract version 1 of
   `work-e46f4308fb5dad191fcbe259`. That contract names CD-0164 and CD-0198 as
@@ -43,13 +47,14 @@ At a refine step, an ordinary accept must assert delivery (CD-0198 D4). A
 successful partial job therefore cannot get its own disposition without a
 whole-work delivery assertion.
 
-CD-0164 D2 resets the correction count on any accepted result. With local
-acceptance, an unrelated successful job would then erase the budget of a failed
-job.
+With local acceptance, each job's disposition comes from its own dispatched
+revision and report; [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
+governs: each terminal result is accepted or rejected once, with no
+correction count an unrelated acceptance could reset.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, failed retry and correction require exact transactional state/evidence bindings, not operator approval. Parent-contract, immutable job/oracle, preparation, packet, receipt, delivery, integration, and independence obligations remain unchanged. Premise confirmation remains required with CD-0013 D11's class-appropriate actor. Historical pins retain their original signature requirements.
+For `approval_policy=consequence_v1`, failed retry and correction require exact transactional state/evidence bindings, not operator approval. Parent-contract, immutable job/oracle, preparation, packet, receipt, delivery, integration, and independence obligations remain unchanged. Premise confirmation remains required with CD-0013 D11's class-appropriate actor. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source, and no released-definition version or pin is retained for history.
 
 
 ### D1. A worker-job revision is an immutable record under the work item
@@ -128,7 +133,7 @@ Preparation precedes the ready job record; the native owner derives a digest
 over the exact owner, case, and control bundle except its readiness references.
 The recorded job must match that bundle and parent authority exactly.
 Dispatch requires preparation bound to the same candidate and runtime environment.
-A readiness refusal creates no attempt and spends no dispatch budget.
+A readiness refusal creates no attempt.
 Unsupported recipes or unavailable inputs require explicit preparation recovery,
 not an invented reference, automatic execution, or a readiness exception.
 
@@ -193,7 +198,7 @@ A finalized native replay returns retained evidence without another launch.
 Managed lanes gain no Concord tools; the authenticated native host owns this
 execution through the existing verify operation and its capability grant.
 This observation grants neither semantic acceptance nor independent authority.
-No new dispatch window, authorization row, or retry budget is implied.
+No new dispatch window or authorization row is implied.
 
 An earlier definition version refuses `inputs.worker_job`. A step without
 `record_worker_job` also refuses it. The lane-step join keeps its existing
@@ -307,7 +312,7 @@ proof, review debt, verdict, and operator gates as `record_delivery`. At a
 refine step, a plain accept of an attempt without a job still refuses. That
 accept would assert neither a job disposition nor a delivery.
 
-### D6. Historical pins and histories keep their behavior
+### D6. Definitions generate from one source
 
 [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
 governs: derived definitions are generated from one canonical source, no
@@ -376,11 +381,9 @@ subject, source, or cause; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-c
   remaining work.
 - Add a caller-selected advance flag to the accept. Rejected: a second exit
   owner beside delivery admission.
-- Count only failed or judgeable attempts. Rejected: CD-0164 D1 forbids free
-  retries.
-- Give each job its own free retry budget. Rejected: renaming a job would
-  restore the budget.
-- Change the released definitions in place. Rejected: CD-0115 forbids it.
+- Change the released definitions in place. Rejected: [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
+  governs: definitions generate from one canonical source, so an in-place
+  edit drifts from the source.
 
 ## Consequences
 

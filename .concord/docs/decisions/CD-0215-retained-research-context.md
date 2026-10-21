@@ -7,7 +7,8 @@
   calendar expiration was rejected.
 - **Preserves:** [CD-0222](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) Initiative
   context, [CD-0022](CD-0022-active-research-finding-scope.md) applicability,
-  PM3 event authority, PM10 recovery, and separate durable promotion.
+  PM10 recovery, and separate durable promotion.
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 - **Related:** [CD-0216](CD-0216-research-surface-and-explicit-retirement.md),
   [CD-0217](CD-0217-publication-and-retention-boundaries.md),
   [compaction-retention-policy](../compaction-retention-policy.md)
@@ -113,14 +114,15 @@ Deletion creates no permanent tombstone or deleted-ID registry.
 ### D4. Research and work have different authority
 
 - These tables are the sole authority for pack content and consumer links.
-- Pack bodies, findings, sources, and consumer links never enter retained `domain_events`.
-- Pack tables are not work projections and cannot rebuild from the domain log.
+- Pack bodies, findings, sources, and consumer links live only in these tables, never mirrored into other store state.
+- Pack tables are not work projections, and no store rebuild produces their content.
 - Writes use one transactional pack boundary with expected versions, idempotency, foreign-key validation, enum validation, and postcondition readback.
 - Agent envelopes compose the same transaction-scoped cores without a second idempotency owner.
 - PM10 backup and restore preserve these tables while they exist.
 - Ordinary backup aging remains separate; retirement is not secure erasure of backup copies.
 
-`domain_events` still owns work identity, lifecycle, membership, relations, gates, and archive linkage.
+[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+governs: the store's current rows own work identity, lifecycle, membership, relations, gates, and archive linkage.
 No second database, corpus event log, or work-context projection replaces direct research authority.
 
 ### D5. Three ownership contexts
@@ -146,7 +148,7 @@ All three contexts use the same terminal-owner retention rule.
 - This deterministic fail-closed query is not a PM4 blocker and admits no heuristic substitute.
 - An active pin belongs to a nonterminal consuming work item, whether `required=true` or `required=false`.
 - Every active pin protects its pack from retirement.
-- Consumer terminalization releases its active bindings transactionally before any work-projection removal.
+- Consumer terminalization releases its active bindings transactionally before terminal cleanup removes the work's rows.
 - Publication and a `no change` conclusion do not require consumers to release their pins.
 - New authorized reliance on a retained terminal-owner revision remains valid while the pack exists.
 - Scope, exact revision identity, and freshness still govern that reliance.
@@ -180,10 +182,10 @@ Retirement deletes the pack and all dependent revisions, findings, sources, prov
 Crash before commit retains the aggregate; crash after commit retains the committed result.
 Replay returns that result without reconstructing content or repeating deletion.
 
-Reads, failed unrelated mutations, terminal hooks, publication, rebuild, and restart do not perform retirement.
+Reads, failed unrelated mutations, terminal hooks, publication, restore, and restart do not perform retirement.
 Any authorized owner reopen before retirement removes terminal eligibility in the same transaction.
 Owner removal and foreign-key cascades must preserve retained research or refuse removal, never bypass explicit retirement.
-No deleted pack is reconstructed from a work note or event history.
+No deleted pack is reconstructed from a work note or retained store rows.
 
 ### D8. Non-goals and content boundaries
 
@@ -218,7 +220,7 @@ No Concord workflow contract was created here; the manifest does not invent legi
 Required witnesses cover active-session restart, conflict fences, distinct exact pins, stale required refusal, and optional nonblocking reliance.
 They also cover terminal read-only reuse, publication without deletion, optional-pin protection, bounded dry runs, deletion atomicity, and crash/replay.
 All terminal routes, reopen, owner removal, rebuild, upgrade, restore, authorization denial, and pin/retire races require evidence.
-Deleted text must remain absent from Git, retained events, historical pack indexes, and knowledge search.
+Deleted text must remain absent from Git, retained store rows, historical pack indexes, and knowledge search.
 Architecture-spike decision requirements and CD-0222 Initiative entry, narrative, and scope witnesses remain mandatory.
 `internal/store.TestResearchRetirementActivePinsProtectAndTerminalReleaseFences` is a candidate anchor for pin protection, not all these obligations.
 

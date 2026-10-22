@@ -48,8 +48,9 @@ func seedWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef, verdict
 // can demand a kind no captured record has satisfied yet.
 func seedWorkflowReturnRouteFixtureRequiring(t *testing.T, workID, definitionRef, verdictStep string, requiredEvidence, boundKinds []string) workflowReturnRouteFixture {
 	t.Helper()
-	// The fixture's verdicts and corrections run under the operator
-	// substitution the legacy policy keeps.
+	// The fixture seeds the current consequence_v1 definition with an
+	// engineering contract: the coordinator confirms, not a legacy operator
+	// substitution.
 	registered := legacyApprovalPolicyDefinitionForRef(t, definitionRef)
 	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, verdictStep, requiredEvidence, boundKinds)
 }

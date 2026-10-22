@@ -81,17 +81,26 @@ func TestMandateAdmissionAgreement(t *testing.T) {
 			mandate = "bound"
 		}
 		conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, definition, admissionModelState{
-			step: pin.Step, debt: ReviewDebtNone, contracts: 1, mandate: mandate,
+			step: pin.Step, debt: ReviewDebtNone, contracts: 1, mandate: mandate, engineering: true,
 		}, mandate)
 		decision := workflowAdmit(definition, state, "record_verdict")
-		payload := json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok"}]}`)
+		payload := json.RawMessage(`{"verdicts":[{"predicate_id":"predicate:return-route","receipt_refs":["worktree_verify:mandate-unreachable"]}]}`)
 		preflightErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 			WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_verdict", Actor: fixture.operator, Payload: payload,
 		})
 		advertised := workPinContainsAction(pin.NextValidIntents, "record_verdict")
 		if bound {
-			if !decision.Admitted || !advertised || preflightErr != nil {
-				t.Fatalf("bound mandate: admitted=%v, advertised=%v, preflight=%v", decision.Admitted, advertised, preflightErr)
+			// A bound mandate no longer refuses. The fixture carries no
+			// integrated candidate, so the payload-bound record_verdict
+			// validation refuses on that next requirement instead — the
+			// mandate dimension itself is satisfied on both sides.
+			if !decision.Admitted || !advertised {
+				t.Fatalf("bound mandate: admitted=%v, advertised=%v", decision.Admitted, advertised)
+			}
+			var boundFailure *Failure
+			if !failureAs(preflightErr, &boundFailure) || boundFailure.Kind != KindMissingEvidence ||
+				!strings.Contains(boundFailure.Detail, "current integrated candidate") || strings.Contains(boundFailure.Detail, "spec:one") {
+				t.Fatalf("bound mandate preflight = %v, want the candidate requirement past the satisfied mandate", preflightErr)
 			}
 			continue
 		}

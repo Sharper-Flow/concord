@@ -183,8 +183,8 @@ type admissionModelState struct {
 }
 
 func (s admissionModelState) String() string {
-	return fmt.Sprintf("(step %q debt %q ready %q attempt %q dispatched %v producer %v freshOrigin %v nonprogress %d convergence %q findingsAt %q jobDebt %v unboundRejectAt %q contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q jobs %q integration %v sizeStop %v done %v)",
-		s.step, s.debt, s.ready, s.attempt, s.dispatched, s.attemptProduces, s.attemptFresh, s.nonprogress, s.convergence, s.findingsSeen, s.jobDebt, s.unboundRejectionStep, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.jobs, s.integration, s.sizeStop, s.done)
+	return fmt.Sprintf("(step %q debt %q ready %q attempt %q dispatched %v producer %v freshOrigin %v nonprogress %d convergence %q findingsAt %q jobDebt %v unboundRejectAt %q contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q jobs %q unsatisfied %q scope %q integration %v sizeStop %v engineering %v done %v)",
+		s.step, s.debt, s.ready, s.attempt, s.dispatched, s.attemptProduces, s.attemptFresh, s.nonprogress, s.convergence, s.findingsSeen, s.jobDebt, s.unboundRejectionStep, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.jobs, s.jobsUnsatisfied, s.jobsScope, s.integration, s.sizeStop, s.engineering, s.done)
 }
 
 func admissionModelStart(definition WorkflowDefinition) admissionModelState {
@@ -422,7 +422,11 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 	if (folded.PendingOperatorDecision || state.engineering) && action == "confirm_premise" && state.verdict == "" {
 		folded.AcceptanceDeliverablesMissing = newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a recorded workflow verdict", false, "record_verdict before confirming the premise")
 	}
-	if state.engineering && action == "confirm_premise" && folded.AcceptanceDeliverablesMissing == nil && !state.artifact {
+	// The engineering confirmation folds the investigation prerequisite at
+	// every step that hosts the confirmation action — a human checkpoint's
+	// record_verdict beside confirm_premise — exactly as the loader's
+	// prerequisite fold does.
+	if state.engineering && action != "" && folded.AcceptanceDeliverablesMissing == nil && !state.artifact {
 		folded.AcceptanceDeliverablesMissing = newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires the recorded investigation artifact", false, "record the investigation observation before confirming")
 	}
 	if refinement && reviewStep {

@@ -11,6 +11,7 @@ import (
 // WorkPin is the one point-in-time projection that a caller needs to prepare
 // the next operation for a work item.
 type WorkPin struct {
+	Review                  *WorkflowReviewState      `json:"review,omitempty"`
 	WorkID                  string                    `json:"work_id"`
 	Title                   string                    `json:"title"`
 	LinearIssueKey          string                    `json:"linear_issue_key"`
@@ -417,6 +418,7 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 	if stateErr != nil {
 		return WorkflowAdmissionState{}, stateErr
 	}
+	pin.Review = state.Review
 	pin.NextValidIntents = workPinIntents(definition, pin.Step, pin.Version)
 	kept := pin.NextValidIntents[:0:0]
 	for _, intent := range pin.NextValidIntents {
@@ -439,18 +441,6 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 	if state.EvidenceRecoveryRoute && !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
 		if decision := workflowAdmit(definition, state, "bind_evidence"); decision.Admitted || decision.ApprovalRequired {
 			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "bind_evidence"), pin.Version, "evidence_binding_recovery"))
-		}
-	}
-	// The acceptance of the ready review is itself the fresh review the
-	// guard waits for, so the pin re-offers it at the refinement step. The
-	// re-offer rides the review gate's own refusal alone: a refusal of any
-	// other cause leaves the accept hidden. A ready no_ship review settles
-	// nothing, so its acceptance is the non-delivery accept that binds the
-	// findings and leaves the debt; the pin offers the action and the
-	// delivery assertion stays refused.
-	if stepDeclaresAction(definition, pin.Step, "checkpoint_refine") && state.ReadyReviewAttemptID != "" {
-		if decision := workflowAdmit(definition, state, "accept_worker_result"); decision.FreshReviewRequired {
-			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "accept_worker_result"), pin.Version, "post_rejection_review"))
 		}
 	}
 	return state, nil
@@ -497,12 +487,7 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 			return questionErr
 		}
 		pin.PendingOperatorDecision, pin.WithheldOperatorDecision = pending, withheld
-		if state.LateVerdictRoute {
-			if decision := workflowAdmit(definition, state, "record_verdict"); decision.Admitted || decision.ApprovalRequired {
-				pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(currentActionDefinition("record_verdict", true), pin.Version, "late_verdict_recovery"))
-			}
-		}
-		if stepDeclaresAction(definition, pin.Step, "record_verdict") || state.LateVerdictRoute {
+		if stepDeclaresAction(definition, pin.Step, "record_verdict") {
 			verdictEvidence, evidenceErr := workPinVerdictEvidenceTx(ctx, tx, workID)
 			if evidenceErr != nil {
 				return evidenceErr

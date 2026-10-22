@@ -246,7 +246,7 @@ func TestOwnerOracleIndependentClosure(t *testing.T) {
 	first := "attempt:" + workID + ":1"
 	oracleDispatchAttempt(t, f, workID, first, twoPathOracleFields(t, s, workID, nil), job)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, first, "independent-finding", func(p *WorkerCompletedPayload) {
-		p.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{oracleBlockerFinding("independent control failed", "path-b", "control:check-b")}}
+		p.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{oracleBlockerFinding("independent control failed", "path-b", "control:check-b")}}
 	})}}); err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestOwnerOracleUncoveredClosure(t *testing.T) {
 	first := "attempt:" + workID + ":1"
 	oracleDispatchAttempt(t, f, workID, first, twoPathOracleFields(t, s, workID, nil), job)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, first, "uncovered-finding", func(p *WorkerCompletedPayload) {
-		p.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{{Severity: "P1", Confidence: "high", Detail: "path c fails",
+		p.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{{Severity: "P1", Confidence: "high", Detail: "path c fails",
 			Oracle: &WorkerOracleFinding{Classification: OracleClassificationUncoveredCase, OwnerID: "owner:repair", EntryPoint: "repair path c", FailureFamily: "path-c", EvidenceRefs: []string{"evidence:reproduce-c"}}}}}
 	})}}); err != nil {
 		t.Fatal(err)
@@ -696,10 +696,10 @@ func oracleCompletionEvent(t *testing.T, s *Store, workID, attemptID, eventKey s
 		WorkerDirectory: workerFixtureDirectory(t, s, workID),
 	}
 	if len(lane.RequiredReportBlocks) > 0 {
-		payload.Review = &WorkerReviewBlock{Verdict: "ship", Findings: []WorkerReviewFinding{}}
+		payload.Review = &WorkerReviewBlock{Disposition: "ready_for_final_proof", Findings: []WorkerReviewFinding{}}
 	}
 	if payload.Review == nil {
-		payload.Review = &WorkerReviewBlock{Verdict: "ship", Findings: []WorkerReviewFinding{}}
+		payload.Review = &WorkerReviewBlock{Disposition: "ready_for_final_proof", Findings: []WorkerReviewFinding{}}
 	}
 	payload.Evidence = reportedLaneEvidenceForTest(lane, payload.Review)
 	if build != nil {
@@ -774,7 +774,7 @@ func TestOwnerOracleFinding(t *testing.T) {
 	// reproducible evidence, and an unavailable receipt with the empty
 	// run_ref and no exit code.
 	if err := report(func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{{
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{{
 			Severity: "P1", Confidence: "high", Detail: "path a fails the obligation",
 			Oracle: &WorkerOracleFinding{
 				Classification: OracleClassificationDeliveryBlocker, OwnerID: "owner:repair",
@@ -793,13 +793,13 @@ func TestOwnerOracleFinding(t *testing.T) {
 
 	// Every finding of an oracle-bound dispatch carries a classification.
 	if err := report(func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "ship", Findings: []WorkerReviewFinding{{Severity: "P2", Confidence: "low", Detail: "unclassified"}}}
+		payload.Review = &WorkerReviewBlock{Disposition: "ready_for_final_proof", Findings: []WorkerReviewFinding{{Severity: "P2", Confidence: "low", Detail: "unclassified"}}}
 	}); err == nil || !strings.Contains(err.Error(), "carries no oracle classification") {
 		t.Fatalf("unclassified finding error = %v", err)
 	}
 	// A delivery blocker without an owner tie refuses.
 	if err := report(func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{{
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{{
 			Severity: "P1", Confidence: "high", Detail: "no owner",
 			Oracle: &WorkerOracleFinding{Classification: OracleClassificationDeliveryBlocker, FailureFamily: "path-a", EvidenceRefs: []string{"run:x"}},
 		}}}
@@ -808,7 +808,7 @@ func TestOwnerOracleFinding(t *testing.T) {
 	}
 	// A predicate the owner does not cover refuses.
 	if err := report(func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{{
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{{
 			Severity: "P1", Confidence: "high", Detail: "foreign predicate",
 			Oracle: &WorkerOracleFinding{Classification: OracleClassificationDeliveryBlocker, OwnerID: "owner:repair", FailureFamily: "path-a", PredicateIDs: []string{"predicate:never-approved"}, EvidenceRefs: []string{"run:x"}},
 		}}}
@@ -817,7 +817,7 @@ func TestOwnerOracleFinding(t *testing.T) {
 	}
 	// Reproducible evidence is part of the blocker tie.
 	if err := report(func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{{
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{{
 			Severity: "P1", Confidence: "high", Detail: "no evidence",
 			Oracle: &WorkerOracleFinding{Classification: OracleClassificationDeliveryBlocker, OwnerID: "owner:repair", FailureFamily: "path-a", PredicateIDs: []string{predicate}},
 		}}}
@@ -826,7 +826,7 @@ func TestOwnerOracleFinding(t *testing.T) {
 	}
 	// An uncovered case without its explicit entry path refuses…
 	if err := report(func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{{
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{{
 			Severity: "P1", Confidence: "high", Detail: "uncovered without a path",
 			Oracle: &WorkerOracleFinding{Classification: OracleClassificationUncoveredCase, OwnerID: "owner:repair", FailureFamily: "path-c", EvidenceRefs: []string{"run:x"}},
 		}}}
@@ -836,7 +836,7 @@ func TestOwnerOracleFinding(t *testing.T) {
 	// …and one with the entry path and reproduction folds while naming no
 	// control: a legitimate new blocker, not a rejected missing control.
 	if err := report(func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{{
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{{
 			Severity: "P1", Confidence: "high", Detail: "uncovered path c reproduces",
 			Oracle: &WorkerOracleFinding{Classification: OracleClassificationUncoveredCase, OwnerID: "owner:repair", FailureFamily: "path-c", EntryPoint: "repair path c", EvidenceRefs: []string{"run:path-c"}},
 		}}}
@@ -847,7 +847,7 @@ func TestOwnerOracleFinding(t *testing.T) {
 	// An out-of-scope P0 follow-up records a valid retained no_ship and
 	// holds review debt as non-progress without forcing an invalid report.
 	if err := report(func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{{
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{{
 			Severity: "P0", Confidence: "high", Detail: "consequential outside-scope concern",
 			Oracle: &WorkerOracleFinding{Classification: OracleClassificationFollowUp},
 		}}}
@@ -860,7 +860,7 @@ func TestOwnerOracleFinding(t *testing.T) {
 	}
 	// A no_ship justified only by sub-P0 follow-ups is inconsistent.
 	if err := report(func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{{
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{{
 			Severity: "P2", Confidence: "low", Detail: "polish outside the contract",
 			Oracle: &WorkerOracleFinding{Classification: OracleClassificationFollowUp},
 		}}}
@@ -869,7 +869,7 @@ func TestOwnerOracleFinding(t *testing.T) {
 	}
 	// A ship never carries a classified blocker.
 	if err := report(func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "ship", Findings: []WorkerReviewFinding{oracleBlockerFinding("blocker under a ship verdict", "path-a", "control:check-a")}}
+		payload.Review = &WorkerReviewBlock{Disposition: "ready_for_final_proof", Findings: []WorkerReviewFinding{oracleBlockerFinding("blocker under a ship verdict", "path-a", "control:check-a")}}
 	}); err == nil || !strings.Contains(err.Error(), "cannot carry a classified delivery blocker") {
 		t.Fatalf("ship-with-blocker error = %v", err)
 	}
@@ -895,7 +895,7 @@ func TestOwnerOracleLineage(t *testing.T) {
 			{Kind: "observation", Statement: "first context claim", SubjectRef: "internal/store/a.go", EvidenceRefs: []string{}, DomainID: "root", ProductWideRationale: "the claim spans the fixture root Domain"},
 			{Kind: "observation", Statement: "second context claim", SubjectRef: "internal/store/b.go", EvidenceRefs: []string{}, DomainID: "root", ProductWideRationale: "the claim spans the fixture root Domain"},
 		}
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{
 			oracleBlockerFinding("the ranked blocker", "path-a", "control:check-a"),
 			{Severity: "P3", Confidence: "low", Detail: "a follow-up outside the contract", Oracle: &WorkerOracleFinding{Classification: OracleClassificationFollowUp}},
 		}}
@@ -925,7 +925,7 @@ func TestOwnerOracleLineage(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt2, "oracle-lineage-2", func(payload *WorkerCompletedPayload) {
 		continueFinding := oracleBlockerFinding("the same failure persists", "path-a", "control:check-a")
 		continueFinding.Oracle.ContinuesFindingID = blockerID
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{continueFinding}}
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{continueFinding}}
 	})}}); err != nil {
 		t.Fatalf("continuation refused: %v", err)
 	}
@@ -943,7 +943,7 @@ func TestOwnerOracleLineage(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt3, "oracle-lineage-3", func(payload *WorkerCompletedPayload) {
 		foreign := oracleBlockerFinding("a different failure family", "path-b", "control:check-b")
 		foreign.Oracle.ContinuesFindingID = blockerID
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{foreign}}
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{foreign}}
 	})}}); err == nil || !strings.Contains(err.Error(), "does not retain the earlier finding's owner") {
 		t.Fatalf("foreign continuation error = %v", err)
 	}
@@ -955,7 +955,7 @@ func TestOwnerOracleLineage(t *testing.T) {
 		variant := oracleBlockerFinding("an alternate entry path of the same owner", "path-a2", "control:check-a")
 		variant.Oracle.VariantOf = blockerID
 		uncertain := oracleBlockerFinding("same family, uncertain join", "path-a", "control:check-a")
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{variant, uncertain}}
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{variant, uncertain}}
 	})}}); err != nil {
 		t.Fatalf("variant and uncertain join refused: %v", err)
 	}
@@ -1120,7 +1120,7 @@ func TestOwnerOracleRepairFamily(t *testing.T) {
 			ControlIDs: []string{"control:check-b"}, CaseIDs: []string{"case:path-b"}, SubjectCommit: strings.TrimPrefix(bPass1.SubjectRef, "commit:"), RecipeSource: recipe,
 			Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: bPass1.OperationRef, EvidenceRefs: []string{"harness output b"},
 		}
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{oracleBlockerFinding("path a fails", "path-a", "control:check-a")}}
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{oracleBlockerFinding("path a fails", "path-a", "control:check-a")}}
 	})}}); err != nil {
 		t.Fatalf("round one refused: %v", err)
 	}
@@ -1150,7 +1150,7 @@ func TestOwnerOracleRepairFamily(t *testing.T) {
 			Result: OracleReceiptResultFail, ExitCode: &fail, RunRef: bFail2.OperationRef, EvidenceRefs: []string{"harness output b"},
 		}
 		payload.Review = &WorkerReviewBlock{
-			Verdict: "no_ship",
+			Disposition: "correction_required",
 			Findings: []WorkerReviewFinding{func() WorkerReviewFinding {
 				finding := oracleBlockerFinding("path b fails after the first repair", "path-b", "control:check-b")
 				return finding
@@ -1191,7 +1191,7 @@ func TestOwnerOracleRepairFamily(t *testing.T) {
 			Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: bPass3.OperationRef, EvidenceRefs: []string{"harness output b"},
 		}
 		payload.Review = &WorkerReviewBlock{
-			Verdict:          "ship",
+			Disposition:      "ready_for_final_proof",
 			Findings:         []WorkerReviewFinding{},
 			ResolvedFindings: []WorkerOracleResolution{{FindingID: open[0], EvidenceRefs: []string{bPass1.OperationRef}}},
 		}
@@ -1207,7 +1207,7 @@ func TestOwnerOracleRepairFamily(t *testing.T) {
 			Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: bPass3.OperationRef, EvidenceRefs: []string{"harness output b"},
 		}
 		payload.Review = &WorkerReviewBlock{
-			Verdict:          "ship",
+			Disposition:      "ready_for_final_proof",
 			Findings:         []WorkerReviewFinding{},
 			ResolvedFindings: []WorkerOracleResolution{{FindingID: open[0], EvidenceRefs: []string{bPass3.OperationRef}}},
 		}
@@ -1217,7 +1217,7 @@ func TestOwnerOracleRepairFamily(t *testing.T) {
 	// A later regression of the fixed first path reopens the owner with a
 	// new identity: replacing one finding with another is not shrinkage.
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt3, "oracle-family-3c", func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{oracleBlockerFinding("path a regressed", "path-a", "control:check-a")}}
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{oracleBlockerFinding("path a regressed", "path-a", "control:check-a")}}
 	})}}); err != nil {
 		t.Fatalf("regression report refused: %v", err)
 	}
@@ -1265,7 +1265,7 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	attempt1 := "attempt:" + workID + ":1"
 	oracleDispatchAttempt(t, f, workID, attempt1, twoPathOracleFields(t, s, workID, reportedBoth), job)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt1, "oracle-convergence", func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{
 			oracleBlockerFinding("first blocker", "family-one", "control:check-a"),
 			oracleBlockerFinding("second blocker", "family-two", "control:check-a"),
 		}}
@@ -1307,7 +1307,7 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt2, "oracle-convergence-2", func(payload *WorkerCompletedPayload) {
 		withReceipt(payload, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, SubjectCommit: strings.TrimPrefix(closeRun.SubjectRef, "commit:"), RecipeSource: recipe, Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: closeRun.OperationRef})
 		payload.Review = &WorkerReviewBlock{
-			Verdict:          "ship",
+			Disposition:      "ready_for_final_proof",
 			Findings:         []WorkerReviewFinding{},
 			ResolvedFindings: []WorkerOracleResolution{{FindingID: open[1], EvidenceRefs: []string{closeRun.OperationRef}}},
 		}
@@ -1336,7 +1336,7 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt3, "oracle-convergence-3", func(payload *WorkerCompletedPayload) {
 		withReceipt(payload, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, SubjectCommit: strings.TrimPrefix(replaceRun.SubjectRef, "commit:"), RecipeSource: recipe, Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: replaceRun.OperationRef})
 		payload.Review = &WorkerReviewBlock{
-			Verdict:          "no_ship",
+			Disposition:      "correction_required",
 			Findings:         []WorkerReviewFinding{oracleBlockerFinding("a fresh sibling of the closed family", "family-one", "control:check-a")},
 			ResolvedFindings: []WorkerOracleResolution{{FindingID: open[0], EvidenceRefs: []string{replaceRun.OperationRef}}},
 		}
@@ -1367,7 +1367,7 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	// The sibling must be re-minted as open first: report a blocker plus
 	// an oracle defect, then close both, the defect through its evidence.
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt4, "oracle-convergence-4", func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{
 			oracleBlockerFinding("a fresh blocker to shrink against", "family-three", "control:check-a"),
 			{Severity: "P1", Confidence: "high", Detail: "the harness fixture is unsound",
 				Oracle: &WorkerOracleFinding{Classification: OracleClassificationOracleDefect, OwnerID: "owner:repair", FailureFamily: "harness", ControlIDs: []string{"control:check-b"}, EvidenceRefs: []string{"run:harness-self-test"}}},
@@ -1398,8 +1398,8 @@ func TestOwnerOracleConvergence(t *testing.T) {
 		withReceipt(payload, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, SubjectCommit: strings.TrimPrefix(defectRunA.SubjectRef, "commit:"), RecipeSource: recipe, Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: defectRunA.OperationRef})
 		payload.Evidence[1].OracleReceipt = &WorkerOracleReceipt{ControlIDs: []string{"control:check-b"}, CaseIDs: []string{"case:path-b"}, SubjectCommit: strings.TrimPrefix(defectRunB.SubjectRef, "commit:"), RecipeSource: recipe, Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: defectRunB.OperationRef}
 		payload.Review = &WorkerReviewBlock{
-			Verdict:  "ship",
-			Findings: []WorkerReviewFinding{},
+			Disposition: "ready_for_final_proof",
+			Findings:    []WorkerReviewFinding{},
 			ResolvedFindings: []WorkerOracleResolution{
 				{FindingID: blockerID, EvidenceRefs: []string{defectRunA.OperationRef}},
 				{FindingID: defectID, EvidenceRefs: []string{defectRunB.OperationRef}},
@@ -1422,7 +1422,7 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	issue1013StartRepair(t, s, workID, f.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
 	oracleDispatchAttempt(t, f, workID, attempt6, nil, job)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt6, "oracle-convergence-6", func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{{
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{{
 			Severity: "P0", Confidence: "high", Detail: "a consequential outside-scope concern",
 			Oracle: &WorkerOracleFinding{Classification: OracleClassificationFollowUp},
 		}}}
@@ -1665,7 +1665,7 @@ func TestOwnerOracleRecovery(t *testing.T) {
 		})
 	}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt, "oracle-recovery", func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: findings}
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: findings}
 	})}}); err != nil {
 		t.Fatalf("over-bound blocker report refused at the fold: %v", err)
 	}

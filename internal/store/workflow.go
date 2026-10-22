@@ -592,12 +592,14 @@ type workflowStalenessObservedPayload struct {
 
 type workflowVerdictRecordedPayload struct {
 	WorkflowVersionFields
-	ContractVersion          int64    `json:"contract_version"`
-	PredicateID              string   `json:"predicate_id"`
-	VerdictKind              string   `json:"verdict_kind"`
-	VerdictActorRef          string   `json:"verdict_actor_ref"`
-	EvaluationEvidence       []string `json:"evaluation_evidence"`
-	IncomparableWithApproved bool     `json:"incomparable_with_approved"`
+	ContractVersion          int64                  `json:"contract_version"`
+	PredicateID              string                 `json:"predicate_id"`
+	VerdictKind              string                 `json:"verdict_kind"`
+	VerdictActorRef          string                 `json:"verdict_actor_ref"`
+	EvaluationEvidence       []string               `json:"evaluation_evidence"`
+	CriterionDigest          string                 `json:"criterion_digest,omitempty"`
+	Candidate                *WorkerReviewCandidate `json:"candidate,omitempty"`
+	IncomparableWithApproved bool                   `json:"incomparable_with_approved"`
 	// VerdictModel is the readback executing-model identity of the review run
 	// (CD-0017 D5). Empty when the evaluator dispatched no typed lane.
 	VerdictModel string `json:"verdict_model,omitempty"`
@@ -1934,19 +1936,10 @@ func beginWorkflowLifecycleTx(ctx context.Context, tx *sql.Tx, event Event) erro
 	return nil
 }
 
-// Execution history and the current lease both prohibit self-evaluation.
+// Main may associate captured proof after executing earlier steps. Workers
+// return reports and cannot acquire Main's acceptance authority.
 func workflowStepExecutorRefusal(ctx context.Context, tx queryer, workID, verdictActor, operation string) error {
-	if verdictActor == "" {
-		return nil
-	}
-	authority, err := workflowEvaluationAuthority(ctx, tx, workID, verdictActor)
-	if err != nil {
-		return err
-	}
-	if authority == WorkflowIndependentEvaluator {
-		return nil
-	}
-	return newFailure(KindUnauthorized, operation, "executing actor cannot evaluate its own delivery", false, "record the verdict through an agent that executed no step of this work item")
+	return workflowRequireMain(ctx, tx, workID, verdictActor)
 }
 
 func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
@@ -3481,7 +3474,10 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		}
 	}
 	if capability == "review" && (payload.ActionID == "accept_worker_evidence" || payload.ActionID == "accept_worker_result") {
-		return workflowAcceptanceSubjectCurrent(ctx, tx, event.SubjectID, []string{payload.WorkerAttemptID}, nil)
+		if payload.ActionID != "accept_worker_result" {
+			return reviewFailure(KindUnauthorized, "Review dispositions are accepted only through accept_worker_result", "have Main accept the exact Review report through accept_worker_result")
+		}
+		return validateReviewAcceptance(ctx, tx, event.SubjectID, payload.WorkerAttemptID, payload.ActorRef, event.Seq)
 	}
 	return nil
 }
@@ -3718,12 +3714,11 @@ func foldWorkflowVerdictRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 	if p.VerdictActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "verdict actor must match the authenticated event actor", false, "record the verdict through the authenticated evaluator invocation")
 	}
-	var definitionVersion int64
-	if err := tx.QueryRowContext(ctx, `SELECT definition_version FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&definitionVersion); err != nil {
-		return workflowProjectionError(err, "cannot read pinned workflow definition version")
+	if err := workflowRequireMain(ctx, tx, event.SubjectID, p.VerdictActorRef); err != nil {
+		return err
 	}
-	if definitionVersion >= 2 {
-		if err := workflowActorsDistinct(ctx, tx, event.SubjectID, p.VerdictActorRef, p.VerdictModel, false, "fold_event"); err != nil {
+	if !isWorkflowReplay(ctx) {
+		if err := verifyWorkflowCriterionAssociation(ctx, tx, event.SubjectID, p); err != nil {
 			return err
 		}
 	}

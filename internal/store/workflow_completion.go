@@ -119,6 +119,15 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err := workflowCompletionCallerAuthority(ctx, tx, definition, event.SubjectID, event.Actor); err != nil {
 		return err
 	}
+	if workflowDefinitionProducesDelivery(definition) && !isWorkflowReplay(ctx) {
+		review, err := loadWorkflowReviewState(ctx, tx, event.SubjectID, 0)
+		if err != nil {
+			return err
+		}
+		if err := workflowAdmitReview(review, ""); err != nil {
+			return err
+		}
+	}
 
 	// The complete-step correction's supersession bounds the evidence history
 	// the completion clauses read: the successor accepts only bindings
@@ -186,7 +195,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		if err := workflowCompletionActorDistinct(ctx, tx, event.SubjectID, verdict.VerdictActorRef, verdict.VerdictModel, definition.EvaluatorIndependence.ModelDistinct); err != nil {
 			return workflowClauseError(err, 4)
 		}
-		if err := verifyVerdictEvidence(ctx, tx, event.SubjectID, verdict.EvaluationEvidence); err != nil {
+		if err := verifyWorkflowCriterionAssociation(ctx, tx, event.SubjectID, *verdict); err != nil {
 			return workflowClauseError(err, 4)
 		}
 	}
@@ -670,11 +679,8 @@ func workflowEvidenceTupleBound(ctx context.Context, q queryer, workID, kind, re
 	return count != 0, nil
 }
 
-// requireAcceptanceDeliverables refuses the acceptance-step transition while
-// the deliverables completion depends on are absent: an independent verdict
-// for every approved predicate and every required evidence kind durably
-// bound. Once the step advances, no declared action can produce them, so the
-// confirmation is the last point the requirement can be enforced.
+// Premise confirmation requires producer proof for every approved criterion
+// before leaving the stage where Main can associate receipts.
 func requireAcceptanceDeliverables(ctx context.Context, tx queryer, definition WorkflowDefinition, workID string) error {
 	verdict, err := latestWorkflowVerdict(ctx, tx, workID)
 	if err != nil {
@@ -702,9 +708,6 @@ func requireAcceptanceDeliverables(ctx context.Context, tx queryer, definition W
 	if len(missing) != 0 {
 		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a verdict for every approved predicate: missing "+strings.Join(missing, ", "), false, "record_verdict for each approved predicate before confirming the premise")
 	}
-	// Completion's clause 4 judges each verdict actor against the whole
-	// execution history, so a verdict whose actor executed after recording it
-	// fails there, past the last step that declares record_verdict.
 	verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, contract.Version)
 	if err != nil {
 		return err
@@ -713,12 +716,8 @@ func requireAcceptanceDeliverables(ctx context.Context, tx queryer, definition W
 		if !containsPredicateID(contract.Predicates, verdict.PredicateID) {
 			continue
 		}
-		if err := workflowCompletionActorDistinct(ctx, tx, workID, verdict.VerdictActorRef, verdict.VerdictModel, definition.EvaluatorIndependence.ModelDistinct); err != nil {
-			var failure *Failure
-			if !failureAs(err, &failure) || failure.Kind == KindUnavailable || failure.RecoveryAction == "contact_operator" {
-				return err
-			}
-			return newFailure(failure.Kind, "workflow_action", "premise confirmation requires an independent verdict for "+verdict.PredicateID+": "+failure.Detail, false, "record_verdict for "+verdict.PredicateID+" with verified operator approval (CD-0116 D1) or by an evaluator that executed no step, before confirming the premise")
+		if err := verifyWorkflowCriterionAssociation(ctx, tx, workID, verdict); err != nil {
+			return err
 		}
 	}
 	cutoff, cutoffErr := workflowCompleteStepCorrectionEvidenceCutoff(ctx, tx, workID, contract.Version)
@@ -828,10 +827,7 @@ func verifyCompletionScopeAndMandates(ctx context.Context, tx *sql.Tx, workID st
 // run, not of the actor identity; the verdict model travels on the verdict
 // event for the same reason.
 func workflowCompletionActorDistinct(ctx context.Context, tx queryer, workID, verdictActor, verdictModel string, requireModelDistinct bool) error {
-	if err := workflowStepExecutorRefusal(ctx, tx, workID, verdictActor, "complete_workflow"); err != nil {
-		return err
-	}
-	return workflowActorsDistinct(ctx, tx, workID, verdictActor, verdictModel, requireModelDistinct, "complete_workflow")
+	return workflowRequireMain(ctx, tx, workID, verdictActor)
 }
 
 func workflowActorsDistinct(ctx context.Context, tx queryer, workID, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
@@ -841,36 +837,10 @@ func workflowActorsDistinct(ctx context.Context, tx queryer, workID, verdictActo
 // workflowActorsDistinctForExecutor evaluates distinctness against a supplied
 // executorRef, which must resolve, and otherwise against the instance's current lookup.
 func workflowActorsDistinctForExecutor(ctx context.Context, tx queryer, workID, executorRef, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
-	var executing WorkflowActor
-	var err error
-	if executorRef == "" {
-		err = tx.QueryRowContext(ctx, `SELECT a.actor_ref,a.principal_ref,a.client_ref,a.agent_ref,a.session_ref,a.actor_class,i.execution_model FROM workflow_instances i JOIN workflow_actors a ON a.actor_ref=i.execution_actor_ref WHERE i.work_id=?`, workID).Scan(&executing.ActorRef, &executing.PrincipalRef, &executing.ClientRef, &executing.AgentRef, &executing.SessionRef, &executing.ActorClass, &executing.Model)
-	} else {
-		err = tx.QueryRowContext(ctx, `SELECT a.actor_ref,a.principal_ref,a.client_ref,a.agent_ref,a.session_ref,a.actor_class,i.execution_model FROM workflow_instances i JOIN workflow_actors a ON a.actor_ref=? WHERE i.work_id=?`, executorRef, workID).Scan(&executing.ActorRef, &executing.PrincipalRef, &executing.ClientRef, &executing.AgentRef, &executing.SessionRef, &executing.ActorClass, &executing.Model)
+	if executorRef != "" && executorRef == verdictActor {
+		return reviewFailure(KindUnauthorized, "a worker cannot accept its own result", "return the terminal result to Main")
 	}
-	if err == sql.ErrNoRows && executorRef == "" {
-		// The immutable selecting actor supplies the tuple when the
-		// instance has no executor tuple.
-		derived, found, deriveErr := workflowSelectingActorTx(ctx, tx, workID)
-		if deriveErr != nil {
-			return deriveErr
-		}
-		if !found {
-			return newFailure(KindUnauthorized, operation, "executing actor tuple is incomplete", false, "contact_operator")
-		}
-		executing = derived
-	} else if err != nil {
-		return newFailure(KindUnauthorized, operation, "executing actor tuple is incomplete", false, "contact_operator")
-	}
-	var verdict WorkflowActor
-	if err := tx.QueryRowContext(ctx, `SELECT actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=?`, verdictActor).Scan(&verdict.ActorRef, &verdict.PrincipalRef, &verdict.ClientRef, &verdict.AgentRef, &verdict.SessionRef, &verdict.ActorClass); err != nil {
-		return newFailure(KindUnauthorized, operation, "verdict actor tuple is incomplete", false, "contact_operator")
-	}
-	verdict.Model = verdictModel
-	if err := validateDistinctWorkflowActorsForReplay(executing, verdict, requireModelDistinct); err != nil {
-		return err
-	}
-	return nil
+	return workflowRequireMain(ctx, tx, workID, verdictActor)
 }
 
 func verifyVerdictEvidence(ctx context.Context, tx *sql.Tx, workID string, refs []string) error {
@@ -1119,10 +1089,6 @@ func latestWorkflowVerdictsBefore(ctx context.Context, q queryer, workID string,
 	if err != nil {
 		return nil, err
 	}
-	pins, err := workflowContractDefinitionPins(ctx, q, workID, contractVersion)
-	if err != nil {
-		return nil, err
-	}
 	rows, err := q.QueryContext(ctx, `SELECT seq,payload,payload_version FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND (?=0 OR seq<?) ORDER BY seq DESC`, workID, WorkflowVerdictRecorded, beforeSeq, beforeSeq)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow verdicts", true, "retry once the database is readable", err)
@@ -1151,15 +1117,6 @@ func latestWorkflowVerdictsBefore(ctx context.Context, q queryer, workID string,
 	if err := rows.Close(); err != nil {
 		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot close workflow verdicts", true, "retry once the database is readable", err)
 	}
-	// A contract whose ancestry carries the complete-step correction route
-	// accepts no verdict recorded at or before the cutoff, however identical
-	// the predicate payloads remain: the route exists because durable evidence
-	// disproved the predecessor's premise. The cutoff persists across later
-	// ordinary successors, so no descendant inherits the disproved verdicts.
-	cutoff, cutoffErr := workflowCompleteStepCorrectionEvidenceCutoff(ctx, q, workID, contractVersion)
-	if cutoffErr != nil {
-		return nil, cutoffErr
-	}
 	result := make([]workflowVerdictRecordedPayload, 0)
 	seen := make(map[string]bool)
 	for _, collectedVerdict := range collected {
@@ -1170,14 +1127,11 @@ func latestWorkflowVerdictsBefore(ctx context.Context, q queryer, workID string,
 		if collectedVerdict.payloadVersion == 1 {
 			verdict.PredicateID = "predicate:primary"
 		}
-		if collectedVerdict.seq <= cutoff {
-			continue
-		}
 		if verdict.ContractVersion <= 0 || verdict.ContractVersion > contractVersion || seen[verdict.PredicateID] {
 			continue
 		}
 		if verdict.ContractVersion < contractVersion {
-			if !workflowPredicateHistoryCompatible(contracts, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) || !workflowContractDefinitionPinsCompatible(pins, verdict.ContractVersion, contractVersion) {
+			if !workflowPredicateHistoryCompatible(contracts, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) {
 				continue
 			}
 		}
@@ -1394,15 +1348,5 @@ func WorkflowChangedRefsDigest(refs []string) string {
 // clause 4's check, not the terminal requester's. The legacy policy keeps the
 // completing caller distinct from execution.
 func workflowCompletionCallerAuthority(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID, completingActor string) error {
-	if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
-		authority, err := workflowEvaluationAuthority(ctx, tx, workID, completingActor)
-		if err != nil {
-			return err
-		}
-		if authority == WorkflowWorkerEvaluator {
-			return newFailure(KindUnauthorized, "complete_workflow", "worker actors cannot record workflow completion", false, "return the worker report to the coordinator")
-		}
-		return nil
-	}
-	return workflowActorsDistinct(ctx, tx, workID, completingActor, "", false, "complete_workflow")
+	return workflowRequireMain(ctx, tx, workID, completingActor)
 }

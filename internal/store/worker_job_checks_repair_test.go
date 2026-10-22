@@ -874,7 +874,7 @@ func completeChecksRepairReviewWithVerdict(t *testing.T, s *Store, workID, attem
 	if err != nil {
 		t.Fatal(err)
 	}
-	review := &WorkerReviewBlock{Verdict: verdict, Findings: []WorkerReviewFinding{}}
+	review := &WorkerReviewBlock{Disposition: verdict, Findings: []WorkerReviewFinding{}}
 	project := ""
 	if verdict == "no_ship" {
 		project = checksRepairRevisionView(t, s, workID, *dispatched).ProjectScope
@@ -898,7 +898,7 @@ func checksRepairReviewCompletion(t *testing.T, s *Store, workID, attemptID stri
 		WorkerDirectory: workerFixtureDirectory(t, s, workID), WorkerJob: dispatched, EvidenceOrigin: WorkerEvidenceReported,
 		Review: review, Evidence: reportedLaneEvidenceForTest(lane, review),
 	}
-	if review.Verdict == "no_ship" {
+	if review.Disposition == "correction_required" {
 		payload.Evidence[0].OracleReceipt = &WorkerOracleReceipt{
 			ControlIDs: []string{"control:fixture"}, CaseIDs: []string{"case:fixture"},
 			RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: project, Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},

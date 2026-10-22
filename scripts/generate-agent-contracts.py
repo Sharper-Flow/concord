@@ -10,6 +10,7 @@ IR = ROOT / "contracts/agent-tool-surface.schema.json"
 PAYLOAD = ROOT / "contracts/agent-tool-surface-payloads.schema.json"
 HISTORICAL_DECODER = ROOT / "contracts/workflow-historical-decoder.schema.json"
 LANE_PACKET = ROOT / "contracts/agent-lane-packet.schema.json"
+LANE_REPORT = ROOT / "contracts/agent-lane-report.schema.json"
 WORKFLOW_OUTCOME = ROOT / "contracts/workflow-outcome.schema.json"
 ENVELOPE = ROOT / "contracts/agent-tool-envelope.schema.json"
 HOST_MANIFEST = ROOT / "contracts/host-tool-surface.v1.json"
@@ -205,7 +206,7 @@ def require_delivery_rule_teaching(defs: dict) -> None:
     if stale:
         fail(f"retired published action add_condition remains projected: {', '.join(stale)} (CD-0218 D1)")
 
-SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "examples", "type", "properties", "patternProperties", "propertyNames", "required", "additionalProperties", "unevaluatedProperties", "items", "contains", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "enum", "const", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "default", "minProperties", "maxProperties", "x-maxBytes", "x-minBytes"}
+SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "examples", "type", "properties", "patternProperties", "propertyNames", "required", "additionalProperties", "unevaluatedProperties", "items", "contains", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "enum", "const", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "default", "minProperties", "maxProperties", "x-maxBytes", "x-minBytes", "x-maxArrayBytes"}
 
 # The store counts workflow string bounds in UTF-8 bytes
 # (validateWorkflowPayloadValue); JSON Schema minLength/maxLength count
@@ -1666,20 +1667,14 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
         "related_ids": teaching["alignment_combination_rule"],
         "architecture_binding": teaching["architecture_domain_rule"],
     }
-    # CD-0198 D1: one record_verdict call may carry a verdict per judged
-    # predicate through the fields.verdicts array. Each item names one
-    # approved predicate of the call's contract version and carries its own
-    # verdict kind, evaluation evidence, and incomparable flag. The store
-    # refuses a call that carries fields.predicate_id beside the array, or
-    # neither form, and refuses an entry-level field beside the batch.
+    # Main associates accepted criteria with captured producer receipts. A
+    # caller verdict, missing receipt, or operation-minted ref is not proof.
     defs["workflow_verdict_batch_entry"] = {
         "type": "object", "additionalProperties": False,
-        "required": ["predicate_id", "verdict_kind"],
+        "required": ["predicate_id", "receipt_refs"],
         "properties": {
             "predicate_id": {"$ref": "#/$defs/id", "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."},
-            "verdict_kind": {"type": "string", "enum": ["ok", "outcome_mismatch", "insufficient_evidence"], "description": "Explicit verdict for this predicate. Missing verdict_kind refuses the whole action before any write; no verdict kind is inferred."},
-            "evaluation_evidence": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}},
-            "incomparable_with_approved": {"type": "boolean"},
+            "receipt_refs": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}, "description": "Captured passing producer receipts covering this criterion on the current candidate. Main associates proof; it supplies no verdict or replacement subject."},
         },
     }
     # CD-0230 D4: a serious law change pins the exact text the operator
@@ -1890,6 +1885,42 @@ def project_worker_packet_inputs(payload: dict, lane_packet: dict) -> None:
     if required:
         projected["required"] = required
     packet["properties"]["inputs"] = projected
+
+
+def project_review_report_types(payload: dict, lane_report: dict) -> None:
+    """Expose the canonical report shape in current-state reads, not a copy."""
+    source = lane_report["$defs"]
+    target = payload["$defs"]
+    imported: set[str] = set()
+
+    def import_definition(name: str) -> str:
+        alias = "lane_report_" + name
+        if name not in imported:
+            imported.add(name)
+            if name not in source:
+                fail(f"lane report references unknown definition {name}")
+            target[alias] = rewrite(copy.deepcopy(source[name]))
+        return alias
+
+    def rewrite(node: object) -> object:
+        if isinstance(node, list):
+            return [rewrite(value) for value in node]
+        if not isinstance(node, dict):
+            return node
+        result = {key: rewrite(value) for key, value in node.items()}
+        if "$ref" in result:
+            ref = result["$ref"]
+            if not isinstance(ref, str) or not ref.startswith("#/$defs/"):
+                fail(f"lane report carries a non-local reference {ref}")
+            result["$ref"] = "#/$defs/" + import_definition(ref.removeprefix("#/$defs/"))
+        if "enum" in result and "type" not in result:
+            if not all(isinstance(value, str) for value in result["enum"]):
+                fail("lane report enum needs an explicit type")
+            result["type"] = "string"
+        return result
+
+    for name in ("review_candidate", "review_block", "review_finding"):
+        import_definition(name)
 
 
 def check_schema_keywords(node, path="schema"):
@@ -2557,6 +2588,7 @@ function validateSchema(schema: any, value: unknown, root: Record<string, unknow
     for (const [keyword, exceeds] of [["minProperties", Object.keys(object).length < schema.minProperties], ["maxProperties", Object.keys(object).length > schema.maxProperties]] as const) if (exceeds) return fail(path || "<root>", `${{keyword}} bound ${{schema[keyword]}}`);
   }}
   if (Array.isArray(value)) {{
+    if (schema["x-maxArrayBytes"] !== undefined && Buffer.byteLength(JSON.stringify(value), "utf8") > schema["x-maxArrayBytes"]) return fail(path || "<root>", `x-maxArrayBytes bound ${{schema["x-maxArrayBytes"]}} UTF-8 bytes`);
     for (const [keyword, exceeds] of [["minItems", value.length < schema.minItems], ["maxItems", value.length > schema.maxItems]] as const) if (exceeds) return fail(path || "<root>", `${{keyword}} bound ${{schema[keyword]}}`);
     if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) return fail(path || "<root>");
     if (schema.items) for (let index = 0; index < value.length; index++) {{ const result = validateSchema(schema.items, value[index], root, path + "[" + index + "]"); if (!result.valid) return result; }}
@@ -2656,6 +2688,7 @@ def main() -> int:
         validate_historical_decoder(schema_refs, payload.get("$defs", {}))
         projected_payload, public_variants = project_workflow_action_schema(payload, actions, workflows, teaching)
         project_worker_packet_inputs(projected_payload, json.loads(LANE_PACKET.read_text()))
+        project_review_report_types(projected_payload, json.loads(LANE_REPORT.read_text()))
         # The adapter publishes public action variants, never the core-owned
         # dispatch packet in the internal workflow_action input union.
         input_names = [operation["input_schema"].rsplit("/", 1)[-1] for operation in manifest["operations"]

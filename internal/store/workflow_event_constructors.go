@@ -474,8 +474,7 @@ func workflowEvidenceBindingEvents(request WorkflowActionExecutionRequest, actor
 	return events, nil
 }
 
-// workflowVerdictBatchEntry is one normalized verdict from a record_verdict
-// call, whichever wire shape carried it (CD-0198 D1).
+// workflowVerdictBatchEntry is one criterion's captured receipt association.
 type workflowVerdictBatchEntry struct {
 	PredicateID              string
 	VerdictKind              string
@@ -483,36 +482,16 @@ type workflowVerdictBatchEntry struct {
 	IncomparableWithApproved bool
 }
 
-// normalizeWorkflowVerdictEntries reduces both record_verdict wire shapes to
-// one ordered entry list, so the store runs one validation and event path.
-// It only decodes: the exactly-one-of predicate_id/verdicts rule and the
-// entry-fields-beside-batch exclusion are the engine cross-field
-// declaration's (builtinActionPolicies["record_verdict"].CrossField),
-// enforced by validateWorkflowPayloadCrossFieldRules before any constructor
-// or guard normalizes, and published from the same declaration (CON-412).
-// A caller that bypasses payload validation gets an empty entry list for a
-// shape that carries neither form; the constructor refuses to record zero
-// verdicts.
+// normalizeWorkflowVerdictEntries decodes the bounded receipt batch. Neither
+// an envelope evidence reference nor a caller verdict supplies missing proof.
 func normalizeWorkflowVerdictEntries(fields map[string]json.RawMessage) ([]workflowVerdictBatchEntry, error) {
 	batchRaw, batchPresent := fields["verdicts"]
-	predicateID, singlePresent := workflowFieldString(fields, "predicate_id")
 	if !batchPresent {
-		if !singlePresent || predicateID == "" {
-			return nil, nil
-		}
-		kind, _ := workflowFieldString(fields, "verdict_kind")
-		return []workflowVerdictBatchEntry{{
-			PredicateID:              predicateID,
-			VerdictKind:              kind,
-			EvaluationEvidence:       workflowFieldStrings(fields, "evaluation_evidence"),
-			IncomparableWithApproved: workflowFieldBool(fields, "incomparable_with_approved"),
-		}}, nil
+		return nil, reviewFailure(KindInvalidPayload, "record_verdict requires a criterion-to-receipt batch", "supply verdicts entries containing predicate_id and receipt_refs")
 	}
 	var decoded []struct {
-		PredicateID              string   `json:"predicate_id"`
-		VerdictKind              string   `json:"verdict_kind"`
-		EvaluationEvidence       []string `json:"evaluation_evidence"`
-		IncomparableWithApproved bool     `json:"incomparable_with_approved"`
+		PredicateID string   `json:"predicate_id"`
+		ReceiptRefs []string `json:"receipt_refs"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(batchRaw))
 	decoder.DisallowUnknownFields()
@@ -528,50 +507,21 @@ func normalizeWorkflowVerdictEntries(fields map[string]json.RawMessage) ([]workf
 		if item.PredicateID == "" || !ValidReference(item.PredicateID) {
 			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict verdicts entry predicate_id must satisfy the reference rule: 2 to 128 bytes with no whitespace", false, "name an approved contract predicate in every entry")
 		}
-		entries = append(entries, workflowVerdictBatchEntry{PredicateID: item.PredicateID, VerdictKind: item.VerdictKind, EvaluationEvidence: item.EvaluationEvidence, IncomparableWithApproved: item.IncomparableWithApproved})
+		if len(item.ReceiptRefs) < 1 || len(item.ReceiptRefs) > 32 {
+			return nil, reviewFailure(KindInvalidPayload, "each criterion association requires 1 to 32 producer receipt references", "supply receipt_refs from the declared producer")
+		}
+		entries = append(entries, workflowVerdictBatchEntry{PredicateID: item.PredicateID, VerdictKind: "ok", EvaluationEvidence: item.ReceiptRefs})
 	}
 	return entries, nil
 }
 
-// workflowVerdictEntriesMint reports whether the entry list needs the
-// operation-minted born-bound reference: some entry carries no evidence of
-// its own and the envelope names none either, so every defaulted entry shares
-// one minted ref the call binds itself.
-func workflowVerdictEntriesMint(entries []workflowVerdictBatchEntry, envelope []string) bool {
-	if len(envelope) != 0 {
-		return false
-	}
-	for _, entry := range entries {
-		if len(entry.EvaluationEvidence) == 0 {
-			return true
-		}
-	}
-	return false
-}
-
-func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64, defaultVerdictEvidence bool, envelopeEvidenceRefs []string) ([]Event, error) {
-	verdictActor, actorErr := workflowAuthenticatedActorField(fields, "verdict_actor_ref", actor)
-	if actorErr != nil {
-		return nil, actorErr
-	}
+func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
+	verdictActor := actor
 	if request.OperatorActor != nil {
-		if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
-			return nil, newFailure(KindUnauthorized, "workflow_action", "consequence_v1 takes no operator substitution for verdicts; the independent evaluator invokes record_verdict under its own authenticated identity", false, "record the verdict as the independent evaluator")
-		}
-		// Operator approval supplies evaluator authority without relabeling
-		// the coordinator or the worker that performed the delivery.
-		if err := requireOperatorVerdictExit(ctx, tx, request.WorkID); err != nil {
-			return nil, err
-		}
-		operatorRef, refErr := WorkflowActorRef(*request.OperatorActor)
-		if refErr != nil {
-			return nil, refErr
-		}
-		verdictActor = operatorRef
-	} else {
-		if err := workflowStepExecutorRefusal(ctx, tx, request.WorkID, verdictActor, "workflow_action"); err != nil {
-			return nil, err
-		}
+		return nil, reviewFailure(KindUnauthorized, "record_verdict accepts no operator-signing substitute for producer proof", "have Main associate the captured producer receipt under its authenticated identity")
+	}
+	if err := workflowRequireMain(ctx, tx, request.WorkID, verdictActor); err != nil {
+		return nil, err
 	}
 	entries, entriesErr := normalizeWorkflowVerdictEntries(fields)
 	if entriesErr != nil {
@@ -590,9 +540,6 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, definition Wor
 			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict names predicate "+workflowRefExcerpt(entry.PredicateID)+" twice; a call judges each predicate once", false, "record one entry per judged predicate")
 		}
 		seen[entry.PredicateID] = true
-		if entry.VerdictKind != "ok" && entry.VerdictKind != "outcome_mismatch" && entry.VerdictKind != "insufficient_evidence" {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict verdict kind "+entry.VerdictKind+" is not a declared verdict kind", false, "use ok, outcome_mismatch, or insufficient_evidence")
-		}
 	}
 	// An omitted contract_version resolves the active contract exactly as
 	// confirm_premise does, so a verdict recorded after any supersession
@@ -628,45 +575,20 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, definition Wor
 			}
 		}
 	}
-	envelope := dedupeWorkflowRefs(envelopeEvidenceRefs)
 	var events []Event
-	var defaultedEvidence []string
-	if defaultVerdictEvidence {
-		var mintErr error
-		var mintedEvents []Event
-		// The mint resolves only what a defaulted entry is born bound under:
-		// the operation-minted reference plus the contract's required verified
-		// native-run capture, exactly the set a defaulted single call has
-		// always minted. No entry's own explicit evidence joins the mint, so
-		// an evidence-defaulted entry never inherits another entry's evidence
-		// and the mint never binds a required kind onto evidence the caller
-		// supplied for a different entry.
-		mintEvidence := []string{"evidence:" + request.OperationID}
-		nativeRunRef, nativeErr := defaultVerdictNativeRunRef(ctx, tx, request.WorkID, definition)
-		if nativeErr != nil {
-			return nil, nativeErr
-		}
-		if nativeRunRef != "" {
-			mintEvidence = append(mintEvidence, nativeRunRef)
-		}
-		mintedEvents, defaultedEvidence, mintErr = bornBoundEvidenceEvents(ctx, tx, request.WorkID, definition, request, actor, eventID, mintEvidence, expected)
-		if mintErr != nil {
-			return nil, mintErr
-		}
-		events = append(events, mintedEvents...)
+	state, stateErr := loadWorkflowReviewState(ctx, tx, request.WorkID, 0)
+	if stateErr != nil {
+		return nil, stateErr
+	}
+	if state.Candidate == nil {
+		return nil, reviewFailure(KindMissingEvidence, "criterion association requires a current integrated candidate", "accept the observed candidate before associating its proof")
+	}
+	dependencies, err := workflowReviewDependencies(ctx, tx, request.WorkID)
+	if err != nil {
+		return nil, err
 	}
 	for index, entry := range entries {
-		// Per-entry evidence resolves entry evidence first, then the call's
-		// envelope references, then the shared operation-minted reference.
 		evidence := entry.EvaluationEvidence
-		defaulted := false
-		if len(evidence) == 0 {
-			evidence = envelope
-		}
-		if len(evidence) == 0 {
-			evidence = defaultedEvidence
-			defaulted = len(evidence) != 0
-		}
 		if len(evidence) == 0 {
 			return nil, newFailure(KindMissingEvidence, "workflow_action", "record_verdict requires durably bound evaluation evidence", false, "provide_evidence")
 		}
@@ -675,10 +597,19 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, definition Wor
 		if len(evidence) > 32 {
 			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict evaluation_evidence exceeds 32 references", false, "supply a bounded evidence list")
 		}
-		if !defaulted {
-			if err := verifyVerdictEvidence(ctx, tx, request.WorkID, evidence); err != nil {
+		for _, ref := range evidence {
+			if err := workflowCriterionReceipt(ctx, tx, request.WorkID, entry.PredicateID, ref, state.Candidate.Commit); err != nil {
 				return nil, err
 			}
+		}
+		criterionDigest := ""
+		for _, criterion := range dependencies.Criteria {
+			if criterion.PredicateID == entry.PredicateID {
+				criterionDigest = criterion.ContentDigest
+			}
+		}
+		if criterionDigest == "" {
+			return nil, reviewFailure(KindMissingEvidence, "criterion is not an accepted current criterion", "associate proof only with a criterion of the current approved contract")
 		}
 		// The single form keeps its current event id so idempotent replays of
 		// prior calls match; batch entries take eventID-derived per-entry ids.
@@ -686,7 +617,7 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, definition Wor
 		if len(entries) != 1 {
 			entryEventID = fmt.Sprintf("%s:verdict:%d", eventID, index)
 		}
-		events = append(events, workflowTypedEvent(entryEventID, WorkflowVerdictRecorded, request.WorkID, actor, request.Now, expected+int64(len(events)), map[string]any{"contract_version": contractVersion, "predicate_id": entry.PredicateID, "verdict_kind": entry.VerdictKind, "verdict_actor_ref": verdictActor, "evaluation_evidence": evidence, "incomparable_with_approved": entry.IncomparableWithApproved}))
+		events = append(events, workflowTypedEvent(entryEventID, WorkflowVerdictRecorded, request.WorkID, actor, request.Now, expected+int64(len(events)), map[string]any{"contract_version": contractVersion, "predicate_id": entry.PredicateID, "verdict_kind": "ok", "verdict_actor_ref": verdictActor, "evaluation_evidence": evidence, "criterion_digest": criterionDigest, "candidate": state.Candidate}))
 	}
 	return events, nil
 }

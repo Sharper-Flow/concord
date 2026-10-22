@@ -587,49 +587,29 @@ func workflowDefinitionProducesDelivery(definition WorkflowDefinition) bool {
 	return workflowCapabilities(definition).has(WorkflowCapabilityProducesDelivery)
 }
 
-// validateReviewAcceptedDeliveryTx joins the review subject to the latest
-// accepted implementation-lane completion: acceptance to the exact completed
-// attempt to its dispatch identity on the review's own worktree claim. The
-// review judges that delivery under the active contract, even if acceptance
-// predates a contract supersession. Failed, rejected, unaccepted, and
-// wrong-worktree completions cannot supply the subject. Missing clean observation
-// requires a fresh implementation attempt, and the delivered commit must
-// equal the shared qualified candidate the packet carries.
+// Review consumes the current integrated candidate, or the qualified initial
+// baseline before Main has accepted any result. An earlier Implement result
+// is not a prerequisite for obtaining baseline continuation authority.
 func validateReviewAcceptedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, subject, worktreeIdentity string, observation *WorkerObservedDelivery) error {
 	if subject == "" {
 		return newFailure(KindUnauthorizedDispatch, workerDispatchFreshnessOp, "review of implementation work requires a nonempty qualified subject; qualify the accepted candidate through worktree-verify before review", false, "run worktree-verify on the clean accepted candidate, then rebuild the packet")
 	}
-	anchors, err := readReviewDeliveryAnchors(ctx, tx, workID)
-	if err != nil {
-		return err
-	}
-	anchor := selectReviewDeliveryAnchor(anchors, worktreeIdentity)
-	commit, err := anchor.cleanCommit()
-	if err != nil {
-		return err
-	}
 	if observation == nil || observation.State != "clean" || observation.Commit != subject {
 		return newFailure(KindProjectionConflict, workerDispatchFreshnessOp, "the claimed worktree's live clean HEAD does not match the qualified review subject", true, "re-qualify the candidate at the claimed worktree, then rebuild the packet and dispatch again")
 	}
-	if commit == subject {
-		return nil
-	}
-	prepared := workerDispatchPreparationFrom(ctx)
-	if prepared == nil || prepared.proof.anchor == nil || *prepared.proof.anchor != *anchor {
-		return newFailure(KindProjectionConflict, workerDispatchFreshnessOp, "the accepted delivery anchor changed under the prepared review", true, "prepare the review against the current accepted delivery")
-	}
-	if prepared.proof.ancestry.failure != nil {
-		return prepared.proof.ancestry.failure
-	}
-	if !prepared.proof.ancestry.strictDescendant {
-		return newFailure(KindUnauthorizedDispatch, workerDispatchFreshnessOp, "the qualified review subject is not a strict descendant of the accepted delivery", false, "review the accepted delivery or a proved descendant")
-	}
-	newer, err := newerEditingDispatch(ctx, tx, workID, anchor.dispatchSeq)
+	receipt, err := readCurrentOracleSubjectReceipt(ctx, tx, workID)
 	if err != nil {
 		return err
 	}
-	if newer {
-		return newFailure(KindUnauthorizedDispatch, workerDispatchFreshnessOp, "a newer editing dispatch prevents review beyond the accepted delivery anchor", false, "settle the newer editing attempt before review")
+	if receipt == nil || receipt.SubjectRef != "commit:"+subject || workerWorktreeIdentity(receipt.Path) != worktreeIdentity {
+		return reviewFailure(KindMissingEvidence, "Review input is not the qualified candidate on its claimed worktree", "qualify the clean current candidate through worktree-verify, then dispatch Review")
+	}
+	state, err := loadWorkflowReviewState(ctx, tx, workID, 0)
+	if err != nil {
+		return err
+	}
+	if state.Candidate != nil && (state.Candidate.Commit != subject || state.Candidate.ProjectID != receipt.ProjectID) {
+		return reviewFailure(KindStaleRequiresReview, "Review input differs from Main's current integrated candidate", "dispatch Review on the accepted current candidate")
 	}
 	return nil
 }

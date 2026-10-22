@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -12,10 +13,15 @@ import (
 // adapter would forward it after admitting agent-lane-report.v1 (CD-0197).
 func reviewBlockFixture() *WorkerReviewBlock {
 	return &WorkerReviewBlock{
-		Verdict: "no_ship",
+		Disposition:          "correction_required",
+		InputCandidate:       WorkerReviewCandidate{ProjectID: "proj-test", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40)},
+		OutputCandidate:      WorkerReviewCandidate{ProjectID: "proj-test", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40)},
+		Dependencies:         WorkerReviewDependencies{Criteria: []WorkerReviewCriterion{{PredicateID: "predicate:primary", ContentDigest: "sha256:" + strings.Repeat("a", 64)}}, ArchitectureNotApplicable: true},
+		Assessments:          []WorkerReviewAssessment{},
+		RemainingObligations: []WorkerReviewObligation{},
 		Findings: []WorkerReviewFinding{
-			{Severity: "P1", Confidence: "high", Detail: "the pinned digest is not checked at the admission boundary"},
-			{Severity: "P2", Confidence: "low", Detail: "the doc names two obligations for one field"},
+			{FindingID: "finding:primary", Severity: "P1", Confidence: "high", Detail: "the pinned digest is not checked at the admission boundary", InScope: true, Blocking: true, Status: "open", EvidenceRefs: []string{}, ClosureRefs: []string{}},
+			{FindingID: "finding:secondary", Severity: "P2", Confidence: "low", Detail: "the doc names two obligations for one field", InScope: false, Blocking: false, Status: "open", EvidenceRefs: []string{}, ClosureRefs: []string{}},
 		},
 	}
 }
@@ -95,7 +101,7 @@ func TestReviewLaneCompletionRequiresTheTypedReviewBlock(t *testing.T) {
 	if err := json.Unmarshal(stored, &durable); err != nil {
 		t.Fatal(err)
 	}
-	if durable.Review == nil || durable.Review.Verdict != "no_ship" || len(durable.Review.Findings) != 2 {
+	if durable.Review == nil || durable.Review.Disposition != "correction_required" || len(durable.Review.Findings) != 2 {
 		t.Fatalf("durable review = %+v, want the reported block recorded as reported", durable.Review)
 	}
 	if durable.Review.Findings[0].Severity != "P1" || durable.Review.Findings[0].Confidence != "high" {
@@ -131,34 +137,34 @@ func TestNonReviewLaneCompletionWithoutReviewBlockIsUnchanged(t *testing.T) {
 }
 
 // The review block is closed in both directions at the store boundary: the
-// verdict couplings, the closed severity and confidence vocabularies, and the
+// candidate bindings, the closed severity and confidence vocabularies, and the
 // detail bound are all checked before an event can land, and a refusal leaves
 // the attempt dispatched.
 func TestWorkerCompletionReviewBlockShapeIsClosed(t *testing.T) {
 	t.Parallel()
 	lane := BuiltinLaneDefinitions()[3]
-	tooMany := &WorkerReviewBlock{Verdict: "ship", Findings: make([]WorkerReviewFinding, 65)}
-	for index := range tooMany.Findings {
-		tooMany.Findings[index] = WorkerReviewFinding{Severity: "P3", Confidence: "low", Detail: "a finding"}
-	}
-	largest := &WorkerReviewBlock{Verdict: "ship"}
+	largest := reviewBlockFixture()
+	largest.Findings = []WorkerReviewFinding{}
 	for index := 0; index < 64; index++ {
-		largest.Findings = append(largest.Findings, WorkerReviewFinding{Severity: "P3", Confidence: "medium", Detail: strings.Repeat("x", 512)})
+		largest.Findings = append(largest.Findings, WorkerReviewFinding{FindingID: fmt.Sprintf("finding:bounded:%d", index), Severity: "P3", Confidence: "medium", Detail: strings.Repeat("x", 512), Status: "open", EvidenceRefs: []string{}, ClosureRefs: []string{}})
 	}
 	tests := []struct {
 		name       string
-		review     *WorkerReviewBlock
+		mutate     func(*WorkerReviewBlock)
 		wantDetail string
 	}{
-		{name: "verdict outside the closed set", review: &WorkerReviewBlock{Verdict: "conditional", Findings: []WorkerReviewFinding{{Severity: "P1", Confidence: "low", Detail: "a finding"}}}, wantDetail: "ship or no_ship"},
-		{name: "findings array absent", review: &WorkerReviewBlock{Verdict: "ship"}, wantDetail: "findings array"},
-		{name: "more than 64 findings", review: tooMany, wantDetail: "at most 64 findings"},
-		{name: "no_ship with zero findings", review: &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{}}, wantDetail: "at least one finding"},
-		{name: "ship with a P0 finding", review: &WorkerReviewBlock{Verdict: "ship", Findings: []WorkerReviewFinding{{Severity: "P0", Confidence: "high", Detail: "a blocker"}, {Severity: "P2", Confidence: "low", Detail: "a finding"}}}, wantDetail: "cannot carry a P0 finding"},
-		{name: "severity outside the closed scale", review: &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{{Severity: "S1", Confidence: "low", Detail: "a finding"}}}, wantDetail: "P0, P1, P2, or P3"},
-		{name: "confidence outside the closed scale", review: &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{{Severity: "P1", Confidence: "certain", Detail: "a finding"}}}, wantDetail: "low, medium, or high"},
-		{name: "empty finding detail", review: &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{{Severity: "P1", Confidence: "low", Detail: ""}}}, wantDetail: "between 1 and 512 UTF-8 bytes"},
-		{name: "oversized finding detail", review: &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{{Severity: "P1", Confidence: "low", Detail: strings.Repeat("x", 513)}}}, wantDetail: "between 1 and 512 UTF-8 bytes"},
+		{name: "disposition outside the closed set", mutate: func(r *WorkerReviewBlock) { r.Disposition = "conditional" }, wantDetail: "disposition must be"},
+		{name: "retired ship disposition", mutate: func(r *WorkerReviewBlock) { r.Disposition = "ship" }, wantDetail: "disposition must be"},
+		{name: "retired no_ship disposition", mutate: func(r *WorkerReviewBlock) { r.Disposition = "no_ship" }, wantDetail: "disposition must be"},
+		{name: "findings array absent", mutate: func(r *WorkerReviewBlock) { r.Findings = nil }, wantDetail: "findings array"},
+		{name: "more than 64 findings", mutate: func(r *WorkerReviewBlock) { r.Findings = make([]WorkerReviewFinding, 65) }, wantDetail: "at most 64 findings"},
+		{name: "severity outside the closed scale", mutate: func(r *WorkerReviewBlock) { r.Findings[0].Severity = "S1" }, wantDetail: "P0, P1, P2, or P3"},
+		{name: "confidence outside the closed scale", mutate: func(r *WorkerReviewBlock) { r.Findings[0].Confidence = "certain" }, wantDetail: "low, medium, or high"},
+		{name: "empty finding detail", mutate: func(r *WorkerReviewBlock) { r.Findings[0].Detail = "" }, wantDetail: "between 1 and 512 UTF-8 bytes"},
+		{name: "oversized finding detail", mutate: func(r *WorkerReviewBlock) { r.Findings[0].Detail = strings.Repeat("x", 513) }, wantDetail: "between 1 and 512 UTF-8 bytes"},
+		{name: "missing input candidate", mutate: func(r *WorkerReviewBlock) { r.InputCandidate = WorkerReviewCandidate{} }, wantDetail: "input and output"},
+		{name: "missing obligation set", mutate: func(r *WorkerReviewBlock) { r.RemainingObligations = nil }, wantDetail: "remaining_obligations"},
+		{name: "unsupported closure", mutate: func(r *WorkerReviewBlock) { r.Findings[0].Status = "closed" }, wantDetail: "closure requires evidence"},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -168,7 +174,9 @@ func TestWorkerCompletionReviewBlockShapeIsClosed(t *testing.T) {
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 				t.Fatal(err)
 			}
-			err := ApplyOperation(context.Background(), s, Operation{Events: []Event{reviewCompleteEventV3(workID, attemptID, lane, testCase.review, workerFixtureDirectory(t, s, workID))}})
+			review := reviewBlockFixture()
+			testCase.mutate(review)
+			err := ApplyOperation(context.Background(), s, Operation{Events: []Event{reviewCompleteEventV3(workID, attemptID, lane, review, workerFixtureDirectory(t, s, workID))}})
 			if !hasFailureKind(err, KindInvalidPayload) {
 				t.Fatalf("shape error = %v, want %s", err, KindInvalidPayload)
 			}

@@ -326,7 +326,7 @@ func TestProgressSatisfactionSpendsUnderChecksRepairDebtAndClearsOnlyWithConfirm
 
 	// Only the confirming review's accepted ship verdict confirms the repair,
 	// discharges the named obligation, and moves the acceptance boundary.
-	appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: confirmAttempt, Review: &WorkerReviewBlock{Verdict: "ship"}})
+	appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: confirmAttempt, Review: &WorkerReviewBlock{Disposition: "ready_for_final_proof"}})
 	confirmed := appendEvent(WorkflowActionCompleted, correctionHistoryAction("accept_worker_result", confirmAttempt, "", 0))
 	h = read()
 	confirmedRepair := h.checksRepairs[workerJobKey(jobID, 2)]

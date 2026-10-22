@@ -1,6 +1,8 @@
 package store
 
 import (
+	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -76,15 +78,12 @@ func TestWorkflowEvidenceRefsFaultNamesTheOffendingEntry(t *testing.T) {
 func TestWorkflowActionEvidenceRefsMergeToASet(t *testing.T) {
 	t.Parallel()
 	pull := "https://github.com/Sharper-Flow/concord/pull/1200"
-	refs, defaulted, err := workflowActionEvidenceRefs(
+	refs, err := workflowActionEvidenceRefs(
 		WorkflowActionExecutionRequest{ActionID: "record_reproduction", EvidenceRefs: []string{pull, pull}},
 		[]byte(`{}`),
 	)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if defaulted {
-		t.Fatal("record_reproduction defaulted its evidence")
 	}
 	if len(refs) != 1 || refs[0] != pull {
 		t.Fatalf("merged refs = %v, want the shared locator once", refs)
@@ -98,7 +97,7 @@ func TestWorkflowActionEvidenceRefsMergeToASet(t *testing.T) {
 // promotes, without duplicating a subject the caller already named.
 func TestWorkflowActionEvidenceRefsPreserveOrderAndPromotedSubject(t *testing.T) {
 	t.Parallel()
-	refs, _, err := workflowActionEvidenceRefs(
+	refs, err := workflowActionEvidenceRefs(
 		WorkflowActionExecutionRequest{ActionID: "bind_evidence", EvidenceRefs: []string{"evidence:beta", "evidence:alpha", "evidence:beta"}},
 		[]byte(`{"immutable_subject_ref":"evidence:alpha"}`),
 	)
@@ -107,5 +106,64 @@ func TestWorkflowActionEvidenceRefsPreserveOrderAndPromotedSubject(t *testing.T)
 	}
 	if len(refs) != 2 || refs[0] != "evidence:beta" || refs[1] != "evidence:alpha" {
 		t.Fatalf("merged refs = %v, want caller order held and the promoted subject not repeated", refs)
+	}
+}
+
+func TestCriterionAssociationReferencesOnlyExplicitReceipts(t *testing.T) {
+	request := WorkflowActionExecutionRequest{ActionID: "record_verdict", OperationID: "association:fixture", EvidenceRefs: []string{"evidence:unrelated"}}
+	refs, err := workflowActionEvidenceRefs(request, []byte(`{"verdicts":[{"predicate_id":"predicate:one","receipt_refs":["receipt:one"]},{"predicate_id":"predicate:two","receipt_refs":["receipt:one","receipt:two"]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(refs, ",") != "receipt:one,receipt:two" {
+		t.Fatalf("association reference authority = %v, want only explicitly cited receipts", refs)
+	}
+	for _, payload := range []string{
+		`{"verdicts":[{"predicate_id":"predicate:one"}]}`,
+		`{"verdicts":[{"predicate_id":"predicate:one","receipt_refs":[]}]}`,
+		`{"verdicts":[{"predicate_id":"predicate:one","verdict_kind":"ok"}]}`,
+	} {
+		if refs, err := workflowActionEvidenceRefs(request, []byte(payload)); err == nil || len(refs) != 0 {
+			t.Fatalf("missing producer receipt acquired authority from envelope/operation: refs=%v error=%v", refs, err)
+		}
+	}
+}
+
+func TestCompletionCarriesReferencesWithoutMintingEvidence(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	const workID, operation = "completion-references", "completion:references"
+	seedWork(t, s, workID)
+	seedWorkflowAuthority(t, s, operation, workID, "principal:main", "request:completion", []string{})
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	var before int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	request := WorkflowActionExecutionRequest{WorkID: workID, OperationID: operation, EvidenceRefs: []string{"receipt:unbound"}}
+	if err := extendCompletionEvidenceAuthorityTx(ctx, tx, request); err != nil {
+		t.Fatal(err)
+	}
+	var after int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Fatal("completion minted evidence or changed producer records")
+	}
+	var encoded string
+	if err := tx.QueryRowContext(ctx, `SELECT evidence_refs FROM durable_operations WHERE op_id=?`, operation).Scan(&encoded); err != nil {
+		t.Fatal(err)
+	}
+	var refs []string
+	if err := json.Unmarshal([]byte(encoded), &refs); err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != 1 || refs[0] != "receipt:unbound" {
+		t.Fatalf("completion operation lost its explicit reference: %v", refs)
 	}
 }

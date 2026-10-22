@@ -260,21 +260,15 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if admissionErr != nil {
 		return RegisteredDefinition{}, admissionErr
 	}
+	if err := bindWorkflowReviewRequest(ctx, tx, &admission, request.WorkID, request.ActionID, request.Payload, request.Actor); err != nil {
+		return RegisteredDefinition{}, err
+	}
 	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
 	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed && !workflowAdmissionDefersToReviewGate(decision, request.ActionID) && !decision.ApprovalRequired {
 		return RegisteredDefinition{}, workflowPreflightFailure(decision.Failure)
 	}
 	staleRecovery := decision.RecoveryRoute
 	lateVerdictRecovery := false
-	if request.ActionID == "record_verdict" {
-		// The late-verdict recovery predicate is payload-bound: it checks the
-		// verdict entries the request names, so it stays a guard-side check
-		// beside the payload it reads.
-		lateVerdictRecovery, err = workflowLateVerdictRecoveryForActionPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload)
-		if err != nil {
-			return RegisteredDefinition{}, err
-		}
-	}
 	if request.ActionID == "supersede_contract" {
 		fields, fieldsErr := workflowActionObject(request.Payload)
 		if fieldsErr != nil {

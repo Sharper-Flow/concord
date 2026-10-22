@@ -82,7 +82,7 @@ func dispatchRefineAttempt(t *testing.T, fixture workflowReturnRouteFixture, wor
 func jobBoundCompletionEvent(workID, eventID, attemptID string, lane LaneDefinition, occurredAt time.Time, binding *WorkerJobBinding, directory string) Event {
 	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: directory, WorkerJob: binding, EvidenceOrigin: WorkerEvidenceReported}
 	if len(lane.RequiredReportBlocks) > 0 {
-		payload.Review = &WorkerReviewBlock{Verdict: "ship", Findings: []WorkerReviewFinding{}}
+		payload.Review = &WorkerReviewBlock{Disposition: "ready_for_final_proof", Findings: []WorkerReviewFinding{}}
 	}
 	payload.Evidence = reportedLaneEvidenceForTest(lane, payload.Review)
 	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: occurredAt, PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}

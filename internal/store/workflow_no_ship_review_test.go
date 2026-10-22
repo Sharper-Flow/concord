@@ -23,7 +23,7 @@ func reviewLaneVerdictCompleteEvent(workID, eventID, attemptID string, lane Lane
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin:  WorkerEvidenceLegacyUnavailable,
 		WorkerDirectory: directory,
-		Review: &WorkerReviewBlock{Verdict: verdict, Findings: []WorkerReviewFinding{{
+		Review: &WorkerReviewBlock{Disposition: verdict, Findings: []WorkerReviewFinding{{
 			Severity: "P1", Confidence: "high",
 			Detail: "the delivered result does not satisfy the contract's outcome predicates",
 		}}},

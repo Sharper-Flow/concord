@@ -664,8 +664,8 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 			return newFailure(KindInvariantViolation, subject, "worker completion payload is malformed", false, "rebuild workflow projections from the event log")
 		}
 		if report.Review != nil {
-			h.reviewVerdict[row.dispatchAttempt] = report.Review.Verdict
-			if report.Review.Verdict == "no_ship" {
+			h.reviewVerdict[row.dispatchAttempt] = report.Review.Disposition
+			if report.Review.Disposition == "correction_required" {
 				h.nonSettling[row.dispatchAttempt] = true
 				h.fail(row.dispatchAttempt)
 			}
@@ -673,7 +673,7 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 		// A completed no_ship verdict voids the confirming review's repair
 		// at the verdict; a completed ship report keeps waiting for its
 		// acceptance (CD-0205 D4).
-		if report.Review != nil && report.Review.Verdict == "no_ship" {
+		if report.Review != nil && report.Review.Disposition == "correction_required" {
 			h.voidConfirmingRepair(row.dispatchAttempt)
 		}
 	case string(WorkerFailed):

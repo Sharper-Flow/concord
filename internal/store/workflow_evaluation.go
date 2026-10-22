@@ -14,20 +14,12 @@ const (
 )
 
 func workflowEvaluationAuthority(ctx context.Context, q queryer, workID, actorRef string) (WorkflowEvaluationAuthority, error) {
-	worker, executed, err := workflowRecordedEvaluationFacts(ctx, q, workID, actorRef, int64(1)<<62)
+	worker, _, err := workflowRecordedEvaluationFacts(ctx, q, workID, actorRef, int64(1)<<62)
 	if err != nil {
 		return "", err
 	}
-	var leased bool
-	err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_instances WHERE work_id=? AND execution_actor_ref=?)`, workID, actorRef).Scan(&leased)
-	if err != nil {
-		return "", wrapFailure(KindUnavailable, "workflow_evaluation", "cannot read workflow evaluation authority", true, "retry once workflow execution history is readable", err)
-	}
 	if worker {
 		return WorkflowWorkerEvaluator, nil
-	}
-	if executed || leased {
-		return WorkflowOperatorRequired, nil
 	}
 	return WorkflowIndependentEvaluator, nil
 }

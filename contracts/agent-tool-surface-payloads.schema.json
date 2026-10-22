@@ -706,6 +706,88 @@
         }
       }
     },
+    "workflow_review_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate",
+        "accepted_review",
+        "findings",
+        "continue_consumed",
+        "dependencies_current",
+        "publication_outstanding"
+      ],
+      "properties": {
+        "candidate": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/lane_report_review_candidate"
+            }
+          ]
+        },
+        "accepted_review": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "attempt_id",
+                "report_ref",
+                "report_digest",
+                "actor_ref",
+                "report"
+              ],
+              "properties": {
+                "attempt_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "report_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "report_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "actor_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "report": {
+                  "$ref": "#/$defs/lane_report_review_block"
+                }
+              }
+            }
+          ]
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lane_report_review_finding"
+          }
+        },
+        "continue_consumed": {
+          "type": "boolean"
+        },
+        "group_id": {
+          "$ref": "#/$defs/id"
+        },
+        "dependencies_current": {
+          "type": "boolean"
+        },
+        "publication_outstanding": {
+          "type": "boolean"
+        }
+      }
+    },
     "work_pin": {
       "type": "object",
       "additionalProperties": false,
@@ -807,6 +889,9 @@
         "next_valid_intents"
       ],
       "properties": {
+        "review": {
+          "$ref": "#/$defs/workflow_review_state"
+        },
         "work_id": {
           "$ref": "#/$defs/retained_work_id"
         },
@@ -5286,9 +5371,22 @@
                     "type": "integer",
                     "minimum": 1
                   },
-                  "size_assessment_sequence": {"type": "integer", "minimum": 1},
-                  "model_version": {"type": "integer", "minimum": 1},
-                  "size": {"type": "string", "enum": ["small", "larger", "crucial"]},
+                  "size_assessment_sequence": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "model_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "size": {
+                    "type": "string",
+                    "enum": [
+                      "small",
+                      "larger",
+                      "crucial"
+                    ]
+                  },
                   "outcome": {
                     "type": "string",
                     "minLength": 1,
@@ -5717,40 +5815,98 @@
       "type": "object",
       "additionalProperties": false,
       "description": "What this change will touch, for the work-item size model (CD-0229 D4). Name the files, a behavior phrase, or both. The tool derives kind, stage, audience, Domains, packages, and repositories; the model decides the size. There is no size field: a proposed size is refused.",
-      "required": ["security", "user_visible", "blast_radius", "estimated_production_lines"],
+      "required": [
+        "security",
+        "user_visible",
+        "blast_radius",
+        "estimated_production_lines"
+      ],
       "properties": {
         "paths": {
           "description": "Repository-relative files or directories the change will edit. Bounds: <=64 items inclusive",
-          "type": "array", "maxItems": 64, "uniqueItems": true,
-          "items": {"type": "string", "minLength": 1, "maxLength": 512, "description": "Bounds: 1..512 code points inclusive"}
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "Bounds: 1..512 code points inclusive"
+          }
         },
         "behavior": {
           "description": "A phrase for the behavior the change will alter, when the files are not known yet. Bounds: 1..256 code points inclusive",
-          "type": "string", "minLength": 1, "maxLength": 256
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
         },
-        "security": {"description": "True when the change touches authentication, authorization, secrets, or data safety.", "type": "boolean"},
-        "user_visible": {"description": "True when the change removes or reverses behavior users see, or changes UI or UX.", "type": "boolean"},
+        "security": {
+          "description": "True when the change touches authentication, authorization, secrets, or data safety.",
+          "type": "boolean"
+        },
+        "user_visible": {
+          "description": "True when the change removes or reverses behavior users see, or changes UI or UX.",
+          "type": "boolean"
+        },
         "blast_radius": {
           "description": "The widest thing a defect could break: one function, one package, several packages, or a public surface (CLI, tool, schema, wire format).",
-          "type": "string", "enum": ["contained", "package", "cross_package", "external"]
+          "type": "string",
+          "enum": [
+            "contained",
+            "package",
+            "cross_package",
+            "external"
+          ]
         },
         "estimated_production_lines": {
           "description": "Production lines you expect to add or change, tests excluded; a relative-size estimate, not a delivered-code measurement or assignment cap. Bounds: 1..100000 value inclusive",
-          "type": "integer", "minimum": 1, "maximum": 100000
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
         }
       }
     },
-    "work_size_class": {"type": "string", "enum": ["small", "larger", "crucial"]},
+    "work_size_class": {
+      "type": "string",
+      "enum": [
+        "small",
+        "larger",
+        "crucial"
+      ]
+    },
     "work_size_summary": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "description": "The work item's current effective size, model decision, optional operator override, model version, and recording time. Absent when work has never been sized.",
-      "required": ["size", "model_version", "recorded_at"],
+      "required": [
+        "size",
+        "model_version",
+        "recorded_at"
+      ],
       "properties": {
-        "size": {"type": "string", "enum": ["small", "larger", "crucial"]},
-        "model_size": {"$ref": "#/$defs/work_size_class"},
-        "operator_size": {"$ref": "#/$defs/work_size_class"},
-        "model_version": {"type": "integer", "minimum": 1},
-        "recorded_at": {"type": "string", "minLength": 1, "maxLength": 64}
+        "size": {
+          "type": "string",
+          "enum": [
+            "small",
+            "larger",
+            "crucial"
+          ]
+        },
+        "model_size": {
+          "$ref": "#/$defs/work_size_class"
+        },
+        "operator_size": {
+          "$ref": "#/$defs/work_size_class"
+        },
+        "model_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "recorded_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
       }
     },
     "work_define_capture_input": {
@@ -13671,23 +13827,14 @@
       "additionalProperties": false,
       "required": [
         "predicate_id",
-        "verdict_kind"
+        "receipt_refs"
       ],
       "properties": {
         "predicate_id": {
           "$ref": "#/$defs/id",
           "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Bounds: 1..128 code points inclusive"
         },
-        "verdict_kind": {
-          "type": "string",
-          "enum": [
-            "ok",
-            "outcome_mismatch",
-            "insufficient_evidence"
-          ],
-          "description": "Explicit verdict for this predicate. Missing verdict_kind refuses the whole action before any write; no verdict kind is inferred."
-        },
-        "evaluation_evidence": {
+        "receipt_refs": {
           "type": "array",
           "minItems": 1,
           "maxItems": 32,
@@ -13696,10 +13843,7 @@
             "$ref": "#/$defs/reference",
             "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
           },
-          "description": "Bounds: 1..32 items inclusive"
-        },
-        "incomparable_with_approved": {
-          "type": "boolean"
+          "description": "Captured passing producer receipts covering this criterion on the current candidate. Main associates proof; it supplies no verdict or replacement subject. Bounds: 1..32 items inclusive"
         }
       }
     },
@@ -17704,18 +17848,6 @@
               "minItems": 1,
               "maxItems": 32,
               "description": "Bounds: 1..32 items inclusive"
-            },
-            "evidence_kind": {
-              "type": "string",
-              "enum": [
-                "verification",
-                "review",
-                "approval",
-                "commit",
-                "durable_note",
-                "native_run",
-                "artifact"
-              ]
             }
           },
           "required": [
@@ -27862,6 +27994,497 @@
           "law_id": "aa"
         }
       ]
+    },
+    "lane_report_review_candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "commit",
+        "tree"
+      ],
+      "description": "Review's candidate claim. Acceptance derives authority from the admitted input and the host's clean terminal observation, not these claims.",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        },
+        "tree": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        }
+      }
+    },
+    "lane_report_review_dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "criteria",
+        "architecture_not_applicable"
+      ],
+      "properties": {
+        "criteria": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "predicate_id",
+              "content_digest"
+            ],
+            "properties": {
+              "predicate_id": {
+                "type": "string",
+                "minLength": 11,
+                "maxLength": 128,
+                "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"
+              },
+              "content_digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        "architecture_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "architecture_not_applicable": {
+          "type": "boolean"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "architecture_not_applicable": {
+              "const": true
+            }
+          },
+          "not": {
+            "required": [
+              "architecture_digest"
+            ]
+          }
+        },
+        {
+          "properties": {
+            "architecture_not_applicable": {
+              "const": false
+            }
+          },
+          "required": [
+            "architecture_digest"
+          ]
+        }
+      ]
+    },
+    "lane_report_review_refs": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 128,
+        "x-maxBytes": 128,
+        "pattern": "^\\S+$"
+      }
+    },
+    "lane_report_review_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "predicate_id",
+        "assessment",
+        "receipt_refs"
+      ],
+      "properties": {
+        "predicate_id": {
+          "type": "string",
+          "minLength": 11,
+          "maxLength": 128,
+          "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "assessment": {
+          "enum": [
+            "supported",
+            "unproved",
+            "mismatch"
+          ],
+          "type": "string"
+        },
+        "receipt_refs": {
+          "$ref": "#/$defs/lane_report_review_refs"
+        }
+      }
+    },
+    "lane_report_review_obligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "obligation_id",
+        "owner_ref",
+        "subject_ref",
+        "input_digest",
+        "needed_proof"
+      ],
+      "properties": {
+        "obligation_id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "owner_ref": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "subject_ref": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "input_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "needed_proof": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "x-maxBytes": 512
+        }
+      }
+    },
+    "lane_report_oracle_law_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "clause"
+      ],
+      "properties": {
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "source_id",
+            "law_id",
+            "content_hash"
+          ],
+          "properties": {
+            "kind": {
+              "const": "knowledge"
+            },
+            "source_id": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 128
+            },
+            "law_id": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 256
+            },
+            "content_hash": {
+              "type": "string",
+              "minLength": 71,
+              "maxLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        },
+        "clause": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "x-maxBytes": 512
+        }
+      }
+    },
+    "lane_report_oracle_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "classification"
+      ],
+      "description": "The typed oracle tie of one review finding: a closed classification plus the owner, predicate/law, case, and control references that bind it. Classification and severity are different dimensions; the tie records no acceptance.",
+      "properties": {
+        "classification": {
+          "type": "string",
+          "enum": [
+            "delivery_blocker",
+            "uncovered_case",
+            "follow_up",
+            "oracle_defect"
+          ],
+          "description": "delivery_blocker: a failed obligation of a declared owner. uncovered_case: a legitimate new entry path the inventory omitted — a real blocker, not a rejection. follow_up: outside the approved owner/contract; never an open repair criterion. oracle_defect: the harness itself is obsolete, inconsistent, or unsound; it blocks readiness, not a fabricated repair."
+        },
+        "owner_id": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 128,
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+        },
+        "failure_family": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "predicate_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 11,
+            "maxLength": 128,
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          }
+        },
+        "law_bindings": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/lane_report_oracle_law_binding"
+          }
+        },
+        "case_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 128,
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+          }
+        },
+        "control_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 9,
+            "maxLength": 128,
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "x-maxBytes": 256
+          },
+          "description": "The reproducible evidence that supports the finding. A known control failure names that control's receipt."
+        },
+        "entry_point": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "x-maxBytes": 512,
+          "description": "For an uncovered_case: the explicit new entry path or transition the inventory omitted."
+        },
+        "continues_finding_id": {
+          "type": "string",
+          "minLength": 11,
+          "maxLength": 64,
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "description": "The earlier ranked finding of this work that this finding continues. Same failure, same canonical open identity; an uncertain join becomes a new finding and earns no shrink credit."
+        },
+        "variant_of": {
+          "type": "string",
+          "minLength": 11,
+          "maxLength": 64,
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding."
+        }
+      }
+    },
+    "lane_report_review_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "confidence",
+        "detail",
+        "finding_id",
+        "in_scope",
+        "blocking",
+        "status",
+        "evidence_refs",
+        "closure_refs"
+      ],
+      "properties": {
+        "finding_id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128,
+          "pattern": "^\\S+$"
+        },
+        "in_scope": {
+          "type": "boolean"
+        },
+        "blocking": {
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "open",
+            "closed"
+          ],
+          "type": "string"
+        },
+        "evidence_refs": {
+          "$ref": "#/$defs/lane_report_review_refs"
+        },
+        "closure_refs": {
+          "$ref": "#/$defs/lane_report_review_refs"
+        },
+        "severity": {
+          "enum": [
+            "P0",
+            "P1",
+            "P2",
+            "P3"
+          ],
+          "type": "string"
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "x-maxBytes": 512
+        },
+        "oracle": {
+          "$ref": "#/$defs/lane_report_oracle_finding"
+        }
+      }
+    },
+    "lane_report_resolved_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "finding_id",
+        "evidence_refs"
+      ],
+      "description": "One evidenced closure claim of a previously open ranked finding. A finding closes only through supported closure; omission, relabeling, or a confidence change never closes it.",
+      "properties": {
+        "finding_id": {
+          "type": "string",
+          "minLength": 11,
+          "maxLength": 64,
+          "pattern": "^finding:[0-9]+:[0-9]+$"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "x-maxBytes": 256
+          },
+          "description": "The producer-captured current-subject evidence the closure names, as the control requires."
+        }
+      }
+    },
+    "lane_report_review_block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "disposition",
+        "input_candidate",
+        "output_candidate",
+        "dependencies",
+        "assessments",
+        "findings",
+        "remaining_obligations"
+      ],
+      "properties": {
+        "disposition": {
+          "enum": [
+            "continue",
+            "correction_required",
+            "revision_required",
+            "ready_for_final_proof"
+          ],
+          "description": "An attributed Review disposition, not permission to advance. Main accepts the exact report through accept_worker_result. Blocking dispositions remain valid reports.",
+          "type": "string"
+        },
+        "input_candidate": {
+          "$ref": "#/$defs/lane_report_review_candidate"
+        },
+        "output_candidate": {
+          "$ref": "#/$defs/lane_report_review_candidate"
+        },
+        "dependencies": {
+          "$ref": "#/$defs/lane_report_review_dependencies"
+        },
+        "assessments": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/lane_report_review_assessment"
+          }
+        },
+        "remaining_obligations": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/lane_report_review_obligation"
+          }
+        },
+        "findings": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/lane_report_review_finding"
+          }
+        },
+        "resolved_findings": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "x-maxArrayBytes": 8192,
+          "description": "Optional evidenced closure claims of previously open ranked findings, reported on any verdict. A claim is a claim: the store checks each identity against this work's earlier ranked findings and the evidence each control requires. x-maxArrayBytes bounds the compact JSON serialization of the whole array in UTF-8 bytes; the adapter enforces that aggregate and refuses the report rather than truncating a claim.",
+          "items": {
+            "$ref": "#/$defs/lane_report_resolved_finding"
+          }
+        }
+      }
     },
     "work_transition_action_variant_dispatch_worker_fields_member_0": {
       "type": "object",

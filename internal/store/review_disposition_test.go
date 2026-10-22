@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -32,11 +31,9 @@ func TestReviewDispositionMainMayAssociateProofAfterExecution(t *testing.T) {
 func TestReviewDispositionReplacesShipGate(t *testing.T) {
 	for _, disposition := range []string{"continue", "correction_required", "revision_required", "ready_for_final_proof"} {
 		t.Run(disposition, func(t *testing.T) {
-			var report WorkerReviewBlock
-			if err := json.Unmarshal([]byte(`{"disposition":"`+disposition+`","findings":[],"remaining_obligations":[]}`), &report); err != nil {
-				t.Fatal(err)
-			}
-			if err := validateWorkerReviewBlock(&report); err != nil {
+			report := reviewBlockFixture()
+			report.Disposition = disposition
+			if err := validateWorkerReviewBlock(report); err != nil {
 				t.Fatalf("explicit disposition is rejected by the retired ship gate: %v", err)
 			}
 		})

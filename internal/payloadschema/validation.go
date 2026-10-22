@@ -762,6 +762,15 @@ func sortedKeys(object map[string]any) []string {
 }
 
 func validateArrayKeywords(array []any, schema map[string]any, root map[string]any, path string) error {
+	if n, ok := schema["x-maxArrayBytes"].(json.Number); ok {
+		raw, err := json.Marshal(array)
+		if err != nil {
+			return fmt.Errorf("x-maxArrayBytes at %s: %w", path, err)
+		}
+		if len(raw) > numberInt(n) {
+			return withGuidance(fmt.Errorf("x-maxArrayBytes at %s: carries %d UTF-8 bytes against a limit of %d", path, len(raw), numberInt(n)), schema)
+		}
+	}
 	if n, ok := schema["minItems"].(json.Number); ok && len(array) < numberInt(n) {
 		return withGuidance(fmt.Errorf("minItems at %s: carries %d item(s) against a minimum of %d", path, len(array), numberInt(n)), schema)
 	}

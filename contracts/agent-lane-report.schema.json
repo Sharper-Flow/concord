@@ -185,7 +185,7 @@
         "run_ref",
         "evidence_refs"
       ],
-      "description": "One typed control-execution receipt: reported evidence, never native-run authority. A signed worker report is a claim; the producing host's immutable native-run or artifact locator is the retrievable proof. subject_commit is the dispatch-owned raw commit OID: the adapter strips any worker echo and injects the admitted subject from the dispatch packet. A timeout is unavailable evidence, not a measured failure.",
+      "description": "One typed control-execution receipt: reported evidence, never native-run authority. The producer's immutable native-run or artifact locator owns the proof and captured subject. The adapter resolves that receipt instead of accepting a worker subject claim or replacing repaired C with packet input B. A timeout is unavailable evidence, not a measured failure.",
       "properties": {
         "control_ids": {
           "type": "array",
@@ -216,7 +216,7 @@
           "minLength": 40,
           "maxLength": 64,
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
-          "description": "The admitted raw commit OID. Dispatch-owned: a worker-authored value is stripped before the canonical report and filled only from the packet's core subject_commit."
+          "description": "The raw commit OID captured by the cited producer receipt. Worker-authored values confer no authority; a repairing Review's C receipt must remain C."
         },
         "recipe_source": {
           "$ref": "#/$defs/oracle_recipe_source"
@@ -463,7 +463,7 @@
             "maxLength": 256,
             "x-maxBytes": 256
           },
-          "description": "The independent current-subject evidence the closure names, as the control requires."
+          "description": "The producer-captured current-subject evidence the closure names, as the control requires."
         }
       }
     },
@@ -580,15 +580,38 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "verdict",
-        "findings"
+        "disposition",
+        "input_candidate",
+        "output_candidate",
+        "dependencies",
+        "assessments",
+        "findings",
+        "remaining_obligations"
       ],
       "properties": {
-        "verdict": {
+        "disposition": {
           "enum": [
-            "ship",
-            "no_ship"
-          ]
+            "continue",
+            "correction_required",
+            "revision_required",
+            "ready_for_final_proof"
+          ],
+          "description": "An attributed Review disposition, not permission to advance. Main accepts the exact report through accept_worker_result. Blocking dispositions remain valid reports."
+        },
+        "input_candidate": { "$ref": "#/$defs/review_candidate" },
+        "output_candidate": { "$ref": "#/$defs/review_candidate" },
+        "dependencies": { "$ref": "#/$defs/review_dependencies" },
+        "assessments": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/review_assessment" }
+        },
+        "remaining_obligations": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/review_obligation" }
         },
         "findings": {
           "type": "array",
@@ -608,63 +631,66 @@
             "$ref": "#/$defs/resolved_finding"
           }
         }
-      },
-      "allOf": [
-        {
-          "if": {
+      }
+    },
+    "review_candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_id", "commit", "tree"],
+      "description": "Review's candidate claim. Acceptance derives authority from the admitted input and the host's clean terminal observation, not these claims.",
+      "properties": {
+        "project_id": { "type": "string", "minLength": 2, "maxLength": 128 },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+        "tree": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" }
+      }
+    },
+    "review_dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["criteria", "architecture_not_applicable"],
+      "properties": {
+        "criteria": {
+          "type": "array", "minItems": 1, "maxItems": 8,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["predicate_id", "content_digest"],
             "properties": {
-              "verdict": {
-                "const": "no_ship"
-              }
-            },
-            "required": [
-              "verdict"
-            ]
-          },
-          "then": {
-            "properties": {
-              "findings": {
-                "minItems": 1
-              }
-            },
-            "required": [
-              "findings"
-            ]
+              "predicate_id": { "type": "string", "minLength": 11, "maxLength": 128, "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+              "content_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+            }
           }
         },
-        {
-          "if": {
-            "properties": {
-              "verdict": {
-                "const": "ship"
-              }
-            },
-            "required": [
-              "verdict"
-            ]
-          },
-          "then": {
-            "properties": {
-              "findings": {
-                "items": {
-                  "properties": {
-                    "severity": {
-                      "enum": [
-                        "P1",
-                        "P2",
-                        "P3"
-                      ]
-                    }
-                  }
-                }
-              }
-            },
-            "required": [
-              "findings"
-            ]
-          }
-        }
+        "architecture_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "architecture_not_applicable": { "type": "boolean" }
+      },
+      "oneOf": [
+        { "properties": { "architecture_not_applicable": { "const": true } }, "not": { "required": ["architecture_digest"] } },
+        { "properties": { "architecture_not_applicable": { "const": false } }, "required": ["architecture_digest"] }
       ]
+    },
+    "review_assessment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["predicate_id", "assessment", "receipt_refs"],
+      "properties": {
+        "predicate_id": { "type": "string", "minLength": 11, "maxLength": 128, "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+        "assessment": { "enum": ["supported", "unproved", "mismatch"] },
+        "receipt_refs": { "$ref": "#/$defs/review_refs" }
+      }
+    },
+    "review_obligation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["obligation_id", "owner_ref", "subject_ref", "input_digest", "needed_proof"],
+      "properties": {
+        "obligation_id": { "type": "string", "minLength": 2, "maxLength": 128 },
+        "owner_ref": { "type": "string", "minLength": 2, "maxLength": 128 },
+        "subject_ref": { "type": "string", "minLength": 2, "maxLength": 128 },
+        "input_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "needed_proof": { "type": "string", "minLength": 1, "maxLength": 512, "x-maxBytes": 512 }
+      }
+    },
+    "review_refs": {
+      "type": "array", "minItems": 0, "maxItems": 32, "uniqueItems": true,
+      "items": { "type": "string", "minLength": 2, "maxLength": 128, "x-maxBytes": 128, "pattern": "^\\S+$" }
     },
     "review_finding": {
       "type": "object",
@@ -672,9 +698,21 @@
       "required": [
         "severity",
         "confidence",
-        "detail"
+        "detail",
+        "finding_id",
+        "in_scope",
+        "blocking",
+        "status",
+        "evidence_refs",
+        "closure_refs"
       ],
       "properties": {
+        "finding_id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^\\S+$" },
+        "in_scope": { "type": "boolean" },
+        "blocking": { "type": "boolean" },
+        "status": { "enum": ["open", "closed"] },
+        "evidence_refs": { "$ref": "#/$defs/review_refs" },
+        "closure_refs": { "$ref": "#/$defs/review_refs" },
         "severity": {
           "enum": [
             "P0",

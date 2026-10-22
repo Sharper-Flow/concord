@@ -535,7 +535,7 @@ func workerCompleteEventForLane(workID, eventID, attemptID string, lane LaneDefi
 	if len(lane.RequiredReportBlocks) > 0 {
 		version = 3
 		payload.EvidenceOrigin = WorkerEvidenceLegacyUnavailable
-		payload.Review = &WorkerReviewBlock{Verdict: "ship", Findings: []WorkerReviewFinding{}}
+		payload.Review = &WorkerReviewBlock{Disposition: "ready_for_final_proof", Findings: []WorkerReviewFinding{}}
 	}
 	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: occurredAt, PayloadVersion: version, Payload: mustJSONValue(payload)}
 }

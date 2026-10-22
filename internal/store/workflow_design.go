@@ -71,9 +71,8 @@ func appendWorkflowDesignCorrection(ctx context.Context, tx *sql.Tx, definition 
 	return append(events, designEvents...), nil
 }
 
-// readCurrentWorkflowDesign distinguishes an absent design from one invalidated
-// by contract supersession. Work versions order both facts without wall clocks.
-// Historical design rows remain available to audit and replay.
+// The latest recorded design owns architecture content. Contract counters do
+// not invalidate unchanged architecture; Review compares its content digest.
 func readCurrentWorkflowDesign(ctx context.Context, q queryer, workID string) (*WorkflowDesignRecord, bool, error) {
 	var design WorkflowDesignRecord
 	var decisions, touched string
@@ -86,14 +85,6 @@ func readCurrentWorkflowDesign(ctx context.Context, q queryer, workID string) (*
 	}
 	if json.Unmarshal([]byte(decisions), &design.Decisions) != nil || json.Unmarshal([]byte(touched), &design.TouchedRefs) != nil {
 		return nil, false, newFailure(KindInvariantViolation, "workflow_design", "design projection contains malformed arrays", false, "rebuild projections from the event log")
-	}
-	var supersededAt int64
-	err = q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.resulting_version') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.resulting_version') <= (SELECT version FROM work_items WHERE id=?) ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowContractSuperseded, workID).Scan(&supersededAt)
-	if err != nil && err != sql.ErrNoRows {
-		return nil, false, workflowProjectionError(err, "cannot read the design contract boundary")
-	}
-	if err == nil && design.WorkVersion <= supersededAt {
-		return nil, true, nil
 	}
 	return &design, false, nil
 }

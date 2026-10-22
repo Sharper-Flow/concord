@@ -267,7 +267,7 @@ func recordGenericOneOffWorkerReviewCompletion(t *testing.T, s *store.Store, att
 	if findings == nil {
 		findings = []store.WorkerReviewFinding{}
 	}
-	completion := store.Event{EventID: "verify-wall-completed-" + attemptID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 3, Payload: retryJSON(store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerDirectory: agentWorkerDirectory(t, s, "work-1"), EvidenceOrigin: store.WorkerEvidenceLegacyUnavailable, Review: &store.WorkerReviewBlock{Verdict: verdict, Findings: findings}})}
+	completion := store.Event{EventID: "verify-wall-completed-" + attemptID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 3, Payload: retryJSON(store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerDirectory: agentWorkerDirectory(t, s, "work-1"), EvidenceOrigin: store.WorkerEvidenceLegacyUnavailable, Review: &store.WorkerReviewBlock{Disposition: verdict, Findings: findings}})}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		_, err := store.ApplyOperationTx(context.Background(), tx, store.Operation{Events: []store.Event{completion}})
 		return err

@@ -85,7 +85,7 @@ func deliveryRecoveryCompletion(t *testing.T, s *store.Store, grant Authority, a
 	// their oracle classification (CD-0198).
 	if len(lane.RequiredReportBlocks) > 0 {
 		payload.EvidenceOrigin = store.WorkerEvidenceLegacyUnavailable
-		payload.Review = &store.WorkerReviewBlock{Verdict: "no_ship", Findings: []store.WorkerReviewFinding{{Severity: "P0", Confidence: "high", Detail: "the refined result misses the approved contract"}}}
+		payload.Review = &store.WorkerReviewBlock{Disposition: "correction_required", Findings: []store.WorkerReviewFinding{{Severity: "P0", Confidence: "high", Detail: "the refined result misses the approved contract"}}}
 		if job != nil {
 			if oracle := recordedAgentOracle(t, s, job); oracle != nil {
 				owner := oracle.Owners[0]

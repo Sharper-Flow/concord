@@ -2893,7 +2893,7 @@ func appendLaneCompletionWithVerdict(t *testing.T, s *store.Store, grant Authori
 	completedPayload := store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job}
 	if len(lane.RequiredReportBlocks) > 0 {
 		completedPayload.EvidenceOrigin = store.WorkerEvidenceLegacyUnavailable
-		completedPayload.Review = &store.WorkerReviewBlock{Verdict: reviewVerdict, Findings: []store.WorkerReviewFinding{{Severity: "P3", Confidence: "high", Detail: "the corrected producer attempt " + suffix}}}
+		completedPayload.Review = &store.WorkerReviewBlock{Disposition: reviewVerdict, Findings: []store.WorkerReviewFinding{{Severity: "P3", Confidence: "high", Detail: "the corrected producer attempt " + suffix}}}
 		if oracle := recordedAgentOracle(t, s, job); oracle != nil {
 			owner := oracle.Owners[0]
 			completedPayload.Review.Findings[0].Oracle = &store.WorkerOracleFinding{

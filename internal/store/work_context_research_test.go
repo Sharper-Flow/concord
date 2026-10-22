@@ -1104,7 +1104,7 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 				AttemptID: "attempt-ctx-research-ranked", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 				WorkerDirectory: workerFixtureDirectory(t, fixture.store, fixture.workID),
 				EvidenceOrigin:  WorkerEvidenceReported, Evidence: evidence,
-				Review: &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{{Severity: "P2", Confidence: "low", Detail: "the ranked mixed-count blocker"}}},
+				Review: &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{{Severity: "P2", Confidence: "low", Detail: "the ranked mixed-count blocker"}}},
 			}),
 		}}}); err != nil {
 			t.Fatalf("ranked review report refused: %v", err)
@@ -1530,7 +1530,7 @@ func seedMandatoryNativeEvidence(t *testing.T, f workContextFixture, blockers in
 				},
 			})
 		}
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: findings}
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: findings}
 	})
 	if err := ApplyOperation(context.Background(), f.store, Operation{Events: []Event{completion}}); err != nil {
 		t.Fatalf("mandatory ranked report refused: %v", err)

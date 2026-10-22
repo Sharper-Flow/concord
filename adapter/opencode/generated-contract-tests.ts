@@ -262,6 +262,7 @@ function validateSchema(schema: any, value: unknown, root: Record<string, unknow
     for (const [keyword, exceeds] of [["minProperties", Object.keys(object).length < schema.minProperties], ["maxProperties", Object.keys(object).length > schema.maxProperties]] as const) if (exceeds) return fail(path || "<root>", `${keyword} bound ${schema[keyword]}`);
   }
   if (Array.isArray(value)) {
+    if (schema["x-maxArrayBytes"] !== undefined && Buffer.byteLength(JSON.stringify(value), "utf8") > schema["x-maxArrayBytes"]) return fail(path || "<root>", `x-maxArrayBytes bound ${schema["x-maxArrayBytes"]} UTF-8 bytes`);
     for (const [keyword, exceeds] of [["minItems", value.length < schema.minItems], ["maxItems", value.length > schema.maxItems]] as const) if (exceeds) return fail(path || "<root>", `${keyword} bound ${schema[keyword]}`);
     if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) return fail(path || "<root>");
     if (schema.items) for (let index = 0; index < value.length; index++) { const result = validateSchema(schema.items, value[index], root, path + "[" + index + "]"); if (!result.valid) return result; }
@@ -289,4 +290,4 @@ function validateSchema(schema: any, value: unknown, root: Record<string, unknow
   return pass(evaluated);
 }
 
-export const PINNED_PUBLISHED_TOTAL_BYTES = 148039;
+export const PINNED_PUBLISHED_TOTAL_BYTES = 147952;

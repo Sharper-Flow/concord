@@ -30,6 +30,10 @@ const (
 // admission site that loads and admits answers identically for the same
 // state instead of re-deriving the conditions per site.
 type WorkflowAdmissionState struct {
+	Review                *WorkflowReviewState
+	ReviewLane            string
+	ReviewGroup           string
+	ReviewAcceptanceError *Failure
 	// Step is the work item's current workflow step.
 	Step string
 	// Lifecycle is the work item's lifecycle.
@@ -332,6 +336,11 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 	if err := l.attemptAndReview(&state); err != nil {
 		return WorkflowAdmissionState{}, nil, nil, err
 	}
+	review, reviewErr := loadWorkflowReviewState(ctx, q, workID, 0)
+	if reviewErr != nil {
+		return WorkflowAdmissionState{}, nil, nil, reviewErr
+	}
+	state.Review = &review
 	correctionRoute, err := l.recoveryRoutes(&state)
 	if err != nil {
 		return WorkflowAdmissionState{}, nil, nil, err
@@ -429,21 +438,6 @@ func (l workflowAdmissionLoad) attemptAndReview(state *WorkflowAdmissionState) e
 	if err := l.q.QueryRowContext(l.ctx, `SELECT COALESCE(json_extract(f.payload,'$.action_id'),'') FROM domain_events f WHERE f.subject_type='work_item' AND f.subject_id=? AND f.kind=? AND json_extract(f.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure') ORDER BY f.seq DESC LIMIT 1`, l.workID, WorkflowActionCompleted).Scan(&state.LatestResultDisposition); err != nil && err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, l.subject, "cannot read the latest result disposition", true, "retry once the workflow projection is readable", err)
 	}
-	if state.RefinementWorkflow && state.ReviewStep {
-		outstanding, err := workflowPostRejectionReviewOutstanding(l.ctx, l.q, l.workID, l.definition, l.subject)
-		if err != nil {
-			return err
-		}
-		if outstanding {
-			state.ReviewDebt = ReviewDebtOutstanding
-			readyAttemptID, readyVerdict, readyErr := workflowReadyReviewAttemptTx(l.ctx, l.q, l.workID, l.definition, l.subject)
-			if readyErr != nil {
-				return readyErr
-			}
-			state.ReadyReviewAttemptID, state.ReadyReviewVerdict = readyAttemptID, readyVerdict
-			state.ReadyReviewSettles = workflowReviewSettlesDebt(readyVerdict)
-		}
-	}
 	return nil
 }
 
@@ -451,11 +445,6 @@ func (l workflowAdmissionLoad) attemptAndReview(state *WorkflowAdmissionState) e
 // rejected-worker-result route before its dispatch-step restriction, which the
 // mandate fold reads.
 func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) (bool, error) {
-	lateRoute, lateErr := workflowLateVerdictRecoveryAvailable(l.ctx, l.q, l.workID, l.definition, l.currentStep)
-	if lateErr != nil && !(l.duplicated && workflowDuplicateContractProjection(lateErr)) {
-		return false, lateErr
-	}
-	state.LateVerdictRoute = lateRoute && lateErr == nil
 	workerFailureRoute, workerFailureErr := workflowWorkerFailureRecoveryAvailable(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject)
 	if workerFailureErr != nil {
 		return false, workerFailureErr
@@ -772,10 +761,61 @@ func workflowCorrectionWindowContinued(ctx context.Context, q queryer, workID, s
 // admitted so a parked item always keeps a route. The payload and identity
 // checks stay in the guards; the accept guard binds the request's attempt
 // against the decision's ReadyReviewAttemptID.
+// A group consumes continuation once. Its remaining members do not need an
+// intermediate Review, but a changed depended-on revision still invalidates it.
+func workflowAdmitReview(state WorkflowReviewState, group string) error {
+	if blocker := state.blocker(); blocker != "" {
+		return reviewFailure(KindMissingEvidence, "open in-scope blocking finding "+blocker+" blocks execution progression", "obtain an evidenced closure of "+blocker+" and have Main accept that Review report")
+	}
+	if group != "" && state.ContinueConsumed && state.GroupID == group && state.Accepted != nil && state.DependenciesCurrent {
+		return nil
+	}
+	if state.Accepted == nil || state.Candidate == nil || state.Accepted.Report.OutputCandidate != *state.Candidate || !state.DependenciesCurrent {
+		return reviewFailure(KindMissingEvidence, "execution progression requires an accepted Review on the current candidate and depended-on revisions", "obtain and accept a Review of the current candidate, including the baseline before the first group")
+	}
+	disposition := state.Accepted.Report.Disposition
+	if group != "" {
+		if disposition != "continue" {
+			return reviewFailure(KindMissingEvidence, "opening an ordinary assignment group requires accepted continue, not "+disposition, "obtain and accept continue, or follow the report's declared corrective/upstream obligation")
+		}
+		if state.ContinueConsumed && state.GroupID != group {
+			return reviewFailure(KindOperationConflict, "this continue permission has already opened group "+state.GroupID, "finish that group, integrate its results, and obtain a new accepted continue")
+		}
+		return nil
+	}
+	if disposition != "ready_for_final_proof" {
+		return reviewFailure(KindMissingEvidence, "leaving execution requires accepted ready_for_final_proof, not "+disposition, "obtain and accept ready_for_final_proof on the current candidate")
+	}
+	return nil
+}
+
 func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string) WorkflowAdmissionDecision {
 	decision := WorkflowAdmissionDecision{ReadyReviewAttemptID: state.ReadyReviewAttemptID, ReadyReviewSettles: state.ReadyReviewSettles}
 	if workflowAdmitInstanceRefused(definition, state, actionID, &decision) {
 		return decision
+	}
+	if actionID == "accept_worker_result" && state.ReviewAcceptanceError != nil {
+		decision.Failure = state.ReviewAcceptanceError
+		return decision
+	}
+	if state.Review != nil && workflowDefinitionProducesDelivery(definition) {
+		var reviewErr error
+		switch actionID {
+		case "dispatch_worker":
+			if state.ReviewLane == "implementation" {
+				reviewErr = workflowAdmitReview(*state.Review, state.ReviewGroup)
+			}
+		case "record_delivery":
+			if state.Review.Candidate != nil || state.RefinementWorkflow {
+				reviewErr = workflowAdmitReview(*state.Review, "")
+			}
+		case "complete":
+			reviewErr = workflowAdmitReview(*state.Review, "")
+		}
+		if reviewErr != nil {
+			decision.Failure = workflowFailureOf(reviewErr)
+			return decision
+		}
 	}
 	if actionID == "supersede_contract" {
 		return workflowAdmitSupersede(definition, state, decision)
@@ -886,21 +926,6 @@ func workflowAdmitDeliveryRefused(definition WorkflowDefinition, state WorkflowA
 	if failure := workflowAdmitMandate(definition, state.Step, state.Mandate, actionID, "workflow_action"); failure != nil {
 		decision.Failure = failure
 		return true
-	}
-	if state.RefinementWorkflow && state.ReviewDebt == ReviewDebtOutstanding {
-		refineStep := stepDeclaresAction(definition, state.Step, "checkpoint_refine")
-		switch actionID {
-		case "record_delivery":
-			if state.ReviewStep {
-				*decision = workflowAdmitFreshReviewRefusal(*decision)
-				return true
-			}
-		case "accept_worker_result":
-			if refineStep {
-				*decision = workflowAdmitFreshReviewRefusal(*decision)
-				return true
-			}
-		}
 	}
 	if actionID == "record_delivery" {
 		*decision = workflowAdmitDelivery(state, *decision)

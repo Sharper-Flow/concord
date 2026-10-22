@@ -69,7 +69,7 @@ func checksRepairFindingsCompletion(t *testing.T, s *Store, workID, attemptID, e
 		if blockers == nil {
 			blockers = []WorkerReviewFinding{}
 		}
-		payload.Review = &WorkerReviewBlock{Verdict: verdict, Findings: blockers, ResolvedFindings: resolutions}
+		payload.Review = &WorkerReviewBlock{Disposition: verdict, Findings: blockers, ResolvedFindings: resolutions}
 		if receipt != nil && len(payload.Evidence) > 0 {
 			payload.Evidence[0].OracleReceipt = receipt
 		}
@@ -222,7 +222,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	// attempt anchors the confirming review's subject join.
 	run5 := checksRepairClosureRun(t, s, "close-family-five", git)
 	attempt2Completion := checksRepairSealedCompletion(t, oracleCompletionEvent(t, s, workID, attempt2, "checks-repair-completed-"+attempt2, func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{
 			checksRepairContinuation(t, s, open[0], "first blocker stands"),
 			checksRepairContinuation(t, s, open[1], "second blocker stands"),
 			checksRepairContinuation(t, s, open[2], "third blocker stands"),
@@ -456,7 +456,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	// observation).
 	run2 := checksRepairClosureRun(t, s, "close-family-two", git)
 	attempt4Completion := checksRepairSealedCompletion(t, oracleCompletionEvent(t, s, workID, attempt4, "checks-repair-second-repair", func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{
+		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{
 			checksRepairContinuation(t, s, open[0], "first blocker stands"),
 		}, ResolvedFindings: []WorkerOracleResolution{{FindingID: open[1], EvidenceRefs: []string{run2.OperationRef}}}}
 		payload.Evidence[0].OracleReceipt = &WorkerOracleReceipt{

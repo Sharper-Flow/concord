@@ -129,7 +129,7 @@ func workSizeReviewFindsInScopeTx(ctx context.Context, q queryer, workID, attemp
 			continue
 		}
 		if finding.Oracle == nil {
-			if report.Review.Verdict == "no_ship" {
+			if report.Review.Disposition == "correction_required" || report.Review.Disposition == "revision_required" {
 				return true, nil
 			}
 			continue

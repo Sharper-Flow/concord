@@ -432,7 +432,7 @@ func TestCrossAttemptResultDisposition(t *testing.T) {
 	if err := json.Unmarshal(crossAttemptEventPayload(t, s, workID, WorkerCompleted, attemptV), &reviewAfter); err != nil {
 		t.Fatal(err)
 	}
-	if reviewAfter.Review == nil || reviewAfter.Review.Verdict != "no_ship" {
+	if reviewAfter.Review == nil || reviewAfter.Review.Disposition != "correction_required" {
 		t.Fatalf("review verdict after the rejection = %#v, want the untouched no_ship judgment", reviewAfter.Review)
 	}
 	if !reflect.DeepEqual(reviewAfter.Review.Findings, reviewBefore.Review.Findings) {

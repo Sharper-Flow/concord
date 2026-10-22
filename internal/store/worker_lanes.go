@@ -352,10 +352,16 @@ type WorkerBaseComparison struct {
 // required on every finding of an oracle-bound dispatch, where its
 // classification is a dimension beside severity, never a replacement for it.
 type WorkerReviewFinding struct {
-	Severity   string               `json:"severity"`
-	Confidence string               `json:"confidence"`
-	Detail     string               `json:"detail"`
-	Oracle     *WorkerOracleFinding `json:"oracle,omitempty"`
+	FindingID    string               `json:"finding_id"`
+	Severity     string               `json:"severity"`
+	Confidence   string               `json:"confidence"`
+	Detail       string               `json:"detail"`
+	InScope      bool                 `json:"in_scope"`
+	Blocking     bool                 `json:"blocking"`
+	Status       string               `json:"status"`
+	EvidenceRefs []string             `json:"evidence_refs"`
+	ClosureRefs  []string             `json:"closure_refs"`
+	Oracle       *WorkerOracleFinding `json:"oracle,omitempty"`
 }
 
 // WorkerReviewBlock is the typed review block of agent-lane-report.v1: the
@@ -365,9 +371,47 @@ type WorkerReviewFinding struct {
 // no transition, and the coordinator records the workflow verdict through
 // record_verdict.
 type WorkerReviewBlock struct {
-	Verdict          string                   `json:"verdict"`
-	Findings         []WorkerReviewFinding    `json:"findings"`
-	ResolvedFindings []WorkerOracleResolution `json:"resolved_findings,omitempty"`
+	Disposition          string                   `json:"disposition"`
+	InputCandidate       WorkerReviewCandidate    `json:"input_candidate"`
+	OutputCandidate      WorkerReviewCandidate    `json:"output_candidate"`
+	Dependencies         WorkerReviewDependencies `json:"dependencies"`
+	Assessments          []WorkerReviewAssessment `json:"assessments"`
+	Findings             []WorkerReviewFinding    `json:"findings"`
+	RemainingObligations []WorkerReviewObligation `json:"remaining_obligations"`
+	ResolvedFindings     []WorkerOracleResolution `json:"resolved_findings,omitempty"`
+}
+
+// Candidate identities are claims until acceptance joins the dispatch and the
+// host's clean terminal observation. A worker cannot select the current candidate.
+type WorkerReviewCandidate struct {
+	ProjectID string `json:"project_id"`
+	Commit    string `json:"commit"`
+	Tree      string `json:"tree"`
+}
+
+type WorkerReviewCriterion struct {
+	PredicateID   string `json:"predicate_id"`
+	ContentDigest string `json:"content_digest"`
+}
+
+type WorkerReviewDependencies struct {
+	Criteria                  []WorkerReviewCriterion `json:"criteria"`
+	ArchitectureDigest        string                  `json:"architecture_digest,omitempty"`
+	ArchitectureNotApplicable bool                    `json:"architecture_not_applicable"`
+}
+
+type WorkerReviewAssessment struct {
+	PredicateID string   `json:"predicate_id"`
+	Assessment  string   `json:"assessment"`
+	ReceiptRefs []string `json:"receipt_refs"`
+}
+
+type WorkerReviewObligation struct {
+	ObligationID string `json:"obligation_id"`
+	OwnerRef     string `json:"owner_ref"`
+	SubjectRef   string `json:"subject_ref"`
+	InputDigest  string `json:"input_digest"`
+	NeededProof  string `json:"needed_proof"`
 }
 
 type WorkerCompletedPayload struct {
@@ -514,8 +558,10 @@ type WorkerObservedPath struct {
 // observation and is never recorded live.
 type WorkerObservedDelivery struct {
 	Commit       string               `json:"commit"`
+	Tree         string               `json:"tree,omitempty"`
 	State        string               `json:"state"`
 	Base         string               `json:"base,omitempty"`
+	BaseTree     string               `json:"base_tree,omitempty"`
 	ChangedPaths []string             `json:"changed_paths,omitempty"`
 	Paths        []WorkerObservedPath `json:"paths,omitempty"`
 }
@@ -825,10 +871,9 @@ func validateWorkerBaseComparison(comparison *WorkerBaseComparison) error {
 // workerReviewConfidenceVocabulary are the closed sets the review block's
 // fields draw from (CD-0197), mirroring the report schema's enums.
 var (
-	workerReviewVerdictVocabulary     = map[string]bool{"ship": true, "no_ship": true}
-	workerReviewSeverityVocabulary    = map[string]bool{"P0": true, "P1": true, "P2": true, "P3": true}
-	workerReviewConfidenceVocabulary  = map[string]bool{"low": true, "medium": true, "high": true}
-	workerReviewShipBlockerSeverities = map[string]bool{"P0": true}
+	workerReviewVerdictVocabulary    = map[string]bool{"continue": true, "correction_required": true, "revision_required": true, "ready_for_final_proof": true}
+	workerReviewSeverityVocabulary   = map[string]bool{"P0": true, "P1": true, "P2": true, "P3": true}
+	workerReviewConfidenceVocabulary = map[string]bool{"low": true, "medium": true, "high": true}
 )
 
 // validateWorkerReviewBlock mirrors the closed shape the report schema gives
@@ -841,8 +886,8 @@ func validateWorkerReviewBlock(review *WorkerReviewBlock) error {
 	if review == nil {
 		return nil
 	}
-	if !workerReviewVerdictVocabulary[review.Verdict] {
-		return invalidWorkerPayload("worker.completed review verdict must be ship or no_ship")
+	if !workerReviewVerdictVocabulary[review.Disposition] {
+		return invalidWorkerPayload("worker.completed review disposition must be continue, correction_required, revision_required, or ready_for_final_proof")
 	}
 	if review.Findings == nil {
 		return invalidWorkerPayload("worker.completed review must carry a findings array")
@@ -850,20 +895,57 @@ func validateWorkerReviewBlock(review *WorkerReviewBlock) error {
 	if len(review.Findings) > 64 {
 		return invalidWorkerPayload("worker.completed review must carry at most 64 findings")
 	}
-	if review.Verdict == "no_ship" && len(review.Findings) == 0 {
-		return invalidWorkerPayload("worker.completed review with a no_ship verdict must carry at least one finding")
+	if review.Assessments == nil || len(review.Assessments) > 8 || review.RemainingObligations == nil || len(review.RemainingObligations) > 32 {
+		return invalidWorkerPayload("worker.completed review requires assessments (at most 8) and remaining_obligations (at most 32) arrays")
 	}
+	for _, candidate := range []WorkerReviewCandidate{review.InputCandidate, review.OutputCandidate} {
+		if !ValidReference(candidate.ProjectID) || !worktreeSHAPattern.MatchString(candidate.Commit) || !worktreeSHAPattern.MatchString(candidate.Tree) {
+			return invalidWorkerPayload("worker.completed review requires input and output Project, raw commit, and tree identities")
+		}
+	}
+	if len(review.Dependencies.Criteria) < 1 || len(review.Dependencies.Criteria) > 8 || review.Dependencies.ArchitectureNotApplicable == (review.Dependencies.ArchitectureDigest != "") {
+		return invalidWorkerPayload("worker.completed review requires judged criteria and exactly one architecture digest or explicit not-applicable status")
+	}
+	if review.Dependencies.ArchitectureDigest != "" && !validDigest(review.Dependencies.ArchitectureDigest) {
+		return invalidWorkerPayload("worker.completed review architecture_digest must be a sha256 digest")
+	}
+	criteria := map[string]bool{}
+	for _, criterion := range review.Dependencies.Criteria {
+		if !workerJobPredicatePattern.MatchString(criterion.PredicateID) || !validDigest(criterion.ContentDigest) || criteria[criterion.PredicateID] {
+			return invalidWorkerPayload("worker.completed review requires unique criterion identities with content digests")
+		}
+		criteria[criterion.PredicateID] = true
+	}
+	seen := map[string]bool{}
+	for _, assessment := range review.Assessments {
+		if !criteria[assessment.PredicateID] || seen[assessment.PredicateID] || (assessment.Assessment != "supported" && assessment.Assessment != "unproved" && assessment.Assessment != "mismatch") || assessment.ReceiptRefs == nil || len(assessment.ReceiptRefs) > 32 {
+			return invalidWorkerPayload("worker.completed review assessments must uniquely name judged criteria, a closed assessment, and bounded receipt refs")
+		}
+		seen[assessment.PredicateID] = true
+		for _, ref := range assessment.ReceiptRefs {
+			if !ValidReference(ref) {
+				return invalidWorkerPayload("worker.completed review receipt ref is invalid")
+			}
+		}
+	}
+	seen = map[string]bool{}
 	for _, finding := range review.Findings {
 		if err := validateWorkerReviewFinding(finding); err != nil {
 			return err
 		}
-	}
-	for _, finding := range review.Findings {
-		if review.Verdict == "ship" && workerReviewShipBlockerSeverities[finding.Severity] {
-			return invalidWorkerPayload("worker.completed review with a ship verdict cannot carry a P0 finding")
+		if seen[finding.FindingID] {
+			return invalidWorkerPayload("worker.completed review repeats a finding_id")
 		}
+		seen[finding.FindingID] = true
 	}
-	return validateWorkerReviewOracleVerdict(review)
+	seen = map[string]bool{}
+	for _, obligation := range review.RemainingObligations {
+		if !ValidReference(obligation.ObligationID) || seen[obligation.ObligationID] || !ValidReference(obligation.OwnerRef) || !ValidReference(obligation.SubjectRef) || !validDigest(obligation.InputDigest) || len(obligation.NeededProof) < 1 || len(obligation.NeededProof) > 512 {
+			return invalidWorkerPayload("worker.completed review remaining obligations require unique identities, owner, subject, input digest, and bounded needed proof")
+		}
+		seen[obligation.ObligationID] = true
+	}
+	return nil
 }
 
 func validateWorkerReviewFinding(finding WorkerReviewFinding) error {
@@ -876,6 +958,17 @@ func validateWorkerReviewFinding(finding WorkerReviewFinding) error {
 	if len(finding.Detail) < 1 || len(finding.Detail) > 512 {
 		return invalidWorkerPayload("worker.completed review finding detail must be between 1 and 512 UTF-8 bytes")
 	}
+	if !ValidReference(finding.FindingID) || (finding.Status != "open" && finding.Status != "closed") || finding.EvidenceRefs == nil || finding.ClosureRefs == nil || len(finding.EvidenceRefs) > 32 || len(finding.ClosureRefs) > 32 {
+		return invalidWorkerPayload("worker.completed review findings require finding_id, open or closed status, and bounded evidence/closure arrays")
+	}
+	if finding.Status == "closed" && len(finding.ClosureRefs) == 0 {
+		return invalidWorkerPayload("worker.completed review finding closure requires evidence")
+	}
+	for _, ref := range append(append([]string{}, finding.EvidenceRefs...), finding.ClosureRefs...) {
+		if !ValidReference(ref) {
+			return invalidWorkerPayload("worker.completed review finding evidence ref is invalid")
+		}
+	}
 	return nil
 }
 
@@ -886,30 +979,6 @@ func validateWorkerReviewFinding(finding WorkerReviewFinding) error {
 // never carries a classified blocker; a no_ship justified only by
 // sub-P0 follow-ups is an inconsistent verdict, while an out-of-scope
 // P0 follow-up stays a valid retained no_ship for the decision owner.
-func validateWorkerReviewOracleVerdict(review *WorkerReviewBlock) error {
-	oracleFindings := false
-	shipBlocker := false
-	onlySubP0FollowUps := true
-	for _, finding := range review.Findings {
-		if finding.Oracle != nil {
-			oracleFindings = true
-			shipBlocker = shipBlocker || oracleReviewBlockerClasses[finding.Oracle.Classification]
-		}
-		if finding.Oracle == nil || finding.Oracle.Classification != OracleClassificationFollowUp || finding.Severity == "P0" {
-			onlySubP0FollowUps = false
-		}
-	}
-	if !oracleFindings {
-		return nil
-	}
-	if review.Verdict == "ship" && shipBlocker {
-		return invalidWorkerPayload("worker.completed review with a ship verdict cannot carry a classified delivery blocker, uncovered case, or oracle defect")
-	}
-	if review.Verdict == "no_ship" && onlySubP0FollowUps {
-		return invalidWorkerPayload("worker.completed review with a no_ship verdict cannot be justified only by follow-ups below P0; an out-of-scope P0 follow-up stays a valid retained no_ship")
-	}
-	return nil
-}
 
 // validateWorkerReportEvidence is the shape half of the CD-0056 evidence
 // contract. The validator receives the event but not the attempt, so it cannot
@@ -1787,15 +1856,6 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	if err := verifyWorkerTerminalUpdate(result, "cannot verify worker completion projection", "record worker.dispatched before worker.completed"); err != nil {
 		return err
-	}
-	// A completed no_ship verdict voids its confirming review's repair
-	// (CD-0205 D4): the named revisions lose their provisional readiness at
-	// the strict prefix of this completion. A completed ship report keeps
-	// waiting for its acceptance and reverts nothing.
-	if payload.Review != nil && payload.Review.Verdict == "no_ship" {
-		if err := voidWorkerJobRepairByAttemptTx(ctx, tx, event.SubjectID, payload.AttemptID, event.Seq-1); err != nil {
-			return err
-		}
 	}
 	return nil
 }

@@ -220,6 +220,7 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 				}
 			}
 			before := workflowReplayEffectCounts(t, s)
+			beforeCommits := s.DurableCommits()
 			public, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
 			if err != nil {
 				t.Fatal(err)
@@ -241,8 +242,8 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 			if workflowReplayEffectCounts(t, s) != before {
 				t.Fatal("replay changed events, operations, attempts, dispatches or work version")
 			}
-			if vector.want == OutcomeError && replayMetadataCount(t, s, "owner-classification") != 0 {
-				t.Fatal("refused replay changed metadata")
+			if vector.want == OutcomeError && (replayMetadataCount(t, s, "owner-classification") != 0 || s.DurableCommits() != beforeCommits) {
+				t.Fatal("refused replay committed metadata or a durable write")
 			}
 			if vector.missingPayload || vector.name == "missing response metadata" {
 				if transaction.Error == nil || transaction.Error.EffectState != EffectPossible || transaction.Error.RetrySafe {

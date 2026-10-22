@@ -162,6 +162,21 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 	}
 	pin := f.read(t).Pinned.Pin
 	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{"work_id": f.work, "expected_version": pin.Version, "action_id": "confirm_premise", "selected_choice": "confirm", "idempotency_key": "spine-confirm"}))
+	if err := os.WriteFile(filepath.Join(f.path, "pkg/value.go"), []byte("package spine\nfunc Value() int { return 8 }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, f.path, "add", "pkg/value.go")
+	gitRun(t, f.path, "commit", "-qm", "unreviewed candidate")
+	if head := gitRun(t, f.path, "rev-parse", "HEAD"); head == c.Commit {
+		t.Fatal("the unreviewed candidate did not change the subject")
+	}
+	beforeChangedSubject := f.read(t).Pinned.Pin
+	changedSubject := f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"})
+	afterChangedSubject := f.read(t).Pinned.Pin
+	if changedSubject.Outcome != OutcomeError || changedSubject.Error == nil || changedSubject.Error.Kind != "stale_requires_review" || changedSubject.Error.EffectState != EffectNone || afterChangedSubject.Version != beforeChangedSubject.Version || afterChangedSubject.Lifecycle != beforeChangedSubject.Lifecycle || !reflect.DeepEqual(afterChangedSubject.Review, beforeChangedSubject.Review) {
+		t.Fatalf("completion did not revalidate the final checkout against C: %+v", changedSubject)
+	}
+	gitRun(t, f.path, "checkout", "--detach", c.Commit)
 	spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))
 	done := f.read(t).Pinned.Pin
 	if done.Lifecycle != "completed" || done.Review.Candidate == nil || *done.Review.Candidate != c || !done.Review.PublicationOutstanding || len(done.VerifiedCriteria) != 1 {

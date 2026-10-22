@@ -394,6 +394,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 		"work_id": workID, "expected_version": int64(4), "resulting_version": int64(5), "contract_version": int64(1), "premise": "bind Product law", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:architecture", "immutable_subject_ref": "commit:architecture", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one", "law:new"}, "law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{{LawID: "spec:one", ContentHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
 	event.PayloadVersion = 3
+	event = withPinnedDecisionFact(t, definition.Definition, event)
 	var approvalFields map[string]any
 	if err := json.Unmarshal(event.Payload, &approvalFields); err != nil {
 		t.Fatal(err)
@@ -402,7 +403,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	missingRelationBinding.DomainRelationModifies = []WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "replaces", TargetDomainID: "root"}}
 	approvalFields["architecture_binding"] = missingRelationBinding
 	absentApproval := workflowEventWithActor("architecture-binding-absent-approval", WorkflowContractApproved, workID, event.Actor, approvalFields)
-	absentApproval.PayloadVersion = 3
+	absentApproval.PayloadVersion = event.PayloadVersion
 	assertAbsentRelationAtomic := func(event Event, version int64, contracts int) {
 		t.Helper()
 		var eventsBefore int
@@ -456,6 +457,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 		"work_id": workID, "expected_version": int64(5), "resulting_version": int64(6), "previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "revised Domain footprint", "audit_evidence": []string{"audit:architecture-v2"}, "successor_contract": successor,
 	})
 	supersede.PayloadVersion = 1
+	supersede = withPinnedDecisionFact(t, definition.Definition, supersede)
 	var supersedeFields map[string]any
 	if err := json.Unmarshal(supersede.Payload, &supersedeFields); err != nil {
 		t.Fatal(err)
@@ -467,7 +469,8 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	absentSuccessor["architecture_binding"] = missingRelationBinding
 	supersedeFields["successor_contract"] = absentSuccessor
 	absentSupersede := workflowEventWithActor("architecture-binding-absent-supersede", WorkflowContractSuperseded, workID, event.Actor, supersedeFields)
-	absentSupersede.PayloadVersion = 1
+	absentSupersede.PayloadVersion = supersede.PayloadVersion
+	absentSupersede = withPinnedDecisionFact(t, definition.Definition, absentSupersede)
 	assertAbsentRelationAtomic(absentSupersede, 5, 1)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 5}}); err != nil {
 		t.Fatalf("bound successor rejected: %v", err)
@@ -517,8 +520,12 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET definition_digest='sha256:`+strings.Repeat("c", 64)+`' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID}); err == nil {
-		t.Fatal("read accepted a workflow with a drifted registered definition digest")
+	current, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Definition.Digest != definition.Digest || string(mustJSONValue(current.ArchitectureBinding)) != string(mustJSONValue(projection.ArchitectureBinding)) {
+		t.Fatal("stored definition metadata replaced the current definition or approved architecture binding")
 	}
 }
 

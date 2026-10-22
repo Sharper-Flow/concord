@@ -186,6 +186,11 @@ func TestWorkflowApprovalBoundaryChangedFacts(t *testing.T) {
 	if workflowApprovalBoundaryChanged(base, base) {
 		t.Fatal("an identical boundary snapshot reported changed facts")
 	}
+	versionMetadata := base
+	versionMetadata.Definition.Definition.Version++
+	if workflowApprovalBoundaryChanged(base, versionMetadata) {
+		t.Fatal("definition version metadata invalidated unchanged dependency content")
+	}
 	// A JSON round trip can turn an empty slice nil; that is not a fact
 	// change and must not refuse the action.
 	empty := base
@@ -202,7 +207,6 @@ func TestWorkflowApprovalBoundaryChangedFacts(t *testing.T) {
 		mutate func(*store.WorkflowApprovalBoundaryState)
 	}{
 		{"definition pin digest", func(s *store.WorkflowApprovalBoundaryState) { s.Definition.Digest = "digest-2" }},
-		{"definition pin version", func(s *store.WorkflowApprovalBoundaryState) { s.Definition.Definition.Version = 2 }},
 		{"work version", func(s *store.WorkflowApprovalBoundaryState) { s.WorkVersion = 4 }},
 		{"contract version", func(s *store.WorkflowApprovalBoundaryState) { s.ContractVersion = 3 }},
 		{"active contract versions", func(s *store.WorkflowApprovalBoundaryState) { s.ActiveContractVersions = []int64{1, 2, 3} }},

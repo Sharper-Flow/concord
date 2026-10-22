@@ -281,36 +281,19 @@ func TestOwnerOracleControlsRetained(t *testing.T) {
 // do.
 func TestOwnerOracleActiveDerivesFromDeclaredMember(t *testing.T) {
 	t.Parallel()
-	capable := []WorkflowDefinition{implementationOwnerOracleV27(), breakFixOwnerOracleV24()}
+	capable := BuiltinWorkflowDefinitions()[:2]
 	for _, definition := range capable {
 		if !workflowOwnerOracleActive(definition) {
 			t.Fatalf("%s version %d declares record_worker_job without the oracle member", definition.Ref, definition.Version)
 		}
 	}
-	for _, pin := range []struct {
-		ref     string
-		version int64
-	}{
-		{"workflow.implementation", 24},
-		{"workflow.implementation", 25},
-		{"workflow.implementation", 26},
-		{"workflow.break_fix", 21},
-		{"workflow.break_fix", 22},
-		{"workflow.break_fix", 23},
-		{"workflow.research", 15},
-	} {
-		registered, ok := BuiltinWorkflowRegistry().Lookup(pin.ref, pin.version)
-		if !ok {
-			t.Fatalf("%s@%d is not registered", pin.ref, pin.version)
-		}
-		if workflowOwnerOracleActive(registered.Definition) {
-			t.Fatalf("%s@%d is oracle-capable without the declared member", pin.ref, pin.version)
-		}
+	if workflowOwnerOracleActive(BuiltinWorkflowDefinitions()[2]) {
+		t.Fatal("research is oracle-capable without worker jobs")
 	}
 	// The declared member is the only derivation: a definition whose
 	// record_worker_job payload omits the field is not oracle-capable even
 	// at the newest version shape.
-	stripped := cloneWorkflowDefinition(implementationOwnerOracleV27())
+	stripped := cloneWorkflowDefinition(capable[0])
 	for index := range stripped.ActionDefinitions {
 		if stripped.ActionDefinitions[index].ID != "record_worker_job" {
 			continue

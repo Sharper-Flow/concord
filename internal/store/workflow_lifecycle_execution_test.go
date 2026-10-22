@@ -130,7 +130,7 @@ func TestExecutionStartStepSetMatchesRegistry(t *testing.T) {
 		}
 	}
 	registrySet := map[string]bool{}
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		for _, step := range definition.StepGraph.Steps {
 			if step.Kind == WorkflowStepExternalEffect {
 				registrySet[step.ID] = true

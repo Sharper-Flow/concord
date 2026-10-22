@@ -2463,7 +2463,7 @@ func ledgerPayloadInputRoots() []censusRootRequest {
 			}
 		}
 	}
-	for _, definition := range BuiltinWorkflowDefinitionsWithHistory() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		for _, action := range definition.ActionDefinitions {
 			add(action)
 		}

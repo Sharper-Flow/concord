@@ -19,7 +19,7 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 	ctx := context.Background()
 	s, _, _, _, _, hash := architectureValidationFixture(t, left)
 	seedWork(t, s, right)
-	pinned, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 9)
+	pinned, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
 	if !ok {
 		t.Fatal("workflow.break_fix v9 is unavailable")
 	}
@@ -477,7 +477,7 @@ func TestWorkflowDomainOverlapMergeAndSupersessionAreAtomicAndReopenStale(t *tes
 func seedProductChangingContract(t *testing.T, s *Store, workID string, binding WorkflowArchitectureBinding) (WorkflowActor, int64) {
 	t.Helper()
 	ctx := context.Background()
-	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 9)
+	registered, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
 	if !ok {
 		t.Fatal("workflow.break_fix v9 is unavailable")
 	}

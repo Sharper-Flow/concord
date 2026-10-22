@@ -1285,23 +1285,14 @@ func workflowEventWithActor(id, kind, workID, actor string, payload map[string]a
 	return event
 }
 
-// legacyApprovalPolicyDefinitionForRef resolves the newest registered
-// version of ref that answers consent under the released legacy policy.
-// Fixtures whose subject is an operator-substituted verdict, correction, or
-// premise confirmation pin it: instances captured before the consequence_v1
-// promotion keep that flow, and the consequence_v1 heads exercise the
-// routine flow in TestBuiltinWorkflowCompletionWitnesses.
+// Consent fixtures resolve the current family, just like live work.
 func legacyApprovalPolicyDefinitionForRef(t testing.TB, ref string) RegisteredDefinition {
 	t.Helper()
-	registry := BuiltinWorkflowRegistry()
-	for version := builtinWorkflowCurrentVersions[ref]; version >= 1; version-- {
-		registered, ok := registry.Lookup(ref, version)
-		if ok && registered.Definition.ApprovalPolicy == "" {
-			return registered
-		}
+	entry, ok := BuiltinWorkflowRegistry().Current(ref)
+	if !ok {
+		t.Fatalf("%s has no current definition", ref)
 	}
-	t.Fatalf("%s registers no legacy approval-policy version", ref)
-	return RegisteredDefinition{}
+	return entry
 }
 
 // withPinnedDecisionFact declares the explicit engineering decision-domain

@@ -25,7 +25,7 @@ import (
 // The scope is every registered version, frozen ones included, because
 // stranded items run on old pins (CD-0115 D2).
 func TestRegisteredStepsAdmitTheirApprovalRequiredActions(t *testing.T) {
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		approvalRequired := map[string]bool{}
 		for _, action := range definition.ActionDefinitions {
 			if action.Approval == ActionApprovalRequired {
@@ -53,7 +53,7 @@ func TestRegisteredStepsAdmitTheirApprovalRequiredActions(t *testing.T) {
 // invariant above protects. A non-terminal step whose every advancing action
 // is refused is a dead end, and every work item that reaches it stops.
 func TestRegisteredNonTerminalStepsCanAdvance(t *testing.T) {
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		terminal := map[string]bool{}
 		for _, id := range definition.StepGraph.TerminalSteps {
 			terminal[id] = true
@@ -128,7 +128,7 @@ func workflowRequiredEvidenceOutsideReach(definition WorkflowDefinition) []Evide
 // Frozen prior versions stay byte-identical by law, so the scope is the
 // shipped set alone, like the invariants above.
 func TestShippedDefinitionsCanProduceRequiredEvidence(t *testing.T) {
-	for _, definition := range builtinWorkflowFrozenHeads() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		if missing := workflowRequiredEvidenceOutsideReach(definition); len(missing) != 0 {
 			producible := evidenceStrings(workflowReachableEvidenceKinds(definition))
 			t.Errorf("%s v%d requires evidence kinds %v its reachable actions cannot produce; those actions produce %v", definition.Ref, definition.Version, missing, producible)

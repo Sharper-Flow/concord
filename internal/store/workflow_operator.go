@@ -135,7 +135,7 @@ func workflowOperatorQuestion(workID string, workVersion int64, definition Workf
 // the builtin convenience: the caller's read definition is verified against
 // the builtin registry, and the shared owner below answers.
 func workflowOperatorQuestionTx(ctx context.Context, q queryer, workID, currentStep string, workVersion int64, definition WorkflowReadDefinition, contract WorkflowReadContract) (*WorkflowOperatorQuestion, *WorkflowOperatorQuestionWithheld, error) {
-	entry, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin(definition))
+	entry, err := resolveCurrentWorkflowDefinition(BuiltinWorkflowRegistry(), definition.Ref)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -331,7 +331,7 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot read workflow question context", true, "retry once the database is readable", err)
 	}
-	entry, err := VerifyWorkflowDefinitionPin(registry, pin)
+	entry, err := resolveCurrentWorkflowDefinition(registry, pin.Ref)
 	if err != nil {
 		return err
 	}
@@ -374,13 +374,13 @@ func validateWorkflowOperatorSelectionCoreTx(ctx context.Context, tx *sql.Tx, en
 	}
 	var currentStep string
 	var workVersion int64
-	var definition WorkflowReadDefinition
-	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &definition.Ref, &definition.Version, &definition.Digest, &workVersion); err != nil {
+	var definitionRef string
+	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &definitionRef, &workVersion); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot read workflow question context", true, "retry once the database is readable", err)
 	}
-	// The stored pin must still be the pin the caller verified: a definition
-	// row that moved under the caller's entry is the stale-context refusal.
-	if definition.Ref != entry.Definition.Ref || definition.Version != entry.Definition.Version || definition.Digest != entry.Digest {
+	// The caller verified the current definition. Stored instance metadata is
+	// not a dependency pin; only a family change invalidates that selection.
+	if definitionRef != entry.Definition.Ref {
 		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "the workflow definition moved under the verified entry", false, "refresh_context")
 	}
 	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, request.WorkID, "workflow_operator_question")
@@ -443,6 +443,7 @@ func validateWorkflowOperatorSelectionCoreTx(ctx context.Context, tx *sql.Tx, en
 	if !workflowOperatorDecisionPending(entry.Definition, currentStep) {
 		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "the operator question is no longer available for this action", false, "refresh_context")
 	}
+	definition := WorkflowReadDefinition{Ref: entry.Definition.Ref, Version: entry.Definition.Version, Digest: entry.Digest}
 	question, _, err := workflowOperatorQuestionForDefinitionTx(ctx, tx, request.WorkID, currentStep, workVersion, entry.Definition, definition, contract, confirmation)
 	if err != nil {
 		return err

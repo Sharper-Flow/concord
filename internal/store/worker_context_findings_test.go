@@ -180,7 +180,7 @@ func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 	if got := WorkerEvidenceEventPayloadVersion(WorkerFailed); got != 4 {
 		t.Fatalf("worker.failed current payload version = %d, want 4", got)
 	}
-	breakFix, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 27)
+	breakFix, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
 	if !ok {
 		t.Fatal("workflow.break_fix v27 is not registered")
 	}
@@ -241,7 +241,7 @@ func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 // discharge one.
 func TestWorkerCompletedFindingsAreClaimsNotObligationDischarge(t *testing.T) {
 	t.Parallel()
-	breakFix, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 27)
+	breakFix, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
 	if !ok {
 		t.Fatal("workflow.break_fix v27 is not registered")
 	}
@@ -383,7 +383,7 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		}
 	})
 	t.Run("current-version findings fold and rebuild identically", func(t *testing.T) {
-		breakFix, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 27)
+		breakFix, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
 		if !ok {
 			t.Fatal("workflow.break_fix v27 is not registered")
 		}

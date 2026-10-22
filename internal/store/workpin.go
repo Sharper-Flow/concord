@@ -376,13 +376,14 @@ func workPinReadInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, workID st
 		}
 		return RegisteredDefinition{}, WorkflowReadDefinition{}, "", wrapFailure(KindUnavailable, "work_pin", "cannot read workflow instance", true, "retry once the database is readable", err)
 	}
-	pin.WorkflowType = definition.Ref
-	pin.WorkflowDefinitionVersion = &definition.Version
-	pin.WorkflowDefinitionDigest = &definition.Digest
 	registered, err := verifyReadWorkflowDefinitionForRegistry(definition, registry)
 	if err != nil {
 		return RegisteredDefinition{}, WorkflowReadDefinition{}, "", err
 	}
+	definition = WorkflowReadDefinition{Ref: registered.Definition.Ref, Version: registered.Definition.Version, Digest: registered.Digest}
+	pin.WorkflowType = definition.Ref
+	pin.WorkflowDefinitionVersion = &definition.Version
+	pin.WorkflowDefinitionDigest = &definition.Digest
 	// The obligation list uses the verified registered definition — the same
 	// verification and the same collector the architecture-binding admission
 	// reads — so the pin and admission cannot disagree on declared membership.
@@ -402,7 +403,7 @@ func verifyReadWorkflowDefinitionForRegistry(definition WorkflowReadDefinition, 
 	if registry == nil {
 		return verifyReadWorkflowDefinition(definition)
 	}
-	return VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin(definition))
+	return resolveCurrentWorkflowDefinition(registry, definition.Ref)
 }
 
 // workPinStepIntentsTx fills the pin's step intents and returns the folded

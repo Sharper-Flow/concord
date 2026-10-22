@@ -39,7 +39,7 @@ import (
 const admissionModelWorkID = "admission-model"
 
 func TestAdmissionWorkflowStateKeepsArtifactStaleBit(t *testing.T) {
-	for _, definition := range BuiltinWorkflowDefinitionsWithHistory() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		for _, step := range definition.StepGraph.Steps {
 			for _, stale := range []bool{false, true} {
 				node := admissionModelState{step: step.ID, contracts: 1, artifactStale: stale}
@@ -1439,7 +1439,7 @@ func admissionSeededArchivedProbe(definition WorkflowDefinition) (admissionModel
 // refusal. Archived rows permit reads, not public execution.
 func TestWellFormedAdmissionStateHasNonContinuityExit(t *testing.T) {
 	t.Parallel()
-	definitions := builtinWorkflowDefinitionsWithHistory()
+	definitions := BuiltinWorkflowDefinitions()
 	if len(definitions) == 0 {
 		t.Fatal("no built-in workflow definitions are registered")
 	}
@@ -1483,7 +1483,7 @@ func TestArchivedRefusalCheckNamesSeededAdmission(t *testing.T) {
 // produces a witness that names the stranded state, so the check fails rather
 // than assumes.
 func TestWellFormedExitCheckNamesSeededStrandedState(t *testing.T) {
-	builtins := builtinWorkflowDefinitionsWithHistory()
+	builtins := BuiltinWorkflowDefinitions()
 	if len(builtins) == 0 {
 		t.Fatal("no built-in workflow definitions are registered")
 	}
@@ -1512,7 +1512,7 @@ func TestWellFormedExitCheckNamesSeededStrandedState(t *testing.T) {
 // carries.
 func TestReachableAdmissionStateReachesTerminal(t *testing.T) {
 	t.Parallel()
-	definitions := builtinWorkflowDefinitionsWithHistory()
+	definitions := BuiltinWorkflowDefinitions()
 	if len(definitions) == 0 {
 		t.Fatal("no built-in workflow definitions are registered")
 	}
@@ -2000,7 +2000,7 @@ func admissionBadToOkWitnesses(definition WorkflowDefinition, enforce bool) []st
 // verdict or step the premise past the verdict before the artifact is
 // re-produced at the declared route target.
 func TestStaleArtifactStateAdmitsNoBadToOkWithoutReproduction(t *testing.T) {
-	definitions := builtinWorkflowDefinitionsWithHistory()
+	definitions := BuiltinWorkflowDefinitions()
 	if len(definitions) == 0 {
 		t.Fatal("no built-in workflow definitions are registered")
 	}
@@ -2037,7 +2037,7 @@ func TestStaleArtifactCheckNamesSeededWitness(t *testing.T) {
 func TestContractStepAdvancesOnlyThroughItsApproval(t *testing.T) {
 	t.Parallel()
 	var definition WorkflowDefinition
-	for _, candidate := range builtinWorkflowDefinitionsWithHistory() {
+	for _, candidate := range BuiltinWorkflowDefinitions() {
 		if candidate.Ref == "workflow.research" && candidate.Version == 1 {
 			definition = candidate
 		}

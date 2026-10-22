@@ -99,7 +99,7 @@ func TestCompactionReconcilePinFailureRollsBackLink(t *testing.T) {
 		t.Fatalf("orphan fixture: %+v", pending)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`CREATE TRIGGER drift_compaction_pin AFTER INSERT ON archived_work
-		BEGIN UPDATE workflow_instances SET definition_digest='sha256:0000000000000000000000000000000000000000000000000000000000000000' WHERE work_id=NEW.id; END`); err != nil {
+		BEGIN UPDATE workflow_instances SET definition_ref='workflow.unavailable_fixture' WHERE work_id=NEW.id; END`); err != nil {
 		t.Fatal(err)
 	}
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-api")

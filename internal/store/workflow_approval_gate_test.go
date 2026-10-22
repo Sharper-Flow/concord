@@ -12,7 +12,7 @@ import (
 // runs. This holds for every built-in definition and every step.
 func TestApprovalGateStepHasNoOtherAdvancingAction(t *testing.T) {
 	t.Parallel()
-	for _, definition := range builtinWorkflowFrozenHeads() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		modes := make(map[string]ActionExecutionMode, len(definition.ActionDefinitions))
 		approvals := make(map[string]ActionApproval, len(definition.ActionDefinitions))
 		for _, action := range definition.ActionDefinitions {

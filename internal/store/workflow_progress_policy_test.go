@@ -119,7 +119,7 @@ func TestObligationSatisfactionClassMembership(t *testing.T) {
 // family at any version, keeps the legacy empty fields its digest covers.
 func TestReleasedDefinitionVersionsCarryNoProgressPolicyOrTaxonomy(t *testing.T) {
 	t.Parallel()
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		fresh := slices.Contains(workflowObligationSatisfactionRefs, definition.Ref) && definition.Version == builtinWorkflowCurrentVersions[definition.Ref]
 		if fresh {
 			continue

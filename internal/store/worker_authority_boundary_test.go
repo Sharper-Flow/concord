@@ -47,7 +47,7 @@ func TestWorkerAuthorityBoundaryHoldsInBothDirections(t *testing.T) {
 	digest := workflowFixtureDefinition(t, 2).Digest
 	setup := []Event{
 		workflowEvent("authority-actor", WorkflowActorRecorded, "authority-work", map[string]any{"work_id": "authority-work", "expected_version": 2, "resulting_version": 3, "actor_ref": workerRef, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/worker", "session_ref": "session/worker-1", "actor_class": "agent"}),
-		workflowEvent("authority-definition", WorkflowDefinitionSelected, "authority-work", map[string]any{"work_id": "authority-work", "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
+		workflowEvent("authority-definition", WorkflowDefinitionSelected, "authority-work", map[string]any{"work_id": "authority-work", "expected_version": 3, "resulting_version": 4, "ref": workflowWorkerFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
 		workflowActionCompletedFixture("authority-proposal", "authority-work", workerRef, 4, "proposal", "record_proposal"),
 		workflowActionCompletedFixture("authority-discovery", "authority-work", workerRef, 5, "discovery", "record_discovery"),
 		workflowActionCompletedFixture("authority-design", "authority-work", workerRef, 6, "design", "record_design"),
@@ -356,7 +356,7 @@ func TestResumedSessionRecordsVerdictWithoutALane(t *testing.T) {
 	digest := workflowFixtureDefinition(t, 2).Digest
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{
 		workflowEvent("no-lane-owner-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEventWithActor("no-lane-definition", WorkflowDefinitionSelected, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
+		workflowEventWithActor("no-lane-definition", WorkflowDefinitionSelected, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowWorkerFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
 	}
@@ -807,7 +807,7 @@ func seedFailedLaneAtExecution(t *testing.T, workID string) (*Store, WorkflowAct
 		workflowEvent("worker-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": workerRef, "principal_ref": workerActor.PrincipalRef, "client_ref": workerActor.ClientRef, "agent_ref": workerActor.AgentRef, "session_ref": workerActor.SessionRef, "actor_class": "agent"}),
 		workflowEvent("owner-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
 		workflowEvent("lane-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "actor_ref": laneRef, "principal_ref": laneActor.PrincipalRef, "client_ref": laneActor.ClientRef, "agent_ref": laneActor.AgentRef, "session_ref": laneActor.SessionRef, "actor_class": "agent"}),
-		workflowEvent("definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 5, "resulting_version": 6, "ref": workflowFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
+		workflowEvent("definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 5, "resulting_version": 6, "ref": workflowWorkerFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
 		workflowActionCompletedFixture("proposal-"+workID, workID, workerRef, 6, "proposal", "record_proposal"),
 		workflowActionCompletedFixture("discovery-"+workID, workID, workerRef, 7, "discovery", "record_discovery"),
 		workflowActionCompletedFixture("design-"+workID, workID, workerRef, 8, "design", "record_design"),
@@ -1060,7 +1060,7 @@ func seedV2CompletionReady(t *testing.T, workID string) (*Store, Event) {
 		workflowEvent("v2-executor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": executorRef, "principal_ref": executor.PrincipalRef, "client_ref": executor.ClientRef, "agent_ref": executor.AgentRef, "session_ref": executor.SessionRef, "actor_class": "agent"}),
 		workflowEvent("v2-operator-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"}),
 		workflowEvent("v2-owner-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEvent("v2-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 5, "resulting_version": 6, "ref": workflowFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
+		workflowEvent("v2-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 5, "resulting_version": 6, "ref": workflowWorkerFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
 		workflowActionCompletedFixture("v2-proposal-"+workID, workID, executorRef, 6, "proposal", "record_proposal"),
 		workflowActionCompletedFixture("v2-discovery-"+workID, workID, executorRef, 7, "discovery", "record_discovery"),
 		workflowActionCompletedFixture("v2-design-"+workID, workID, executorRef, 8, "design", "record_design"),
@@ -1455,7 +1455,7 @@ func seedWorkerAtExecution(t *testing.T, workID string) (*Store, string, Workflo
 	setup := []Event{
 		workflowEvent("worker-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": workerRef, "principal_ref": workerActor.PrincipalRef, "client_ref": workerActor.ClientRef, "agent_ref": workerActor.AgentRef, "session_ref": workerActor.SessionRef, "actor_class": "agent"}),
 		workflowEvent("owner-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEvent("definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "ref": workflowFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
+		workflowEvent("definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "ref": workflowWorkerFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
 		workflowActionCompletedFixture("proposal-"+workID, workID, workerRef, 5, "proposal", "record_proposal"),
 		workflowActionCompletedFixture("discovery-"+workID, workID, workerRef, 6, "discovery", "record_discovery"),
 		workflowActionCompletedFixture("design-"+workID, workID, workerRef, 7, "design", "record_design"),
@@ -1494,7 +1494,7 @@ func seedDispatchedWorkerAtExecution(t *testing.T, workID string) (*Store, strin
 	digest := workflowFixtureDefinition(t, 2).Digest
 	setup := []Event{
 		workflowEvent("actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": workerRef, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/worker", "session_ref": "session/" + workID, "actor_class": "agent"}),
-		workflowEvent("definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
+		workflowEvent("definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowWorkerFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
 		workflowActionCompletedFixture("proposal-"+workID, workID, workerRef, 4, "proposal", "record_proposal"),
 		workflowActionCompletedFixture("discovery-"+workID, workID, workerRef, 5, "discovery", "record_discovery"),
 		workflowActionCompletedFixture("design-"+workID, workID, workerRef, 6, "design", "record_design"),
@@ -1656,7 +1656,7 @@ func workflowExecutionSetupEvents(t *testing.T, prefix, workID, ownerRef string,
 	digest := workflowFixtureDefinition(t, 2).Digest
 	return []Event{
 		workflowEvent(prefix+"-owner-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEvent(prefix+"-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
+		workflowEvent(prefix+"-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowWorkerFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
 		workflowActionCompletedFixture(prefix+"-proposal", workID, ownerRef, 4, "proposal", "record_proposal"),
 		workflowActionCompletedFixture(prefix+"-discovery", workID, ownerRef, 5, "discovery", "record_discovery"),
 		workflowActionCompletedFixture(prefix+"-design", workID, ownerRef, 6, "design", "record_design"),

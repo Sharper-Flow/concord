@@ -57,11 +57,11 @@ type WorkflowContractSnapshot struct {
 	Premise string
 }
 
-// WorkflowInstanceDefinition is the immutable workflow definition pin: the
-// family reference and the version the instance is pinned to.
+// WorkflowInstanceDefinition carries the instance's stored definition metadata.
 type WorkflowInstanceDefinition struct {
 	DefinitionRef     string
 	DefinitionVersion int64
+	DefinitionDigest  string
 }
 
 // DurableOperationRecord identifies the newest pending attempt for a work item.
@@ -194,7 +194,7 @@ func WorkflowInstanceDefinitionTx(ctx context.Context, transaction *Transaction,
 		return WorkflowInstanceDefinition{}, false, err
 	}
 	var definition WorkflowInstanceDefinition
-	err = tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.DefinitionRef, &definition.DefinitionVersion)
+	err = tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.DefinitionRef, &definition.DefinitionVersion, &definition.DefinitionDigest)
 	if err == sql.ErrNoRows {
 		return WorkflowInstanceDefinition{}, false, nil
 	}

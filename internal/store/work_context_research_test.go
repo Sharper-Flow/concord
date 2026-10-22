@@ -1891,7 +1891,7 @@ func TestWorkContextResearchAdmission(t *testing.T) {
 		// contract refuses the research selection field. The retained
 		// version stays registered when a promoted head declares the field,
 		// and the fence never answers to whichever head is current.
-		registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 28)
+		registered, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
 		if !ok {
 			t.Fatal("retained workflow.break_fix version 28 is not registered")
 		}

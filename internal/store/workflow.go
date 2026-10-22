@@ -998,34 +998,29 @@ func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event
 	if err != nil {
 		return err
 	}
-	var currentRef, currentDigest string
-	var currentVersion int64
-	definitionErr := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentRef, &currentVersion, &currentDigest)
+	if !isWorkflowReplay(ctx) && registered.Digest != p.Digest {
+		return workflowPinFailure("requested workflow definition is not current")
+	}
+	var currentRef, currentStep string
+	definitionErr := tx.QueryRowContext(ctx, `SELECT definition_ref,current_step FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentRef, &currentStep)
 	if definitionErr != nil && definitionErr != sql.ErrNoRows {
 		return workflowProjectionError(definitionErr, "cannot read the current workflow definition")
 	}
 	definitionExists := definitionErr == nil
-	// A newer version of the pinned family carries the instance forward: the
-	// instance keeps its current step instead of restarting, so an instance
-	// stranded behind a promotion can adopt the current definition. The
-	// carry forward is admitted only while the new definition still declares
-	// the step the instance holds.
-	carryForward := definitionExists && currentRef == p.Ref && p.Version > currentVersion
-	var currentStep string
-	if carryForward {
-		if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep); err != nil {
-			return workflowProjectionError(err, "cannot read the current workflow step")
-		}
+	// Selecting the same family never restarts work. Definition content is
+	// resolved from the current registry, not from an in-flight version pin.
+	sameFamily := definitionExists && currentRef == p.Ref
+	if sameFamily {
 		if _, stepErr := workflowDeclaredStep(registered.Definition, currentStep); stepErr != nil {
-			return newFailure(KindInvalidOperation, "fold_event", "carry forward refuses a definition without the instance's current step", false, "pin a definition that declares the current step, or change the workflow family instead")
+			return newFailure(KindInvalidOperation, "fold_event", "current definition does not declare the instance's current step", false, "migrate the work item's current step before continuing")
 		}
 	}
-	if definitionExists && (currentRef != p.Ref || currentVersion != p.Version || currentDigest != p.Digest) {
+	if definitionExists && !sameFamily {
 		var activeContracts int64
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, event.SubjectID).Scan(&activeContracts); err != nil {
 			return workflowProjectionError(err, "cannot inspect contracts before changing the workflow definition")
 		}
-		if activeContracts != 0 && !isWorkflowReplay(ctx) && !carryForward {
+		if activeContracts != 0 && !isWorkflowReplay(ctx) {
 			return newFailure(KindInvalidOperation, "fold_event", "workflow definition change would leave an existing contract authoritative", false, "supersede the contract with the replacement definition")
 		}
 	}
@@ -1036,10 +1031,10 @@ func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq <= ?`, event.SubjectID, WorkflowActionStarted, event.Seq).Scan(&started); err != nil {
 		return err
 	}
-	if started > 0 && !carryForward {
+	if started > 0 && !sameFamily {
 		return newFailure(KindInvalidOperation, "fold_event", "definition cannot change after execution starts", false, "supersede the workflow contract instead")
 	}
-	if carryForward {
+	if sameFamily {
 		return pinWorkflowInstanceToStepTx(ctx, tx, event.SubjectID, registered, currentStep, event.Actor)
 	}
 	return pinWorkflowInstanceTx(ctx, tx, event.SubjectID, registered, event.Actor)

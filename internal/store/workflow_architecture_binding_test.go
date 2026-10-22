@@ -98,7 +98,7 @@ func architectureValidationFixtureWithProductKey(t *testing.T, workID, productKe
 	if err := seedTx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
+	definition, ok := BuiltinWorkflowRegistry().Current("workflow.implementation")
 	if !ok {
 		t.Fatal("latest implementation definition missing")
 	}
@@ -374,7 +374,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 		t.Fatal(err)
 	}
 	actor := WorkflowActor{PrincipalRef: "principal:architecture", ClientRef: "client:architecture", AgentRef: "agent:architecture", SessionRef: "session:architecture", ActorClass: ActorAgent}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
+	definition, ok := BuiltinWorkflowRegistry().Current("workflow.implementation")
 	if !ok {
 		t.Fatal("latest implementation definition missing")
 	}
@@ -529,7 +529,7 @@ func TestProductChangingApprovalMissingBindingIsAtomic(t *testing.T) {
 	workID := "architecture-binding-missing"
 	seedWork(t, s, workID)
 	actor := WorkflowActor{PrincipalRef: "principal:missing", ClientRef: "client:missing", AgentRef: "agent:missing", SessionRef: "session:missing", ActorClass: ActorAgent}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
+	definition, ok := BuiltinWorkflowRegistry().Current("workflow.implementation")
 	if !ok {
 		t.Fatal("latest implementation definition missing")
 	}
@@ -636,7 +636,7 @@ func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
 	ctx := context.Background()
 	workID := "architecture-obligation-completion"
 	s, _, binding, mandate, revisions, _ := architectureValidationFixture(t, workID)
-	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
+	registered, ok := BuiltinWorkflowRegistry().Current("workflow.implementation")
 	if !ok {
 		t.Fatal("latest implementation definition missing")
 	}

@@ -155,7 +155,7 @@ func (h *workflowCorrectionHistory) observeProgress(ctx context.Context, q query
 		if registry == nil {
 			registry = BuiltinWorkflowRegistry()
 		}
-		entry, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: selected.Ref, Version: selected.Version, Digest: selected.Digest})
+		entry, err := resolveCurrentWorkflowDefinition(registry, selected.Ref)
 		if err != nil {
 			return err
 		}

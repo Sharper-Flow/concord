@@ -527,26 +527,10 @@ func VerifyWorkflowInstanceDefinitionTx(ctx context.Context, tx queryer, registr
 	return verifyWorkflowDefinitionPinForFold(ctx, registry, pin)
 }
 
-// verifyWorkflowDefinitionPinForFold validates a definition pin for a fold.
-// Under replay it tolerates digest drift: the registry is code, and code
-// moves on since the log pinned a definition. A drifted pin still names the
-// definition family and version, so the fold proceeds with the structure the
-// current registry supplies while the log stays the authority for what the
-// instance pinned. The live path keeps the strict digest check.
+// verifyWorkflowDefinitionPinForFold resolves the current family definition;
+// recorded instance versions and digests never select another definition.
 func verifyWorkflowDefinitionPinForFold(ctx context.Context, registry DefinitionRegistry, pin WorkflowDefinitionPin) (RegisteredDefinition, error) {
-	entry, err := VerifyWorkflowDefinitionPin(registry, pin)
-	if err == nil {
-		return entry, nil
-	}
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindInvariantViolation || !isWorkflowReplay(ctx) {
-		return RegisteredDefinition{}, err
-	}
-	current, ok := registry.Lookup(pin.Ref, pin.Version)
-	if !ok {
-		return RegisteredDefinition{}, err
-	}
-	return current, nil
+	return resolveCurrentWorkflowDefinition(registry, pin.Ref)
 }
 
 // missingPredicateVerdictsForContract lists the unverdicted approved
@@ -1179,16 +1163,15 @@ func workflowContractDefinitionPinsCompatible(pins workflowContractDefinitionPin
 		return false
 	}
 	var expectedRef, expectedDigest string
-	var expectedVersion int64
 	seen := from
 	for version := from; version <= to; version++ {
 		pin, ok := pins[version]
-		if !ok || version != seen || pin.definitionRef == "" || pin.definitionVersion <= 0 || !validDigest(pin.definitionDigest) {
+		if !ok || version != seen || pin.definitionRef == "" || !validDigest(pin.definitionDigest) {
 			return false
 		}
 		if expectedRef == "" {
-			expectedRef, expectedVersion, expectedDigest = pin.definitionRef, pin.definitionVersion, pin.definitionDigest
-		} else if pin.definitionRef != expectedRef || pin.definitionVersion != expectedVersion || pin.definitionDigest != expectedDigest {
+			expectedRef, expectedDigest = pin.definitionRef, pin.definitionDigest
+		} else if pin.definitionRef != expectedRef || pin.definitionDigest != expectedDigest {
 			return false
 		}
 		seen++

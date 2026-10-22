@@ -31,9 +31,10 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 // and supersession fixtures pin. It carries the implementation step graph so
 // step IDs stay familiar, and a work kind without Product-truth authority so a
 // contract fixture stays about the mechanism under test rather than about
-// architecture binding. Version 2 adds the current worker actions, which give the
-// registry a real supersession to prove against.
+// architecture binding. The worker fixture is a separate synthetic family;
+// neither family retains another definition.
 const workflowFixtureRef = "workflow.test_fixture"
+const workflowWorkerFixtureRef = "workflow.worker_test_fixture"
 
 // workflowFixtureWorkKind is the payload spelling of the fixture family's work
 // kind.
@@ -59,8 +60,8 @@ func registerWorkflowFixtureFamily() []RegisteredDefinition {
 	registry := BuiltinWorkflowRegistry()
 	registered := make([]RegisteredDefinition, 0, 2)
 	for _, definition := range []WorkflowDefinition{
-		workflowFixtureShape(builtinImplementation(false), 1),
-		workflowFixtureShape(withWorkerActions(builtinImplementation(false), false), 2),
+		workflowFixtureShape(workflowFixtureBase(), 1),
+		workflowFixtureWorkerDefinition(),
 	} {
 		entry, err := registry.Register(definition)
 		if err != nil {
@@ -69,6 +70,30 @@ func registerWorkflowFixtureFamily() []RegisteredDefinition {
 		registered = append(registered, entry)
 	}
 	return registered
+}
+
+func workflowFixtureWorkerDefinition() WorkflowDefinition {
+	definition := workflowFixtureShape(workflowFixtureWorkerActions(workflowFixtureBase()), 2)
+	definition.Ref = workflowWorkerFixtureRef
+	return definition
+}
+
+func workflowFixtureWorkerActions(definition WorkflowDefinition) WorkflowDefinition {
+	for _, actionID := range []string{"accept_worker_result", "record_worker_failure", "dispatch_worker"} {
+		definition.AvailableActions = append(definition.AvailableActions, actionID)
+		action := currentActionDefinition(actionID, false)
+		action.RequiredCapability = "work_transition"
+		if actionID == "dispatch_worker" {
+			action.RequiredCapability = WorkerDispatchCapability
+		}
+		definition.ActionDefinitions = append(definition.ActionDefinitions, action)
+		for i := range definition.StepGraph.Steps {
+			if definition.StepGraph.Steps[i].Kind == WorkflowStepExternalEffect {
+				definition.StepGraph.Steps[i].Actions = append(definition.StepGraph.Steps[i].Actions, actionID)
+			}
+		}
+	}
+	return definition
 }
 
 func workflowFixtureDefinition(t *testing.T, version int64) RegisteredDefinition {
@@ -86,10 +111,9 @@ func workflowFixtureShape(definition WorkflowDefinition, version int64) Workflow
 	changesProductTruth := false
 	definition.ChangesProductTruth = &changesProductTruth
 	// The fixture keeps the implementation step graph, so it must also keep
-	// the recovery-route table that graph owns: the fixture ref is outside
-	// the quarantined released range, and a table-less evaluator definition
-	// refuses at registration.
-	definition.RecoveryRoutes = implementationRecoveryRoutes()
+	// the recovery-route table that graph owns. A table-less evaluator
+	// definition refuses at registration.
+	definition.RecoveryRoutes = mustCompileWorkflowComposition(currentImplementationComposition()).RecoveryRoutes
 	return definition
 }
 

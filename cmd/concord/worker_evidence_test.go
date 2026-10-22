@@ -1104,7 +1104,7 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 	// The instance row pins version 4, so the digest must be version 4's
 	// own: the worker-evidence seam verifies the pinned definition identity
 	// on every terminal ingest.
-	entry, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.implementation", 4)
+	entry, ok := store.BuiltinWorkflowRegistry().Current("workflow.implementation")
 	if !ok {
 		t.Fatal("workflow.implementation v4 is not registered")
 	}

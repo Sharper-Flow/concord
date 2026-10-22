@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"os"
 	"reflect"
 	"sort"
@@ -322,14 +321,8 @@ func TestCanonicalCrossFieldRulesProjectAndRefuse(t *testing.T) {
 	}
 }
 
-// TestSchemaRefsStillSplitHistoricalRefs holds the retention contract:
-// live heads and the recovery list declare current refs; every retained
-// version below its family's current head keeps declaring historical refs
-// for the frozen decoder, so narrowing live authoring cannot break
-// historical payload resolution (CD-0218 D4).
-func TestSchemaRefsStillSplitHistoricalRefs(t *testing.T) {
+func TestSchemaRefsComeFromCurrentDeclarations(t *testing.T) {
 	currentRef := "current_only_ref"
-	historicalRef := "historical_only_ref"
 	projection := collectSchemaRefs(
 		[]store.WorkflowDefinition{definition("workflow.implementation", 27,
 			action("record_worker_job", closedPayload(field("objective", true, 4096)))),
@@ -338,18 +331,9 @@ func TestSchemaRefsStillSplitHistoricalRefs(t *testing.T) {
 			Closed: true,
 			Fields: []store.WorkflowPayloadField{{Name: "verdicts", ValueType: store.PayloadArray, ItemRef: currentRef}},
 		}}},
-		[]store.WorkflowDefinition{definition("workflow.implementation", 26,
-			action("record_worker_job", store.WorkflowPayloadDefinition{
-				Closed: true,
-				Fields: []store.WorkflowPayloadField{{Name: "objective", ValueType: store.PayloadString, Required: true, SchemaRef: historicalRef}},
-			})),
-		},
 	)
 	if len(projection.Current) != 1 || projection.Current[0] != currentRef {
 		t.Fatalf("current refs = %v, want [%s]", projection.Current, currentRef)
-	}
-	if len(projection.Historical) != 1 || projection.Historical[0] != historicalRef {
-		t.Fatalf("historical refs = %v, want [%s]", projection.Historical, historicalRef)
 	}
 }
 
@@ -367,95 +351,14 @@ func TestProjectionIsDeterministicAcrossRuns(t *testing.T) {
 	}
 }
 
-// nativeVocabulary is the part of the native-run vocabulary document the
-// closure comparison reads.
-type nativeVocabulary struct {
-	Phases []struct {
-		Statuses []struct {
-			Status string `json:"status"`
-		} `json:"statuses"`
-	} `json:"phases"`
-}
-
-func enumStatusField(name string, values ...string) store.WorkflowPayloadField {
-	return store.WorkflowPayloadField{Name: name, ValueType: store.PayloadString, Required: true, Enum: values}
-}
-
-func nativePayload(statuses ...string) store.WorkflowPayloadDefinition {
-	return closedPayload(
-		store.WorkflowPayloadField{Name: "run_id", ValueType: store.PayloadString, Required: true},
-		enumStatusField("status", statuses...),
-		store.WorkflowPayloadField{Name: "evidence_digest", ValueType: store.PayloadDigest, Required: true},
-	)
-}
-
-// TestNativeStatusesProjectTheVocabularyClosure is the live integration:
-// the compiled historical registry — current heads and every retained
-// version — declares exactly the status union the published vocabulary
-// closes over, with nothing missing and nothing extra.
-func TestNativeStatusesProjectTheVocabularyClosure(t *testing.T) {
-	raw, err := os.ReadFile("../../contracts/native-run-statuses.v1.json")
-	if err != nil {
-		t.Fatalf("vocabulary document unreadable: %v", err)
-	}
-	var vocabulary nativeVocabulary
-	if err := json.Unmarshal(raw, &vocabulary); err != nil {
-		t.Fatalf("vocabulary document unparsable: %v", err)
-	}
-	expected := map[string]bool{}
-	for _, phase := range vocabulary.Phases {
-		for _, status := range phase.Statuses {
-			expected[status.Status] = true
+func TestCurrentDefinitionsDoNotPublishRetiredNativeRunActions(t *testing.T) {
+	for _, definition := range store.BuiltinWorkflowDefinitions() {
+		for _, action := range definition.ActionDefinitions {
+			for _, retired := range []string{"start_run", "record_health", "cleanup_run", "rollback_run"} {
+				if action.ID == retired {
+					t.Errorf("current definition %s publishes retired action %s", definition.Ref, retired)
+				}
+			}
 		}
-	}
-	projected := collectNativeRunStatuses(store.BuiltinWorkflowDefinitionsWithHistory())
-	if len(projected) != len(expected) {
-		t.Fatalf("projected union %v has %d statuses, vocabulary closes over %d", projected, len(projected), len(expected))
-	}
-	for _, status := range projected {
-		if !expected[status] {
-			t.Fatalf("projected status %q is outside the vocabulary closure: %v", status, projected)
-		}
-	}
-	if !sort.StringsAreSorted(projected) {
-		t.Fatalf("projected union is not sorted: %v", projected)
-	}
-	again := collectNativeRunStatuses(store.BuiltinWorkflowDefinitionsWithHistory())
-	if !reflect.DeepEqual(projected, again) {
-		t.Fatal("two runs of the same registry produced different status unions")
-	}
-}
-
-// TestNativeStatusesReflectEnumDeletion holds the negative closure on
-// fixture declarations: deleting one enum value from a native-run payload
-// drops exactly that value from the union, so a declaration that drifts
-// from the vocabulary loses the closure comparison, and enum fields that
-// are not native-run status fields never join the union.
-func TestNativeStatusesReflectEnumDeletion(t *testing.T) {
-	complete := collectNativeRunStatuses([]store.WorkflowDefinition{
-		definition("workflow.ops_runbook", 3, action("record_health", nativePayload("healthy", "degraded", "failed"))),
-		definition("workflow.ops_runbook", 3, action("cleanup_run", nativePayload("cleaned", "cleanup_failed"))),
-	})
-	want := []string{"cleaned", "cleanup_failed", "degraded", "failed", "healthy"}
-	if !reflect.DeepEqual(complete, want) {
-		t.Fatalf("fixture union = %v, want %v", complete, want)
-	}
-	shrunken := collectNativeRunStatuses([]store.WorkflowDefinition{
-		definition("workflow.ops_runbook", 3, action("record_health", nativePayload("healthy", "failed"))),
-		definition("workflow.ops_runbook", 3, action("cleanup_run", nativePayload("cleaned", "cleanup_failed"))),
-	})
-	for _, status := range shrunken {
-		if status == "degraded" {
-			t.Fatalf("deleted enum value still projects: %v", shrunken)
-		}
-	}
-	leaky := collectNativeRunStatuses([]store.WorkflowDefinition{
-		definition("workflow.implementation", 26, action("bind_evidence", closedPayload(
-			enumStatusField("evidence_kind", "verification", "review"),
-			store.WorkflowPayloadField{Name: "status", ValueType: store.PayloadString, Required: true},
-		))),
-	})
-	if len(leaky) != 0 {
-		t.Fatalf("non-native enum or enum-less status field joined the union: %v", leaky)
 	}
 }

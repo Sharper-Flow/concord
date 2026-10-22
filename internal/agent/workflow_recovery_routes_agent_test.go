@@ -1249,7 +1249,7 @@ func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 			t.Errorf("%s has no matching declared supersession route", tuple.WorkflowID)
 		}
 	}
-	for _, definition := range store.BuiltinWorkflowDefinitionsWithHistory() {
+	for _, definition := range store.BuiltinWorkflowDefinitions() {
 		for _, route := range definition.RecoveryRoutes {
 			key := definition.Ref + "|v" + strconv.FormatInt(definition.Version, 10) + "|" + route.Step + "|" + string(route.Trigger)
 			if !seen[key] {

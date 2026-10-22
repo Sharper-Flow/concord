@@ -47,7 +47,7 @@ func seedDecisionDomainsItem(t *testing.T, s *Store, workID string, domains any,
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.research", 5)
+	definition, ok := BuiltinWorkflowRegistry().Current("workflow.research")
 	if !ok {
 		t.Fatal("workflow.research v5 is not registered")
 	}

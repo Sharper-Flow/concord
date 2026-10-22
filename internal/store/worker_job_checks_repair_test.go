@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -23,17 +22,9 @@ func seedChecksRepairFixture(t *testing.T, workID, step string) workflowReturnRo
 }
 
 func TestChecksRepairHeadsPreserveConsequencePolicy(t *testing.T) {
-	for _, pair := range []struct{ predecessor, successor WorkflowComposition }{
-		{implementationConsequenceV34(), implementationCompositionV35()},
-		{breakFixConsequenceV31(), breakFixCompositionV32()},
-	} {
-		got, want := pair.successor, pair.predecessor
-		if got.Version != want.Version+1 || got.ActionCatalogVersion != 2 || got.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
-			t.Fatalf("%s successor v%d catalog %d policy %q does not preserve the consequence head", got.Ref, got.Version, got.ActionCatalogVersion, got.ApprovalPolicy)
-		}
-		got.Version, got.ActionCatalogVersion = want.Version, want.ActionCatalogVersion
-		if !reflect.DeepEqual(got, want) {
-			t.Fatalf("%s checks repair changed composition beyond version and action catalog", got.Ref)
+	for _, composition := range []WorkflowComposition{currentImplementationComposition(), currentBreakFixComposition()} {
+		if composition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
+			t.Fatalf("%s lost its consequence policy", composition.Ref)
 		}
 	}
 }

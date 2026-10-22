@@ -204,7 +204,7 @@ func TestResolveOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 // fixture's synthetic instance pins, so pin reads verify the fixture.
 func breakFixFixtureDigest(t *testing.T) string {
 	t.Helper()
-	registered, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 9)
+	registered, ok := store.BuiltinWorkflowRegistry().Current("workflow.break_fix")
 	if !ok {
 		t.Fatal("workflow.break_fix v9 is unavailable")
 	}

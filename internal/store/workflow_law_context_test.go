@@ -61,7 +61,7 @@ func seedLawContextFixture(t *testing.T, s *Store, workID string) {
 		t.Fatal(err)
 	}
 	actor := WorkflowActor{PrincipalRef: "principal:law-context", ClientRef: "client:law-context", AgentRef: "agent:law-context", SessionRef: "session:law-context", ActorClass: ActorAgent}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
+	definition, ok := BuiltinWorkflowRegistry().Current("workflow.implementation")
 	if !ok {
 		t.Fatal("latest implementation definition missing")
 	}

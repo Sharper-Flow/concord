@@ -2458,7 +2458,7 @@ func workflowFailureAttributionActiveForWorkTx(ctx context.Context, tx *sql.Tx, 
 		}
 		return false, wrapFailure(KindUnavailable, "worker_predicate_discharge", "cannot read the workflow instance", true, "retry once the database is readable", err)
 	}
-	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	registered, ok := BuiltinWorkflowRegistry().Current(ref)
 	if !ok {
 		return false, nil
 	}

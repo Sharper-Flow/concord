@@ -222,7 +222,7 @@ func workflowPinnedDefinitionForBinding(registry DefinitionRegistry, pin Workflo
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}
-	entry, err := VerifyWorkflowDefinitionPin(registry, pin)
+	entry, err := resolveCurrentWorkflowDefinition(registry, pin.Ref)
 	if err != nil {
 		return WorkflowDefinition{}, err
 	}

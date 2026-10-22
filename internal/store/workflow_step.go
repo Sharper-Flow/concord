@@ -65,7 +65,7 @@ func pinnedWorkflowDefinitionTx(ctx context.Context, tx *sql.Tx, registry Defini
 		}
 		return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_step", "cannot read the pinned workflow definition", true, "retry once the database is readable", err)
 	}
-	return VerifyWorkflowDefinitionPin(registry, pin)
+	return resolveCurrentWorkflowDefinition(registry, pin.Ref)
 }
 
 // pinWorkflowInstanceTx records the definition an instance follows and places

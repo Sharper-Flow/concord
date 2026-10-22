@@ -672,12 +672,12 @@ class WorkerPacketMirrorProjectionTests(unittest.TestCase):
     def test_projection_is_idempotent_on_the_shipped_mirror(self):
         self.assertEqual(self.project(), payload_schema["$defs"]["worker_packet"]["properties"]["inputs"])
 
-    def test_live_projection_keeps_published_versioned_identities_frozen(self):
-        frozen = json.loads(generator.HISTORICAL_DECODER.read_text())["$defs"]
+    def test_live_projection_preserves_distinct_declared_packet_shapes(self):
+        declared = payload_schema["$defs"]
         payload = copy.deepcopy(payload_schema)
         identities = ("worker_packet2", "work_context_view2", "work_context_domain_group2")
         for name in identities:
-            payload["$defs"][name] = copy.deepcopy(frozen[name])
+            payload["$defs"][name] = copy.deepcopy(declared[name])
         packet = copy.deepcopy(packet_schema)
         packet["properties"]["inputs"]["properties"]["focus"] = {"type": "string"}
         packet["properties"]["inputs"]["properties"]["work_context"]["description"] = "Current canonical teaching."
@@ -687,7 +687,7 @@ class WorkerPacketMirrorProjectionTests(unittest.TestCase):
         self.assertEqual(live["work_context"]["description"], generator.WORKER_PACKET_INPUT_PUBLISHED_TEXT["work_context"])
         for name in identities:
             with self.subTest(identity=name):
-                self.assertEqual(payload["$defs"][name], frozen[name])
+                self.assertEqual(payload["$defs"][name], declared[name])
 
     def test_record_fields_keep_shared_aliases_and_canonical_teaching(self):
         projected = self.project()["properties"]
@@ -1339,31 +1339,14 @@ class LiveAuthoringClosureTests(unittest.TestCase):
         self.assertIn('"#/$defs/workflow_retained_outcome"', criterion)
         self.assertNotIn('"#/$defs/workflow_outcome_outcome"', criterion)
 
-    def test_the_frozen_decoder_keeps_the_retired_vocabulary(self):
-        frozen = json.loads(generator.HISTORICAL_DECODER.read_text())["$defs"]
-        for name in ("decision_record_text", "native_report_timestamp", "workflow_outcome_decision_record",
-                     "workflow_outcome_outcome", "workflow_action_outcome_predicates"):
-            self.assertIn(name, frozen, f"the frozen decoder lost {name}")
-        frozen_outcome = frozen["workflow_outcome_outcome"]
-        self.assertIn("decision_record", frozen_outcome["properties"])
-        self.assertEqual(sorted(frozen_outcome["properties"]["allowed"]["items"]["enum"]),
-                         sorted(["no_change", "accepted_decision", "insufficient_evidence", "resolved",
-                                 "remediated", "report_recorded", "completed", "operator_defined"]))
-        # Every schema ref the retained pins still declare resolves in the
-        # frozen decoder, and the current refs resolve in the live document.
-        generator.validate_historical_decoder(self.schema_refs, payload_schema["$defs"])
+    def test_current_schema_refs_resolve_in_the_public_document(self):
+        self.assertEqual(set(self.schema_refs), {"current"})
+        generator.validate_current_schema_refs(self.schema_refs, payload_schema["$defs"])
 
-    def test_a_freeze_run_never_rewrites_frozen_definitions(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / "workflow-historical-decoder.schema.json"
-            original = generator.HISTORICAL_DECODER.read_text()
-            target.write_text(original)
-            with unittest.mock.patch.object(generator, "HISTORICAL_DECODER", target):
-                generator.freeze_historical_decoder(self.schema_refs)
-            frozen = json.loads(target.read_text())["$defs"]
-            before = json.loads(original)["$defs"]
-            for name, schema in before.items():
-                self.assertEqual(frozen.get(name), schema, f"freeze rewrote frozen definition {name}")
+    def test_current_schema_refs_refuse_missing_or_dangling_definitions(self):
+        for defs in ({}, {"root": {"$ref": "#/$defs/missing"}}):
+            with self.subTest(defs=defs), self.assertRaises(ValueError):
+                generator.validate_current_schema_refs({"current": ["root"]}, defs)
 
 
 class ProjectionAdmissionTests(unittest.TestCase):
@@ -1379,7 +1362,7 @@ class ProjectionAdmissionTests(unittest.TestCase):
             "architecture_domain_rule", "alignment_combination_rule", "outcome_kind_equality_rule")}
         return json.dumps({
             "schema_version": "2.0", "actions": actions, "workflows": [],
-            "teaching": teaching, "schema_refs": {"current": [], "historical": []},
+            "teaching": teaching, "schema_refs": {"current": []},
         })
 
     def load(self, projection):
@@ -1407,7 +1390,7 @@ class ProjectionAdmissionTests(unittest.TestCase):
         fake = json.dumps({
             "schema_version": "1.0",
             "actions": [{"id": "record_verdict", "variants": [], "legacy_payloads": [], "cross_field": {}}],
-            "workflows": [], "teaching": {}, "schema_refs": {"current": [], "historical": []},
+            "workflows": [], "teaching": {}, "schema_refs": {"current": []},
         })
         with self.assertRaises(ValueError) as caught:
             self.load(fake)
@@ -3027,11 +3010,11 @@ class ResearchContextProjectionTests(unittest.TestCase):
             self._project_with_lane_packet(canonical)
         self.assertIn("lane_plan", str(ctx.exception))
 
-    def test_the_frozen_research_identities_stay_published(self):
-        frozen = json.loads(generator.HISTORICAL_DECODER.read_text())["$defs"]
+    def test_current_research_identity_matches_its_declared_source(self):
+        declared = payload_schema["$defs"]
         for name in ("worker_packet3", "work_context_view3", "work_context_domain_group3"):
-            self.assertEqual(self.projected["$defs"][name], frozen[name],
-                             f"the frozen {name} identity drifted from the published shape")
+            self.assertEqual(self.projected["$defs"][name], declared[name],
+                             f"the {name} identity differs from its declared source")
         work_context = self.projected["$defs"]["worker_packet3"]["properties"]["inputs"]["properties"]["work_context"]
         self.assertEqual(work_context["$ref"], "#/$defs/work_context_view3")
         group_ref = self.projected["$defs"]["work_context_view3"]["properties"]["domain_groups"]["items"]["$ref"]
@@ -3237,8 +3220,8 @@ class GeneratorCLISafetyTests(unittest.TestCase):
                     self.assertEqual(exit.exception.code, 2)
                     self.assertTrue(stderr.getvalue().strip())
 
-    def test_contracts_freeze_with_unknown_argument_refuses_without_work(self):
-        args = ["--freeze-historical-decoder", "--unknown-option"]
+    def test_contracts_freeze_mode_refuses_without_work(self):
+        args = ["--freeze-historical-decoder"]
         with (
             redirect_stdout(io.StringIO()),
             redirect_stderr(io.StringIO()),
@@ -3262,23 +3245,6 @@ class GeneratorCLISafetyTests(unittest.TestCase):
                         self.assertRaises(_WorkloadReached),
                     ):
                         module.main()
-
-    def test_contracts_freeze_dispatch_precedes_check(self):
-        schema_refs = {"current": ["alpha"], "historical": ["beta"]}
-        for args in (["--freeze-historical-decoder"], ["--check", "--freeze-historical-decoder"]):
-            with self.subTest(args=args):
-                load_mock = unittest.mock.MagicMock(return_value=([], [], {}, schema_refs))
-                freeze_mock = unittest.mock.MagicMock(return_value=0)
-                validate_mock = unittest.mock.MagicMock(
-                    side_effect=AssertionError("freeze dispatch reached the normal projection workload"))
-                with unittest.mock.patch.object(generator, "load_workflow_action_contracts", load_mock), \
-                        unittest.mock.patch.object(generator, "freeze_historical_decoder", freeze_mock), \
-                        unittest.mock.patch.object(generator, "validate_historical_decoder", validate_mock), \
-                        self._argv("generate-agent-contracts.py", args):
-                    self.assertEqual(generator.main(), 0)
-                load_mock.assert_called_once_with()
-                freeze_mock.assert_called_once_with(schema_refs)
-                validate_mock.assert_not_called()
 
 
 if __name__ == "__main__": unittest.main()

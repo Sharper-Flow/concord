@@ -284,7 +284,7 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 				t.Fatalf("%s v%d is not a declared consequence generation", ref, live[ref])
 			}
 		}
-		for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+		for _, definition := range BuiltinWorkflowDefinitions() {
 			want := ""
 			if slices.Contains(generations[definition.Ref], definition.Version) {
 				want = WorkflowApprovalPolicyConsequenceV1

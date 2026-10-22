@@ -76,104 +76,6 @@ func workflowRecoveryRouteActionForTrigger(trigger WorkflowRecoveryTrigger) stri
 	return ""
 }
 
-// One route-content table per family (D3, CD-0172 D3). The authored versions
-// declare this data and the quarantined released table resolves the same
-// data, so the two sources cannot drift.
-
-func implementationRecoveryRoutes() []WorkflowRecoveryRoute {
-	return []WorkflowRecoveryRoute{
-		{Step: "acceptance", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},
-		{Step: "release", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},
-		{Step: "release", Trigger: WorkflowRecoveryTriggerDisprovedPremiseAtComplete, Action: "supersede_contract", Target: "execution"},
-	}
-}
-
-func breakFixRecoveryRoutes() []WorkflowRecoveryRoute {
-	return []WorkflowRecoveryRoute{
-		{Step: "verify", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair"},
-		{Step: "complete", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair"},
-		{Step: "complete", Trigger: WorkflowRecoveryTriggerDisprovedPremiseAtComplete, Action: "supersede_contract", Target: "repair"},
-	}
-}
-
-func researchRecoveryRoutes() []WorkflowRecoveryRoute {
-	return []WorkflowRecoveryRoute{
-		{Step: "conclude", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate"},
-		{Step: "complete", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate"},
-	}
-}
-
-func architectureSpikeRecoveryRoutes() []WorkflowRecoveryRoute {
-	return []WorkflowRecoveryRoute{
-		{Step: "review", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "decision_record"},
-		{Step: "acceptance", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "decision_record"},
-		{Step: "complete", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "decision_record"},
-	}
-}
-
-func opsRunbookRecoveryRoutes() []WorkflowRecoveryRoute {
-	return []WorkflowRecoveryRoute{
-		{Step: "health", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execute"},
-		{Step: "cleanup", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execute"},
-		{Step: "complete", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execute"},
-	}
-}
-
-func staticAnalysisRecoveryRoutes() []WorkflowRecoveryRoute {
-	return []WorkflowRecoveryRoute{
-		{Step: "review", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "analyze"},
-		{Step: "complete", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "analyze"},
-	}
-}
-
-func genericOneOffRecoveryRoutes() []WorkflowRecoveryRoute {
-	return []WorkflowRecoveryRoute{
-		{Step: "verify", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execute"},
-		{Step: "complete", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execute"},
-	}
-}
-
-// workflowReleasedRecoveryRouteFamily quarantines one family's released
-// routes. through is the last released version of the family that declares no
-// recovery-route table of its own; every version at or below it resolves
-// exactly these routes, and no version above it exists without a declared
-// table. The bound is authored data pinned per (ref, version) by
-// workflow_recovery_routes_test.go; it is never derived from the registry, a
-// graph, or a work kind. One route set serves the whole range only while
-// every version's graph yields the same routes: implementation pins its
-// complete action on release and break_fix on complete for every released
-// version, and registration validates the resolved routes against each
-// version's own graph, so a version whose shape drifted refuses instead of
-// resolving a route its graph does not support.
-type workflowReleasedRecoveryRouteFamily struct {
-	through int64
-	routes  []WorkflowRecoveryRoute
-}
-
-var workflowReleasedRecoveryRouteFamilies = map[string]workflowReleasedRecoveryRouteFamily{
-	"workflow.implementation":     {through: 22, routes: implementationRecoveryRoutes()},
-	"workflow.break_fix":          {through: 19, routes: breakFixRecoveryRoutes()},
-	"workflow.research":           {through: 13, routes: researchRecoveryRoutes()},
-	"workflow.architecture_spike": {through: 14, routes: architectureSpikeRecoveryRoutes()},
-	"workflow.ops_runbook":        {through: 15, routes: opsRunbookRecoveryRoutes()},
-	"workflow.static_analysis":    {through: 12, routes: staticAnalysisRecoveryRoutes()},
-	"workflow.generic_one_off":    {through: 13, routes: genericOneOffRecoveryRoutes()},
-}
-
-// workflowReleasedRecoveryRoutes resolves the recovery routes of a released
-// definition version that declares no table of its own. An unknown ref or
-// version resolves nil: the quarantine never guesses a table from a graph or
-// a work kind, so a definition the quarantine does not name fails closed
-// until a release ships its routes (CD-0201 D4). The returned slice is a
-// defensive copy; mutating it cannot alter the authoritative data.
-func workflowReleasedRecoveryRoutes(ref string, version int64) []WorkflowRecoveryRoute {
-	family, ok := workflowReleasedRecoveryRouteFamilies[ref]
-	if !ok || version < 1 || version > family.through {
-		return nil
-	}
-	return cloneWorkflowRecoveryRoutes(family.routes)
-}
-
 // workflowRecoveryRoutes is the one reader every recovery decision feeds
 // from: the admission fold, workflowAdmit, the action guards, the folds, the
 // work-pin intents, the CD-0164 correction counting and three-attempt wall,
@@ -182,10 +84,7 @@ func workflowReleasedRecoveryRoutes(ref string, version int64) []WorkflowRecover
 // quarantined data for its (ref, version). The returned slice is a defensive
 // copy and the definition is not mutated.
 func workflowRecoveryRoutes(definition WorkflowDefinition) []WorkflowRecoveryRoute {
-	if len(definition.RecoveryRoutes) > 0 {
-		return cloneWorkflowRecoveryRoutes(definition.RecoveryRoutes)
-	}
-	return workflowReleasedRecoveryRoutes(definition.Ref, definition.Version)
+	return cloneWorkflowRecoveryRoutes(definition.RecoveryRoutes)
 }
 
 // workflowRecoveryRouteTarget resolves the one target a step's route for one

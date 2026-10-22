@@ -142,7 +142,7 @@ func TestBindEvidenceHonorsTheDeclaredEvidenceRefField(t *testing.T) {
 	digest := workflowFixtureDefinition(t, 2).Digest
 	setup := []Event{
 		workflowEvent("eref-owner-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEvent("eref-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
+		workflowEvent("eref-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowWorkerFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
 		workflowActionCompletedFixture("eref-proposal", workID, ownerRef, 4, "proposal", "record_proposal"),
 		workflowActionCompletedFixture("eref-discovery", workID, ownerRef, 5, "discovery", "record_discovery"),
 		workflowActionCompletedFixture("eref-design", workID, ownerRef, 6, "design", "record_design"),

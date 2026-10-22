@@ -1286,7 +1286,7 @@ func carriedExitSatisfiedItsPinnedDefinition(ctx context.Context, tx *sql.Tx, wo
 		advancing, resolved := historical[key]
 		if !resolved {
 			advancing = nil
-			if entry, ok := BuiltinWorkflowRegistry().Lookup(pinRef, pinVersion); ok {
+			if entry, ok := BuiltinWorkflowRegistry().Current(pinRef); ok {
 				advancing = workflowVerdictPredecessorAdvancingExits(entry.Definition, verdictStep)
 			}
 			historical[key] = advancing

@@ -164,17 +164,17 @@ func seedProjectHandoffContract(t *testing.T, s *Store, workID string, workVersi
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.research", 5)
+	definition, ok := BuiltinWorkflowRegistry().Current("workflow.research")
 	if !ok {
 		t.Fatal("workflow.research v5 is not registered")
 	}
 	setup := []Event{
 		workflowEventWithActor("ph-actor-"+workID, WorkflowActorRecorded, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion, "resulting_version": workVersion + 1, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
 		workflowEventWithActor("ph-definition-"+workID, WorkflowDefinitionSelected, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion + 1, "resulting_version": workVersion + 2, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
-		workflowEventWithActor("ph-contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion + 2, "resulting_version": workVersion + 3, "contract_version": 1, "premise": "cross-project handoff fixture", "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:handoff-fixture-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}}, "required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
+		workflowEventWithActor("ph-contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion + 2, "resulting_version": workVersion + 3, "contract_version": 1, "premise": "cross-project handoff fixture", "decision_domains": []string{}, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:handoff-fixture-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}}, "required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
 		workflowActionCompletedFixture("ph-approval-"+workID, workID, ownerRef, workVersion+3, "frame", "approve_contract"),
 	}
-	setup[2].PayloadVersion = 3
+	setup[2].PayloadVersion = workflowContractDecisionDomainsPayloadVersion
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): workVersion}}); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func seedReplacementProjectHandoffContract(t *testing.T, s *Store, workID string
 		t.Fatal(err)
 	}
 	successor := map[string]any{
-		"contract_version": int64(2), "premise": "cross-project handoff fixture v2", "outcome_kind": "outcome",
+		"contract_version": int64(2), "premise": "cross-project handoff fixture v2", "decision_domains": []string{}, "outcome_kind": "outcome",
 		"outcome_payload":   map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}},
 		"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
@@ -199,7 +199,7 @@ func seedReplacementProjectHandoffContract(t *testing.T, s *Store, workID string
 	supersede := workflowEventWithActor("ph-contract-2-"+workID, WorkflowContractSuperseded, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": workVersion, "resulting_version": workVersion + 1, "previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "fixture contract replacement", "audit_evidence": []string{"audit:handoff-fixture"}, "successor_contract": successor,
 	})
-	supersede.PayloadVersion = 2
+	supersede.PayloadVersion = workflowContractSupersededDecisionDomainsPayloadVersion
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): workVersion}}); err != nil {
 		t.Fatal(err)
 	}

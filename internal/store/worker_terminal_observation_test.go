@@ -332,7 +332,7 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 		// The frontier joins the dispatch authorization alone, so this
 		// subtest pins the latest head that predates the attribution
 		// requirement and records the failed terminal without an observation.
-		breakFix, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 27)
+		breakFix, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
 		if !ok {
 			t.Fatal("workflow.break_fix v27 is not registered")
 		}

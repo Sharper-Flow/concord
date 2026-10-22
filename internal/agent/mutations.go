@@ -1199,7 +1199,7 @@ func retryApprovalFenceTx(ctx context.Context, tx *store.Transaction, registry s
 // boundary snapshot moved between the request-time read and the action
 // transaction. It compares only snapshot facts, never work attributes.
 func workflowApprovalBoundaryChanged(before, after store.WorkflowApprovalBoundaryState) bool {
-	if before.Definition.Digest != after.Definition.Digest || before.Definition.Definition.Ref != after.Definition.Definition.Ref || before.Definition.Definition.Version != after.Definition.Definition.Version {
+	if before.Definition.Digest != after.Definition.Digest || before.Definition.Definition.Ref != after.Definition.Definition.Ref {
 		return true
 	}
 	if before.WorkVersion != after.WorkVersion || before.ContractVersion != after.ContractVersion || before.DecisionDomainsPresent != after.DecisionDomainsPresent || before.EvaluatorAuthority != after.EvaluatorAuthority || before.Policy != after.Policy {
@@ -1856,12 +1856,9 @@ func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte
 			return nil, nil, nil, existingErr
 		}
 		switchingFamily := definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef != in.WorkflowTypeRef
-		// Naming the pinned family again carries the instance forward onto
-		// that family's current definition, so an instance stranded behind a
-		// promotion has a route onto the current version. The store's fold
-		// admits the carry forward per instance and refuses when the current
-		// definition does not contain the instance's current step.
-		carryingForward := definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef == in.WorkflowTypeRef && definition.DefinitionVersion < registeredDefinition.Definition.Version
+		// A changed definition digest refreshes the instance's current family
+		// without restarting its step. Version numbers carry no freshness.
+		carryingForward := definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef == in.WorkflowTypeRef && definition.DefinitionDigest != registeredDefinition.Digest
 		urgency := in.Urgency
 		if urgency == "" {
 			urgency = "standard"

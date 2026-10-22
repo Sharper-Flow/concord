@@ -15,10 +15,8 @@ import (
 	"time"
 )
 
-// The live authoring selector exposes exactly three families, the frozen
-// registry keeps every released pin readable, and the canonical heads author
-// batched verdicts and explicit outcome predicates only. These tests own
-// that surface; historical decode and rebuild owners keep their own suites.
+// The live authoring selector and registry expose the same three current
+// families. Their contracts publish explicit outcome predicates only.
 
 func TestLiveAuthoringSelectorPublishesThreeFamiliesAndRefusesRetiredOnes(t *testing.T) {
 	t.Parallel()
@@ -52,14 +50,10 @@ func TestLiveAuthoringSelectorPublishesThreeFamiliesAndRefusesRetiredOnes(t *tes
 	if _, err := LiveWorkflowDefinitionForRef("workflow.unknown_family"); !hasFailureKind(err, KindInvalidDefinition) {
 		t.Fatalf("unknown family: err=%v, want %s", err, KindInvalidDefinition)
 	}
-	// The frozen lookup keeps every retired head registered for decode and
-	// replay; archiving changes authoring, never the pin table.
-	frozen, err := BuiltinWorkflowDefinitionForRef("workflow.generic_one_off")
-	if err != nil {
-		t.Fatalf("frozen lookup of a retired family: %v", err)
-	}
-	if frozen.Definition.Version != 16 {
-		t.Fatalf("frozen generic_one_off head = v%d, want the retired v16", frozen.Definition.Version)
+	for ref := range archivedWorkflowFamilies {
+		if _, err := BuiltinWorkflowDefinitionForRef(ref); err == nil {
+			t.Fatalf("retired family %s remains registered", ref)
+		}
 	}
 }
 
@@ -93,7 +87,7 @@ func TestArchivedFamilyPublicMutationRefusesBeforeWrite(t *testing.T) {
 	const workID = "archived-mutation"
 	s := openTemp(t)
 	seedWork(t, s, workID)
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.generic_one_off")
+	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,6 +102,11 @@ func TestArchivedFamilyPublicMutationRefusesBeforeWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	// Model a stored retired-family instance without registering a historical
+	// definition. The live mutation must refuse before it can append anything.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET definition_ref='workflow.generic_one_off' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -133,12 +132,12 @@ func TestArchivedFamilyPublicMutationRefusesBeforeWrite(t *testing.T) {
 	preflightErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ActionID: "checkpoint_context", Payload: json.RawMessage(`{}`), Actor: owner,
 	})
-	if !hasFailureKind(preflightErr, KindInvalidOperation) {
-		t.Fatalf("archived-family preflight = %v, want %s", preflightErr, KindInvalidOperation)
+	if !hasFailureKind(preflightErr, KindInvariantViolation) {
+		t.Fatalf("archived-family preflight = %v, want %s", preflightErr, KindInvariantViolation)
 	}
 	mutationErr := runIssue933OperatorAction(t, s, workID, "checkpoint_context", json.RawMessage(`{}`), owner, operator)
-	if !hasFailureKind(mutationErr, KindInvalidOperation) {
-		t.Fatalf("archived-family mutation = %v, want %s", mutationErr, KindInvalidOperation)
+	if !hasFailureKind(mutationErr, KindInvariantViolation) {
+		t.Fatalf("archived-family mutation = %v, want %s", mutationErr, KindInvariantViolation)
 	}
 	failure, ok := mutationErr.(*Failure)
 	if ok && !strings.Contains(failure.Detail, "workflow.generic_one_off") {
@@ -154,11 +153,8 @@ func TestArchivedFamilyPublicMutationRefusesBeforeWrite(t *testing.T) {
 
 func TestArchivedFamilyTerminalHistoryStaysReadable(t *testing.T) {
 	t.Parallel()
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.generic_one_off")
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition := registered.Definition
+	definition := genericDefinitionFixture()
+	definition.Ref = "workflow.generic_one_off"
 	nonterminal := WorkflowAdmissionState{InstanceState: "planned", Step: "define"}
 	decision := workflowAdmit(definition, nonterminal, "checkpoint_context")
 	if decision.Admitted || decision.Failure == nil || decision.Failure.Kind != KindInvalidOperation {
@@ -188,7 +184,7 @@ func TestArchivedFamilyTerminalHistoryStaysReadable(t *testing.T) {
 // condition. The walk covers every registered version, not only live heads.
 func TestNoRetainedWorkflowVersionDeclaresAConditionAction(t *testing.T) {
 	t.Parallel()
-	if got := retainedConditionActionDeclarations(builtinWorkflowDefinitionsWithHistory()); len(got) != 0 {
+	if got := retainedConditionActionDeclarations(BuiltinWorkflowDefinitions()); len(got) != 0 {
 		t.Fatalf("retained workflow versions declare condition actions: %s", strings.Join(got, ", "))
 	}
 	// Control: the walk flags a retained version that declares one, so an
@@ -608,13 +604,9 @@ func TestBuiltinWorkflowCurrentVersionsMatchLiveAuthoringHeads(t *testing.T) {
 	t.Parallel()
 	current := builtinWorkflowCurrentVersions
 	want := map[string]int64{
-		"workflow.implementation":     37,
-		"workflow.break_fix":          34,
-		"workflow.research":           22,
-		"workflow.architecture_spike": 17,
-		"workflow.ops_runbook":        18,
-		"workflow.static_analysis":    15,
-		"workflow.generic_one_off":    16,
+		"workflow.implementation": 37,
+		"workflow.break_fix":      34,
+		"workflow.research":       22,
 	}
 	if !reflect.DeepEqual(current, want) {
 		t.Fatalf("builtin current versions = %v, want %v", current, want)

@@ -24,7 +24,7 @@ const dispatchCorrectionMissingStep = "no-such-dispatch-step"
 
 func TestDispatchCheckpointCorrectionAcrossKinds(t *testing.T) {
 	counts := map[WorkflowStepKind]int{}
-	for _, definition := range BuiltinWorkflowDefinitionsWithHistory() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		if workflowFamilyArchived(definition.Ref) {
 			continue
 		}

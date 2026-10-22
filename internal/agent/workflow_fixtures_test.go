@@ -298,25 +298,14 @@ func TestApproveContractSchemaAcceptsExplicitEvidenceAndRigor(t *testing.T) {
 	}
 }
 
-// legacyApprovalPolicyDefinitionForRef resolves the newest registered version
-// of a built-in family that answers consent under the released legacy
-// policy. Journeys that exercise operator substitution, operator-approved
-// retries, or operator-approved returns pin it: instances captured before the
-// consequence_v1 promotion keep those flows.
+// Consent fixtures resolve the current family, just like live work.
 func legacyApprovalPolicyDefinitionForRef(t testing.TB, ref string) store.RegisteredDefinition {
 	t.Helper()
 	live, err := store.LiveWorkflowDefinitionForRef(ref)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for version := live.Definition.Version; version >= 1; version-- {
-		registered, ok := store.BuiltinWorkflowRegistry().Lookup(ref, version)
-		if ok && registered.Definition.ApprovalPolicy == "" {
-			return registered
-		}
-	}
-	t.Fatalf("%s registers no legacy approval-policy version", ref)
-	return store.RegisteredDefinition{}
+	return live
 }
 
 // seedLegacyApprovalPolicyWork pins work-1 to the newest implementation

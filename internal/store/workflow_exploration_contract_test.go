@@ -75,7 +75,7 @@ func TestLivenessReplayPreservesOrderAndPayload(t *testing.T) {
 }
 
 func TestLivenessResolvesEngineOwnedRequestCorrection(t *testing.T) {
-	for _, definition := range builtinWorkflowFrozenHeads() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		if _, ok := livenessActionDefinition(definition, "request_correction"); !ok {
 			t.Errorf("%s omits the engine-owned correction payload", definition.Ref)
 		}
@@ -88,7 +88,7 @@ func TestLivenessResolvesEngineOwnedRequestCorrection(t *testing.T) {
 }
 
 func TestLivenessDisclosesOutcomeKindAndTokenOmissions(t *testing.T) {
-	for _, definition := range builtinWorkflowFrozenHeads() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		omissions := livenessOmittedVariants(definition)
 		for _, kind := range definition.OutcomeSchema.AllowedKinds {
 			if kind != definition.OutcomeSchema.DefaultKind && !slices.Contains(omissions, "outcome_kind="+string(kind)) {
@@ -126,7 +126,7 @@ func TestLivenessOmitsUnrequestedOptionalDesignCorrection(t *testing.T) {
 }
 
 func TestLivenessReportsOptionalPresenceSampling(t *testing.T) {
-	for _, definition := range builtinWorkflowFrozenHeads() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		omitted := livenessOmittedVariants(definition)
 		for _, action := range definition.ActionDefinitions {
 			for _, field := range action.Payload.Fields {
@@ -204,7 +204,7 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 		"workflow.static_analysis":    "declare_scope approve_contract run_analysis record_delivery bind record_report record_verdict confirm_premise complete",
 		"workflow.generic_one_off":    "approve_contract start_action bind record_delivery record_verdict confirm_premise complete",
 	}
-	for _, definition := range builtinWorkflowFrozenHeads() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		t.Run(definition.Ref, func(t *testing.T) {
 			sequence, ok := paths[definition.Ref]
 			if !ok {

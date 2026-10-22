@@ -166,15 +166,7 @@ func readWorkflowContractPredicates(ctx context.Context, queryer workflowPredica
 }
 
 func verifyReadWorkflowDefinition(definition WorkflowReadDefinition) (RegisteredDefinition, error) {
-	registry := BuiltinWorkflowRegistry()
-	registered, ok := registry.Lookup(definition.Ref, definition.Version)
-	if !ok {
-		return RegisteredDefinition{}, newFailure(KindDefinitionDigestMismatch, "workflow_read", "pinned workflow definition is not registered", false, "restore the registered workflow definition")
-	}
-	if err := registry.Verify(definition.Ref, definition.Version, definition.Digest); err != nil {
-		return RegisteredDefinition{}, err
-	}
-	return registered, nil
+	return resolveCurrentWorkflowDefinition(BuiltinWorkflowRegistry(), definition.Ref)
 }
 
 type WorkflowReadCondition struct {
@@ -283,6 +275,7 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 	if err != nil {
 		return out, err
 	}
+	out.Definition = WorkflowReadDefinition{Ref: registered.Definition.Ref, Version: registered.Definition.Version, Digest: registered.Digest}
 	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, q, request.WorkID, "workflow_read")
 	if contractErr != nil && contractErr != sql.ErrNoRows {
 		return out, contractErr

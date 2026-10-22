@@ -36,19 +36,33 @@ type WorkflowActionPreflightRequest struct {
 }
 
 func VerifyWorkflowDefinitionPin(registry DefinitionRegistry, pin WorkflowDefinitionPin) (RegisteredDefinition, error) {
-	if registry == nil || !validWorkflowRef(pin.Ref) || pin.Version < 1 || !workflowDigestPattern.MatchString(pin.Digest) {
-		return RegisteredDefinition{}, workflowPinFailure("workflow definition pin is incomplete")
+	entry, err := resolveCurrentWorkflowDefinition(registry, pin.Ref)
+	if err != nil {
+		return RegisteredDefinition{}, err
 	}
-	entry, ok := registry.Lookup(pin.Ref, pin.Version)
+	if pin.Digest != entry.Digest {
+		return RegisteredDefinition{}, workflowPinFailure("requested workflow definition is not current")
+	}
+	return entry, nil
+}
+
+func resolveCurrentWorkflowDefinition(registry DefinitionRegistry, ref string) (RegisteredDefinition, error) {
+	if registry == nil {
+		registry = BuiltinWorkflowRegistry()
+	}
+	if !validWorkflowRef(ref) {
+		return RegisteredDefinition{}, workflowPinFailure("workflow definition family is incomplete")
+	}
+	entry, ok := registry.Current(ref)
 	if !ok {
-		return RegisteredDefinition{}, workflowPinFailure("pinned workflow definition is unavailable")
+		return RegisteredDefinition{}, workflowPinFailure("current workflow definition is unavailable: " + ref)
 	}
 	computed, err := workflowDefinitionDigestWithReference(entry.Definition, replayValidReference)
 	if err != nil {
 		return RegisteredDefinition{}, err
 	}
-	if computed != entry.Digest || computed != pin.Digest {
-		return RegisteredDefinition{}, workflowPinFailure("pinned workflow definition digest drifted")
+	if computed != entry.Digest {
+		return RegisteredDefinition{}, workflowPinFailure("current workflow definition digest drifted")
 	}
 	return entry, nil
 }
@@ -81,7 +95,7 @@ func VerifyWorkflowInstanceDefinition(ctx context.Context, s *Store, registry De
 		}
 		return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_preflight", "cannot read workflow definition pin", true, "retry once the database is readable", err)
 	}
-	return VerifyWorkflowDefinitionPin(registry, pin)
+	return resolveCurrentWorkflowDefinition(registry, pin.Ref)
 }
 
 func WorkflowActionAvailableWithRegistry(ctx context.Context, s *Store, registry DefinitionRegistry, workID string) (bool, error) {
@@ -445,7 +459,7 @@ func workflowLivePayloadSchemaDocument() map[string]any {
 // workflowReplayPayloadSchemaDocument is the replay side of the invocation
 // role split: see workflowLivePayloadSchemaDocument.
 func workflowReplayPayloadSchemaDocument() map[string]any {
-	return payloadschema.HistoricalDocument()
+	return payloadschema.Document()
 }
 
 // validateWorkflowActionEnvelopePayload validates the declared action payload
@@ -1044,7 +1058,7 @@ func verifyWorkflowDefinitionPinTx(ctx context.Context, tx *sql.Tx, registry Def
 	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
 		return RegisteredDefinition{}, wrapFailure(KindInvariantViolation, "workflow_preflight", "workflow definition pin is unavailable", false, "reread_entities", err)
 	}
-	return VerifyWorkflowDefinitionPin(registry, pin)
+	return resolveCurrentWorkflowDefinition(registry, pin.Ref)
 }
 
 func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, req ClaimRequest) error {

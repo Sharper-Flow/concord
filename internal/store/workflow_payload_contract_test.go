@@ -324,7 +324,7 @@ func TestRecordProposalPersistsAndReadsAfterReplay(t *testing.T) {
 // test can hold a pin taken before a payload gained typed fields.
 func historicalWorkflowDefinition(t *testing.T, ref string, version int64) WorkflowDefinition {
 	t.Helper()
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		if definition.Ref == ref && definition.Version == version {
 			return definition
 		}

@@ -26,7 +26,7 @@ func deliveryGateFixture(t *testing.T) *Store {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 13)
+	registered, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
 	if !ok {
 		t.Fatal("workflow.break_fix v13 is not registered")
 	}

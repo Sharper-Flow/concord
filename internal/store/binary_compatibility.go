@@ -74,7 +74,7 @@ func checkWorkflowBinaryCompatibility(ctx context.Context, q queryer) error {
 		if err := rows.Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
 			return compatibilityReadFailure(err)
 		}
-		if !builtinWorkflowVersionRegistered(pin.Ref, pin.Version) && !registryHolds(pin) {
+		if _, current := builtinWorkflowCurrentVersions[pin.Ref]; !current && !registryHolds(pin) {
 			unsupported = &pin
 			break
 		}
@@ -184,7 +184,7 @@ func cutoverBlockedWork(ctx context.Context, q queryer) ([]cutoverWork, error) {
 			if !liveWorkflowAuthoringFamilies[work.Pin.Ref] {
 				continue
 			}
-			entry, ok := BuiltinWorkflowRegistry().Lookup(work.Pin.Ref, work.Pin.Version)
+			entry, ok := BuiltinWorkflowRegistry().Current(work.Pin.Ref)
 			if !ok || workflowCanonicalAuthoringActive(entry.Definition) {
 				continue
 			}
@@ -295,7 +295,7 @@ func (s *Store) cancelCutoverPinnedWork(ctx context.Context) (*CutoverDispositio
 // registered at runtime (test fixture families). Store open reaches it only
 // for such a pin or for one this binary refuses.
 func registryHolds(pin WorkflowDefinitionPin) bool {
-	_, ok := BuiltinWorkflowRegistry().Lookup(pin.Ref, pin.Version)
+	_, ok := BuiltinWorkflowRegistry().Current(pin.Ref)
 	return ok
 }
 

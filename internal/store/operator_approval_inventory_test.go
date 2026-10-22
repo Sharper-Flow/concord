@@ -173,9 +173,7 @@ var approvalInventoryAliases = map[string]string{
 // reachability, and the forward coverage check still refuses any triple the
 // declaration ever produces, so the witness cannot hide newly reachable
 // consent and is no excluded-owner shortcut.
-var approvalInventoryRetainedDeclarations = map[string]string{
-	"internal/store/workflow_registry_versions.go\x00legacyV1ActionPolicies\x00accept_decision": "version-1 override retained for pinned instances (legacyV1ActionDefinitions resolves it only for action ids in a version-1 list); accept_decision is in no version-1 action list, so the declaration resolves no triple",
-}
+var approvalInventoryRetainedDeclarations = map[string]string{}
 
 // approvalInventoryClasses is the closed D5 class vocabulary.
 var approvalInventoryClasses = map[string]bool{
@@ -1284,7 +1282,7 @@ func TestOperatorApprovalInventoryRegistryExpansionCatchesNewDefinition(t *testi
 
 func realBuiltinTriples(t *testing.T) []approvalInventoryTriple {
 	t.Helper()
-	return approvalInventoryExpansion(builtinWorkflowDefinitionsWithHistory())
+	return approvalInventoryExpansion(BuiltinWorkflowDefinitions())
 }
 
 // callerWitnessTriples registers a real caller-registered definition through
@@ -1575,7 +1573,7 @@ func approvalInventoryTripleCoverageProblems(builtinTriples []approvalInventoryT
 	triples := append(append([]approvalInventoryTriple{}, builtinTriples...), callerTriples...)
 	headRefs := map[string]int64{}
 	registeredRefs := map[string]bool{}
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		registeredRefs[definition.Ref] = true
 	}
 	for _, definition := range BuiltinWorkflowDefinitions() {
@@ -1700,7 +1698,7 @@ func TestOperatorApprovalInventoryTableCoversCensus(t *testing.T) {
 // declared coverage against the exact definition/version/action triples the
 // registered history and off-pin recovery resolve to.
 func TestOperatorApprovalInventoryRegistryExpansionIsCovered(t *testing.T) {
-	definitions := builtinWorkflowDefinitionsWithHistory()
+	definitions := BuiltinWorkflowDefinitions()
 	triples := approvalInventoryExpansion(definitions)
 	if len(triples) == 0 {
 		t.Fatal("no registered workflow definition carries an approval-required action; the expansion is broken")

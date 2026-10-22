@@ -224,57 +224,6 @@ func TestRecordAlignmentRefusesInconsistentOutcomeAndRelatedIds(t *testing.T) {
 	}
 }
 
-// TestPriorPinnedDefinitionVersionsReplayUnchanged proves every pinned prior
-// definition still verifies against its recorded digest and that the frozen
-// pre-CD-0156 versions carry no alignment step, so every pinned in-flight
-// item replays its original graph unchanged.
-func TestPriorPinnedDefinitionVersionsReplayUnchanged(t *testing.T) {
-	t.Parallel()
-	current := map[string]int64{}
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		current[definition.Ref] = definition.Version
-	}
-	for pin, digest := range workflowDefinitionVersionPins {
-		ref, version := pin[0], pin[1]
-		entry, ok := BuiltinWorkflowRegistry().Lookup(ref, pinVersion(t, version))
-		if !ok {
-			t.Fatalf("%s version %s is not registered", ref, version)
-		}
-		if err := BuiltinWorkflowRegistry().Verify(ref, pinVersion(t, version), digest); err != nil {
-			t.Fatalf("%s version %s pin does not verify: %v", ref, version, err)
-		}
-		if pinVersion(t, version) >= current[ref] {
-			continue
-		}
-		definition := entry.Definition
-		if stepDeclaresAction(definition, "alignment", "record_alignment") && pinVersion(t, version) != current[ref]-1 && !(ref == "workflow.break_fix" && pinVersion(t, version) >= 11 && pinVersion(t, version) <= current[ref]-1) && !(ref == "workflow.implementation" && pinVersion(t, version) >= 13 && pinVersion(t, version) <= current[ref]-1) {
-			t.Fatalf("%s version %s declares the alignment step; a pinned in-flight item would replay a changed graph", ref, version)
-		}
-		if pinVersion(t, version) == current[ref]-1 {
-			continue
-		}
-		for _, step := range definition.StepGraph.Steps {
-			if step.ID == "alignment" && !(ref == "workflow.break_fix" && pinVersion(t, version) >= 11 && pinVersion(t, version) <= current[ref]-1) && !(ref == "workflow.implementation" && pinVersion(t, version) >= 13 && pinVersion(t, version) <= current[ref]-1) {
-				t.Fatalf("%s version %s declares an alignment step with no record_alignment action", ref, version)
-			}
-		}
-	}
-	predecessors := map[string]WorkflowDefinition{
-		"workflow.implementation": implementationPreAlignmentV12(),
-		"workflow.break_fix":      breakFixPreAlignmentV10(),
-	}
-	for ref, definition := range predecessors {
-		pin := [2]string{ref, versionString(definition.Version)}
-		digest, held := workflowDefinitionVersionPins[pin]
-		if !held {
-			t.Fatalf("%s version %d is a CD-0156 predecessor without a digest pin", ref, definition.Version)
-		}
-		if err := BuiltinWorkflowRegistry().Verify(ref, definition.Version, digest); err != nil {
-			t.Fatalf("%s version %d does not verify: %v", ref, definition.Version, err)
-		}
-	}
-}
-
 // TestWorkRemovalClearsBacklogAlignmentAtBothEnds proves removal succeeds for
 // the item that recorded the search and for an item the search named. Both
 // columns of workflow_backlog_alignment carry a RESTRICT foreign key, so a

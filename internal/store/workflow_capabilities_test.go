@@ -27,7 +27,7 @@ func releasedWorkflowGateExpectations(d WorkflowDefinition) [8]bool {
 
 func TestWorkflowCapabilitiesMatchReleasedGates(t *testing.T) {
 	t.Parallel()
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		t.Run(fmt.Sprintf("%s/v%d", definition.Ref, definition.Version), func(t *testing.T) {
 			want := releasedWorkflowGateExpectations(definition)
 			capabilities := [...]WorkflowCapability{
@@ -88,7 +88,7 @@ func TestWorkflowRootCauseCapabilityMatchesReleasedGates(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	for i, definition := range builtinWorkflowDefinitionsWithHistory() {
+	for i, definition := range BuiltinWorkflowDefinitions() {
 		t.Run(fmt.Sprintf("%s/v%d", definition.Ref, definition.Version), func(t *testing.T) {
 			cause := fmt.Sprintf("work-rca-%d", i)
 			if err := captureDefectWork(t, s, cause, "research", defectIntakeJSON(shape, []string{"work-bug"}, "")); err != nil {

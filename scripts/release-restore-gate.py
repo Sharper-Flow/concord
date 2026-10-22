@@ -12,10 +12,10 @@ migrations. This harness checks source provenance, immutable snapshot bytes,
 restore report checksums, and the recipe's expected current effects in the
 source and both restored databases. It neither reconstructs history nor
 implements a competing store digest. These recipe assertions do not prove
-arbitrary migration transformations or complete active-work cutover coverage.
-The aggregate coverage stays held until that Main-owned target proof exists.
-Exit status is 3 when all writer cases pass but target coverage is held, and 1
-when any writer fails, is unknown, or the population is incomplete.
+arbitrary migration transformations or the store cutover, which the cutover
+mode of `concord upgrade` proves with its own tests. Exit status is 0 when every
+writer case passes, and 1 when any writer fails, is unknown, or the population
+is incomplete.
 
 Missing artifacts, refused recipe steps and exhausted budgets are named
 unknowns, never skips. Source-proven v0.1.0-v0.7.1 bootstrap-only writers retain
@@ -525,7 +525,6 @@ def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tup
     if sha256_file(candidate) != candidate_sha256:
         raise GateError("the candidate binary changed during the run")
     rows += unknown
-    coverage = {"status": "held", "detail": "target-cutover current-state coverage is unproved; writer recipe cases do not establish it"}
     counts = {status: sum(row["status"] == status for row in rows) for status in ("pass", "fail", "unknown")}
     result = "fail" if counts["fail"] else "unknown" if STOP.is_set() or counts["unknown"] or not writers or len(rows) != len(writers) + len(unknown) else "pass"
     report = {
@@ -538,10 +537,9 @@ def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tup
                     "disk_bytes": args.disk_bytes, "retained_bytes": scratch.retained,
                     "transfer_bytes": args.transfer_bytes, "transferred_bytes": transfer.used},
         "counts": counts, "result": result,
-        "coverage": coverage,
         "rows": rows,
     }
-    return report, 1 if result != "pass" else 3
+    return report, 1 if result != "pass" else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -577,7 +575,7 @@ def main(argv: list[str] | None = None) -> int:
         report, status = {"schema": "concord.release-restore-gate.v1", "result": "unknown", "stage": "population", "detail": str(error)}, 1
     output.mkdir(parents=True, exist_ok=True)
     (output / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(json.dumps({key: report.get(key) for key in ("result", "counts", "coverage", "detail") if key in report}))
+    print(json.dumps({key: report.get(key) for key in ("result", "counts", "detail") if key in report}))
     return status
 
 

@@ -606,10 +606,10 @@ class CaseTests(unittest.TestCase):
         releases = [release_of(writer, index) for index, writer in enumerate(writers, start=1)]
         return gate.run_gate(self.args(candidate), releases, tag_map(*(writer.tag for writer in writers)))
 
-    def test_gate_holds_target_coverage_when_every_writer_passes(self) -> None:
+    def test_gate_passes_when_every_writer_passes(self) -> None:
         report, status = self.gate_run(self.fixture.candidate("retire-history"), self.fixture.publish("v1.0.0"), self.fixture.publish("v1.1.2"))
-        self.assertEqual((status, report["result"], report["coverage"]["status"]), (3, "pass", "held"))
-        self.assertIn("target-cutover current-state coverage is unproved", report["coverage"]["detail"])
+        self.assertEqual((status, report["result"]), (0, "pass"))
+        self.assertNotIn("coverage", report)
         self.assertEqual([row["tag"] for row in report["rows"]], ["v1.0.0", "v1.1.2"])
         self.assertEqual(report["population"]["writers"], 2)
         self.assertGreater(report["budgets"]["transferred_bytes"], 0)

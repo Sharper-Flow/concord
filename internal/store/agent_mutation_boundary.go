@@ -137,6 +137,34 @@ func UpdateMutationEventRefsTx(ctx context.Context, transaction *Transaction, in
 	return nil
 }
 
+// CompleteMutationResponseTx fills the workflow reservation in the same
+// transaction as its result. A completed response cannot be overwritten.
+func CompleteMutationResponseTx(ctx context.Context, transaction *Transaction, input MutationIdempotencyInsert) error {
+	tx, err := transactionSQL(transaction, "mutation_idempotency")
+	if err != nil {
+		return err
+	}
+	if err := ValidateMutationBoundaryRecords(input); err != nil {
+		return err
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(input.ResultPayload), &payload); err != nil || len(payload) == 0 {
+		return newFailure(KindInvalidInput, "mutation_idempotency", "completed mutation response must be a nonempty result object", false, "supply the committed mutation result")
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE idempotency_records SET result_payload=?,changed_refs=?,authorized_scope_snapshot=?,result_event_ids=?,last_observed_at=? WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=? AND canonical_digest=? AND op_id=? AND result_payload='{}' AND changed_refs='[]'`, input.ResultPayload, input.ChangedRefs, input.AuthorizedScopeSnapshot, input.ResultEventIDs, input.ObservedAt.UTC().Format(time.RFC3339Nano), input.Key.PrincipalRef, input.Key.Tool, input.Key.OperationKind, input.Key.IdempotencyKey, input.CanonicalDigest, input.OperationID)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "mutation_idempotency", "cannot persist committed mutation response", true, "reconcile the retained operation", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return wrapFailure(KindUnavailable, "mutation_idempotency", "cannot confirm committed mutation response", false, "reconcile the retained operation", err)
+	}
+	if count != 1 {
+		return newFailure(KindOperationConflict, "mutation_idempotency", "mutation response reservation is missing, changed, or already complete", false, "reconcile the retained operation")
+	}
+	return nil
+}
+
 func (s *Store) AcceptedInputsDigest(ctx context.Context, operationID string) (string, error) {
 	if s == nil || s.db == nil {
 		return "", newFailure(KindUnavailable, "accepted_inputs", "store is not open", false, "open the authority database")

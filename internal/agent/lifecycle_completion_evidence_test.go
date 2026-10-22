@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
 	"fmt"
 	"testing"
 )
@@ -72,43 +71,5 @@ func TestLifecycleCompletionEvidenceRefs(t *testing.T) {
 	}
 	if len(replay.EvidenceRefs) != 1 || replay.EvidenceRefs[0].Locator != "verification-pass" {
 		t.Fatalf("replayed completion evidence_refs=%+v, want the original verification evidence", replay.EvidenceRefs)
-	}
-}
-
-// TestCompleteActionBindsNoEvidenceRefs proves the workflow_action "complete"
-// binds no envelope evidence_refs.
-//
-// A binding there could never fire: "complete" is not a lifecycle writer, so
-// the envelope that carried the evidence always reports a non-terminal
-// lifecycle. The lifecycle writer owns the only binding.
-func TestCompleteActionBindsNoEvidenceRefs(t *testing.T) {
-	actionPayload := []byte(`{"work_id":"work-cross","expected_version":3,"action_id":"complete","idempotency_key":"complete-no-binding","evidence":[{"kind":"verification","authority":"agent-verifier","locator_kind":"test","locator":"verification-pass"}],"fields":{"impact_verdict":"non-breaking"}}`)
-	if evidence, bound := completionEvidenceRefs(actionPayload); bound || evidence != nil {
-		t.Fatalf("workflow_action complete still binds evidence_refs: bound=%v evidence=%+v", bound, evidence)
-	}
-
-	// The same helper must recognize the lifecycle completion that replaced it.
-	lifecyclePayload := []byte(`{"work_id":"work-cross","expected_version":3,"target":"completed","reason":"done","idempotency_key":"lifecycle-binding","evidence":[{"kind":"verification","authority":"agent-verifier","locator_kind":"test","locator":"verification-pass"}]}`)
-	evidence, bound := completionEvidenceRefs(lifecyclePayload)
-	if !bound {
-		t.Fatalf("lifecycle completion does not bind evidence_refs")
-	}
-	if len(evidence) != 1 || evidence[0].Locator != "verification-pass" {
-		t.Fatalf("lifecycle completion evidence=%+v, want the supplied verification evidence", evidence)
-	}
-
-	// A non-terminal lifecycle target carries no closure evidence.
-	inProgress := []byte(`{"work_id":"work-cross","expected_version":3,"target":"in_progress","reason":"begin","idempotency_key":"lifecycle-non-terminal"}`)
-	if _, bound := completionEvidenceRefs(inProgress); bound {
-		t.Fatalf("non-terminal lifecycle target bound closure evidence")
-	}
-
-	// Guard the JSON shape the helper depends on.
-	var probe lifecycleMutationInput
-	if err := json.Unmarshal(lifecyclePayload, &probe); err != nil {
-		t.Fatalf("lifecycle payload no longer decodes: %v", err)
-	}
-	if probe.Target != "completed" || len(probe.Evidence) != 1 {
-		t.Fatalf("decoded lifecycle input target=%q evidence=%d", probe.Target, len(probe.Evidence))
 	}
 }

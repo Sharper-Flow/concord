@@ -409,8 +409,8 @@ func TestMutationPinOmissionRequiresExactShape(t *testing.T) {
 	}
 }
 
-func TestWorkflowReplayUsesCurrentPinAndRejectsLaterVersion(t *testing.T) {
-	r, grant, raw, _ := committedWorkflowReplay(t)
+func TestWorkflowReplayKeepsCommittedPinAfterLaterVersion(t *testing.T) {
+	r, grant, raw, first := committedWorkflowReplay(t)
 	before := workflowReplayEffectCounts(t, r.Store)
 	driftWorkPinVersion(t, r.Store, "work-1")
 	afterWrite := workflowReplayEffectCounts(t, r.Store)
@@ -418,11 +418,12 @@ func TestWorkflowReplayUsesCurrentPinAndRejectsLaterVersion(t *testing.T) {
 		t.Fatal("later writer did not advance the item")
 	}
 	replay := workflowTransactionReplay(t, r, grant, raw)
-	if replay.Outcome != OutcomeError || replay.Error == nil || !strings.Contains(replay.Error.Message, "work pin version") {
-		t.Fatalf("transaction replay must compare the current pin, not return an original snapshot: %+v", replay.Error)
+	if replay.Outcome != OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) {
+		t.Fatalf("transaction replay lost the committed result: replay=%+v original=%s", replay, first.Result)
 	}
+	requireMutationPinVersion(t, replay, "work-1", before.Version)
 	if workflowReplayEffectCounts(t, r.Store) != afterWrite {
-		t.Fatal("refused replay changed the effect")
+		t.Fatal("replay repeated the effect or changed the later version")
 	}
 }
 

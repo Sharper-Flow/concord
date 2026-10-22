@@ -3,17 +3,10 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
 )
-
-// The CON-796 shape: a review report carries a typed verdict (CD-0197), and a
-// fresh accepted review settles post-rejection review debt only when its
-// verdict is ship or absent. A no_ship review binds its findings and leaves
-// the debt outstanding, so the delivery exits stay hidden and the parked
-// delivery gate keeps admitting the evidence-bearing corrective return.
 
 // reviewLaneVerdictCompleteEvent builds one worker.completed fixture event
 // whose typed review block carries the named verdict, the shape a review lane
@@ -56,171 +49,98 @@ func reviewGateRunAttemptWithVerdict(t *testing.T, s *Store, workID, attemptID s
 	return epoch
 }
 
-// TestNoShipReviewKeepsRefineCurrentAndSettlingReviewAdvances reproduces
-// CON-796 on the current break-fix definition: after a rejection, a fresh
-// review completes with a no_ship verdict, and its acceptance binds the
-// findings without settling the review debt. The accepted disposition is the
-// non-delivery accept — a review that refused the result carries no delivery
-// assertion — so the refinement step stays current: the advance waits for a
-// settling review (CD-0201 D3), the accepted review's readiness clears, the
-// pin keeps hiding the delivery exits while offering the fresh-review
-// dispatch, and the settling review's acceptance carries the advance.
-func TestNoShipReviewKeepsRefineCurrentAndSettlingReviewAdvances(t *testing.T) {
-	const workID = "no-ship-review-current"
-	ctx := context.Background()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s := fixture.store
-	ownerRef, err := WorkflowActorRef(fixture.owner)
-	if err != nil {
-		t.Fatal(err)
+func TestBlockingReviewDispositionAcceptsWithoutAdvancing(t *testing.T) {
+	for _, disposition := range []string{"correction_required", "revision_required"} {
+		t.Run(disposition, func(t *testing.T) {
+			j, _ := descendantReviewFixture(t, "review-hold-"+disposition)
+			step := currentStep(t, j.s, j.workID)
+			attempt, epoch := completeCurrentReviewForTest(t, j.fixture, j.repo, disposition)
+			pin, err := ReadWorkPin(t.Context(), j.s, j.workID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if workPinContainsAction(pin.NextValidIntents, "record_delivery") || !workPinContainsAction(pin.NextValidIntents, "accept_worker_result") {
+				t.Fatalf("report intake and delivery permission were conflated: %+v", pin.NextValidIntents)
+			}
+			before := j.effects(t)
+			if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch + 1}, j.fixture.owner); err == nil {
+				t.Fatal("a stale attempt epoch accepted the report")
+			}
+			if after := j.effects(t); after != before {
+				t.Fatal("refused acceptance changed durable state")
+			}
+			if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch, "delivery_artifact": "artifact:blocked-review", "delivery_state": "asserted"}, j.fixture.owner); err == nil {
+				t.Fatal("acceptance of a blocking report carried a delivery assertion")
+			}
+			if after := j.effects(t); after != before {
+				t.Fatal("refused delivery-bearing acceptance changed durable state")
+			}
+			if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, j.fixture.owner); err != nil {
+				t.Fatalf("Main could not accept a blocking disposition: %v", err)
+			}
+			pin, err = ReadWorkPin(t.Context(), j.s, j.workID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if currentStep(t, j.s, j.workID) != step || pin.Review.Accepted == nil || pin.Review.Accepted.Report.Disposition != disposition {
+				t.Fatalf("acceptance lost the disposition or advanced execution: %+v", pin.Review)
+			}
+			if workPinContainsAction(pin.NextValidIntents, "record_delivery") || workPinContainsAction(pin.NextValidIntents, "accept_worker_result") || !workPinContainsAction(pin.NextValidIntents, "dispatch_worker") {
+				t.Fatalf("accepted report lost its hold, once-only intake, or recovery route: %+v", pin.NextValidIntents)
+			}
+			before = j.effects(t)
+			if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, j.fixture.owner); err == nil {
+				t.Fatal("the same result acquired another disposition")
+			}
+			if after := j.effects(t); after != before {
+				t.Fatal("duplicate acceptance changed durable state")
+			}
+			acceptCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
+			verification := j.observeRun(t, "review-ready-delivery")
+			if err := j.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": verification.OperationRef}, j.fixture.owner); err != nil {
+				t.Fatal(err)
+			}
+			pin, err = ReadWorkPin(t.Context(), j.s, j.workID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := workflowAdmitReview(*pin.Review, ""); err != nil {
+				t.Fatalf("accepted readiness did not satisfy the Review boundary: %v", err)
+			}
+			// This fixture also holds a separate, unfinished assignment. Review
+			// readiness cannot settle it; the full delivery spine covers the exit
+			// after all assignments and the other prerequisites are satisfied.
+			before = j.effects(t)
+			deliveryErr := j.action(t, "record_delivery", map[string]any{"delivery_artifact": "artifact:review-ready", "delivery_state": "asserted"}, j.fixture.owner)
+			if !hasFailureKind(deliveryErr, KindMissingEvidence) || !strings.Contains(deliveryErr.Error(), "every recorded worker job satisfied") || j.effects(t) != before {
+				t.Fatalf("readiness bypassed the unfinished assignment or changed state: %v", deliveryErr)
+			}
+		})
 	}
-	acceptor := reviewGateAcceptor(workID)
-	at := int64(100)
-
-	refineEpoch := reviewGateDriveRejection(t, fixture, workID, &at)
-
-	// A fresh review of the repaired result completes with a no_ship verdict.
-	noShipReview := "attempt:" + workID + ":review-2"
-	noShipEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, noShipReview, reviewGateLane(t, "review"), ownerRef, "no_ship", at)
-	at += 2
-
-	// The delivery exits stay hidden while the refused result stands ready,
-	// and the pin offers the accept whose identity the review gate binds.
-	pin, pinErr := ReadWorkPin(ctx, s, workID)
-	if pinErr != nil {
-		t.Fatal(pinErr)
-	}
-	if workPinContainsAction(pin.NextValidIntents, "record_delivery") {
-		t.Fatalf("pin offered record_delivery behind a no_ship review: %#v", pin.NextValidIntents)
-	}
-	if !workPinContainsAction(pin.NextValidIntents, "accept_worker_result") {
-		t.Fatalf("pin hid the ready no_ship review's acceptance: %#v", pin.NextValidIntents)
-	}
-
-	// The acceptance carrying a delivery assertion refuses: a review that
-	// refused the result cannot carry the delivery assertion off refine
-	// (CD-0201 D3).
-	asserted := json.RawMessage(`{"attempt_id":"` + noShipReview + `","attempt_epoch":` + fmt.Sprint(refineEpoch) + `,"delivery_artifact":"artifact:no-ship-` + workID + `","delivery_state":"asserted"}`)
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", asserted, 0, acceptor); err == nil {
-		t.Fatal("the no_ship accept carrying a delivery assertion was admitted")
-	}
-
-	// The accepted disposition of the no_ship review is the non-delivery
-	// accept: it binds the findings, settles nothing, and keeps the
-	// refinement step current — the advance waits for a settling review.
-	if err := reviewGateAcceptResult(t, s, workID, noShipReview, noShipEpoch, acceptor); err != nil {
-		t.Fatalf("non-delivery accept of the no_ship review = %v, want the accepted findings-binding disposition", err)
-	}
-	reviewGateRequireStep(t, s, workID, "refine")
-
-	// The guard records its admission decision on the completion it authors,
-	// and the fold honors the recorded field: the accepted attempt is the
-	// ready non-settling review, so the completion carries the hold.
-	var held bool
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.review_advance_held'),0) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted, noShipReview).Scan(&held); err != nil {
-		t.Fatal(err)
-	}
-	if !held {
-		t.Fatal("the guarded no_ship accept recorded no review advance hold")
-	}
-
-	// The acceptance dispositioned the review: the ready-review read returns
-	// none, so no later accept can ride the dispositioned attempt's
-	// identity.
-	definition, defErr := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if defErr != nil {
-		t.Fatal(defErr)
-	}
-	readyAttempt, readyVerdict, readyErr := workflowReadyReviewAttemptTx(ctx, s.db, workID, definition.Definition, "workflow_no_ship_review_test")
-	if readyErr != nil {
-		t.Fatal(readyErr)
-	}
-	if readyAttempt != "" || readyVerdict != "" {
-		t.Fatalf("the accepted no_ship review still stands ready: %q verdict %q", readyAttempt, readyVerdict)
-	}
-
-	// The debt is still outstanding, so the parked refinement step keeps
-	// hiding the delivery exit, keeps hiding the dispositioned accept, and
-	// keeps offering the fresh-review dispatch the advance waits behind.
-	pin, pinErr = ReadWorkPin(ctx, s, workID)
-	if pinErr != nil {
-		t.Fatal(pinErr)
-	}
-	if workPinContainsAction(pin.NextValidIntents, "record_delivery") {
-		t.Fatalf("pin offered record_delivery behind the accepted no_ship review: %#v", pin.NextValidIntents)
-	}
-	if workPinContainsAction(pin.NextValidIntents, "accept_worker_result") {
-		t.Fatalf("pin offered an accept with no ready review: %#v", pin.NextValidIntents)
-	}
-	if !workPinContainsAction(pin.NextValidIntents, "dispatch_worker") {
-		t.Fatalf("pin hid the fresh-review dispatch behind the accepted no_ship review: %#v", pin.NextValidIntents)
-	}
-
-	// The review debt stays outstanding: the settlement query reads no
-	// accepted ship review behind the rejection.
-	outstanding, outstandingErr := workflowPostRejectionReviewOutstanding(ctx, s.db, workID, definition.Definition, "workflow_no_ship_review_test")
-	if outstandingErr != nil {
-		t.Fatal(outstandingErr)
-	}
-	if !outstanding {
-		t.Fatal("the no_ship review settled the post-rejection review debt")
-	}
-
-	// The wait resolves through the route the pin named: a fresh review of
-	// the repaired result completes with a ship verdict, and its settling
-	// acceptance carries the advance the no_ship acceptance withheld.
-	shipReview := "attempt:" + workID + ":review-3"
-	shipEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, shipReview, reviewGateLane(t, "review"), ownerRef, "ship", at)
-	at += 2
-	if err := acceptRefineResult(t, s, workID, shipReview, shipEpoch, acceptor); err != nil {
-		t.Fatalf("settling accept behind the accepted no_ship review: %v", err)
-	}
-	reviewGateRequireStep(t, s, workID, "delivery")
 }
 
-// TestPreflightRefusesReviewDebtDeliveryTheExecutionRefuses pins the
-// cross-site agreement on the state-only half of the review debt: the
-// read-only preflight refuses the delivery exit behind an outstanding debt
-// with the same typed fresh-review refusal the execution fold applies. The
-// fresh-review refusal over record_delivery admits nothing payload-blind, so
-// no site defers it: a caller that asks before acting reads the answer the
-// boundary enforces.
-func TestPreflightRefusesReviewDebtDeliveryTheExecutionRefuses(t *testing.T) {
-	const workID = "no-ship-review-preflight"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s := fixture.store
-	defer s.Close()
-	ownerRef, err := WorkflowActorRef(fixture.owner)
+func TestPreflightAndMutationRequireAcceptedReadyDisposition(t *testing.T) {
+	j, _ := descendantReviewFixture(t, "review-disposition-preflight")
+	acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
+	before := j.effects(t)
+	deliveryPayload := json.RawMessage(`{"delivery_artifact":"artifact:review-preflight","delivery_state":"asserted"}`)
+	preflightErr := WorkflowActionPreflightWithRegistry(t.Context(), j.s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: j.workID, ExpectedVersion: readWorkVersion(t, j.s, j.workID), ActionID: "record_delivery", Payload: deliveryPayload, Actor: j.fixture.owner})
+	var failure *Failure
+	if preflightErr == nil || !failureAs(preflightErr, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "ready_for_final_proof") || failure.RecoveryAction == "" {
+		t.Fatalf("preflight lost the readiness requirement or recovery: %v", preflightErr)
+	}
+	deliveryErr := j.action(t, "record_delivery", deliveryPayload, j.fixture.owner)
+	var deliveryFailure *Failure
+	if deliveryErr == nil || !failureAs(deliveryErr, &deliveryFailure) || deliveryFailure.Kind != failure.Kind || deliveryFailure.Detail != failure.Detail || deliveryFailure.RecoveryAction != failure.RecoveryAction {
+		t.Fatalf("preflight and execution disagree: preflight=%v execution=%v", preflightErr, deliveryErr)
+	}
+	pin, err := ReadWorkPin(t.Context(), j.s, j.workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	at := int64(100)
-	reviewGateDriveRejection(t, fixture, workID, &at)
-
-	// A fresh review completes with a no_ship verdict: the debt stays
-	// outstanding and no settling review stands ready.
-	noShipReview := "attempt:" + workID + ":review-2"
-	reviewGateRunAttemptWithVerdict(t, s, workID, noShipReview, reviewGateLane(t, "review"), ownerRef, "no_ship", at)
-
-	// The read-only preflight refuses the delivery exit with the typed
-	// fresh-review refusal, the same answer the execution fold applies. The
-	// payload is well-formed: the refusal is the admission's, not the
-	// envelope's.
-	deliveryPayload := json.RawMessage(`{"delivery_artifact":"artifact:no-ship-preflight","delivery_state":"asserted"}`)
-	preflightErr := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "record_delivery", Payload: deliveryPayload, Actor: fixture.owner})
-	var failure *Failure
-	if preflightErr == nil || !failureAs(preflightErr, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "fresh accepted review") {
-		t.Fatalf("preflight record_delivery behind review debt = %v, want the typed fresh-review refusal", preflightErr)
+	if workPinContainsAction(pin.NextValidIntents, "record_delivery") || j.effects(t) != before {
+		t.Fatal("refused delivery was advertised or changed durable state")
 	}
-
-	// The execution fold answers identically: the delivery exit refuses, and
-	// the item stays parked at refine.
-	deliveryErr := runVerdictActionAs(t, s, workID, "record_delivery", deliveryPayload, 0, reviewGateAcceptor(workID))
-	var deliveryFailure *Failure
-	if deliveryErr == nil || !failureAs(deliveryErr, &deliveryFailure) || deliveryFailure.Kind != KindInvalidOperation || !strings.Contains(deliveryFailure.Detail, "fresh accepted review") {
-		t.Fatalf("execution record_delivery behind review debt = %v, want the typed fresh-review refusal", deliveryErr)
-	}
-	reviewGateRequireStep(t, s, workID, "refine")
 }
 
 // TestReadyReviewAcceptCannotRideAnUnrelatedRefusal pins the deferral rule:

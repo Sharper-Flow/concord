@@ -467,6 +467,13 @@ func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) (bo
 	// declares dispatch_worker the state carries no recovery, so a caller
 	// cannot admit the rejection onto an unrelated step.
 	state.CorrectionRecovery = correctionRoute && stepDeclaresAction(l.definition, l.currentStep, "dispatch_worker")
+	// Both dispositions consume the same eligible completed result. A declared
+	// acceptance action is not an available intent after that result is settled.
+	if !correctionRoute && workflowDefinitionProducesDelivery(l.definition) && stepDeclaresAction(l.definition, l.currentStep, "accept_worker_result") {
+		state.ReviewAcceptanceError = workflowFailureOf(reviewFailure(KindMissingEvidence,
+			"result acceptance requires an undispositioned completed worker result",
+			"finish an admitted worker assignment and have Main accept its exact completed result"))
+	}
 	reviewEvidenceAttempt, reviewEvidenceErr := workflowRefineReviewEvidenceAttempt(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, 0)
 	if reviewEvidenceErr != nil {
 		return false, reviewEvidenceErr

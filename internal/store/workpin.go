@@ -82,11 +82,6 @@ type WorkPin struct {
 	// dispatches when the disposition holds the work. Managed intents remain
 	// empty; outside-repair operations are not workflow actions.
 	OutsideRepairRoute []string `json:"outside_repair_route,omitempty"`
-	// RetryWindow is the CD-0164 D5 readable retry window, reusing this
-	// pin's folded admission state instead of re-entering the loader. It
-	// stays absent on the held outside-repair pin and on the
-	// duplicate-contract recovery pin.
-	RetryWindow *WorkflowRetryWindow `json:"retry_window,omitempty"`
 }
 
 type WorkPinVerifiedCriterion struct {
@@ -294,13 +289,6 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 	if err := workPinRecoveryIntentsTx(ctx, tx, workID, &pin, registered.Definition, instanceState, state); err != nil {
 		return pin, err
 	}
-	// The CD-0164 D5 window reuses this pin's folded admission state, so the
-	// pin's wall answer is the loader's own, never a second derivation.
-	window, windowErr := workflowRetryWindowForState(ctx, tx, workID, pin.Step, "work_pin", state, registry)
-	if windowErr != nil {
-		return pin, windowErr
-	}
-	pin.RetryWindow = window
 	if err := workPinReadWorkContextTx(ctx, tx, workID, &pin); err != nil {
 		return pin, err
 	}

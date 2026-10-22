@@ -47,11 +47,13 @@ for (const keyword of ["oneOf", "anyOf", "allOf"]) {
   if (Object.hasOwn(workStartRoot, keyword)) fail(`concord_work_start carries provider-unsafe root ${keyword}`)
 }
 if (JSON.stringify(workStartRoot.if) !== JSON.stringify({ required: ["work_id"] })) fail("concord_work_start does not select resume by work_id presence")
+const workStartIssueKeySelector = object(workStartRoot.else, "published work start issue_key selector")
+if (JSON.stringify(workStartIssueKeySelector.if) !== JSON.stringify({ required: ["issue_key"] })) fail("concord_work_start does not select resume by issue_key presence")
 checkLocalRefs(workStartRoot, "concord_work_start")
 const expandedWorkStart: any = expandedPublishedRequestSchema(workStartRoot)
-const publishedBranches = [expandedWorkStart.else, expandedWorkStart.then].map((branch) => object(branch, "published work start branch"))
+const publishedBranches = [expandedWorkStart.else?.else, expandedWorkStart.then, expandedWorkStart.else?.then].map((branch) => object(branch, "published work start branch"))
 for (const [index, branch] of publishedBranches.entries()) {
-  if (JSON.stringify(branch) !== JSON.stringify(expectedWorkStartBranches[index])) fail(`published work start branch ${index} differs from its generated closed contract`)
+  if (JSON.stringify(branch) !== JSON.stringify(expandedPublishedRequestSchema(expectedWorkStartBranches[Math.min(index, 1)]))) fail(`published work start branch ${index} differs from its generated closed contract`)
 }
 inspect(workStartRoot)
 // The registration map is the host's per-parameter rendering channel; its

@@ -51,10 +51,12 @@ test("work start publishes the closed capture and resume contract through the ho
   // definitions table, so the branch comparison reads the resolved view
   // against the unchanged generated contracts.
   const resolved = expandedPublishedRequestSchema(published) as any
-  expect(resolved.else).toEqual(hostToolSchemas.concord_work_start.oneOf[0])
-  expect(resolved.then).toEqual(hostToolSchemas.concord_work_start.oneOf[1])
-  expect(published.else.properties.work_id).toBeUndefined()
-  expect(published.then.properties.title).toBeUndefined()
+  expect(resolved.else.if).toEqual({ required: ["issue_key"] })
+  expect(resolved.else.else).toEqual(hostToolSchemas.concord_work_start.oneOf[0])
+  expect(resolved.then).toEqual(expandedPublishedRequestSchema(hostToolSchemas.concord_work_start.oneOf[1]))
+  expect(resolved.else.then).toEqual(expandedPublishedRequestSchema(hostToolSchemas.concord_work_start.oneOf[1]))
+  expect(resolved.else.else.properties.work_id).toBeUndefined()
+  expect(resolved.then.properties.title).toBeUndefined()
   expect(output.parameters).toBe(parameters)
   expect(output.description).toBe(plugin.tool.concord_work_start.description)
 })
@@ -238,7 +240,7 @@ test("published work start schemas cannot mutate runtime validation", async () =
   }
   await plugin["tool.definition"]({ toolID: "concord_work_start" }, output)
   const argsTitle = plugin.tool.concord_work_start.args.title
-  const publishedTitle = output.jsonSchema.else.properties.title
+  const publishedTitle = output.jsonSchema.else.else.properties.title
   const expectedTitle = hostToolSchemas.concord_work_start.oneOf[0].properties.title
   const maximum = expectedTitle.maxLength
   try {

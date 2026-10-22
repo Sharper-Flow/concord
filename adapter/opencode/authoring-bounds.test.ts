@@ -255,8 +255,8 @@ function canonicalBoundRoots(): { at: string; schema: unknown }[] {
 
 // publishedBoundRoots collects every hook output restored to its
 // legacy-effective view: one expanded branch per operation (one per
-// workflow_action variant), concord_work_start split into else (capture),
-// then (resume), and its merged root properties, and the other hooks whole.
+// workflow_action variant), concord_work_start split into else.else (capture),
+// then and else.then (resume), its merged root properties, and the other hooks whole.
 async function publishedBoundRoots(): Promise<{ at: string; schema: unknown }[]> {
   const roots: { at: string; schema: unknown }[] = []
   for (const toolID of new Set(contractOperations.map(operation => (operation as unknown as { tool: string }).tool))) {
@@ -284,8 +284,9 @@ async function publishedBoundRoots(): Promise<{ at: string; schema: unknown }[]>
     const expanded: any = expandedPublishedRequestSchema(output.jsonSchema)
     if (toolID === "concord_work_start") {
       roots.push(
-        { at: "@concord_work_start#capture", schema: expanded.else },
+        { at: "@concord_work_start#capture", schema: expanded.else.else },
         { at: "@concord_work_start#resume", schema: expanded.then },
+        { at: "@concord_work_start#resume", schema: expanded.else.then },
         { at: "@concord_work_start", schema: { type: "object", additionalProperties: false, properties: expanded.properties } },
       )
       continue

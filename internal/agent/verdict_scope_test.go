@@ -202,3 +202,47 @@ func TestDistinctSessionReadsTheVerdict(t *testing.T) {
 		t.Fatalf("distinct session must not see redaction, got %+v", response.Omissions)
 	}
 }
+
+func TestVerdictReadScopeRequiresBothRecordedIdentityRefs(t *testing.T) {
+	for _, tc := range []struct {
+		name, agent, session string
+	}{
+		{"different session", "agent-exec", "session-other-bbbb"},
+		{"different agent", "agent-other", "session-exec-aaaa"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, service, execKey, _ := verdictScopeFixture(t)
+			response := scopeReadFor(t, s, service, execKey, "verdict-tuple-nonce", tc.session, tc.agent, "client-session-exec-aaaa")
+			if response.Outcome != OutcomeOK {
+				t.Fatalf("scope read failed: %+v", response.Error)
+			}
+			raw, err := json.Marshal(response.Result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(raw), `"final_verdict_kind":"ok"`) || len(response.Omissions) != 0 {
+				t.Fatalf("only the exact recorded agent+session tuple may be redacted: result=%s omissions=%+v", raw, response.Omissions)
+			}
+		})
+	}
+}
+
+func TestVerdictReadScopeDoesNotInferMissingInstanceIdentity(t *testing.T) {
+	s, service, execKey, _ := verdictScopeFixture(t)
+	// Isolate the read owner from the execution writer: the selection event
+	// remains, but no current executing tuple is recorded on the instance.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET execution_actor_ref=NULL WHERE work_id='work-1'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	response := scopeReadFor(t, s, service, execKey, "verdict-current-identity", "session-exec-aaaa", "agent-exec", "client-session-exec-aaaa")
+	if response.Outcome != OutcomeOK {
+		t.Fatalf("scope read failed: %+v", response.Error)
+	}
+	raw, err := json.Marshal(response.Result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"final_verdict_kind":"ok"`) || len(response.Omissions) != 0 {
+		t.Fatalf("scope read inferred an identity outside the current instance: result=%s omissions=%+v", raw, response.Omissions)
+	}
+}

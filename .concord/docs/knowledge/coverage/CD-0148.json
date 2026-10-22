@@ -10,7 +10,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestWorkerRetryMutationRequiresExactApprovalAndFreshAttempt"
+      "value": "internal/agent.TestWorkerRetryWithoutConsentKeepsFreshIdentityAndReplay"
     },
     {
       "kind": "go_test",
@@ -30,7 +30,7 @@
     },
     {
       "kind": "adapter_test",
-      "value": "adapter/opencode/lane_dispatch.test.ts#an escalated correction challenge forwards the failed attempt bindings for operator approval"
+      "value": "adapter/opencode/lane_dispatch.test.ts#new request identity does not depend on correction history"
     },
     {
       "kind": "adapter_test",

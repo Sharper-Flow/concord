@@ -2121,41 +2121,49 @@ func TestStaleArtifactCheckNamesSeededWitness(t *testing.T) {
 	t.Fatalf("no witness names the ok verdict; first witness: %s", witnesses[0])
 }
 
-// TestContractStepAdvancesOnlyThroughItsApproval pins the version-1 research
-// strand: frame_research is advance-moded beside approve_contract on the
-// frame step, so admitting it with no active contract would move the work
-// past the only step that binds one. The engine refuses that advance and
-// still admits the approval behind its operator question (CD-0203 D1).
+// An extra advancing action cannot strand work past its contract step.
+// The seeded action exercises the admission guard independently of the
+// current compositions, which expose only contract approval as that exit.
 func TestContractStepAdvancesOnlyThroughItsApproval(t *testing.T) {
 	t.Parallel()
-	var definition WorkflowDefinition
-	for _, candidate := range BuiltinWorkflowDefinitions() {
-		if candidate.Ref == "workflow.research" && candidate.Version == 1 {
-			definition = candidate
-		}
-	}
-	if definition.Ref == "" {
-		t.Fatal("workflow.research v1 is not registered")
-	}
-	contractStep, err := workflowDefinitionContractStep(definition)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !workflowActionAdvancesStep(definition, "frame_research") {
-		t.Fatal("research v1 frame_research is not advance-moded; the regression no longer exercises the strand")
-	}
-	state := WorkflowAdmissionState{Step: contractStep, Lifecycle: "in_progress", InstanceState: "active"}
-	decision := workflowAdmit(definition, state, "frame_research")
-	var failure *Failure
-	if decision.Admitted || !failureAs(decision.Failure, &failure) || failure.Kind != KindIllegalLifecycleTransition {
-		t.Fatalf("contractless frame_research at %q = %+v, want the illegal lifecycle refusal", contractStep, decision)
-	}
-	if approval := workflowAdmit(definition, state, "approve_contract"); approval.Failure != nil {
-		t.Fatalf("approve_contract at %q refused: %v", contractStep, approval.Failure)
-	}
-	state.ActiveContracts = 1
-	if bound := workflowAdmit(definition, state, "frame_research"); bound.Failure != nil {
-		t.Fatalf("frame_research with an active contract refused: %v", bound.Failure)
+	for _, ref := range []string{"workflow.implementation", "workflow.break_fix", "workflow.research"} {
+		t.Run(ref, func(t *testing.T) {
+			definition := mustBuiltinDefinition(t, ref).Definition
+			contractStep, err := workflowDefinitionContractStep(definition)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, action := range workflowStep(definition, contractStep).Actions {
+				if action != "approve_contract" && workflowActionAdvancesStep(definition, action) {
+					t.Fatalf("%s declares another contract-step advance: %s", ref, action)
+				}
+			}
+			state := WorkflowAdmissionState{Step: contractStep, Lifecycle: "in_progress", InstanceState: "running"}
+			if approval := workflowAdmit(definition, state, "approve_contract"); approval.Failure != nil {
+				t.Fatalf("current contract approval refused: %v", approval.Failure)
+			}
+			// Every other advancing action the definition declares is seeded
+			// onto the contract step: each must refuse while the step holds
+			// no active contract. A seeded action's further preconditions may
+			// also refuse; the guarantee is only that no contractless advance
+			// is admitted.
+			for _, action := range definition.ActionDefinitions {
+				if action.ID == "approve_contract" || !workflowActionAdvancesStep(definition, action.ID) {
+					continue
+				}
+				probe := definition
+				probe.StepGraph.Steps = slices.Clone(definition.StepGraph.Steps)
+				for i := range probe.StepGraph.Steps {
+					step := &probe.StepGraph.Steps[i]
+					if step.ID == contractStep {
+						step.Actions = append(slices.Clone(step.Actions), action.ID)
+					}
+				}
+				if decision := workflowAdmit(probe, state, action.ID); decision.Admitted {
+					t.Fatalf("contractless %s advance at %s admitted: %+v", action.ID, contractStep, decision)
+				}
+			}
+		})
 	}
 }
 

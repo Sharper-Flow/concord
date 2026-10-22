@@ -724,6 +724,8 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 		return enum[0]
 	}
 	if oneOf, ok := schema["oneOf"].([]any); ok {
+		siblings := maps.Clone(schema)
+		delete(siblings, "oneOf")
 		for _, branch := range oneOf {
 			branchSchema, ok := branch.(map[string]any)
 			if !ok {
@@ -732,7 +734,7 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 			if branchSchema["type"] == "null" {
 				continue
 			}
-			return schemaFixtureValue(t, branchSchema, defs, depth+1)
+			return schemaFixtureValue(t, mergeFixtureSchema(branchSchema, siblings), defs, depth+1)
 		}
 		return nil
 	}

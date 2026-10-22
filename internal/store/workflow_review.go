@@ -246,9 +246,13 @@ func loadWorkflowReviewState(ctx context.Context, q queryer, workID string, befo
 		if err != nil {
 			return state, err
 		}
-		state.Dependencies = &dependencies
-		if state.Accepted != nil {
-			state.DependenciesCurrent = sameReviewDependencies(state.Accepted.Report.Dependencies, dependencies)
+		// A contract without approved criteria has no reviewable dependency
+		// descriptor yet. Keep the closed report shape absent, not malformed.
+		if len(dependencies.Criteria) != 0 {
+			state.Dependencies = &dependencies
+			if state.Accepted != nil {
+				state.DependenciesCurrent = sameReviewDependencies(state.Accepted.Report.Dependencies, dependencies)
+			}
 		}
 	}
 	return state, nil

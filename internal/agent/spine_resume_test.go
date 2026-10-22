@@ -130,8 +130,6 @@ func newSpineFixture(t *testing.T) *spineFixture {
 	f := newSpineExecutionFixture(t)
 	f.verify(t)
 	f.recordJob(t)
-	f.review(t, "continue", "")
-	f.recordJob(t)
 	f.completeWorker(t)
 	f.proof = f.verify(t)
 	f.recordJob(t)
@@ -217,6 +215,10 @@ func newSpineExecutionFixture(t *testing.T) *spineFixture {
 }
 
 func (f *spineFixture) recordJob(t *testing.T) {
+	f.recordJobAs(t, "job:spine-value")
+}
+
+func (f *spineFixture) recordJobAs(t *testing.T, jobID string) {
 	t.Helper()
 	state := f.read(t)
 	binding := state.Pinned.Contract.ArchitectureBinding
@@ -248,7 +250,7 @@ func (f *spineFixture) recordJob(t *testing.T) {
 	}
 	control.ReadinessEvidenceRefs = []string{result.OperationRef}
 	spineOK(t, f.action(t, "record_worker_job", map[string]any{
-		"job_id": "job:spine-value", "objective": "Carry out the approved value change.", "stopping_condition": "The value check passes.",
+		"job_id": jobID, "objective": "Carry out the approved value change.", "stopping_condition": "The value check passes.",
 		"ready": true, "checks": []string{"go test ./..."}, "readiness_evidence": []string{result.OperationRef}, "path_scope": []string{"pkg/value.go"},
 		"acceptance_oracle": store.AcceptanceOracle{Owners: []store.OracleOwner{owner}, Cases: cases, Controls: []store.OracleControl{control}},
 	}))
@@ -283,6 +285,9 @@ func (f *spineFixture) startWorker(t *testing.T, laneID, attempt string) (store.
 	packet := bindPacketToRecordedState(t, f.s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion,
 		"attempt_id": attempt, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 		"work_id": f.work, "step_id": f.read(t).Pinned.Step, "inputs": map[string]any{}})
+	if correction := f.read(t).Pinned.Pin.Correction; correction != nil {
+		packet["inputs"].(map[string]any)["correction"] = correction
+	}
 	authorized := spineOK(t, f.action(t, "dispatch_worker", map[string]any{"attempt_id": attempt, "worker_packet": packet}))
 	var authorization struct {
 		PacketDigest string `json:"worker_packet_digest"`

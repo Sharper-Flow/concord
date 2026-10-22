@@ -1605,9 +1605,8 @@ func TestWorkerAttemptProjectionHasNoWorkflowAuthorityColumns(t *testing.T) {
 
 // TestAcceptWorkerResultBindsTheAttemptAsEvidence: acceptance binds the
 // attempt it certifies (#865). The binding names the attempt id, carries the
-// lane's evidence kind, and is backed by the acceptance operation, so a later
-// verdict can cite the attempt and the completion gate's requirement is met
-// by the lane that produced it.
+// lane's evidence kind, and is backed by the acceptance operation. That binding
+// attributes the result; it cannot replace the criterion's producer receipt.
 func TestAcceptWorkerResultBindsTheAttemptAsEvidence(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -1644,8 +1643,8 @@ func TestAcceptWorkerResultBindsTheAttemptAsEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer verifyTx.Rollback()
-	if err := verifyVerdictEvidence(ctx, verifyTx, "authority-bind", []string{attemptID}); err != nil {
-		t.Fatalf("a verdict citing the accepted attempt is refused: %v", err)
+	if err := workflowCriterionReceipt(ctx, verifyTx, "authority-bind", "predicate:primary", attemptID, strings.Repeat("a", 40)); !hasFailureKind(err, KindMissingEvidence) {
+		t.Fatalf("an accepted attempt without a criterion producer receipt must refuse: %v", err)
 	}
 }
 

@@ -11,6 +11,15 @@ import (
 // this helper never installs a claimed output observation or acceptance row.
 func acceptCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disposition string) {
 	t.Helper()
+	attempt, epoch := completeCurrentReviewForTest(t, f, repo, disposition)
+	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
+	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, f.owner); err != nil {
+		t.Fatalf("Main acceptance of fixture Review: %v", err)
+	}
+}
+
+func completeCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disposition string) (string, int64) {
+	t.Helper()
 	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
 	job := reviewSubjectReadyRevision(t, f)
 	attempt := "review:fixture:" + job.JobID
@@ -40,7 +49,5 @@ func acceptCurrentReviewForTest(t *testing.T, f workContextFixture, repo, dispos
 		t.Fatal(err)
 	}
 	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), prepared), f.store, event)
-	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": window.AttemptEpoch}, f.owner); err != nil {
-		t.Fatalf("Main acceptance of fixture Review: %v", err)
-	}
+	return attempt, window.AttemptEpoch
 }

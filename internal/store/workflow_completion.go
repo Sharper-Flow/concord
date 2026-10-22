@@ -814,10 +814,6 @@ func workflowCompletionActorDistinct(ctx context.Context, tx queryer, workID, ve
 	return workflowRequireMain(ctx, tx, workID, verdictActor)
 }
 
-func workflowActorsDistinct(ctx context.Context, tx queryer, workID, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
-	return workflowActorsDistinctForExecutor(ctx, tx, workID, "", verdictActor, verdictModel, requireModelDistinct, operation)
-}
-
 // workflowActorsDistinctForExecutor evaluates distinctness against a supplied
 // executorRef, which must resolve, and otherwise against the instance's current lookup.
 func workflowActorsDistinctForExecutor(ctx context.Context, tx queryer, workID, executorRef, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
@@ -825,26 +821,6 @@ func workflowActorsDistinctForExecutor(ctx context.Context, tx queryer, workID, 
 		return reviewFailure(KindUnauthorized, "a worker cannot accept its own result", "return the terminal result to Main")
 	}
 	return workflowRequireMain(ctx, tx, workID, verdictActor)
-}
-
-func verifyVerdictEvidence(ctx context.Context, tx *sql.Tx, workID string, refs []string) error {
-	var unbound []string
-	for _, ref := range refs {
-		var count int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, ref).Scan(&count); err != nil {
-			return wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect verdict evidence", true, "retry once the database is readable", err)
-		}
-		if count == 0 {
-			unbound = append(unbound, ref)
-		}
-	}
-	if len(unbound) != 0 {
-		// The refusal names every unbound ref: a caller that cited a locator
-		// or another non-bound form learns which refs failed and what form
-		// qualifies (#974).
-		return newFailure(KindMissingEvidence, "complete_workflow", "verdict evidence is not durably bound: "+strings.Join(unbound, ", ")+"; verdict refs must equal a bound immutable_subject_ref", false, "provide_evidence")
-	}
-	return workflowAcceptanceSubjectCurrent(ctx, tx, workID, nil, refs)
 }
 
 func verifyBlockingStaleness(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, required []string) error {

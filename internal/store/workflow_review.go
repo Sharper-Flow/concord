@@ -22,6 +22,10 @@ type WorkflowAcceptedReview struct {
 // WorkflowReviewState is the current execution view consumed by admission and
 // exposed on resumption. Findings remain open when a later report omits them.
 type WorkflowReviewState struct {
+	Groups map[string]workflowAssignmentGroup `json:"-"`
+	// ExecutionProgressed comes from current assignments and implementation
+	// attempts, not the presence of Review or a session's lifetime.
+	ExecutionProgressed    bool                      `json:"-"`
 	Dependencies           *WorkerReviewDependencies `json:"dependencies,omitempty"`
 	Candidate              *WorkerReviewCandidate    `json:"candidate"`
 	Accepted               *WorkflowAcceptedReview   `json:"accepted_review"`
@@ -187,14 +191,6 @@ func loadWorkflowReviewState(ctx context.Context, q queryer, workID string, befo
 		}
 		if action.ActionID == "dispatch_worker" {
 			dispatches[action.WorkerAttemptID] = action
-			if action.WorkerCapabilityClass == "implementation" && state.Accepted != nil && state.Accepted.Report.Disposition == "continue" && state.Candidate != nil && state.Accepted.Report.OutputCandidate == *state.Candidate {
-				state.ContinueConsumed = true
-				if action.WorkerJob != nil {
-					state.GroupID = action.WorkerJob.JobID
-				} else {
-					state.GroupID = action.WorkerAttemptID
-				}
-			}
 			continue
 		}
 		if action.ActionID != "accept_worker_result" {
@@ -255,6 +251,9 @@ func loadWorkflowReviewState(ctx context.Context, q queryer, workID string, befo
 			}
 		}
 	}
+	if err := loadWorkflowAssignmentGroups(ctx, q, workID, &state); err != nil {
+		return state, err
+	}
 	return state, nil
 }
 
@@ -307,6 +306,27 @@ func bindWorkflowReviewIntent(state *WorkflowAdmissionState, actionID string, pa
 func bindWorkflowReviewRequest(ctx context.Context, q queryer, state *WorkflowAdmissionState, workID, actionID string, payload json.RawMessage, actor WorkflowActor) error {
 	if err := bindWorkflowReviewIntent(state, actionID, payload); err != nil {
 		return err
+	}
+	if actionID == "dispatch_worker" && state.ReviewLane == "implementation" && state.ReviewGroup == "unbound-group" {
+		var count int
+		var job string
+		if err := q.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(MIN(j.job_id),'') FROM worker_job_revisions j WHERE j.work_id=? AND `+workerJobReadyPredicate, workID).Scan(&count, &job); err != nil {
+			return err
+		}
+		if count == 1 {
+			state.ReviewGroup = job
+		}
+	}
+	if actionID == "dispatch_worker" && state.ReviewLane == "implementation" {
+		fields, err := workflowActionObject(payload)
+		if err != nil {
+			return err
+		}
+		correctionRef, err := workflowDeclaredReviewCorrection(ctx, q, workID, state.Step, workflowFieldStringDefault(fields, "attempt_id", ""), state.Review)
+		if err != nil {
+			return err
+		}
+		state.ReviewCorrective = correctionRef != ""
 	}
 	if actionID != "accept_worker_result" {
 		return nil

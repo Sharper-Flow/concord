@@ -89,8 +89,8 @@ func TestValue(t *testing.T){ if os.Getenv("CONCORD_ORACLE_SECRET_SENTINEL")!=""
 }
 
 // qualify claims f.repo at f.head for f.work, prepares the pinned recipe's
-// single control for caseID without launching it, and authorizes two attempts
-// to execute it.
+// single control for caseID without launching it, and authorizes an editing
+// attempt plus a distinct verification assignment to execute it.
 func (f *nativeOracleFixture) qualify(t *testing.T, branch, cwd, recipePath, caseID, testName string) {
 	t.Helper()
 	if _, err := f.s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','native-claim',?,?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM fold_guard`, WorktreeSetID(f.work), branch, f.head, f.repo, f.repo); err != nil {
@@ -126,7 +126,7 @@ func (f *nativeOracleFixture) qualify(t *testing.T, branch, cwd, recipePath, cas
 		t.Fatalf("prepare: %+v err=%v", f.prepare, err)
 	}
 	f.assertNoLaunch(t)
-	f.a = f.authorize(t, "a", f.actor)
+	f.a = f.authorizeLane(t, "a", f.actor, "implement")
 	f.b = f.authorize(t, "b", f.actor)
 }
 
@@ -140,7 +140,7 @@ func (f *nativeOracleFixture) request(id string, o *NativeOracleRequest) Worktre
 }
 
 func (f *nativeOracleFixture) authorize(t *testing.T, id string, actor WorkflowActor) NativeOracleRequest {
-	return f.authorizeLane(t, id, actor, "implement")
+	return f.authorizeLane(t, id, actor, "verify")
 }
 
 func (f *nativeOracleFixture) authorizeLane(t *testing.T, id string, actor WorkflowActor, laneID string, readOnly ...bool) NativeOracleRequest {
@@ -191,7 +191,7 @@ func (f *nativeOracleFixture) authorizeLane(t *testing.T, id string, actor Workf
 	if err := applyWorkflowTestOperationDirect(context.Background(), f.s, Operation{Events: []Event{start, completion}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.work): version}}); err != nil {
 		t.Fatal(err)
 	}
-	return NativeOracleRequest{Phase: "execute", AttemptID: "attempt-" + id, AttemptEpoch: epoch, WorkerPacketDigest: digest, WorkerJobBinding: &WorkerJobBinding{JobID: job.JobID, Revision: 1, Digest: job.Digest}, ControlID: b.Control.ControlID, PreparationRunRef: f.prepare.OperationRef}
+	return NativeOracleRequest{Phase: "execute", AttemptID: "attempt-" + id, AttemptEpoch: epoch, WorkerPacketDigest: digest, WorkerJobBinding: &WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}, ControlID: b.Control.ControlID, PreparationRunRef: f.prepare.OperationRef}
 }
 
 func (f *nativeOracleFixture) assertNoLaunch(t *testing.T) {

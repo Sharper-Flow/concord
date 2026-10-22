@@ -26,9 +26,6 @@ const PRODUCT_ID = "product-e2e"
 const PROJECT_ID = "project-e2e"
 const CLIENT_REF = "opencode"
 const SESSION_ID = "e2e-session"
-// A distinct coordinator session that executes no step of the work item, so
-// its verdict is independent under consequence_v1.
-const EVALUATOR_SESSION_ID = "e2e-evaluator"
 const MESSAGE_ID = "e2e-message"
 const READBACK_MODEL = "openai/gpt-5.6-luna"
 const PRIVATE_SEED = new Uint8Array(32).fill(7)
@@ -400,6 +397,33 @@ function routeWorkerReport(lane: (typeof agentLanes)[number], packet: JSONRecord
   }
 }
 
+async function routeReviewBlock(packet: JSONRecord, worktree: string, disposition: string, invoke: any, context: any, findings: JSONRecord[] = [], receiptRefs: string[] = []): Promise<JSONRecord> {
+  const response = await invoke("concord_work_trace", { operation: "continuity", input: { work_id: packet.work_id } }, context)
+  expect(response.outcome, JSON.stringify(response)).toBe("ok")
+  const dependencies = response.result.pinned.work_pin.review.dependencies
+  expect(dependencies).toBeDefined()
+  const reported = new Set(findings.map((finding) => finding.finding_id))
+  for (const finding of response.result.pinned.work_pin.review.findings ?? []) {
+    if (finding.status !== "open" || reported.has(finding.finding_id)) continue
+    const closure = receiptRefs.length > 0 && disposition === "ready_for_final_proof"
+    const earlier = packet.inputs.work_context?.findings?.find((entry: JSONRecord) => entry.oracle?.owner_id === finding.oracle?.owner_id && entry.oracle?.failure_family === finding.oracle?.failure_family)
+    findings.push({ ...finding, status: closure ? "closed" : "open", ...(closure ? { closure_refs: receiptRefs } : {}),
+      ...(closure && finding.oracle && earlier ? { oracle: { ...finding.oracle, continues_finding_id: earlier.finding_id } } : {}) })
+  }
+  const input = packet.inputs.work_context.subject_commit
+  const inputTree = await runProcess(["git", "rev-parse", `${input}^{tree}`], "", worktree)
+  const output = await runProcess(["git", "rev-parse", "HEAD", "HEAD^{tree}"], "", worktree)
+  expect(inputTree.exitCode, inputTree.stderr).toBe(0)
+  expect(output.exitCode, output.stderr).toBe(0)
+  const [commit, tree] = output.stdout.trim().split("\n")
+  return {
+    disposition, input_candidate: { project_id: PROJECT_ID, commit: input, tree: inputTree.stdout.trim() },
+    output_candidate: { project_id: PROJECT_ID, commit, tree }, dependencies,
+    assessments: receiptRefs.length ? packet.inputs.outcome_predicates.map((predicate: JSONRecord) => ({ predicate_id: predicate.predicate_id, assessment: "supported", receipt_refs: receiptRefs })) : [],
+    findings: findings.map((finding) => ({ closure_refs: [], ...finding })), remaining_obligations: [],
+  }
+}
+
 interface RouteTaskDispatch {
   dispatchResult: JSONRecord
   windows: DispatchWindows
@@ -509,8 +533,8 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
     process.env.OPENCODE_CONFIG = configPath
     const a = contextFor(worktree, "g01-coordinator-a")
     const b = contextFor(worktree, "g01-coordinator-b")
-    const verdictSession = contextFor(worktree, "g01-evaluator")
-    const host = bindRouteSessions(worktree, [a.sessionID, b.sessionID, verdictSession.sessionID])
+    const c = contextFor(worktree, "g01-coordinator-c")
+    const host = bindRouteSessions(worktree, [a.sessionID, b.sessionID, c.sessionID])
     const calls: Array<{ argv: string[]; input: JSONRecord }> = []
     const baseRunner = realStoreRunner(binary, dbPath, calls, worktree)
     let loseAcknowledgement = false
@@ -562,6 +586,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
     let firstProducer: RouteTaskDispatch | undefined
     let lastProducer: RouteTaskDispatch | undefined
     let lastVerify: RouteTaskDispatch | undefined
+    let lastProof: string | undefined
     for (let pass = 0; pass < 2; pass++) {
       const key = `g01-pass-${pass}`
       if (pass === 1) {
@@ -622,18 +647,8 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
       expect(completedProducer.evidence).toEqual(report.evidence)
       expect(completedProducer.evidence[0].detail).toContain(`commit:${subject}`)
       expect((await verify(a, `${key}-current-subject`)).output.trim()).toBe(subject)
-      // Verification stays at the producer step. A non-review dispatch at
-      // refine advances the review frontier, so the settling review must be
-      // the final evaluator there even when both judge the same commit.
       const evaluations = pass === 0 ? ["verify", "review", "review"] : ["verify", "review"]
       for (const [evaluationIndex, laneID] of evaluations.entries()) {
-        if (evaluationIndex === 1) {
-          await action(a, "bind_evidence", `${key}-integrated`, { evidence_kind: "verification", evidence_ref: (await verify(a, `${key}-integration`)).operation_ref })
-          await action(a, "record_delivery", `${key}-repair-delivery`, { delivery_artifact: `commit:${subject}`, delivery_state: "asserted" })
-          await action(a, "checkpoint_refine", `${key}-refine`, {})
-          await action(a, "bind_evidence", `${key}-artifact`, { evidence_kind: "artifact" })
-          await action(a, "bind_evidence", `${key}-refine-bind`, { evidence_kind: "verification", evidence_ref: (await verify(a, `${key}-refine-verify`)).operation_ref })
-        }
         const evaluationKey = `${key}-${laneID}-${evaluationIndex}`
         const noShip = pass === 0 && evaluationIndex === 1
         const control = oracle.controls[0]
@@ -650,7 +665,9 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
         expect(execution.oracle.qualification).toBe("pass")
         const open = evaluator.packet.inputs.work_context?.findings.filter((finding: JSONRecord) => finding.status === "open") ?? []
         if (pass === 0 && laneID === "review" && !noShip) expect(open.length).toBeGreaterThan(0)
-        const review = noShip ? { verdict: "no_ship", findings: [{ severity: "P1", confidence: "high", detail: "The synthetic marker needs independent repair.", oracle: { classification: "delivery_blocker", owner_id: "owner:route-e2e", failure_family: "synthetic-route-readiness", predicate_ids: [predicate.predicate_id], control_ids: [boundControl.control_id], case_ids: boundControl.case_ids, evidence_refs: [execution.operation_ref] } }] } : { verdict: "ship", findings: [], resolved_findings: open.map((finding: JSONRecord) => ({ finding_id: finding.finding_id, evidence_refs: [execution.operation_ref] })) }
+        const review = laneID === "review" ? await routeReviewBlock(evaluator.packet, worktree, noShip ? "correction_required" : "ready_for_final_proof", invoke, b,
+          noShip ? [{ finding_id: "finding:g01-marker", in_scope: true, blocking: true, status: "open", evidence_refs: [execution.operation_ref], severity: "P1", confidence: "high", detail: "The synthetic marker needs repair.", oracle: { classification: "delivery_blocker", owner_id: "owner:route-e2e", failure_family: "synthetic-route-readiness", predicate_ids: [predicate.predicate_id], control_ids: [boundControl.control_id], case_ids: boundControl.case_ids, evidence_refs: [execution.operation_ref] } }] : [], [execution.operation_ref]) : undefined
+        if (review && !noShip) review.resolved_findings = open.map((finding: JSONRecord) => ({ finding_id: finding.finding_id, evidence_refs: [execution.operation_ref] }))
         const evaluation = routeWorkerReport(agentLanes.find((item) => item.id === laneID)!, evaluator.packet, subject, laneID === "review" ? review : undefined)
         evaluation.evidence[0].oracle_receipt = { control_ids: [boundControl.control_id], case_ids: boundControl.case_ids, recipe_source: boundControl.recipe_source, result: "pass", exit_code: 0, run_ref: execution.operation_ref, evidence_refs: [] }
         const evaluationReceipt = await completeRouteTask(evaluator, evaluation, runner, binary)
@@ -662,33 +679,45 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
           const before = events()
           const refused = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: "record_delivery", idempotency_key: "g01-no-ship-delivery", fields: { delivery_artifact: `commit:${subject}`, delivery_state: "asserted" } } }, b)
           expect(refused.outcome).toBe("error")
-          expect(refused.error.message).toBe("the advance toward delivery requires a fresh accepted review of the repaired result")
+          expect(refused.error.message).toContain("open in-scope blocking finding")
           expect(refused.error.effect_state).toBe("none")
           expect(events()).toBe(before)
         }
         if (laneID === "verify") lastVerify = evaluator
+        if (laneID === "review" && !noShip) lastProof = execution.operation_ref
       }
+      await action(a, "bind_evidence", `${key}-integrated`, { evidence_kind: "verification", evidence_ref: (await verify(a, `${key}-integration`)).operation_ref })
+      await action(a, "record_delivery", `${key}-repair-delivery`, { delivery_artifact: `commit:${subject}`, delivery_state: "asserted" })
+      await action(a, "checkpoint_refine", `${key}-refine`, {})
+      await action(a, "bind_evidence", `${key}-artifact`, { evidence_kind: "artifact" })
       const postReviewRef = (await verify(b, `${key}-post-review`)).operation_ref
       await action(b, "bind_evidence", `${key}-post-review-bind`, { evidence_kind: "verification", evidence_ref: postReviewRef })
       await action(b, "record_delivery", `${key}-refine-delivery`, { delivery_artifact: `commit:${subject}`, delivery_state: "asserted" })
-      await action(b, "record_delivery", `${key}-gate-delivery`, { delivery_artifact: `commit:${subject}`, delivery_state: "asserted" })
-      // consequence_v1 takes no operator substitution for a verdict: an
-      // evaluator session that executed no step records it.
-      await action(verdictSession, "record_verdict", `${key}-verdict`, { contract_version: 1, verdicts: [{ predicate_id: predicate.predicate_id, verdict_kind: pass === 0 ? "outcome_mismatch" : "ok", evaluation_evidence: [lastVerify!.packet.attempt_id] }] })
       if (pass === 0) {
         firstProducer = producer
+        const { readiness_evidence_refs: _, ...control } = oracle.controls[0]
+        const prepared = await verify(b, "g01-checkpoint-prepare", { oracle: { phase: "prepare", expected_contract_version: 1, control_bundle: { owner: oracle.owners[0], cases: oracle.cases, control } } })
+        await action(b, "record_worker_job", "g01-checkpoint-job", { job_id: "job:g01-checkpoint", predicate_ids: oracle.owners[0].predicate_ids, objective: "Review the current marker before delivery.", stopping_condition: "Return the marker's attributed disposition.", path_scope: [".concord/docs/dispatch-marker.txt"], ready: true, readiness_evidence: [prepared.operation_ref], acceptance_oracle: { ...oracle, controls: [{ ...control, readiness_evidence_refs: [prepared.operation_ref] }] } })
         const review = await dispatch(b, "review", "g01-checkpoint-no-ship")
-        const noShipReport = routeWorkerReport(agentLanes.find((item) => item.id === "review")!, review.packet, subject, { verdict: "no_ship", findings: [{ severity: "P1", confidence: "high", detail: "The checkpoint review blocks this subject." }] })
+        const checkpointControl = review.packet.inputs.worker_job.acceptance_oracle.controls[0]
+        const checkpointExecution = await verify(b, "g01-checkpoint-execute", { oracle: { phase: "execute", attempt_id: review.packet.attempt_id, attempt_epoch: epoch(review), worker_packet_digest: review.dispatchResult.result.worker_packet_digest, worker_job_binding: reportWorkerJob(review.packet), control_id: checkpointControl.control_id, preparation_run_ref: checkpointControl.readiness_evidence_refs[0] } })
+        expect(checkpointExecution.oracle.qualification).toBe("pass")
+        const noShipReport = routeWorkerReport(agentLanes.find((item) => item.id === "review")!, review.packet, subject, await routeReviewBlock(review.packet, worktree, "correction_required", invoke, b,
+          [{ finding_id: "finding:g01-checkpoint", in_scope: true, blocking: true, status: "open", evidence_refs: [checkpointExecution.operation_ref], severity: "P1", confidence: "high", detail: "The checkpoint review blocks this subject.", oracle: { classification: "delivery_blocker", owner_id: "owner:route-e2e", failure_family: "synthetic-checkpoint-readiness", predicate_ids: [predicate.predicate_id], control_ids: [checkpointControl.control_id], case_ids: checkpointControl.case_ids, evidence_refs: [checkpointExecution.operation_ref] } }]))
+        noShipReport.evidence[0].oracle_receipt = { control_ids: [checkpointControl.control_id], case_ids: checkpointControl.case_ids, recipe_source: checkpointControl.recipe_source, result: "pass", exit_code: 0, run_ref: checkpointExecution.operation_ref, evidence_refs: [] }
         const noShipReceipt = await completeRouteTask(review, noShipReport, runner, binary)
         expect(noShipReceipt.outcome, JSON.stringify(noShipReceipt)).toBe("ok")
         host.retain(review, noShipReport)
-        await accept(b, review, "g01-checkpoint-review-accept", "accept_worker_evidence")
+        await accept(b, review, "g01-checkpoint-review-accept")
         const before = events()
         const refused = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: "complete", idempotency_key: "g01-no-ship-complete", fields: { impact_verdict: "non-breaking" } } }, a)
         expect(refused.outcome).toBe("error")
         expect(events()).toBe(before)
         await action(a, "request_correction", "g01-authorized-correction", { diagnosis: "The checkpoint review blocks this subject.", strategy: "Produce a corrected marker and obtain independent review and verification.", predicate_ids: [predicate.predicate_id], evidence_refs: [postReviewRef] })
         expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("repair")
+      } else {
+        await action(b, "record_delivery", `${key}-gate-delivery`, { delivery_artifact: `commit:${subject}`, delivery_state: "asserted" })
+        await action(c, "record_verdict", `${key}-verdict`, { verdicts: [{ predicate_id: predicate.predicate_id, receipt_refs: [lastProof] }] })
       }
       previousSubject = subject
       lastProducer = producer
@@ -706,7 +735,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
     expect(host.counts()).toEqual({ coordinatorSessions: 3, taskLaunches: 8, sessionCreates: 0 })
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM worker_attempts WHERE work_id='${workID}'`).n).toBe(8)
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}' AND kind='worker.completed'`).n).toBe(8)
-    expect(new Set(calls.filter((call) => call.argv[1] === "invoke").map((call) => call.input.call_envelope.session_ref))).toEqual(new Set([a.sessionID, b.sessionID, verdictSession.sessionID]))
+    expect(new Set(calls.filter((call) => call.argv[1] === "invoke").map((call) => call.input.call_envelope.session_ref))).toEqual(new Set([a.sessionID, b.sessionID, c.sessionID]))
     expect(lastProducer!.workerSessionID).not.toBe(lastVerify!.workerSessionID)
   } finally {
     configureConcordAdapter({ reset: true })
@@ -752,7 +781,7 @@ routeDeclaration("composes implementation and independent review through one ord
         }
         expect(url).toBe(SESSION_ROUTE)
         const id = path?.id
-        expect(id === SESSION_ID || id === "worker-session" || id === EVALUATOR_SESSION_ID).toBe(true)
+        expect(id === SESSION_ID || id === "worker-session").toBe(true)
         return { data: { id, directory: worktree, metadata: id === SESSION_ID ? sessionMetadata : {}, ...(id === "worker-session" ? { parentID: SESSION_ID, agent: activeWorkerAgent } : {}) }, response: new Response(null, { status: 200 }) }
       },
       patch: async ({ url, path, body }) => {
@@ -767,7 +796,7 @@ routeDeclaration("composes implementation and independent review through one ord
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
     const realRunner: DispatchRunner = {
       async run(argv, input, signal) {
-        if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: "worker-session", directory: worktree, parentID: SESSION_ID }, { id: SESSION_ID, directory: worktree }, { id: EVALUATOR_SESSION_ID, directory: worktree }]), stderr: "" }
+        if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: "worker-session", directory: worktree, parentID: SESSION_ID }, { id: SESSION_ID, directory: worktree }]), stderr: "" }
         if (argv[1] === "worker-dispatch" || argv[1] === "worker-complete" || argv[1] === "worker-fail" || argv[1] === "invoke") {
           realCalls.push({ argv, input: JSON.parse(input) as JSONRecord })
         }
@@ -868,61 +897,45 @@ routeDeclaration("composes implementation and independent review through one ord
     // delivery assertion.
     expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("repair")
     expect(dbValue(dbPath, `SELECT state FROM worker_job_revisions WHERE work_id='${workID}' AND job_id='${ROUTE_WORKER_JOB_ID}'`).state).toBe("satisfied")
-    const eventsBeforeSkippedVerify = dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n as number
-    const skippedVerifyDelivery = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_delivery", "e2e-delivery-without-verify", { delivery_artifact: "https://github.com/synthetic/concord/pull/898", delivery_state: "asserted" })
-    expect(skippedVerifyDelivery.outcome, JSON.stringify(skippedVerifyDelivery)).toBe("error")
-    expect(skippedVerifyDelivery.error.kind).toBe("missing_evidence")
-    expect(skippedVerifyDelivery.error.message).toContain("verification")
-    expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n).toBe(eventsBeforeSkippedVerify)
-    // The delivery admission requires qualifying core-owned worktree
-    // verification evidence bound after the recorded acceptance, covering the
-    // job's Project (CD-0205 D3): run one verify on the integrated work and
-    // bind its operation ref between the local accept and the delivery.
-    const failedVerify = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, command: ["git", "show-ref", "--verify", "refs/heads/missing-synthetic-branch"], idempotency_key: "e2e-failed-integration-verify" } }, context)
-    expect(failedVerify.outcome, JSON.stringify(failedVerify)).toBe("ok")
-    expect((failedVerify.result as JSONRecord).exit_code).not.toBe(0)
-    const failedVerifyRef = (failedVerify.result as JSONRecord).operation_ref as string
-    expect(failedVerifyRef).toMatch(/^worktree_verify:/)
-    expect(dbValue(dbPath, `SELECT count(*) AS n FROM durable_operations WHERE op_id='${failedVerifyRef}'`).n).toBe(0)
-    response = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, command: ["git", "rev-parse", "HEAD"], idempotency_key: "e2e-repair-integration-verify" } }, context)
-    expect(response.outcome, JSON.stringify(response)).toBe("ok")
-    const integrationRef = (response.result as JSONRecord).operation_ref as string
-    expect(integrationRef).toMatch(/^worktree_verify:/)
-    expect(((response.result as JSONRecord).output as string).trim()).toBe(subjectCommit)
-    const integrationVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    const staleSubjectBinding = await transition(integrationVersion, "bind_evidence", "e2e-bind-stale-subject", { evidence_kind: "verification", evidence_ref: integrationRef, immutable_subject_ref: `commit:${staleSubjectCommit}` })
-    expect(staleSubjectBinding.outcome, JSON.stringify(staleSubjectBinding)).toBe("ok")
-    const eventsAfterStaleSubject = dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n as number
-    const staleSubjectDelivery = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_delivery", "e2e-delivery-with-stale-subject", { delivery_artifact: "https://github.com/synthetic/concord/pull/898", delivery_state: "asserted" })
-    expect(staleSubjectDelivery.outcome, JSON.stringify(staleSubjectDelivery)).toBe("error")
-    expect(staleSubjectDelivery.error.kind).toBe("missing_evidence")
-    expect(staleSubjectDelivery.error.message).toBe("the delivery assertion requires qualifying core-owned worktree verification evidence bound after the recorded worker-job acceptances, covering every required Project")
-    expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n).toBe(eventsAfterStaleSubject)
-    response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "bind_evidence", "e2e-bind-integration", { evidence_kind: "verification", evidence_ref: integrationRef })
-    expect(response.outcome, JSON.stringify(response)).toBe("ok")
-    const repairDeliveryVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    response = await transition(repairDeliveryVersion, "record_delivery", "e2e-record-repair-delivery", { delivery_artifact: "https://github.com/synthetic/concord/pull/898", delivery_state: "asserted" })
-    expect(response.outcome, JSON.stringify(response)).toBe("ok")
-    const refineStartVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    // CD-0198 D3: the qualifying checkpoint claims the refine epoch; the
-    // callable start_refine is gone from the current head.
-    response = await transition(refineStartVersion, "checkpoint_refine", "e2e-start-refine", {})
-    expect(response.outcome).toBe("ok")
-    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(definitionVersion)
-    expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("refine")
-    const refineEvidenceVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    response = await transition(refineEvidenceVersion, "bind_evidence", "e2e-bind-refine-artifact", { evidence_kind: "artifact" })
-    expect(response.outcome, JSON.stringify(response)).toBe("ok")
-    // CD-0192: the refine exit consumes a green worktree_verify run bound as
-    // verification in the current refine epoch.
-    response = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, command: ["git", "rev-parse", "HEAD"], idempotency_key: "e2e-refine-verify" } }, context)
-    expect(response.outcome, JSON.stringify(response)).toBe("ok")
-    const verifyOperationRef = (response.result as JSONRecord).operation_ref as string
-    expect(verifyOperationRef).toMatch(/^worktree_verify:/)
-    expect(((response.result as JSONRecord).output as string).trim()).toBe(subjectCommit)
-    const verifyBoundVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    response = await transition(verifyBoundVersion, "bind_evidence", "e2e-bind-refine-verification", { evidence_kind: "verification", evidence_ref: verifyOperationRef })
-    expect(response.outcome, JSON.stringify(response)).toBe("ok")
+    const reviewInput = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, command: ["git", "rev-parse", "HEAD"], idempotency_key: "e2e-review-input" } }, context)
+    expect(reviewInput.outcome, JSON.stringify(reviewInput)).toBe("ok")
+    const reviewInputRef = (reviewInput.result as JSONRecord).operation_ref as string
+    const assertDeliveryVerification = async () => {
+      const eventsBeforeSkippedVerify = dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n as number
+      const skippedVerifyDelivery = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_delivery", "e2e-delivery-without-verify", { delivery_artifact: "https://github.com/synthetic/concord/pull/898", delivery_state: "asserted" })
+      expect(skippedVerifyDelivery.outcome, JSON.stringify(skippedVerifyDelivery)).toBe("error")
+      expect(skippedVerifyDelivery.error.kind).toBe("missing_evidence")
+      expect(skippedVerifyDelivery.error.message).toContain("verification")
+      expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n).toBe(eventsBeforeSkippedVerify)
+      // Integration needs a bound producer receipt for the actual candidate.
+      const failedVerify = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, command: ["git", "show-ref", "--verify", "refs/heads/missing-synthetic-branch"], idempotency_key: "e2e-failed-integration-verify" } }, context)
+      expect(failedVerify.outcome, JSON.stringify(failedVerify)).toBe("ok")
+      expect((failedVerify.result as JSONRecord).exit_code).not.toBe(0)
+      const failedVerifyRef = (failedVerify.result as JSONRecord).operation_ref as string
+      expect(failedVerifyRef).toMatch(/^worktree_verify:/)
+      expect(dbValue(dbPath, `SELECT count(*) AS n FROM durable_operations WHERE op_id='${failedVerifyRef}'`).n).toBe(0)
+      response = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, command: ["git", "rev-parse", "HEAD"], idempotency_key: "e2e-repair-integration-verify" } }, context)
+      expect(response.outcome, JSON.stringify(response)).toBe("ok")
+      const integrationRef = (response.result as JSONRecord).operation_ref as string
+      expect(integrationRef).toMatch(/^worktree_verify:/)
+      expect(((response.result as JSONRecord).output as string).trim()).toBe(subjectCommit)
+      const integrationVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
+      const staleSubjectBinding = await transition(integrationVersion, "bind_evidence", "e2e-bind-stale-subject", { evidence_kind: "verification", evidence_ref: integrationRef, immutable_subject_ref: `commit:${staleSubjectCommit}` })
+      expect(staleSubjectBinding.outcome, JSON.stringify(staleSubjectBinding)).toBe("ok")
+      const eventsAfterStaleSubject = dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n as number
+      const staleSubjectDelivery = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_delivery", "e2e-delivery-with-stale-subject", { delivery_artifact: "https://github.com/synthetic/concord/pull/898", delivery_state: "asserted" })
+      expect(staleSubjectDelivery.outcome, JSON.stringify(staleSubjectDelivery)).toBe("error")
+      expect(staleSubjectDelivery.error.kind).toBe("missing_evidence")
+      expect(staleSubjectDelivery.error.message).toBe("the delivery assertion requires passing producer verification on the current integrated candidate, covering every required Project")
+      expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n).toBe(eventsAfterStaleSubject)
+      response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "bind_evidence", "e2e-bind-integration", { evidence_kind: "verification", evidence_ref: integrationRef })
+      expect(response.outcome, JSON.stringify(response)).toBe("ok")
+    }
+    const sourceOracle = packet.inputs.worker_job.acceptance_oracle
+    const { readiness_evidence_refs: previousReadiness, ...reviewControl } = sourceOracle.controls[0]
+    const preparedReview = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, idempotency_key: "e2e-review-prepare", oracle: { phase: "prepare", expected_contract_version: 1, control_bundle: { owner: sourceOracle.owners[0], cases: sourceOracle.cases, control: reviewControl } } } }, context)
+    expect(preparedReview.outcome, JSON.stringify(preparedReview)).toBe("ok")
+    const reviewOracle = { ...sourceOracle, controls: [{ ...reviewControl, readiness_evidence_refs: [(preparedReview.result as JSONRecord).operation_ref] }] }
     const refineDeliveryVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineDeliveryVersion, "record_worker_job", "e2e-no-ship-worker-job", {
       job_id: "job:route-e2e-no-ship-review",
@@ -933,12 +946,12 @@ routeDeclaration("composes implementation and independent review through one ord
       checks: ["git status --short"],
       ready: true,
       readiness_evidence: ["evidence:route-e2e-no-ship-ready"],
-      acceptance_oracle: packet.inputs.worker_job.acceptance_oracle,
+      acceptance_oracle: reviewOracle,
     })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const failedReviewDispatch = await dispatchRouteTask(reviewLane, workID, worktree, dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "e2e-failed-review-dispatch", "e2e-failed-review-call", context, invoke,
       (reviewPacket, agent) => { boundPacket = reviewPacket; activeWorkerAgent = agent })
-    const failedReviewReport = { ...routeWorkerReport(reviewLane, failedReviewDispatch.packet, subjectCommit, { verdict: "no_ship", findings: [{ severity: "P1", confidence: "high", detail: "The synthetic review report records a worker failure." }] }), status: "failed" }
+    const failedReviewReport = { ...routeWorkerReport(reviewLane, failedReviewDispatch.packet, subjectCommit, await routeReviewBlock(failedReviewDispatch.packet, worktree, "correction_required", invoke, context)), status: "failed" }
     const failedReviewReceipt = await completeRouteTask(failedReviewDispatch, failedReviewReport, realRunner, binary)
     expect(failedReviewReceipt.outcome).toBe("error")
     const failedReviewAttempt = dbValue(dbPath, `SELECT lifecycle_state,failure_kind,failure_detail FROM worker_attempts WHERE attempt_id='${failedReviewDispatch.packet.attempt_id}'`)
@@ -948,41 +961,38 @@ routeDeclaration("composes implementation and independent review through one ord
     const noShipDispatchVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     const noShipReview = await dispatchRouteTask(reviewLane, workID, worktree, noShipDispatchVersion, "e2e-no-ship-review-dispatch", "e2e-no-ship-review-call", context, invoke,
       (reviewPacket, agent) => { boundPacket = reviewPacket; activeWorkerAgent = agent })
-    const noShipReceipt = await completeRouteTask(noShipReview, routeWorkerReport(reviewLane, noShipReview.packet, subjectCommit, {
-      verdict: "no_ship",
-      findings: [{ severity: "P1", confidence: "high", detail: "Synthetic review blocks delivery on the pinned subject.", oracle: {
+    const noShipReceipt = await completeRouteTask(noShipReview, routeWorkerReport(reviewLane, noShipReview.packet, subjectCommit, await routeReviewBlock(noShipReview.packet, worktree, "correction_required", invoke, context,
+      [{ finding_id: "finding:route-blocker", in_scope: true, blocking: true, status: "open", evidence_refs: [reviewInputRef], severity: "P1", confidence: "high", detail: "Synthetic review blocks delivery on the pinned subject.", oracle: {
         classification: "delivery_blocker", owner_id: "owner:route-e2e", failure_family: "synthetic-route-readiness",
         predicate_ids: [predicate.predicate_id], control_ids: ["control:route-e2e"], case_ids: ["case:route-e2e"],
         evidence_refs: ["evidence:route-e2e-no-ship"],
       } }],
-    }), realRunner, binary)
+    )), realRunner, binary)
     expect(noShipReceipt.outcome, JSON.stringify(noShipReceipt)).toBe("ok")
-    expect(noShipReceipt.review.verdict).toBe("no_ship")
+    expect(noShipReceipt.review.disposition).toBe("correction_required")
     expect(noShipReview.packet.work_id).toBe(workID)
     expect(noShipReview.packet.attempt_id).not.toBe(packet.attempt_id)
     expect(noShipReview.packet.inputs.outcome_predicates).toEqual([predicate])
     const noShipEpoch = dbValue(dbPath, `SELECT json_extract(payload,'$.attempt_epoch') AS epoch FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.action_started' AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`).epoch as number
     const noShipAcceptVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     const eventsBeforeWrongReviewer = dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n as number
-    const implementationAsReview = await transition(noShipAcceptVersion, "accept_worker_evidence", "e2e-implementation-as-review", { attempt_id: packet.attempt_id, attempt_epoch: noShipEpoch })
+    const implementationAsReview = await transition(noShipAcceptVersion, "accept_worker_result", "e2e-implementation-as-review", { attempt_id: packet.attempt_id, attempt_epoch: noShipEpoch })
     expect(implementationAsReview.outcome, JSON.stringify(implementationAsReview)).toBe("error")
-    expect(implementationAsReview.error.message).toBe("review evidence acceptance requires the current undispositioned completed review")
+    expect(implementationAsReview.error.message).toBe("worker attempt dispatch is stale")
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n).toBe(eventsBeforeWrongReviewer)
-    const staleNoShipEpoch = await transition(noShipAcceptVersion, "accept_worker_evidence", "e2e-stale-review-epoch", { attempt_id: noShipReview.packet.attempt_id, attempt_epoch: noShipEpoch + 1 })
+    const staleNoShipEpoch = await transition(noShipAcceptVersion, "accept_worker_result", "e2e-stale-review-epoch", { attempt_id: noShipReview.packet.attempt_id, attempt_epoch: noShipEpoch + 1 })
     expect(staleNoShipEpoch.outcome, JSON.stringify(staleNoShipEpoch)).toBe("error")
-    expect(staleNoShipEpoch.error.message).toBe("review evidence attempt epoch does not match the current refinement pass")
+    expect(staleNoShipEpoch.error.message).toContain("epoch")
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n).toBe(eventsBeforeWrongReviewer)
     response = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, command: ["git", "rev-parse", "HEAD"], idempotency_key: "e2e-no-ship-review-verify" } }, context)
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     expect(((response.result as JSONRecord).output as string).trim()).toBe(subjectCommit)
-    response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "bind_evidence", "e2e-bind-no-ship-review-verify", { evidence_kind: "verification", evidence_ref: (response.result as JSONRecord).operation_ref })
-    expect(response.outcome, JSON.stringify(response)).toBe("ok")
     response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "accept_worker_result", "e2e-accept-no-ship-review", { attempt_id: noShipReview.packet.attempt_id, attempt_epoch: noShipEpoch })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const eventsAfterNoShipAccept = dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n as number
     const blockedDelivery = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_delivery", "e2e-no-ship-delivery-refusal", { delivery_artifact: "https://github.com/synthetic/concord/pull/898", delivery_state: "asserted" })
     expect(blockedDelivery.outcome, JSON.stringify(blockedDelivery)).toBe("error")
-    expect(blockedDelivery.error.message).toBe("the advance toward delivery requires a fresh accepted review of the repaired result")
+    expect(blockedDelivery.error.message).toContain("open in-scope blocking finding")
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n).toBe(eventsAfterNoShipAccept)
     response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_worker_job", "e2e-settling-worker-job", {
       job_id: "job:route-e2e-settling-review",
@@ -993,7 +1003,7 @@ routeDeclaration("composes implementation and independent review through one ord
       checks: ["git status --short"],
       ready: true,
       readiness_evidence: ["evidence:route-e2e-settling-ready"],
-      acceptance_oracle: packet.inputs.worker_job.acceptance_oracle,
+      acceptance_oracle: reviewOracle,
     })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const settlingReviewVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
@@ -1012,18 +1022,27 @@ routeDeclaration("composes implementation and independent review through one ord
     } }, context)
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     expect(response.result.oracle.qualification).toBe("pass")
-    const settlingReport = routeWorkerReport(reviewLane, settlingReview.packet, subjectCommit, {
-      verdict: "ship", findings: [], resolved_findings: [{ finding_id: openFinding.finding_id, evidence_refs: [response.result.operation_ref] }],
-    })
+    const settlingRunRef = response.result.operation_ref as string
+    const settlingReport = routeWorkerReport(reviewLane, settlingReview.packet, subjectCommit, await routeReviewBlock(settlingReview.packet, worktree, "ready_for_final_proof", invoke, context, [], [settlingRunRef]))
+    settlingReport.review.resolved_findings = [{ finding_id: openFinding.finding_id, evidence_refs: [settlingRunRef] }]
     settlingReport.evidence[0].oracle_receipt = {
       control_ids: [settlingControl.control_id], case_ids: settlingControl.case_ids, recipe_source: settlingControl.recipe_source,
       result: "pass", exit_code: response.result.exit_code, run_ref: response.result.operation_ref, evidence_refs: [],
     }
     const settlingReceipt = await completeRouteTask(settlingReview, settlingReport, realRunner, binary)
     expect(settlingReceipt.outcome, JSON.stringify(settlingReceipt)).toBe("ok")
-    expect(settlingReceipt.review.verdict).toBe("ship")
+    expect(settlingReceipt.review.disposition).toBe("ready_for_final_proof")
     const settlingAcceptVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(settlingAcceptVersion, "accept_worker_result", "e2e-accept-settling-review", { attempt_id: settlingReview.packet.attempt_id, attempt_epoch: settlingEpoch })
+    expect(response.outcome, JSON.stringify(response)).toBe("ok")
+    await assertDeliveryVerification()
+    response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_delivery", "e2e-record-repair-delivery", { delivery_artifact: "https://github.com/synthetic/concord/pull/898", delivery_state: "asserted" })
+    expect(response.outcome, JSON.stringify(response)).toBe("ok")
+    response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "checkpoint_refine", "e2e-start-refine", {})
+    expect(response.outcome, JSON.stringify(response)).toBe("ok")
+    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(definitionVersion)
+    expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("refine")
+    response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "bind_evidence", "e2e-bind-refine-artifact", { evidence_kind: "artifact" })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     response = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, command: ["git", "rev-parse", "HEAD"], idempotency_key: "e2e-settling-review-verify" } }, context)
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
@@ -1043,15 +1062,10 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("verify")
     const verifyVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    // consequence_v1 takes no operator substitution for a verdict: the
-    // session that accepted the worker result cannot evaluate its own
-    // delivery, so a distinct evaluator session records the verdict under
-    // its own agent identity.
-    const evaluatorContext = contextFor(worktree, EVALUATOR_SESSION_ID)
-    const selfVerdict = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verifyVersion, action_id: "record_verdict", idempotency_key: "e2e-record-self-verdict", fields: { contract_version: 1, verdicts: [{ predicate_id: predicate.predicate_id, verdict_kind: "ok", evaluation_evidence: [packet.attempt_id] }] } } }, context)
+    const selfVerdict = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verifyVersion, action_id: "record_verdict", idempotency_key: "e2e-record-attempt-as-proof", fields: { verdicts: [{ predicate_id: predicate.predicate_id, receipt_refs: [packet.attempt_id] }] } } }, context)
     expect(selfVerdict.outcome).toBe("error")
-    expect((selfVerdict.error as JSONRecord).kind).toBe("unauthorized")
-    response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verifyVersion, action_id: "record_verdict", idempotency_key: "e2e-record-verdict", fields: { contract_version: 1, verdicts: [{ predicate_id: predicate.predicate_id, verdict_kind: "ok", evaluation_evidence: [packet.attempt_id] }] } } }, evaluatorContext)
+    expect((selfVerdict.error as JSONRecord).kind).toBe("missing_evidence")
+    response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verifyVersion, action_id: "record_verdict", idempotency_key: "e2e-record-verdict", fields: { verdicts: [{ predicate_id: predicate.predicate_id, receipt_refs: [settlingRunRef] }] } } }, context)
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const verdictActor = dbValue(dbPath, `SELECT json_extract(payload,'$.verdict_actor_ref') AS actor FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.verdict_recorded' ORDER BY seq DESC LIMIT 1`).actor as string
     const verdictActorClass = dbValue(dbPath, `SELECT actor_class FROM workflow_actors WHERE actor_ref='${verdictActor}'`).actor_class as string
@@ -1084,7 +1098,7 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(implementationEvidence.some((entry) => entry.detail.includes(`commit:${subjectCommit}`))).toBe(true)
     const finalReviewEvent = dbRows(dbPath, `SELECT payload FROM domain_events WHERE subject_id='${workID}' AND kind='worker.completed' AND json_extract(payload,'$.attempt_id')='${settlingReview.packet.attempt_id}'`)
     const finalReviewPayload = JSON.parse(finalReviewEvent[0].payload as string)
-    expect(finalReviewPayload.review.verdict).toBe("ship")
+    expect(finalReviewPayload.review.disposition).toBe("ready_for_final_proof")
     expect((finalReviewPayload.evidence as JSONRecord[]).some((entry) => entry.detail.includes(`commit:${subjectCommit}`))).toBe(true)
     const renderedReceipt = await runProcess([binary, "receipt"], JSON.stringify({ work_id: workID }), worktree, { CONCORD_DB_PATH: dbPath })
     expect(renderedReceipt.exitCode, renderedReceipt.stderr).toBe(0)

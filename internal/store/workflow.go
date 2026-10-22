@@ -1931,12 +1931,6 @@ func beginWorkflowLifecycleTx(ctx context.Context, tx *sql.Tx, event Event) erro
 	return nil
 }
 
-// Main may associate captured proof after executing earlier steps. Workers
-// return reports and cannot acquire Main's acceptance authority.
-func workflowStepExecutorRefusal(ctx context.Context, tx queryer, workID, verdictActor, operation string) error {
-	return workflowRequireMain(ctx, tx, workID, verdictActor)
-}
-
 func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
 	var p workflowActionCheckpointedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -2949,6 +2943,9 @@ func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, definiti
 func bindWorkerAttemptInFlightTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload) error {
 	if p.WorkerSubjectCommit != "" && !worktreeSHAPattern.MatchString(p.WorkerSubjectCommit) {
 		return newFailure(KindInvalidPayload, "fold_event", "worker_subject_commit must be one raw commit OID", false, "record the admitted core subject")
+	}
+	if err := recordWorkflowAssignmentGroup(ctx, tx, event, p); err != nil {
+		return err
 	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
 	_, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts

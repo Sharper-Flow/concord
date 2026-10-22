@@ -317,6 +317,11 @@ var migrationTailReversals = map[int][]string{
 	// Migration 136's retirement drops only retired tables; reapplying it
 	// after the reversal recreates nothing the fixture must restore.
 	136: nil,
+	137: {
+		`ALTER TABLE worker_job_revisions DROP COLUMN correction_ref`,
+		`ALTER TABLE worker_job_revisions DROP COLUMN group_review_ref`,
+		`ALTER TABLE worker_job_revisions DROP COLUMN group_permission`,
+	},
 	128: {
 		`ALTER TABLE project_locators DROP COLUMN normalization_version`,
 	},

@@ -1250,15 +1250,6 @@ func workflowRefinementReviewFailure(ctx context.Context, q queryer, workID stri
 	return seq, raw, nil
 }
 
-// workflowStaleReviewAcceptTx reports whether one accept names a completed
-// review that a newer completed review has superseded. The newest completed
-// review stays acceptable whatever the folded state names; an older one
-// cannot bind, because the newer evidence supersedes its findings
-// (CD-0206 D3).
-func workflowStaleReviewAcceptTx(ctx context.Context, q queryer, workID, attemptID, subject string) (bool, error) {
-	return workflowStaleReviewAcceptBeforeTx(ctx, q, workID, attemptID, subject, 0)
-}
-
 func workflowStaleReviewAcceptBeforeTx(ctx context.Context, q queryer, workID, attemptID, subject string, beforeSeq int64) (bool, error) {
 	var stale int
 	err := q.QueryRowContext(ctx, `SELECT EXISTS(
@@ -1564,6 +1555,23 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 // The caller's registry resolves the folded state's historical progress;
 // a nil registry selects the builtin registry.
 func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64, registry DefinitionRegistry) (*WorkflowCorrectionContext, string, error) {
+	if workflowCorrectionReturnTarget(definition, currentStep) != "" {
+		review, err := loadWorkflowReviewState(ctx, q, workID, excludeSeq)
+		if err != nil {
+			return nil, workflowCorrectionMissingNone, err
+		}
+		if review.Accepted != nil && review.Candidate != nil && review.Accepted.Report.OutputCandidate == *review.Candidate && review.DependenciesCurrent && review.Accepted.Report.Disposition == "correction_required" {
+			predicates, err := workflowActiveContractPredicateIDs(ctx, q, workID, subject)
+			if err != nil {
+				return nil, workflowCorrectionMissingNone, err
+			}
+			var seq int64
+			if err := q.QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE event_id=? AND subject_id=?`, review.Accepted.ReportRef, workID).Scan(&seq); err != nil {
+				return nil, workflowCorrectionMissingNone, err
+			}
+			return &WorkflowCorrectionContext{Disposition: "verification", PredicateIDs: predicates, EvidenceRefs: []string{review.Accepted.ReportRef}, SourceEventID: review.Accepted.ReportRef, SourceEventSeq: seq, Diagnosis: "the accepted current Review requires correction", Strategy: "perform the declared corrective work and obtain applicable Review"}, workflowCorrectionMissingNone, nil
+		}
+	}
 	if workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
 		context, err := workflowDeliveryGateCorrectionContextForRegistry(ctx, q, workID, definition, currentStep, subject, registry)
 		if err != nil || context != nil {

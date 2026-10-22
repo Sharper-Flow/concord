@@ -34,6 +34,7 @@ type WorkflowAdmissionState struct {
 	ReviewLane            string
 	ReviewGroup           string
 	ReviewAcceptanceError *Failure
+	ReviewCorrective      bool
 	// Step is the work item's current workflow step.
 	Step string
 	// Lifecycle is the work item's lifecycle.
@@ -85,6 +86,9 @@ type WorkflowAdmissionState struct {
 	AttemptState string
 	// AttemptCapabilityClass is that attempt's dispatch capability class.
 	AttemptCapabilityClass string
+	// PendingWorkerAuthorization has no observed launch outcome yet. It must
+	// be reconciled before the shared candidate can receive another writer.
+	PendingWorkerAuthorization bool
 	// LatestResultDisposition is the latest disposition action id over the
 	// worker results: accept_worker_result, accept_worker_evidence,
 	// reject_worker_result, record_worker_failure, or "" when none stands.
@@ -338,6 +342,14 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 		return WorkflowAdmissionState{}, nil, nil, reviewErr
 	}
 	state.Review = &review
+	// Authorization is not an observed start. The host may close an unstarted
+	// authorization through abandonment, whose liveness guard owns that fact.
+	// Every observed implementation start remains progress after termination.
+	var progressed bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND capability_class='implementation' AND lifecycle_state<>'in_flight' AND NOT(lifecycle_state='failed' AND failure_kind=? AND readback_model=''))`, workID, WorkerFailureAbandoned).Scan(&progressed); err != nil {
+		return WorkflowAdmissionState{}, nil, nil, workflowProjectionError(err, "cannot read current execution progress")
+	}
+	review.ExecutionProgressed = review.ExecutionProgressed || progressed
 	correctionRoute, err := l.recoveryRoutes(&state)
 	if err != nil {
 		return WorkflowAdmissionState{}, nil, nil, err
@@ -429,6 +441,9 @@ func (l workflowAdmissionLoad) staleness(state *WorkflowAdmissionState) error {
 // attemptAndReview folds the latest worker attempt, the latest result
 // disposition, and the refine workflow's post-rejection review debt.
 func (l workflowAdmissionLoad) attemptAndReview(state *WorkflowAdmissionState) error {
+	if err := l.q.QueryRowContext(l.ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND lifecycle_state='in_flight')`, l.workID).Scan(&state.PendingWorkerAuthorization); err != nil {
+		return workflowProjectionError(err, "cannot read unresolved worker authorizations")
+	}
 	if err := l.q.QueryRowContext(l.ctx, `SELECT COALESCE(a.lifecycle_state,''),COALESCE((SELECT json_extract(d.payload,'$.capability_class') FROM domain_events d WHERE d.subject_type='work_item' AND d.subject_id=a.work_id AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=a.attempt_id ORDER BY d.seq DESC LIMIT 1),'') FROM worker_attempts a WHERE a.work_id=? ORDER BY a.dispatched_at DESC,a.attempt_id DESC LIMIT 1`, WorkerDispatched, l.workID).Scan(&state.AttemptState, &state.AttemptCapabilityClass); err != nil && err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, l.subject, "cannot read the latest worker attempt", true, "retry once the worker attempt projection is readable", err)
 	}
@@ -455,6 +470,13 @@ func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) (bo
 	// declares dispatch_worker the state carries no recovery, so a caller
 	// cannot admit the rejection onto an unrelated step.
 	state.CorrectionRecovery = correctionRoute && stepDeclaresAction(l.definition, l.currentStep, "dispatch_worker")
+	// Both dispositions consume the same eligible completed result. A declared
+	// acceptance action is not an available intent after that result is settled.
+	if !correctionRoute && workflowDefinitionProducesDelivery(l.definition) && stepDeclaresAction(l.definition, l.currentStep, "accept_worker_result") {
+		state.ReviewAcceptanceError = workflowFailureOf(reviewFailure(KindMissingEvidence,
+			"result acceptance requires an undispositioned completed worker result",
+			"finish an admitted worker assignment and have Main accept its exact completed result"))
+	}
 	reviewEvidenceAttempt, reviewEvidenceErr := workflowRefineReviewEvidenceAttempt(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, 0)
 	if reviewEvidenceErr != nil {
 		return false, reviewEvidenceErr
@@ -761,14 +783,30 @@ func workflowCorrectionWindowContinued(ctx context.Context, q queryer, workID, s
 // A group consumes continuation once. Its remaining members do not need an
 // intermediate Review, but a changed depended-on revision still invalidates it.
 func workflowAdmitReview(state WorkflowReviewState, group string) error {
+	if admitted, found := state.Groups[group]; found && admitted.CorrectionRef != "" && state.Accepted != nil && state.Accepted.ReportRef == admitted.ReviewRef && state.DependenciesCurrent {
+		return nil
+	}
 	if blocker := state.blocker(); blocker != "" {
 		return reviewFailure(KindMissingEvidence, "open in-scope blocking finding "+blocker+" blocks execution progression", "obtain an evidenced closure of "+blocker+" and have Main accept that Review report")
+	}
+	if admitted, found := state.Groups[group]; group != "" && found {
+		applicable := state.Accepted != nil && state.Candidate != nil && state.Accepted.Report.OutputCandidate == *state.Candidate
+		if !applicable || admitted.ReviewRef == state.Accepted.ReportRef {
+			if state.Accepted == nil || state.DependenciesCurrent {
+				return nil
+			}
+		}
+	}
+	// First entry relies on the preceding stage exits and their binding guards
+	// below. A missing Review is not evidence that execution has never run.
+	if group != "" && !state.ExecutionProgressed && state.Accepted == nil {
+		return nil
 	}
 	if group != "" && state.ContinueConsumed && state.GroupID == group && state.Accepted != nil && state.DependenciesCurrent {
 		return nil
 	}
 	if state.Accepted == nil || state.Candidate == nil || state.Accepted.Report.OutputCandidate != *state.Candidate || !state.DependenciesCurrent {
-		return reviewFailure(KindMissingEvidence, "execution progression requires an accepted Review on the current candidate and depended-on revisions", "obtain and accept a Review of the current candidate, including the baseline before the first group")
+		return reviewFailure(KindMissingEvidence, "execution progression requires an accepted Review on the current candidate and depended-on revisions", "obtain and accept a Review of the current integrated candidate; only valid preceding exits admit the first group")
 	}
 	disposition := state.Accepted.Report.Disposition
 	if group != "" {
@@ -795,11 +833,14 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.Failure = state.ReviewAcceptanceError
 		return decision
 	}
+	if workflowAdmitDispatchRefused(definition, state, actionID, &decision) {
+		return decision
+	}
 	if state.Review != nil && workflowDefinitionProducesDelivery(definition) {
 		var reviewErr error
 		switch actionID {
 		case "dispatch_worker":
-			if state.ReviewLane == "implementation" {
+			if state.ReviewLane == "implementation" && !state.ReviewCorrective {
 				reviewErr = workflowAdmitReview(*state.Review, state.ReviewGroup)
 			}
 		case "record_delivery":
@@ -816,9 +857,6 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 	}
 	if actionID == "supersede_contract" {
 		return workflowAdmitSupersede(definition, state, decision)
-	}
-	if workflowAdmitDispatchRefused(definition, state, actionID, &decision) {
-		return decision
 	}
 	if err := state.stalenessRefusal(actionID); err != nil {
 		decision.Failure = workflowFailureOf(err)
@@ -886,6 +924,10 @@ func workflowAdmitInstanceRefused(definition WorkflowDefinition, state WorkflowA
 // design, the open oracle blocker bound, and the retry convergence wall.
 func workflowAdmitDispatchRefused(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
 	if actionID == "dispatch_worker" {
+		if state.PendingWorkerAuthorization {
+			decision.Failure = newFailure(KindOperationConflict, "worker_dispatch", "a prior worker authorization has an unresolved launch outcome", false, "reconcile the current assignment's launch outcome before authorizing another attempt")
+			return true
+		}
 		if state.DesignStale {
 			decision.Failure = newFailure(KindMissingEvidence, "worker_dispatch", "contract correction invalidated the recorded design", false, "use supersede_contract with design_record before worker dispatch")
 			return true
@@ -1144,16 +1186,6 @@ func (s WorkflowAdmissionState) stalenessRefusal(actionID string) error {
 		return s.LawPinSelfError
 	}
 	return s.LawPinStaleError
-}
-
-// workflowAdmitFreshReviewRefusal is the typed refusal both debt-hidden
-// advances carry: the work waits for a fresh accepted review of the repaired
-// result before delivery. It is the one refusal the claim-phase review guard
-// owns, so the decision marks it FreshReviewRequired for the deferring sites.
-func workflowAdmitFreshReviewRefusal(decision WorkflowAdmissionDecision) WorkflowAdmissionDecision {
-	decision.FreshReviewRequired = true
-	decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "the advance toward delivery requires a fresh accepted review of the repaired result", false, "dispatch a review attempt at the refinement step, accept its result, then advance")
-	return decision
 }
 
 // workflowAdmissionDefersToReviewGate reports whether one action's refusal

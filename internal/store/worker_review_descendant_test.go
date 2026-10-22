@@ -19,9 +19,9 @@ func descendantReviewFixture(t *testing.T, id string) (*candidateJourney, string
 		t.Fatal(err)
 	}
 	gitRunStore(t, dir, "branch", "-m", branch)
-	acceptCurrentReviewForTest(t, f, dir, "continue")
 	reviewSubjectImplementComplete(t, f, "anchor-a", "anchor-a-completed", true)
 	reviewSubjectAccept(t, f.store, id, "anchor-a")
+	acceptCurrentReviewForTest(t, f, dir, "continue")
 	j := &candidateJourney{fixture: f, s: f.store, workID: id, repo: dir}
 	j.observeRun(t, "refine-a")
 	return j, head

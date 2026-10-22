@@ -383,6 +383,9 @@ func foldWorkerJobRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 		workflowJSON(nonNilPrerequisites(payload.Prerequisites)), workflowJSON(nonNilStrings(payload.UnresolvedRefs)), payload.ReservedIntegration, readinessColumn, payload.Digest, now); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot record the worker-job revision", true, "retry once the database is writable", err)
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET (group_permission,group_review_ref,correction_ref)=(SELECT group_permission,group_review_ref,correction_ref FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision<? AND (group_permission<>'' OR correction_ref<>'') ORDER BY revision DESC LIMIT 1) WHERE work_id=? AND job_id=? AND revision=? AND EXISTS(SELECT 1 FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision<? AND (group_permission<>'' OR correction_ref<>''))`, event.SubjectID, payload.JobID, payload.Revision, event.SubjectID, payload.JobID, payload.Revision, event.SubjectID, payload.JobID, payload.Revision); err != nil {
+		return workflowProjectionError(err, "cannot carry the assignment's admitted group to its new revision")
+	}
 	return nil
 }
 

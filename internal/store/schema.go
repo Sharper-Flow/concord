@@ -6524,6 +6524,15 @@ DROP TABLE work_resize_lineage;
 DELETE FROM fold_guard;
 `,
 	},
+	{
+		Version: 137,
+		Name:    "worker_job_group_permission",
+		SQL: `
+ALTER TABLE worker_job_revisions ADD COLUMN group_permission TEXT NOT NULL DEFAULT '' CHECK(group_permission IN ('','first_entry','continue'));
+ALTER TABLE worker_job_revisions ADD COLUMN group_review_ref TEXT NOT NULL DEFAULT '';
+ALTER TABLE worker_job_revisions ADD COLUMN correction_ref TEXT NOT NULL DEFAULT '';
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

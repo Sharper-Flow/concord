@@ -34,6 +34,7 @@ type WorkflowAdmissionState struct {
 	ReviewLane            string
 	ReviewGroup           string
 	ReviewAcceptanceError *Failure
+	ReviewCorrective      bool
 	// Step is the work item's current workflow step.
 	Step string
 	// Lifecycle is the work item's lifecycle.
@@ -344,9 +345,11 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 	// Authorization is not an observed start. The host may close an unstarted
 	// authorization through abandonment, whose liveness guard owns that fact.
 	// Every observed implementation start remains progress after termination.
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND capability_class='implementation' AND lifecycle_state<>'in_flight' AND NOT(lifecycle_state='failed' AND failure_kind=? AND readback_model=''))`, workID, WorkerFailureAbandoned).Scan(&review.ExecutionProgressed); err != nil {
+	var progressed bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND capability_class='implementation' AND lifecycle_state<>'in_flight' AND NOT(lifecycle_state='failed' AND failure_kind=? AND readback_model=''))`, workID, WorkerFailureAbandoned).Scan(&progressed); err != nil {
 		return WorkflowAdmissionState{}, nil, nil, workflowProjectionError(err, "cannot read current execution progress")
 	}
+	review.ExecutionProgressed = review.ExecutionProgressed || progressed
 	correctionRoute, err := l.recoveryRoutes(&state)
 	if err != nil {
 		return WorkflowAdmissionState{}, nil, nil, err
@@ -780,8 +783,19 @@ func workflowCorrectionWindowContinued(ctx context.Context, q queryer, workID, s
 // A group consumes continuation once. Its remaining members do not need an
 // intermediate Review, but a changed depended-on revision still invalidates it.
 func workflowAdmitReview(state WorkflowReviewState, group string) error {
+	if admitted, found := state.Groups[group]; found && admitted.CorrectionRef != "" && state.Accepted != nil && state.Accepted.ReportRef == admitted.ReviewRef && state.DependenciesCurrent {
+		return nil
+	}
 	if blocker := state.blocker(); blocker != "" {
 		return reviewFailure(KindMissingEvidence, "open in-scope blocking finding "+blocker+" blocks execution progression", "obtain an evidenced closure of "+blocker+" and have Main accept that Review report")
+	}
+	if admitted, found := state.Groups[group]; group != "" && found {
+		applicable := state.Accepted != nil && state.Candidate != nil && state.Accepted.Report.OutputCandidate == *state.Candidate
+		if !applicable || admitted.ReviewRef == state.Accepted.ReportRef {
+			if state.Accepted == nil || state.DependenciesCurrent {
+				return nil
+			}
+		}
 	}
 	// First entry relies on the preceding stage exits and their binding guards
 	// below. A missing Review is not evidence that execution has never run.
@@ -826,7 +840,7 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		var reviewErr error
 		switch actionID {
 		case "dispatch_worker":
-			if state.ReviewLane == "implementation" {
+			if state.ReviewLane == "implementation" && !state.ReviewCorrective {
 				reviewErr = workflowAdmitReview(*state.Review, state.ReviewGroup)
 			}
 		case "record_delivery":

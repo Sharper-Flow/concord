@@ -2949,6 +2949,9 @@ func bindWorkerAttemptInFlightTx(ctx context.Context, tx *sql.Tx, event Event, p
 	if p.WorkerSubjectCommit != "" && !worktreeSHAPattern.MatchString(p.WorkerSubjectCommit) {
 		return newFailure(KindInvalidPayload, "fold_event", "worker_subject_commit must be one raw commit OID", false, "record the admitted core subject")
 	}
+	if err := recordWorkflowAssignmentGroup(ctx, tx, event, p); err != nil {
+		return err
+	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
 	_, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts
 		(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at)

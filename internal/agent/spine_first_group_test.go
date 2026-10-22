@@ -2,12 +2,50 @@ package agent
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/store"
 )
+
+func TestSpineFirstGroupFailedAssignmentRelaunchesAcrossRevision(t *testing.T) {
+	f := newSpineExecutionFixture(t)
+	f.verify(t)
+	f.recordJob(t)
+	const failed = "attempt:first-group-failed"
+	f.startWorker(t, "implement", failed)
+	terminal := store.Event{EventID: "spine-first-group-failure", Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: f.work,
+		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerFailed),
+		Payload: retryJSON(map[string]any{"attempt_id": failed, "readback_model": "openai/test-model", "failure_kind": store.WorkerFailureWorkerError, "detail": "The assigned implementation failed before delivering its result.",
+			"failure_attribution": map[string]any{"origin": "recorded", "observation": map[string]any{"observer": "host_adapter", "phase": "host_execution", "cause": "unknown", "basis": "unknown", "sources": []map[string]any{{"kind": "host_event", "host": map[string]any{"tag": "cancellation", "event_type": "synthetic.session.cancelled"}}}}}})}
+	if err := f.s.Transact(t.Context(), func(tx *store.Transaction) error {
+		_, err := store.ApplyWorkerEvidenceOperationTx(t.Context(), tx, terminal)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.recordJob(t)
+	before := f.read(t).Pinned.Pin
+	if before.Review.Accepted != nil {
+		t.Fatal("failure or revision manufactured a Review")
+	}
+	const retry = "attempt:first-group-relaunch"
+	lane, job, epoch := f.startWorker(t, "implement", retry)
+	if err := os.WriteFile(filepath.Join(f.path, "pkg/value.go"), []byte("package spine\nfunc Value() int { return 3 + 4 }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, f.path, "add", "pkg/value.go")
+	gitRun(t, f.path, "commit", "-qm", "finish the relaunched assignment")
+	f.finishWorker(t, lane, retry, job, nil)
+	spineOK(t, f.action(t, "accept_worker_result", map[string]any{"attempt_id": retry, "attempt_epoch": epoch}))
+	after := f.read(t).Pinned.Pin
+	if after.Review.Accepted != nil || after.Review.Candidate == nil || after.Review.Candidate.Commit != gitRun(t, f.path, "rev-parse", "HEAD") {
+		t.Fatalf("same-assignment relaunch lost its result or required Review: %+v", after.Review)
+	}
+}
 
 func TestSpineFirstGroupResumeDoesNotRestoreFirstEntry(t *testing.T) {
 	f := newSpineExecutionFixture(t)
@@ -17,7 +55,7 @@ func TestSpineFirstGroupResumeDoesNotRestoreFirstEntry(t *testing.T) {
 		t.Fatal("first entry installed an unsolicited baseline Review")
 	}
 	f.completeWorker(t)
-	f.recordJob(t)
+	f.recordJobAs(t, "job:spine-next-group")
 	before := f.read(t).Pinned.Pin
 	if before.Review.Candidate == nil || before.Review.Accepted != nil {
 		t.Fatalf("first result did not produce the unreviewed integrated candidate: %+v", before.Review)

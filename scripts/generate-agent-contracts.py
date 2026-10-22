@@ -2077,8 +2077,9 @@ def validate_work_start_host_tool(tool: dict) -> None:
     # published capture surface is pinned in exactly the contract's own
     # (lexicographic) property order.
     capture = ["defect_intake", "external_ref", "governing_requirements", "idempotency_key", "kind", "priority", "raised_from_work_id", "ref", "size_inputs", "tags", "task", "title", "urgency", "value_statement", "workflow_type_ref"]
-    resume_required = ["work_id"]
-    resume_properties = ["work_id"]
+    # Resume names exactly one selector; the core alone resolves an issue key.
+    resume_properties = ["issue_key", "work_id"]
+    resume_selectors = [{"required": ["work_id"]}, {"required": ["issue_key"]}]
     branches = args.get("oneOf")
     if args.get("type") != "object" or not isinstance(branches, list) or len(branches) != 2:
         fail("concord_work_start host schema must be a oneOf of the capture and resume shapes")
@@ -2086,8 +2087,12 @@ def validate_work_start_host_tool(tool: dict) -> None:
         fail("concord_work_start capture branch has an unexpected argument surface")
     if branches[0].get("additionalProperties") is not False or branches[1].get("additionalProperties") is not False:
         fail("concord_work_start branches must close their argument surface")
-    if branches[1].get("required") != resume_required or list(branches[1].get("properties", {})) != resume_properties:
-        fail("concord_work_start resume branch must carry exactly work_id")
+    resume = branches[1]
+    if resume.get("oneOf") != resume_selectors or list(resume.get("properties", {})) != resume_properties or set(resume) != {"additionalProperties", "properties", "oneOf"}:
+        fail("concord_work_start resume branch must carry exactly one of work_id or issue_key")
+    issue_key = resume["properties"]["issue_key"]
+    if issue_key.get("type") != "string" or issue_key.get("minLength") != 3 or issue_key.get("maxLength") != 64 or issue_key.get("pattern") != "^[A-Z][A-Z0-9]*-[1-9][0-9]*$":
+        fail("concord_work_start issue_key must pin the recorded Linear issue key bounds")
     for name, maximum in (("title", 256), ("value_statement", 256), ("external_ref", 256), ("task", 8192)):
         if branches[0]["properties"].get(name, {}).get("x-maxBytes") != maximum:
             fail(f"concord_work_start {name} must pin x-maxBytes={maximum}")

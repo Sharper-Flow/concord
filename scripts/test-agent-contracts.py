@@ -322,6 +322,42 @@ class ToolDescriptionTests(unittest.TestCase):
                                             re.compile(r"\b" + re.escape(name) + r"\b", re.I))
 
 
+class WorkStartHostContractTests(unittest.TestCase):
+    def setUp(self):
+        host = json.loads((ROOT / "contracts/host-tool-surface.v1.json").read_text())
+        self.tool = next(tool for tool in host["tools"] if tool["name"] == "concord_work_start")
+
+    def edited(self, change):
+        tool = copy.deepcopy(self.tool)
+        change(tool["args"]["oneOf"][0], tool["args"]["oneOf"][1])
+        return tool
+
+    def test_shipped_capture_and_resume_selector_xor_validate(self):
+        generator.validate_work_start_host_tool(self.tool)
+        capture, resume = self.tool["args"]["oneOf"]
+        self.assertEqual(list(resume["properties"]), ["issue_key", "work_id"])
+        self.assertEqual(resume["oneOf"], [{"required": ["work_id"]}, {"required": ["issue_key"]}])
+        self.assertNotIn("issue_key", capture["properties"])
+
+    def test_selector_shape_closure_and_bounds_cannot_drift(self):
+        changes = {
+            "work_id only": lambda _, resume: (resume["properties"].pop("issue_key"), resume.pop("oneOf"), resume.update(required=["work_id"])),
+            "both required": lambda _, resume: resume.update(required=["work_id", "issue_key"]),
+            "selector optional": lambda _, resume: resume.pop("oneOf"),
+            "selector any": lambda _, resume: resume.update(anyOf=resume.pop("oneOf")),
+            "Project override": lambda _, resume: resume["properties"].update(project_id={"type": "string"}),
+            "open resume": lambda _, resume: resume.update(additionalProperties=True),
+            "capture issue key": lambda capture, resume: capture["properties"].update(issue_key=resume["properties"]["issue_key"]),
+            "key pattern": lambda _, resume: resume["properties"]["issue_key"].update(pattern="^.+$"),
+            "key minimum": lambda _, resume: resume["properties"]["issue_key"].update(minLength=1),
+            "key maximum": lambda _, resume: resume["properties"]["issue_key"].update(maxLength=128),
+            "key type": lambda _, resume: resume["properties"]["issue_key"].update(type=["string", "null"]),
+        }
+        for name, change in changes.items():
+            with self.subTest(change=name), self.assertRaises(ValueError):
+                generator.validate_work_start_host_tool(self.edited(change))
+
+
 class WorkerReadingHostContractTests(unittest.TestCase):
     TOOL = "concord_worker_read"
     FIELDS = ["ordinal", "offset", "length"]

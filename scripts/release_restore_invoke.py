@@ -29,9 +29,9 @@ stage that refused and the writer stays unevaluated.
 The invoke plan lists only operations supported by tagged registrations:
 capture, an optional two-work message chain, resource claim/release, and a plain
 observation last. The gate hashes that plan and validates exact returned refs
-without inferring work versions. Before admitting witnesses, it independently
-checks the writer snapshot and both restores for the recorded history and
-effects. Positive release success alone is not proof of precondition enforcement.
+without inferring work versions. It checks the writer snapshot and both restores
+for the recorded current effects. Positive release success alone is not proof
+of precondition enforcement.
 No failed capture becomes bootstrap-only without its separate source proof.
 
 The one exception is a source-proven legacy bootstrap candidate
@@ -481,45 +481,35 @@ def sent_message_id(store: Path, sender: str, recipient: str) -> str:
 
 
 def verify_invoke_snapshot(db: sqlite3.Connection, record: dict) -> None:
-    """Check recorded history and effects, not general precondition enforcement.
+    """Check the executed recipe's current effects, never reconstruct history.
 
-    The gate owns the read-only connection and its deadline handling.
+    The core restore verifier owns whole-store equality before migration. These
+    assertions describe only the expected current effects after migration. The
+    gate owns the read-only connection and its deadline handling.
     """
-    for proof, operation in (("resource", "invoke:concord_work_relate.resource_claim"),
+    for proof, operation in (("works", "invoke:concord_work_define.capture"),
+                             ("message", "invoke:concord_work_relate.message_send"),
+                             ("resource", "invoke:concord_work_relate.resource_claim"),
                              ("observation", "invoke:concord_work_define.observation_record")):
         if operation in record.get("plan", ()) and not record.get(proof):
             raise InvokeError("snapshot-effects", f"planned {proof} proof is missing")
+    for work in record.get("works", ()):
+        rows = db.execute("SELECT title, lifecycle, version FROM work_items WHERE id=?", (work["id"],)).fetchall()
+        if rows != [(work["title"], "needed", work["version"])]:
+            raise InvokeError("snapshot-effects", f"work_items row {rows!r} does not match recorded work {work['id']}")
+    message = record.get("message")
+    if message:
+        rows = db.execute("SELECT sender_work_id, recipient_work_id, body, state FROM work_messages WHERE message_id=?",
+                          (message["id"],)).fetchall()
+        if rows != [(message["sender"], message["recipient"], INVOKE_MESSAGE_BODY, "withdrawn")]:
+            raise InvokeError("snapshot-effects", f"work_messages row {rows!r} does not match the recorded withdrawn message")
     resource = record.get("resource")
     if resource:
-        rows = db.execute(
-            "SELECT seq, kind, subject_type, subject_id, payload_version, payload FROM domain_events "
-            "WHERE kind IN ('work.resource_claimed', 'work.resource_claim_released') ORDER BY seq").fetchall()
-        pair = []
-        for seq, kind, subject_type, subject_id, payload_version, payload in rows:
-            try:
-                body = json.loads(payload)
-            except (TypeError, ValueError):
-                raise InvokeError("snapshot-effects", f"claim event {seq} carries a malformed payload") from None
-            if not isinstance(body, dict):
-                raise InvokeError("snapshot-effects", f"claim event {seq} payload is not an object")
-            if body.get("resource_key") == resource["key"]:
-                pair.append((seq, kind, subject_type, subject_id, payload_version, body))
-        if len(pair) != 2 or [row[1] for row in pair] != ["work.resource_claimed", "work.resource_claim_released"]:
-            raise InvokeError("snapshot-effects", f"expected one ordered claim/release pair for {resource['key']}, got {[row[1] for row in pair]}")
+        versions = tuple(resource[key] for key in ("input_version", "claim_version", "release_version"))
+        if (not all(type(value) is int and value > 0 for value in versions)
+                or versions[1] != versions[0] + 1 or versions[2] != versions[1] + 1):
+            raise InvokeError("snapshot-effects", f"claim/release receipt versions {versions!r} do not form a continuous pair")
         sender = resource["sender"]
-        recorded = ((resource["input_version"], resource["claim_version"]),
-                    (resource["claim_version"], resource["release_version"]))
-        for row, (expected, resulting) in zip(pair, recorded):
-            seq, _kind, subject_type, subject_id, payload_version, body = row
-            if (subject_type, subject_id, payload_version) != ("work_item", sender, 1):
-                raise InvokeError("snapshot-effects", f"claim event {seq} is not the sender's work_item v1")
-            if body.get("work_id") != sender:
-                raise InvokeError("snapshot-effects", f"claim event {seq} names work {body.get('work_id')!r}, want {sender}")
-            versions = (body.get("expected_version"), body.get("resulting_version"))
-            if not all(type(value) is int and value > 0 for value in versions):
-                raise InvokeError("snapshot-effects", f"claim event {seq} versions {versions!r} are not positive integers")
-            if versions != (expected, resulting) or resulting != expected + 1:
-                raise InvokeError("snapshot-effects", f"claim event {seq} versions {versions!r} disagree with recorded continuity {expected} -> {resulting}")
         claim = db.execute("SELECT holder_work_id, holder_agent, holder_session, reason, state FROM resource_claims "
                            "WHERE resource_key=?", (resource["key"],)).fetchall()
         if claim != [(sender, INVOKE_AGENT, INVOKE_SESSION, INVOKE_RESOURCE_REASON, "released")]:
@@ -529,28 +519,6 @@ def verify_invoke_snapshot(db: sqlite3.Connection, record: dict) -> None:
             raise InvokeError("snapshot-effects", f"work_items version {version!r} != the released version {resource['release_version']}")
     observation = record.get("observation")
     if observation:
-        rows = db.execute(
-            "SELECT seq, subject_type, subject_id, payload_version, payload FROM domain_events "
-            "WHERE kind='work.observation_recorded' ORDER BY seq").fetchall()
-        found = []
-        for seq, subject_type, subject_id, payload_version, payload in rows:
-            try:
-                body = json.loads(payload)
-            except (TypeError, ValueError):
-                raise InvokeError("snapshot-effects", f"observation event {seq} carries a malformed payload") from None
-            if not isinstance(body, dict):
-                raise InvokeError("snapshot-effects", f"observation event {seq} payload is not an object")
-            if body.get("observation_id") == observation["id"]:
-                found.append((seq, subject_type, subject_id, payload_version, body))
-        if len(found) != 1:
-            raise InvokeError("snapshot-effects", f"expected exactly one observation event for {observation['id']}, got {len(found)}")
-        seq, subject_type, subject_id, payload_version, body = found[0]
-        if resource and seq <= pair[-1][0]:
-            raise InvokeError("snapshot-effects", "observation precedes completion of the resource pair")
-        if (subject_type, subject_id, payload_version) != ("work_item", observation["sender"], 1):
-            raise InvokeError("snapshot-effects", f"observation event {seq} is not the sender's work_item v1")
-        if body.get("statement") != observation["statement"]:
-            raise InvokeError("snapshot-effects", f"observation {observation['id']} statement disagrees with the record")
         projection = db.execute("SELECT observation_id, work_id, statement FROM work_observations WHERE observation_id=?",
                                 (observation["id"],)).fetchall()
         if projection != [(observation["id"], observation["sender"], observation["statement"])]:
@@ -607,23 +575,26 @@ def run_invoke_phase(run, repo: Path, tag: str, case: Path, store: Path, facts: 
     capture = {"title": INVOKE_TITLE, "value_statement": "invoke recipe", "kind": "task", "project_ids": [INVOKE_PROJECT]}
     sender, sender_version = work_ref(invoke("concord_work_define", "capture", capture, "gate-invoke-request-1",
                                              "gate-invoke-idempotency-1", "invoke"), "invoke")
-    record = {"outcome": "ok", "plan": list(plan)}
+    record = {"outcome": "ok", "plan": list(plan), "works": [{"id": sender, "title": INVOKE_TITLE, "version": sender_version}]}
     if facts["has_messages"]:
         recipient_capture = capture | {"title": "Invoke Recipient Work", "value_statement": "invoke recipe recipient"}
-        recipient, _ = work_ref(invoke("concord_work_define", "capture", recipient_capture, "gate-invoke-request-2",
+        recipient, recipient_version = work_ref(invoke("concord_work_define", "capture", recipient_capture, "gate-invoke-request-2",
                                        "gate-invoke-idempotency-2", "capture-2"), "capture-2")
         if recipient == sender:
             raise InvokeError("capture-2", f"the second capture returned the sender's work item {sender}")
+        record["works"].append({"id": recipient, "title": recipient_capture["title"], "version": recipient_version})
         send = {"work_id": sender, "recipient_work_id": recipient, "body": INVOKE_MESSAGE_BODY, "expected_version": sender_version}
         sent_id, sent_version = work_ref(invoke("concord_work_relate", "message_send", send, "gate-invoke-request-3",
                                                 "gate-invoke-idempotency-3", "message-send"), "message-send")
         if sent_id != sender:
             raise InvokeError("message-send", f"send changed work ref {sent_id} is not the sender {sender}")
-        withdraw = {"work_id": sender, "message_id": sent_message_id(store, sender, recipient), "expected_version": sent_version}
+        message_id = sent_message_id(store, sender, recipient)
+        withdraw = {"work_id": sender, "message_id": message_id, "expected_version": sent_version}
         withdrawn_id, sender_version = work_ref(invoke("concord_work_relate", "message_withdraw", withdraw, "gate-invoke-request-4",
                                                        "gate-invoke-idempotency-4", "message-withdraw"), "message-withdraw")
         if withdrawn_id != sender:
             raise InvokeError("message-withdraw", f"withdraw changed work ref {withdrawn_id} is not the sender {sender}")
+        record["message"] = {"id": message_id, "sender": sender, "recipient": recipient}
     if facts.get("has_resources", False):
         input_version = sender_version
         claim = {"work_id": sender, "resource_key": INVOKE_RESOURCE_KEY, "reason": INVOKE_RESOURCE_REASON,
@@ -639,6 +610,7 @@ def run_invoke_phase(run, repo: Path, tag: str, case: Path, store: Path, facts: 
             raise InvokeError("resource-release", f"release subject {release_kind} does not match the claim subject {claim_kind}")
         record["resource"] = {"sender": sender, "key": INVOKE_RESOURCE_KEY, "input_version": input_version,
                               "claim_version": claim_version, "release_version": release_version}
+        sender_version = release_version
     if facts.get("has_observation", False):
         # The earliest observation writers fold omitted refs/tags to JSON null
         # against array CHECK constraints, so the recipe carries explicit empty
@@ -651,4 +623,5 @@ def run_invoke_phase(run, repo: Path, tag: str, case: Path, store: Path, facts: 
         if observation_version != 1:
             raise InvokeError("observation-record", f"observation version {observation_version} is not 1")
         record["observation"] = {"sender": sender, "id": INVOKE_OBSERVATION_ID, "statement": INVOKE_OBSERVATION_STATEMENT}
+    record["works"][0]["version"] = sender_version
     return record

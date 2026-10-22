@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for scripts/release-restore-gate.py.
 
-The GitHub release population is injected as data, and `gh release download`
+The GitHub release population is injected as data, and `gh api`
 is faked at the subprocess boundary by an executable on PATH. Writers and
 candidates are small executables that read and write real SQLite files, so
 snapshot, conservation, and effect checks run against real stores. No
@@ -48,15 +48,6 @@ sys.modules[LEGACY_SPEC.name] = legacy
 LEGACY_SPEC.loader.exec_module(legacy)
 
 REPO = Path(__file__).resolve().parents[1]
-# The writer-produced event kind per invoke plan verb: the fake released
-# binary emits one event per executed plan step, so witnesses assert the
-# truthful message history rather than a row count.
-PLAN_KINDS = {"invoke:concord_work_define.capture": "work.created",
-              "invoke:concord_work_relate.message_send": "work.message_sent",
-              "invoke:concord_work_relate.message_withdraw": "work.message_withdrawn",
-              "invoke:concord_work_relate.resource_claim": "work.resource_claimed",
-              "invoke:concord_work_relate.resource_release": "work.resource_claim_released",
-              "invoke:concord_work_define.observation_record": "work.observation_recorded"}
 
 
 def plan_for(tag: str) -> tuple[str, ...]:
@@ -109,6 +100,14 @@ if sys.argv[1] != "invoke":
 for table, key, subject in (("products", "id", "gate-product"), ("projects", "id", "gate-project"), ("managed_resources", "resource_id", "gate-resource")):
     db.execute(f"CREATE TABLE IF NOT EXISTS {{table}} ({{key}} TEXT PRIMARY KEY, display_name TEXT, version INTEGER)")
     db.execute(f"INSERT INTO {{table}} ({{key}}, version) VALUES (?, 1) ON CONFLICT({{key}}) DO UPDATE SET version = version + 1", (subject,))
+db.execute("UPDATE products SET display_name='Gate Product' WHERE id='gate-product'")
+db.execute("UPDATE projects SET display_name='Gate Project' WHERE id='gate-project'")
+db.execute("CREATE TABLE IF NOT EXISTS product_projects (product_id TEXT, project_id TEXT, role TEXT, PRIMARY KEY(product_id, project_id))")
+db.execute("INSERT OR IGNORE INTO product_projects VALUES ('gate-product', 'gate-project', 'primary')")
+db.execute("CREATE TABLE IF NOT EXISTS project_locators (project_id TEXT, locator_id TEXT, kind TEXT, locator_value TEXT, PRIMARY KEY(project_id, locator_id))")
+db.execute("INSERT OR IGNORE INTO project_locators VALUES ('gate-project', 'gate-remote', 'git_remote', 'https://example.invalid/gate/project.git')")
+if MODE == "missing-current-effect":
+    db.execute("DELETE FROM project_locators")
 db.commit()
 if sys.argv[1] == "grant":
     print(json.dumps({{"ok": True, "grant_token": "writer-token", "scope_version": "sha256:" + "0" * 64,
@@ -116,7 +115,7 @@ if sys.argv[1] == "grant":
     sys.exit(0)
 if sys.argv[1] == "invoke":
     operation = request["operation"]
-    db.execute("CREATE TABLE IF NOT EXISTS work_items (id TEXT PRIMARY KEY, version INTEGER)")
+    db.execute("CREATE TABLE IF NOT EXISTS work_items (id TEXT PRIMARY KEY, version INTEGER, title TEXT, lifecycle TEXT)")
     db.execute("CREATE TABLE IF NOT EXISTS work_messages (message_id TEXT PRIMARY KEY, sender_work_id TEXT, recipient_work_id TEXT, body TEXT, state TEXT)")
     db.execute("CREATE TABLE IF NOT EXISTS resource_claims (resource_key TEXT PRIMARY KEY, holder_work_id TEXT, holder_agent TEXT, holder_session TEXT, reason TEXT, state TEXT)")
     db.execute("CREATE TABLE IF NOT EXISTS work_observations (observation_id TEXT PRIMARY KEY, work_id TEXT, statement TEXT,"
@@ -124,7 +123,7 @@ if sys.argv[1] == "invoke":
     if operation == "capture":
         n = db.execute("SELECT COUNT(*) FROM work_items").fetchone()[0] + 1
         work_id = "gate-work-" + str(n)
-        db.execute("INSERT INTO work_items VALUES (?, 2)", (work_id,))
+        db.execute("INSERT INTO work_items VALUES (?, 2, ?, 'needed')", (work_id, request["input"]["title"]))
         kind, payload_version = "work.created", 2
         refs = [{{"entity_kind": "work_item", "id": work_id, "version": "2"}}]
         payload = {{"operation": operation}} | refs[0]
@@ -191,10 +190,9 @@ if sys.argv[1] == "invoke":
         print(json.dumps({{"outcome": "error", "error": {{"message": "unknown operation " + operation}}}}))
         sys.exit(1)
     subject = work_id if operation == "capture" else inp["work_id"]
-    if not (MODE == "missing-resource-event" and operation == "resource_claim"):
-        db.execute("INSERT INTO domain_events (event_id, kind, payload_version, payload, subject_type, subject_id) VALUES (?, ?, ?, ?, 'work_item', ?)",
-                   (operation + "-" + str(db.execute("SELECT COUNT(*) FROM domain_events").fetchone()[0]), kind, payload_version,
-                    json.dumps(payload), subject))
+    db.execute("INSERT INTO domain_events (event_id, kind, payload_version, payload, subject_type, subject_id) VALUES (?, ?, ?, ?, 'work_item', ?)",
+               (operation + "-" + str(db.execute("SELECT COUNT(*) FROM domain_events").fetchone()[0]), kind, payload_version,
+                json.dumps(payload), subject))
     db.commit()
     if MODE == "bad-resource-ref" and operation == "resource_claim":
         refs[0]["version"] = int(refs[0]["version"])
@@ -207,7 +205,7 @@ print(json.dumps({{"ok": True}}))
 """
 
 CANDIDATE = """#!{python}
-import json, sqlite3, sys
+import hashlib, json, sqlite3, sys
 VERSION = {version!r}
 MODE = {mode!r}
 """ + GROW + """
@@ -229,29 +227,39 @@ source = sqlite3.connect("file:" + request["source"] + "?mode=ro", uri=True)
 target = sqlite3.connect(request["destination"])
 source.backup(target)
 source.close()
-if MODE == "rewrite-event":
-    target.execute("UPDATE domain_events SET payload = '{{}}' WHERE seq = 1")
-if MODE == "drop-event":
-    target.execute("DELETE FROM domain_events WHERE seq = (SELECT MAX(seq) FROM domain_events)")
-elif MODE == "rebuild-drift" or not second:
+has_history = target.execute("SELECT 1 FROM sqlite_schema WHERE name='domain_events'").fetchone()
+if has_history and not second:
     target.execute("INSERT INTO domain_events (kind, payload) VALUES ('migration.appended', '{{}}')")
 if MODE == "lose-resource-effect":
     target.execute("UPDATE resource_claims SET state='held'")
 if MODE == "rebuild-resource-effect" and second:
     target.execute("UPDATE resource_claims SET state='held'")
-for table, columns in (("products", "id, display_name"), ("projects", "id, display_name"), ("product_projects", "product_id, project_id, role"),
-                       ("project_locators", "project_id, locator_id, kind, locator_value")):
-    target.execute(f"CREATE TABLE IF NOT EXISTS {{table}} ({{columns}})")
-if not second:
-    value = "https://example.invalid/other.git" if MODE == "lose-effect" else "https://example.invalid/gate/project.git"
-    target.execute("INSERT OR REPLACE INTO products (id, display_name) VALUES ('gate-product', 'Gate Product')")
-    target.execute("INSERT OR REPLACE INTO projects (id, display_name) VALUES ('gate-project', 'Gate Project')")
-    target.execute("INSERT INTO product_projects VALUES ('gate-product', 'gate-project', 'primary')")
-    target.execute("INSERT INTO project_locators VALUES ('gate-project', 'gate-remote', 'git_remote', ?)", (value,))
+if MODE == "lose-effect":
+    target.execute("UPDATE project_locators SET locator_value='https://example.invalid/other.git'")
+if MODE == "lose-work" or (MODE == "second-lose-work" and second):
+    target.execute("DELETE FROM work_items WHERE id='gate-work-1'")
+if MODE == "lose-message" or (MODE == "second-lose-message" and second):
+    target.execute("UPDATE work_messages SET state='sent'")
+if MODE == "retire-history" and has_history:
+    target.execute("DROP TABLE domain_events")
 target.commit()
-watermark = target.execute("SELECT MAX(seq) FROM domain_events").fetchone()[0]
+watermark = target.execute("SELECT MAX(seq) FROM domain_events").fetchone()[0] if MODE != "retire-history" else 0
+schema = target.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
 target.close()
-print(json.dumps({{"source_snapshot": manifest, "restored_database": {{"schema_version": 9, "event_watermark": watermark}}}}))
+checksum = hashlib.sha256(open(request["destination"], "rb").read()).hexdigest()
+inventory = {{"schema_version": schema, "event_watermark": watermark, "db_checksum": checksum}}
+if MODE == "wrong-source":
+    manifest["db_checksum"] = "0" * 64
+if MODE == "wrong-snapshot-id":
+    manifest["snapshot_id"] = "other"
+if MODE == "wrong-destination":
+    inventory["db_checksum"] = "0" * 64
+if MODE == "missing-inventory":
+    inventory = {{}}
+if MODE == "malformed-report":
+    print("{{")
+    sys.exit(0)
+print(json.dumps({{"source_snapshot": manifest, "restored_database": inventory}}))
 """
 
 FAKE_GH = """#!{python}
@@ -331,49 +339,25 @@ class CaseTests(unittest.TestCase):
     def test_a_writer_restores_twice_and_its_case_is_removed(self) -> None:
         row = self.case(self.fixture.publish("v1.0.0"), self.fixture.candidate())
         self.assertCase(row, "pass", "complete")
-        steps = len(gate.recipe_for("v1.0.0")) + len(plan_for("v1.0.0"))
-        self.assertEqual((row["source"]["event_watermark"], row["restored"]["appended_events"], row["rebuilt"]["appended_events"]), (steps, 1, 0))
+        self.assertEqual((row["source"]["schema_version"], row["restored"]["schema_version"], row["restored_again"]["schema_version"]), (7, 7, 7))
+        for inventory in (row["source"], row["restored"], row["restored_again"]):
+            self.assertRegex(inventory["db_checksum"], r"^[0-9a-f]{64}$")
         self.assertEqual(row["invoke"]["plan"], list(plan_for("v1.0.0")))
         self.assertFalse((self.fixture.root / "work" / "v1.0.0").exists())
 
-    def test_a_passing_case_witnesses_every_writer_row_with_its_provenance(self) -> None:
+    def test_current_effects_survive_both_restores_without_history(self) -> None:
+        row = self.case(self.fixture.publish("v1.0.0"), self.fixture.candidate("retire-history"))
+        self.assertCase(row, "pass", "complete")
+
+    def test_a_passing_case_binds_writer_recipe_and_snapshot_provenance(self) -> None:
         writer = self.fixture.publish("v1.0.0")
         row = self.case(writer, self.fixture.candidate())
-        plan = plan_for("v1.0.0")
-        steps = ([(verb, {}) for verb, _ in gate.recipe_for("v1.0.0")]
-                 + [(verb, {}) for verb in plan if not verb.startswith("invoke:")]
-                 + [(PLAN_KINDS[verb], {}) for verb in plan if verb.startswith("invoke:")])
-        self.assertEqual([(w["seq"], w["kind"]) for w in row["witnesses"]], [(seq, kind) for seq, (kind, _) in enumerate(steps, start=1)])
-        provenance = {"tag": "v1.0.0", "asset_digest": writer.asset_digest, "recipe": gate.RECIPE_ID,
-                      "recipe_sha256": gate.recipe_sha256(gate.recipe_for("v1.0.0"), plan), "snapshot_sha256": row["source"]["db_checksum"]}
-        self.assertEqual({json.dumps(w["writer"], sort_keys=True) for w in row["witnesses"]}, {json.dumps(provenance, sort_keys=True)})
-        self.assertEqual(json.loads(row["witnesses"][0]["payload"]), gate.PRODUCT)
-        # Versions come from the writer's own store, before each step.
-        self.assertEqual(json.loads(row["witnesses"][2]["payload"])["expected_version"], 2)
-        # The emitted message history is the executed chain: two distinct captures,
-        # then the send and withdrawal bound to the sender's own changed-ref versions.
-        created = [json.loads(w["payload"]) for w in row["witnesses"] if w["kind"] == "work.created"]
-        self.assertEqual(len(created), 2)
-        self.assertNotEqual(created[0]["id"], created[1]["id"])
-        sent, withdrawn = [json.loads(w["payload"]) for w in row["witnesses"] if w["kind"].startswith("work.message_")]
-        self.assertEqual((sent["operation"], withdrawn["operation"]), ("message_send", "message_withdraw"))
-        self.assertEqual(sent["id"], created[0]["id"])
-        self.assertEqual(withdrawn["id"], created[0]["id"])
-        self.assertTrue(withdrawn["message_id"].startswith("msg:"))
-
-    def test_only_passing_cases_emit_witnesses(self) -> None:
-        real = gate.run_writer_case
-
-        def late_failure(*args):
-            row = real(*args)
-            return row | {"status": "unknown", "stage": "budget"} if row["tag"] == "v1.1.2" else row
-
-        writers = (self.fixture.publish("v1.0.0"), self.fixture.publish("v1.1.2"))
-        with patch.object(gate, "run_writer_case", late_failure):
-            report, _ = self.gate_run(self.fixture.candidate(), *writers)
-        emitted = [json.loads(line) for line in (self.fixture.root / "out" / "witnesses.jsonl").read_text().splitlines()]
-        self.assertEqual(({w["writer"]["tag"] for w in emitted}, report["witnesses"]),
-                         ({"v1.0.0"}, len(gate.recipe_for("v1.0.0")) + len(plan_for("v1.0.0"))))
+        self.assertCase(row, "pass", "complete")
+        self.assertEqual(row["commit"], writer.commit)
+        self.assertEqual(row["source"]["asset_digest"], writer.asset_digest)
+        self.assertEqual(row["recipe_sha256"], gate.recipe_sha256(gate.recipe_for(writer.tag), plan_for(writer.tag)))
+        self.assertRegex(row["source"]["db_checksum"], r"^[0-9a-f]{64}$")
+        self.assertNotIn("witnesses", row)
 
     def test_recipe_steps_start_at_their_release(self) -> None:
         verbs = lambda tag: [verb for verb, _ in gate.recipe_for(tag)]
@@ -400,9 +384,6 @@ class CaseTests(unittest.TestCase):
         plan = plan_for("v0.8.0")
         self.assertEqual(plan, ("client-register", "grant", "invoke:concord_work_define.capture"))
         self.assertEqual(row["invoke"]["plan"], list(plan))
-        kinds = [w["kind"] for w in row["witnesses"]]
-        self.assertEqual(kinds[-1], "work.created")
-        self.assertNotIn("work.message_sent", kinds)
         self.assertNotEqual(row["recipe_sha256"], gate.recipe_sha256(gate.recipe_for("v0.8.0"), plan_for("v1.0.0")))
 
     def test_resources_run_before_messages_exist(self) -> None:
@@ -410,21 +391,18 @@ class CaseTests(unittest.TestCase):
         self.assertCase(row, "pass", "complete")
         self.assertEqual(row["invoke"]["plan"], ["client-register", "grant", "invoke:concord_work_define.capture",
                                                 "invoke:concord_work_relate.resource_claim", "invoke:concord_work_relate.resource_release"])
-        self.assertEqual([w["kind"] for w in row["witnesses"]][-3:],
-                         ["work.created", "work.resource_claimed", "work.resource_claim_released"])
 
     def test_current_resource_receipts_are_checked_without_relabeling(self) -> None:
         row = self.case(self.fixture.publish("v1.0.0", mode="current-resource-ref"), self.fixture.candidate())
         self.assertCase(row, "pass", "complete")
 
-    def test_writer_history_and_projection_checks_precede_admission(self) -> None:
-        for tag, mode, stage in (("v0.37.2", "missing-resource-event", "invoke-snapshot-effects"),
+    def test_writer_current_effect_checks_precede_admission(self) -> None:
+        for tag, mode, stage in (("v0.37.2", "missing-current-effect", "snapshot-effects"),
                                  ("v0.39.0", "held-resource-projection", "invoke-snapshot-effects"),
                                  ("v0.40.0", "bad-resource-ref", "invoke-resource-claim")):
             with self.subTest(mode=mode):
                 row = self.case(self.fixture.publish(tag, mode=mode), self.fixture.candidate())
                 self.assertCase(row, "unknown", stage)
-                self.assertEqual(row["witnesses"], [])
                 self.assertNotIn("invoke", row)
                 if mode == "bad-resource-ref":
                     store = gate.sandbox_env(self.fixture.root / "work" / tag)["CONCORD_DB_PATH"]
@@ -434,11 +412,33 @@ class CaseTests(unittest.TestCase):
 
     def test_both_restores_must_preserve_resource_effects(self) -> None:
         for tag, mode, stage in (("v0.37.2", "lose-resource-effect", "effects"),
-                                 ("v0.39.0", "rebuild-resource-effect", "rebuild-effects")):
+                                 ("v0.39.0", "rebuild-resource-effect", "restore-again-effects")):
             with self.subTest(mode=mode):
                 row = self.case(self.fixture.publish(tag), self.fixture.candidate(mode))
                 self.assertCase(row, "fail", stage)
-                self.assertEqual(row["witnesses"], [])
+
+    def test_both_restores_must_preserve_work_and_message_effects(self) -> None:
+        for tag, mode, stage in (("v1.0.0", "lose-work", "effects"),
+                                 ("v1.0.1", "second-lose-work", "restore-again-effects"),
+                                 ("v1.0.2", "lose-message", "effects"),
+                                 ("v1.1.0", "second-lose-message", "restore-again-effects")):
+            with self.subTest(mode=mode):
+                self.assertCase(self.case(self.fixture.publish(tag), self.fixture.candidate(mode)), "fail", stage)
+
+    def test_a_corrupt_snapshot_is_refused_before_restore_execution(self) -> None:
+        real = gate.snapshot_fixture
+
+        def corrupt(*args):
+            manifest = real(*args)
+            with args[1].open("ab") as handle:
+                handle.write(b"corrupt")
+            return manifest
+
+        with patch.object(gate, "snapshot_fixture", corrupt):
+            row = self.case(self.fixture.publish("v1.0.0"), self.fixture.candidate())
+        self.assertCase(row, "fail", "restore")
+        self.assertIn("checksum", row["detail"])
+        self.assertFalse((self.fixture.root / "work" / "v1.0.0" / "restored.db").exists())
 
     def test_a_missing_versioned_subject_is_a_named_recipe_failure(self) -> None:
         store = self.fixture.root / "empty.db"
@@ -456,7 +456,6 @@ class CaseTests(unittest.TestCase):
         row = self.case(self.fixture.publish("v0.26.1", mode="capture-marshal-error"), self.fixture.candidate())
         self.assertCase(row, "unknown", "invoke-invoke")
         self.assertIn("capture exited 1: json: error calling MarshalJSON for type agent.Envelope: invalid result payload: type mismatch at $.changed_refs[0].version", row["detail"])
-        self.assertEqual(row["witnesses"], [])
         self.assertNotIn("invoke", row)
 
     def test_tree_bytes_counts_a_journal_the_writer_deletes_mid_walk_as_zero(self) -> None:
@@ -511,13 +510,10 @@ class CaseTests(unittest.TestCase):
                     for path in legacy.LEGACY_OWNERS}
         self.assertEqual(proof["owners"], expected)
         self.assertEqual(proof["fingerprint"], legacy.fingerprint_of(proof["owners"]))
-        self.assertEqual([(w["kind"], json.loads(w["payload"]).get("display_name", "missing")) for w in row["witnesses"]],
-                         [("product-create", "Gate Product"), ("project-locator-add", "missing")])
         steps = gate.recipe_for("v0.1.0")
         self.assertEqual(row["recipe_sha256"], gate.recipe_sha256(steps, ()))
         self.assertNotEqual(row["recipe_sha256"], gate.recipe_sha256(steps, ("client-register", "grant", "invoke:concord_work_define.capture")))
-        provenance = row["witnesses"][0]["writer"]
-        self.assertEqual((provenance["tag"], provenance["recipe_sha256"]), ("v0.1.0", row["recipe_sha256"]))
+        self.assertEqual(row["source"]["asset_digest"], row["asset_digest"])
 
     def test_an_unbound_remote_commit_holds_a_legacy_writer(self) -> None:
         # A v0.1.0 release whose remote commit does not bind the pinned source
@@ -526,7 +522,6 @@ class CaseTests(unittest.TestCase):
         row = self.case(writer, self.fixture.candidate())
         self.assertCase(row, "unknown", "invoke-legacy-proof")
         self.assertIn("does not bind the pinned source commit", row["detail"])
-        self.assertEqual(row["witnesses"], [])
         self.assertNotIn("invoke", row)
         self.assertNotIn("source_proof", row)
 
@@ -534,7 +529,6 @@ class CaseTests(unittest.TestCase):
         writer = dataclasses.replace(self.fixture.publish("v0.1.0"), commit="1" * 40)
         row = self.case(writer, self.fixture.candidate())
         self.assertCase(row, "unknown", "invoke-legacy-proof")
-        self.assertEqual(row["witnesses"], [])
         self.assertNotIn("source_proof", row)
 
     def test_the_empty_legacy_plan_hashes_distinctly(self) -> None:
@@ -565,12 +559,14 @@ class CaseTests(unittest.TestCase):
         self.assertCase(self.case(replaced, candidate), "unknown", "download")
 
     def test_candidate_failures_are_named(self) -> None:
-        for number, (mode, stage) in enumerate((("refuse", "restore"), ("mutate-source", "conservation"),
-                                                ("rewrite-event", "conservation"), ("drop-event", "restore"),
-                                                ("lose-effect", "effects"), ("rebuild-drift", "rebuild"))):
+        tags = ("v1.0.0", "v1.0.1", "v1.0.2", "v1.1.0", "v1.1.1", "v1.1.2", "v1.1.3", "v1.1.4")
+        for tag, (mode, stage) in zip(tags, (("refuse", "restore"), ("mutate-source", "conservation"),
+                            ("lose-effect", "effects"), ("wrong-source", "restore"),
+                            ("wrong-snapshot-id", "restore"), ("wrong-destination", "restore"),
+                            ("missing-inventory", "restore"), ("malformed-report", "harness"))):
             with self.subTest(mode=mode):
-                row = self.case(self.fixture.publish(("v1.1.0", "v1.1.1", "v1.1.2", "v1.1.3", "v1.1.4", "v1.0.2")[number]), self.fixture.candidate(mode))
-                self.assertCase(row, "fail", stage)
+                row = self.case(self.fixture.publish(tag), self.fixture.candidate(mode))
+                self.assertCase(row, "unknown" if stage == "harness" else "fail", stage)
 
     def test_resource_budgets_stop_the_case(self) -> None:
         candidate = self.fixture.candidate()
@@ -604,81 +600,34 @@ class CaseTests(unittest.TestCase):
     def args(self, candidate: Path, version: str = "v9.0.0") -> argparse.Namespace:
         return argparse.Namespace(repository="owner/repo", target_sha=TARGET, candidate=str(candidate), candidate_version=version,
                                   output_dir=str(self.fixture.root / "out"), workers=2, wall_seconds=600, case_seconds=60,
-                                  disk_bytes=1 << 30, transfer_bytes=1 << 30, census_dir=str(self.census()))
-
-    def census(self, rows: dict[str, dict] | None = None, covered: bool = False, written: tuple[str, ...] = ("v1.0.0", "v1.1.2"),
-               older_covered: bool = True, unbound: tuple[str, ...] = ()) -> Path:
-        """Write a shape census; by default it inventories v1.0.0 and v1.1.2, which write one unwitnessed shape."""
-        census = self.fixture.root / f"census-{len(list(self.fixture.root.glob('census-*')))}"
-        census.mkdir()
-        rows = rows if rows is not None else {tag: {"tag": tag, "status": "inventoried"} for tag in ("v1.0.0", "v1.1.2")}
-        (census / "writers.json").write_text(json.dumps({"rows": list(rows.values())}))
-        (census / "coverage.json").write_text(json.dumps({
-            "shapes": [{"kind": "work.created", "payload_version": 2, "writers": list(written), "covered": covered}],
-            "older_versions": [{"kind": "work.created", "payload_version": 1, "writers": list(written), "covered": older_covered}],
-            "unbound_writer_witnesses": list(unbound)}))
-        return census
-
-    def census_without(self, key: str, value: object = KeyError) -> Path:
-        """A closed census whose coverage lacks one section, or holds the given value there."""
-        census = self.census(covered=True)
-        coverage = json.loads((census / "coverage.json").read_text())
-        if value is KeyError:
-            del coverage[key]
-        else:
-            coverage[key] = value
-        (census / "coverage.json").write_text(json.dumps(coverage))
-        return census
+                                  disk_bytes=1 << 30, transfer_bytes=1 << 30)
 
     def gate_run(self, candidate: Path, *writers: gate.Writer) -> tuple[dict, int]:
         releases = [release_of(writer, index) for index, writer in enumerate(writers, start=1)]
         return gate.run_gate(self.args(candidate), releases, tag_map(*(writer.tag for writer in writers)))
 
-    def test_gate_passes_only_with_a_closed_census(self) -> None:
-        args = self.args(self.fixture.candidate())
-        args.census_dir = str(self.census(covered=True))
-        writers = (self.fixture.publish("v1.0.0"), self.fixture.publish("v1.1.2"))
-        releases = [release_of(writer, index) for index, writer in enumerate(writers, start=1)]
-        report, status = gate.run_gate(args, releases, tag_map(*(writer.tag for writer in writers)))
-        self.assertEqual((status, report["result"], report["coverage"]), (0, "pass", {"status": "closed", "writers": 2, "shapes": 1}))
-        emitted = [json.loads(line) for line in (Path(args.output_dir) / "witnesses.jsonl").read_text().splitlines()]
-        self.assertEqual(len(emitted), report["witnesses"])
-        self.assertEqual(sorted({w["writer"]["tag"] for w in emitted}), ["v1.0.0", "v1.1.2"])
-        self.assertFalse(any("witnesses" in row for row in report["rows"]))
-
-    def test_coverage_holds_on_every_census_gap(self) -> None:
-        writers = [gate.Writer(**{**dataclasses.asdict(self.fixture.publish("v1.0.0")), "tag": tag}) for tag in ("v1.0.0", "v1.1.2")]
-        excluded = {"tag": "v0.1.0", "status": "inventory_refused", "excluded": True}
-        cases = (
-            (self.census(covered=True), "closed", None),
-            (self.census({"v0.1.0": excluded, "v1.0.0": {"tag": "v1.0.0", "status": "inventoried"}}, covered=True), "held", "1 uninventoried writers, first v1.1.2"),
-            (self.census({"v1.0.0": {"tag": "v1.0.0", "status": "inventory_refused"}, "v1.1.2": {"tag": "v1.1.2", "status": "inventoried"}}, covered=True), "held", "1 refused writers, first v1.0.0"),
-            (self.census(covered=True, written=("v1.0.0",)), "held", "1 inventoried writers without shapes, first v1.1.2"),
-            (self.census(), "held", "1 unwitnessed shapes, first work.created v2"),
-            (self.census(covered=True, older_covered=False), "held", "1 unwitnessed older versions, first work.created v1"),
-            (self.census(covered=True, unbound=("v1.0.0 seq 3 work.created v1",)), "held", "1 unbound writer witnesses, first v1.0.0 seq 3"),
-            (self.fixture.root / "absent", "held", "is unreadable"),
-            (self.census_without("older_versions"), "held", "is unreadable"),
-            (self.census_without("unbound_writer_witnesses"), "held", "is unreadable"),
-            (self.census_without("unbound_writer_witnesses", None), "held", "is unreadable"),
-        )
-        for census, status, detail in cases:
-            coverage = gate.shape_coverage(census, writers)
-            self.assertEqual(coverage["status"], status, coverage)
-            if detail:
-                self.assertIn(detail, coverage["detail"])
-
-    def test_gate_holds_coverage_when_every_writer_passes(self) -> None:
-        report, status = self.gate_run(self.fixture.candidate(), self.fixture.publish("v1.0.0"), self.fixture.publish("v1.1.2"))
+    def test_gate_holds_target_coverage_when_every_writer_passes(self) -> None:
+        report, status = self.gate_run(self.fixture.candidate("retire-history"), self.fixture.publish("v1.0.0"), self.fixture.publish("v1.1.2"))
         self.assertEqual((status, report["result"], report["coverage"]["status"]), (3, "pass", "held"))
+        self.assertIn("target-cutover current-state coverage is unproved", report["coverage"]["detail"])
         self.assertEqual([row["tag"] for row in report["rows"]], ["v1.0.0", "v1.1.2"])
+        self.assertEqual(report["population"]["writers"], 2)
         self.assertGreater(report["budgets"]["transferred_bytes"], 0)
+        self.assertFalse((self.fixture.root / "out" / "witnesses.jsonl").exists())
 
     def test_gate_fails_on_any_writer_or_empty_population(self) -> None:
         report, status = self.gate_run(self.fixture.candidate(), self.fixture.publish("v1.0.0"), self.fixture.publish("v1.1.2", corrupt=True))
         self.assertEqual((status, report["result"], report["counts"]), (1, "fail", {"pass": 1, "fail": 1, "unknown": 0}))
         report, status = gate.run_gate(self.args(self.fixture.candidate()), [], {})
         self.assertEqual((status, report["result"]), (1, "unknown"))
+
+    def test_missing_writer_provenance_does_not_pass_the_population(self) -> None:
+        writers = (self.fixture.publish("v1.0.0"), self.fixture.publish("v1.1.2"))
+        releases = [release_of(writer, index) for index, writer in enumerate(writers, start=1)]
+        releases[1]["assets"].pop()
+        report, status = gate.run_gate(self.args(self.fixture.candidate()), releases, tag_map(*(writer.tag for writer in writers)))
+        self.assertEqual((status, report["result"], report["counts"]), (1, "unknown", {"pass": 1, "fail": 0, "unknown": 1}))
+        self.assertEqual(report["population"]["writers"], 2)
 
     def test_preflight_bounds_scratch_and_the_wall(self) -> None:
         args = self.args(self.fixture.candidate("grow-preflight"))
@@ -698,8 +647,6 @@ class CaseTests(unittest.TestCase):
         with self.assertRaisesRegex(gate.CaseFailure, "budget exhausted"):
             gate.snapshot_fixture(store, self.fixture.root / "late.db", "v1.0.0", deadline=time.monotonic() - 1)
         self.assertLess((self.fixture.root / "late.db").stat().st_size, store.stat().st_size, "the backup ran past its deadline")
-        with self.assertRaisesRegex(gate.CaseFailure, "budget exhausted"):
-            gate.event_rows(store, time.monotonic() - 1)
         gate.STOP.set()
         try:
             with self.assertRaisesRegex(gate.CaseFailure, "stopped by a signal"):
@@ -752,15 +699,33 @@ class CaseTests(unittest.TestCase):
 
 
 class SnapshotTests(unittest.TestCase):
-    def test_empty_journal_is_refused(self) -> None:
+    def test_snapshot_does_not_require_history(self) -> None:
+        for history in (False, True):
+            with self.subTest(history=history), tempfile.TemporaryDirectory() as directory:
+                store = Path(directory) / "store.db"
+                db = sqlite3.connect(store)
+                db.execute("CREATE TABLE schema_migrations (version INTEGER)")
+                db.execute("INSERT INTO schema_migrations VALUES (7)")
+                db.execute("CREATE TABLE current_effects (id TEXT, state TEXT)")
+                db.execute("INSERT INTO current_effects VALUES ('attempt', 'in_flight')")
+                if history:
+                    db.execute("CREATE TABLE domain_events (seq INTEGER PRIMARY KEY)")
+                db.commit()
+                db.close()
+                snapshot = Path(directory) / "snap.db"
+                manifest = gate.snapshot_fixture(store, snapshot, "v1.0.0")
+                self.assertEqual(manifest["db_checksum"], gate.sha256_file(snapshot))
+                restored = sqlite3.connect(snapshot)
+                try:
+                    self.assertEqual(restored.execute("SELECT * FROM current_effects").fetchall(), [("attempt", "in_flight")])
+                finally:
+                    restored.close()
+
+    def test_corrupt_input_is_not_a_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = Path(directory) / "store.db"
-            db = sqlite3.connect(store)
-            db.execute("CREATE TABLE schema_migrations (version INTEGER)")
-            db.execute("CREATE TABLE domain_events (seq INTEGER PRIMARY KEY)")
-            db.commit()
-            db.close()
-            with self.assertRaisesRegex(gate.CaseFailure, "empty"):
+            store.write_bytes(b"not SQLite")
+            with self.assertRaises(sqlite3.DatabaseError):
                 gate.snapshot_fixture(store, Path(directory) / "snap.db", "v1.0.0")
 
 

@@ -284,7 +284,7 @@ func bindWorkflowReviewIntent(state *WorkflowAdmissionState, actionID string, pa
 	}
 	if raw := fields["worker_packet"]; len(raw) != 0 {
 		if err := json.Unmarshal(raw, &packet); err != nil {
-			return err
+			return wrapFailure(KindInvalidPayload, "workflow_review", "workflow action payload field \"worker_packet\" has wrong registered type or bounds", false, "supply the declared worker packet object", err)
 		}
 		laneID = packet.LaneID
 	}

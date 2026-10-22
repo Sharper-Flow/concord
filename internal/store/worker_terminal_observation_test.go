@@ -329,9 +329,8 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 	})
 
 	t.Run("a failed terminal without findings carries the same frontier", func(t *testing.T) {
-		// The frontier joins the dispatch authorization alone, so this
-		// subtest pins the latest head that predates the attribution
-		// requirement and records the failed terminal without an observation.
+		// Findings may be absent; the current terminal still carries its host
+		// failure observation and the frontier from its original authorization.
 		breakFix, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
 		if !ok {
 			t.Fatal("workflow.break_fix v27 is not registered")
@@ -360,7 +359,7 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 			t.Fatal(err)
 		}
 		failure := workerFailedContextFindingsEvent(fixture.workID, "failed-frontier-f", attemptID, preferredModelForLane(lane), WorkerFailureWorkerError, nil, WorkerEvidenceEventPayloadVersion(WorkerFailed))
-		workerTerminalEventThroughSeamCtx(t, prepareWorkerTerminalDelivery(t, s, fixture.workID, attemptID, failure.EventID), s, failure)
+		workerTerminalEventThroughSeamCtx(t, prepareWorkerTerminalDelivery(t, s, fixture.workID, attemptID, failure.EventID), s, withWorkerFailureObservation(t, failure))
 		consumed, consumedPresent := rawTerminalFrontier(t, s, "failed-frontier-f")
 		if !consumedPresent {
 			t.Fatal("the failed terminal carries no consumed_context_frontier; a failure without findings still owes its authorization frontier")

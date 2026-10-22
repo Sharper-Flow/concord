@@ -163,9 +163,21 @@ func workerCompletedContextFindingsEvent(workID, eventID, attemptID, model strin
 }
 
 func workerFailedContextFindingsEvent(workID, eventID, attemptID, model, failureKind string, findings []WorkerContextFinding, version int) Event {
-	return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: version, Payload: mustJSONValue(WorkerFailedPayload{
+	payload := WorkerFailedPayload{
 		AttemptID: attemptID, ReadbackModel: model, FailureKind: failureKind, Detail: "bounded worker error", ContextFindings: findings,
-	})}
+	}
+	return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: version, Payload: mustJSONValue(payload)}
+}
+
+func withWorkerFailureObservation(t *testing.T, event Event) Event {
+	t.Helper()
+	var payload WorkerFailedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload.FailureAttribution = &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: workerFailureObservationFixture()}
+	event.Payload = mustJSONValue(payload)
+	return event
 }
 
 // TestWorkerTerminalEventsAdmitTypedContextFindings is the CON-887 retention
@@ -204,11 +216,12 @@ func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 		t.Fatalf("completion with typed findings refused: %v", err)
 	}
 
+	recordWorkerFixtureDispatchAuthorization(t, s, fixture.workID, "attempt-findings-failed", "repair", ownerRef)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-findings-failed", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
 	failure := workerFailedContextFindingsEvent(fixture.workID, "failed-findings", "attempt-findings-failed", model, WorkerFailureWorkerError, findings, WorkerEvidenceEventPayloadVersion(WorkerFailed))
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{failure}}); err != nil {
+	if err := s2WorkerFailedLive(t, s, withWorkerFailureObservation(t, failure)); err != nil {
 		t.Fatalf("worker_error failure with typed findings refused: %v", err)
 	}
 
@@ -404,10 +417,11 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompletedContextFindingsEvent("work-rebuild-findings", "rebuild-complete-findings", "attempt-rebuild-findings", model, lane, findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, "work-rebuild-findings"))}}); err != nil {
 			t.Fatal(err)
 		}
+		recordWorkerFixtureDispatchAuthorization(t, s, fixture.workID, "attempt-rebuild-findings-f", "repair", ownerRef)
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-rebuild-findings", "attempt-rebuild-findings-f", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerFailedContextFindingsEvent("work-rebuild-findings", "rebuild-failed-findings", "attempt-rebuild-findings-f", model, WorkerFailureWorkerError, findings, WorkerEvidenceEventPayloadVersion(WorkerFailed))}}); err != nil {
+		if err := s2WorkerFailedLive(t, s, withWorkerFailureObservation(t, workerFailedContextFindingsEvent("work-rebuild-findings", "rebuild-failed-findings", "attempt-rebuild-findings-f", model, WorkerFailureWorkerError, findings, WorkerEvidenceEventPayloadVersion(WorkerFailed)))); err != nil {
 			t.Fatal(err)
 		}
 		before := workerProjectionSnapshot(t, s)

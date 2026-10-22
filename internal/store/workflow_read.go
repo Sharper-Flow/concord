@@ -246,11 +246,6 @@ type WorkflowReadProjection struct {
 	// selection as effective_artifact: the correction's merge evidence when a
 	// correction exists, the asserted artifact otherwise.
 	DeliveryAssertion *WorkflowReadDeliveryAssertion `json:"delivery_assertion,omitempty"`
-	// RetryWindow is the CD-0164 D5 readable retry window, derived in this
-	// projection's transaction from the derivations the admission fold
-	// answers from. It stays nil when the projection carries no workflow
-	// instance.
-	RetryWindow *WorkflowRetryWindow `json:"retry_window,omitempty"`
 }
 
 // readWorkflowProjectionTx returns the bounded workflow observation from the
@@ -350,16 +345,6 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 			return out, err
 		}
 	}
-
-	// The CD-0164 D5 retry window rides the projection after the contract
-	// phase, so a duplicated or unreadable contract projection keeps its
-	// existing refusal semantics and the window derives no invented anchor
-	// over it.
-	window, windowErr := workflowRetryWindowRead(ctx, q, request.WorkID, out.CurrentStep, "workflow_read")
-	if windowErr != nil {
-		return out, windowErr
-	}
-	out.RetryWindow = window
 
 	rows, err := q.QueryContext(ctx, `SELECT candidate_ref FROM workflow_candidate_sets WHERE work_id=? AND contract_version=COALESCE(?,0) ORDER BY candidate_ref LIMIT ?`, request.WorkID, activeContractVersion, request.Limit)
 	if err != nil {

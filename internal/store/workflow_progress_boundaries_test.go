@@ -6,8 +6,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // The progress fold's satisfactions own
@@ -71,172 +69,65 @@ func progressBoundariesSeed(t *testing.T, workID, step string) (workflowReturnRo
 	return fixture, worker
 }
 
-// TestProgressCoordinatorSatisfactionPreservesDispatchWindow
-// splits the boundary the failed attempt and the qualified coordinator
-// satisfaction share. Beside a real failed job-bound attempt the satisfaction
-// is spent: the failed obligation's debt renews nothing, and the exact retry
-// binding, the dispatch counting window, and every anchor keep their
-// identity. Without debt the same real satisfaction anchors the nonprogress
-// window at its own recorded evidence event, the read surfaces agree, and a
-// projection rebuild reproduces the window.
-func TestProgressCoordinatorSatisfactionPreservesDispatchWindow(t *testing.T) {
+// TestCoordinatorSatisfactionPreservesFailedJobCorrection
+// A coordinator evidence binding cannot discharge a failed job or substitute
+// another correction source for the failed attempt's own record.
+func TestCoordinatorSatisfactionPreservesFailedJobCorrection(t *testing.T) {
 	ctx := context.Background()
+	const workID = "progress-boundary-retry-binding"
 	const step = "repair"
-
-	t.Run("beside the failed attempt the satisfaction is spent and the binding stays exact", func(t *testing.T) {
-		const workID = "progress-boundary-retry-binding"
-		fixture, worker := progressBoundariesSeed(t, workID, step)
-		s := fixture.store
-		defer s.Close()
-
-		// A real job-bound attempt fails at the repair step.
-		const jobID = "job:progress-boundary"
-		if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, map[string]any{
-			"job_id": jobID, "objective": "Satisfy the failed obligation behind the coordinator satisfaction",
-			"stopping_condition": "the recorded checks pass", "checks": []string{"go test ./internal/store"},
-			"ready": true, "readiness_evidence": []string{"evidence:progress-boundary-ready"},
-		}); err != nil {
-			t.Fatal(err)
+	fixture, worker := progressBoundariesSeed(t, workID, step)
+	s := fixture.store
+	defer s.Close()
+	const jobID = "job:progress-boundary"
+	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, map[string]any{
+		"job_id": jobID, "objective": "Satisfy the failed obligation behind the coordinator satisfaction",
+		"stopping_condition": "the recorded checks pass", "checks": []string{"go test ./internal/store"},
+		"ready": true, "readiness_evidence": []string{"evidence:progress-boundary-ready"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	views, err := readWorkerJobRevisions(ctx, s.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var revision *WorkerJobBinding
+	for i := range views {
+		if views[i].Binding.JobID == jobID {
+			binding := views[i].Binding
+			revision = &binding
 		}
-		views, err := readWorkerJobRevisions(ctx, s.db, workID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var revision *WorkerJobBinding
-		for i := range views {
-			if views[i].Binding.JobID == jobID {
-				binding := views[i].Binding
-				revision = &binding
-			}
-		}
-		if revision == nil {
-			t.Fatal("the job revision was not recorded")
-		}
-		attempt := "attempt:" + workID + ":1"
-		dispatchJobBoundAttempt(t, s, workID, step, attempt, nil, worker, 0, "progress-boundary-attempt-1", revision)
-		s2WorkerFailedAttributedLive(t, s, workID, attempt, "the attempt failed before a judgeable result")
-		if records := s2DerivedFailureRecords(t, s, workID, attempt); len(records) != 1 {
-			t.Fatalf("derived failure records = %d, want the one record the terminal derived", len(records))
-		}
-
-		before := readRetryWindow(t, s, workID, step)
-		if before.Policy != WorkflowProgressPolicyObligationSatisfactionV1 {
-			t.Fatalf("window policy = %q, want the fresh head's %q", before.Policy, WorkflowProgressPolicyObligationSatisfactionV1)
-		}
-		if before.NonprogressAnchor == nil || before.NonprogressAnchor.Kind != WorkflowEvidenceBound || before.NonprogressAnchor.Qualification != "required_evidence_bound" {
-			t.Fatalf("nonprogress anchor before the satisfaction = %+v, want the seeded first evidence binding", before.NonprogressAnchor)
-		}
-		if before.DispatchCount != 1 || before.Count != 1 || before.CorrectionEscalated || before.BlockingPopulation != "none" {
-			t.Fatalf("window after the failure = %+v, want one counted dispatch, no escalation", before)
-		}
-		if before.WorkerSatisfactionAnchor != nil {
-			t.Fatalf("worker satisfaction anchor = %+v, want an explicit null with no acceptance", before.WorkerSatisfactionAnchor)
-		}
-
-		// The coordinator supersedes the contract to require one unbound kind,
-		// then binds that kind for real. The consequence_v1 head takes no
-		// operator substitution: the coordinator supersedes under its own
-		// authenticated identity. The failed obligation's debt spends the
-		// qualification: nothing renews.
-		if err := runVerdictActionAs(t, s, workID, "supersede_contract", progressBoundariesSuccessorPayload(t, s, workID), 0, fixture.owner); err != nil {
-			t.Fatalf("supersede the contract at the dispatch checkpoint: %v", err)
-		}
-		if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "commit", "immutable_subject_ref": "commit:" + workID}), 0, fixture.owner); err != nil {
-			t.Fatalf("bind the newly required evidence kind: %v", err)
-		}
-
-		if count := jobWindowCorrectionCount(t, s, workID); count != 1 {
-			t.Fatalf("correction count after the satisfaction = %d, want the one failed dispatch preserved", count)
-		}
-		window := readRetryWindow(t, s, workID, step)
-		// The counting prefix advances with the recorded events; every
-		// anchor-bearing field stays with the failure era.
-		if window.NonprogressAnchor == nil || before.NonprogressAnchor == nil || window.NonprogressAnchor.Seq != before.NonprogressAnchor.Seq || window.NonprogressAnchor.ObligationID != before.NonprogressAnchor.ObligationID {
-			t.Fatalf("nonprogress anchor moved with the spent satisfaction: %+v against %+v", window.NonprogressAnchor, before.NonprogressAnchor)
-		}
-		if window.Count != before.Count || window.DispatchCount != before.DispatchCount || window.CorrectionEscalated != before.CorrectionEscalated || window.BlockingPopulation != before.BlockingPopulation || !reflect.DeepEqual(window.UnresolvedObligations, before.UnresolvedObligations) || window.WorkerSatisfactionAnchor != nil {
-			t.Fatalf("window after the spent satisfaction = %+v, want the unchanged populations of %+v", window, before)
-		}
-
-		// Rebuild parity: the same anchors fold from the log.
-		if err := RebuildFromLog(ctx, s); err != nil {
-			t.Fatalf("rebuild from the log: %v", err)
-		}
-		rebuilt := readRetryWindow(t, s, workID, step)
-		if !reflect.DeepEqual(rebuilt, window) {
-			t.Fatalf("rebuilt window = %+v, want the live window %+v", rebuilt, window)
-		}
-	})
-
-	t.Run("without debt the satisfaction anchors its own event with read and rebuild parity", func(t *testing.T) {
-		const workID = "progress-boundary-satisfaction-anchor"
-		fixture, _ := progressBoundariesSeed(t, workID, step)
-		s := fixture.store
-		defer s.Close()
-
-		if err := runVerdictActionAs(t, s, workID, "supersede_contract", progressBoundariesSuccessorPayload(t, s, workID), 0, fixture.owner); err != nil {
-			t.Fatalf("supersede the contract at the dispatch checkpoint: %v", err)
-		}
-		if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "commit", "immutable_subject_ref": "commit:" + workID}), 0, fixture.owner); err != nil {
-			t.Fatalf("bind the newly required evidence kind: %v", err)
-		}
-		var boundSeq int64
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')='commit'`, workID, WorkflowEvidenceBound).Scan(&boundSeq); err != nil {
-			t.Fatal(err)
-		}
-
-		// The first qualified satisfaction anchors the nonprogress window at
-		// its own recorded evidence event and renews nothing else.
-		window := readRetryWindow(t, s, workID, step)
-		anchor := window.NonprogressAnchor
-		if anchor == nil || anchor.Seq != boundSeq || anchor.EventID == "" || anchor.Kind != WorkflowEvidenceBound || anchor.Qualification != "required_evidence_bound" || anchor.ObligationID != "evidence:commit" {
-			t.Fatalf("nonprogress anchor = %+v, want the commit binding at seq %d", anchor, boundSeq)
-		}
-		var eventID, eventKind string
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT event_id,kind FROM domain_events WHERE seq=? AND subject_type='work_item' AND subject_id=?`, boundSeq, workID).Scan(&eventID, &eventKind); err != nil {
-			t.Fatal(err)
-		}
-		if anchor.EventID != eventID || anchor.Kind != eventKind {
-			t.Fatalf("anchor names (%s,%s), want the log row (%s,%s)", anchor.EventID, anchor.Kind, eventID, eventKind)
-		}
-		if window.WorkerSatisfactionAnchor != nil {
-			t.Fatalf("worker satisfaction anchor = %+v, want an explicit null", window.WorkerSatisfactionAnchor)
-		}
-		if window.DispatchCount != 0 || window.Count != 0 || window.CorrectionEscalated || window.BlockingPopulation != "none" {
-			t.Fatalf("window after the satisfaction = %+v, want no counted worker and no wall", window)
-		}
-
-		// Read parity: the pin and the workflow projection carry the standalone
-		// derivation's exact window, and the window validates against the
-		// published contract.
-		pin := issue1013Pin(t, s, workID)
-		if pin.RetryWindow == nil || !reflect.DeepEqual(pin.RetryWindow, window) {
-			t.Fatalf("pin retry window = %+v, want the standalone window %+v", pin.RetryWindow, window)
-		}
-		projection, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if projection.RetryWindow == nil || !reflect.DeepEqual(projection.RetryWindow, window) {
-			t.Fatalf("projection retry window = %+v, want the standalone window %+v", projection.RetryWindow, window)
-		}
-		marshaled, err := json.Marshal(window)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := payloadschema.Validate("workflow_retry_window", marshaled); err != nil {
-			t.Fatalf("the satisfied window violates the published contract: %v", err)
-		}
-
-		// Rebuild parity: the recorded satisfactions fold to the same window.
-		if err := RebuildFromLog(ctx, s); err != nil {
-			t.Fatalf("rebuild from the log: %v", err)
-		}
-		rebuilt := readRetryWindow(t, s, workID, step)
-		if !reflect.DeepEqual(rebuilt, window) {
-			t.Fatalf("rebuilt window = %+v, want the live window %+v", rebuilt, window)
-		}
-	})
+	}
+	if revision == nil {
+		t.Fatal("the job revision was not recorded")
+	}
+	attempt := "attempt:" + workID + ":1"
+	dispatchJobBoundAttempt(t, s, workID, step, attempt, nil, worker, 0, "progress-boundary-attempt-1", revision)
+	s2WorkerFailedAttributedLive(t, s, workID, attempt, "the attempt failed before a judgeable result")
+	if records := s2DerivedFailureRecords(t, s, workID, attempt); len(records) != 1 {
+		t.Fatalf("derived failure records = %d, want one", len(records))
+	}
+	before, err := workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, step, "")
+	if err != nil || before == nil || before.FailedAttemptID != attempt {
+		t.Fatalf("failed correction=%+v err=%v", before, err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "supersede_contract", progressBoundariesSuccessorPayload(t, s, workID), 0, fixture.owner); err != nil {
+		t.Fatalf("supersede the contract at the dispatch checkpoint: %v", err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "commit", "immutable_subject_ref": "commit:" + workID}), 0, fixture.owner); err != nil {
+		t.Fatalf("bind the newly required evidence kind: %v", err)
+	}
+	after, err := workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, step, "")
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("evidence binding changed the failed correction: before=%+v after=%+v err=%v", before, after, err)
+	}
+	history, err := workflowCorrectionWalkWorkerSatisfaction(ctx, s.DatabaseForTesting(), workID, 1<<62, "progress_boundaries")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !history.unresolved[workerJobKey(revision.JobID, revision.Revision)] {
+		t.Fatalf("evidence binding discharged the failed job: %v", history.unresolved)
+	}
 }
 
 // TestProgressSatisfactionSpendsUnderChecksRepairDebtAndClearsOnlyWithConfirmation
@@ -376,41 +267,6 @@ func TestArmedProgressWallWallsOnlyWorkerDispatch(t *testing.T) {
 	counters := walledResearchReadCounters(t, f)
 	walledResearchAssertRefused(t, f, dispatchCorrectionAuthorize(t, f, "attempt:"+workID+":5", f.researchLane, f.dispatcher), counters, "the dispatch behind the armed wall")
 
-	// The window folds the wall's populations with the truth about every
-	// anchor: nothing qualified in this legacy journey, so every derived
-	// anchor is an explicit null and the wall names both populations.
-	window := readRetryWindow(t, s, workID, f.step)
-	if window.Policy != "worker_acceptance" {
-		t.Fatalf("policy = %q, want the legacy pin's worker_acceptance", window.Policy)
-	}
-	if window.Count != 4 || window.DispatchCount != 4 || window.VerificationCount != 0 {
-		t.Fatalf("window populations = %+v, want the four non-progress attempts in both worker populations", window)
-	}
-	if !window.CorrectionEscalated || window.BlockingPopulation != "both" {
-		t.Fatalf("wall = escalated %v blocking %q, want both populations", window.CorrectionEscalated, window.BlockingPopulation)
-	}
-	for name, anchor := range map[string]*WorkflowProgressAnchor{
-		"nonprogress":         window.NonprogressAnchor,
-		"worker_satisfaction": window.WorkerSatisfactionAnchor,
-		"verification":        window.VerificationBaseline,
-	} {
-		if anchor != nil {
-			t.Fatalf("%s anchor = %+v, want an explicit null", name, anchor)
-		}
-	}
-	if window.ConvergenceBasis != "" || window.FundedConfirmingReviews != 0 {
-		t.Fatalf("convergence basis %q with %d funded reviews; the wall stands without either", window.ConvergenceBasis, window.FundedConfirmingReviews)
-	}
-	if marshaled, err := json.Marshal(window); err != nil {
-		t.Fatal(err)
-	} else if err := payloadschema.Validate("workflow_retry_window", marshaled); err != nil {
-		t.Fatalf("the walled window violates the published contract: %v", err)
-	}
-	pin := issue1013Pin(t, s, workID)
-	if pin.RetryWindow == nil || !reflect.DeepEqual(pin.RetryWindow, window) {
-		t.Fatalf("pin retry window = %+v, want the standalone window %+v", pin.RetryWindow, window)
-	}
-
 	// The wall walls dispatch alone. Every other declared action answers the
 	// folded admission state without the convergence refusal, so the
 	// coordinator-only satisfaction path stays open beside the armed wall.
@@ -445,13 +301,5 @@ func TestArmedProgressWallWallsOnlyWorkerDispatch(t *testing.T) {
 	}
 	if walled == 0 {
 		t.Fatal("no coordinator-only action stands admitted beside the armed wall; the satisfaction path is closed")
-	}
-
-	// The walled window survives a projection rebuild byte-for-byte.
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild from the log: %v", err)
-	}
-	if rebuilt := readRetryWindow(t, s, workID, f.step); !reflect.DeepEqual(rebuilt, window) {
-		t.Fatalf("rebuilt window = %+v, want the live window %+v", rebuilt, window)
 	}
 }

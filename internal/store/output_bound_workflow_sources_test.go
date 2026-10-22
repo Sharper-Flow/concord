@@ -609,12 +609,6 @@ func init() {
 		unboundedOutput("deriveWorkflowReady scans every open workflow_external_conditions row with no LIMIT (internal/store/workflow_conditions.go:21) and appends one unknown entry per condition whose authority is not a durable_operation of this work (internal/store/workflow_conditions.go:44-52), while the add_condition fold admits one condition per call with per-field byte caps only (internal/store/workflow.go:3906-3927), so the open-condition count is uncapped", readSizeRefusalPath))
 	registerOutputBound("/$defs/workflow_read/properties/unresolved_conditions/maxItems", readPageLimit)
 
-	// Retry window: the unresolved obligation identity list is hard-truncated
-	// to the window's own limit constant with the explicit omitted count
-	// (workflow_retry_window.go:109-112), so the array rides that constant.
-	registerOutputBound("/$defs/workflow_retry_window/properties/unresolved_obligations/maxItems",
-		goConstantBound("internal/store/workflow_retry_window.go", "WorkflowRetryWindowObligationLimit", boundItems))
-
 	// Self-repair: the shape validator's own constant.
 	registerOutputBound("/$defs/workflow_self_repair/properties/evidence_refs/maxItems",
 		goConstantBound("internal/store/workflow_self_repair.go", "workflowSelfRepairMaxEvidence", boundItems))

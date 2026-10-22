@@ -2,40 +2,8 @@ package store
 
 import (
 	"context"
-	"encoding/json"
-	"strings"
 	"testing"
 )
-
-// The "verdict evidence is not durably bound" refusal names every unbound
-// ref, and the WorkPin exposes the bound immutable_subject_ref set with kinds
-// at steps that declare record_verdict. A caller that cites a locator or
-// another non-bound form learns what qualifies without reading the raw store.
-
-// A verdict citing one bound ref and one unbound URL is refused with the URL
-// named and the qualifying form stated. The durable-binding requirement
-// itself is unchanged.
-func TestUnboundVerdictEvidenceRefusalNamesTheRef(t *testing.T) {
-	t.Parallel()
-	const workID = "issue974-named-refusal"
-	s, _, reviewer := seedItemAtAcceptance(t, workID, false)
-	unbound := "https://github.com/Sharper-Flow/concord/issues/952#issuecomment-5594041977"
-
-	payload, _ := json.Marshal(map[string]any{"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{unbound, "attempt:" + workID}})
-	err := runVerdictActionAs(t, s, workID, "record_verdict", payload, 0, reviewer)
-	if err == nil {
-		t.Fatal("verdict with an unbound ref was accepted")
-	}
-	if !strings.Contains(err.Error(), unbound) {
-		t.Fatalf("refusal err=%v, want it to name the unbound ref %q", err, unbound)
-	}
-	if !strings.Contains(err.Error(), "must equal a bound immutable_subject_ref") {
-		t.Fatalf("refusal err=%v, want it to state the qualifying ref form", err)
-	}
-	if strings.Contains(err.Error(), "attempt:"+workID) {
-		t.Fatalf("refusal err=%v, must not name the bound ref", err)
-	}
-}
 
 // The WorkPin exposes the bound evidence set with kinds at a step that
 // declares record_verdict, and stays empty at a step that does not.

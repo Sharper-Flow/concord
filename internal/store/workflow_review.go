@@ -546,7 +546,7 @@ func workflowCriterionReceipt(ctx context.Context, q queryer, workID, predicate,
 				}
 			}
 		}
-		return reviewFailure(KindMissingEvidence, "criterion "+predicate+" cites no current evidenced research finding", "select the exact pack, revision and evidenced finding through record_work_context and cite its research view reference")
+		return reviewFailure(KindMissingEvidence, "criterion "+predicate+" cites no current evidenced research finding; "+ref+" does not qualify", "select the exact pack, revision and evidenced finding through record_work_context and cite its research view reference")
 	}
 	producer, err := readOracleVerifySubjectReceipt(ctx, q, workID, ref)
 	if err != nil {

@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -14,37 +15,38 @@ func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
 		fields func(string) map[string]any
 		kind   FailureKind
 		count  int
+		badRef string
 	}{
 		{"two criteria", func(ref string) map[string]any {
 			return map[string]any{"verdicts": []any{entry("predicate:first", ref), entry("predicate:second", ref)}}
-		}, "", 2},
+		}, "", 2, ""},
 		{"one criterion", func(ref string) map[string]any {
 			return map[string]any{"verdicts": []any{entry("predicate:first", ref)}}
-		}, "", 1},
+		}, "", 1, ""},
 		{"unapproved last criterion", func(ref string) map[string]any {
 			return map[string]any{"verdicts": []any{entry("predicate:first", ref), entry("predicate:foreign", ref)}}
-		}, KindInvalidPayload, 0},
+		}, KindInvalidPayload, 0, ""},
 		{"unproved last criterion", func(ref string) map[string]any {
 			return map[string]any{"verdicts": []any{entry("predicate:first", ref), entry("predicate:second", "research:invented")}}
-		}, KindMissingEvidence, 0},
+		}, KindMissingEvidence, 0, "research:invented"},
 		{"duplicate criterion", func(ref string) map[string]any {
 			return map[string]any{"verdicts": []any{entry("predicate:first", ref), entry("predicate:first", ref)}}
-		}, KindInvalidPayload, 0},
+		}, KindInvalidPayload, 0, ""},
 		{"missing receipts", func(string) map[string]any {
 			return map[string]any{"verdicts": []any{map[string]any{"predicate_id": "predicate:first"}}}
-		}, KindInvalidPayload, 0},
+		}, KindInvalidPayload, 0, ""},
 		{"empty receipts", func(string) map[string]any {
 			return map[string]any{"verdicts": []any{map[string]any{"predicate_id": "predicate:first", "receipt_refs": []string{}}}}
-		}, KindInvalidPayload, 0},
-		{"empty batch", func(string) map[string]any { return map[string]any{"verdicts": []any{}} }, KindInvalidPayload, 0},
+		}, KindInvalidPayload, 0, ""},
+		{"empty batch", func(string) map[string]any { return map[string]any{"verdicts": []any{}} }, KindInvalidPayload, 0, ""},
 		{"scalar verdict", func(ref string) map[string]any {
 			return map[string]any{"predicate_id": "predicate:first", "verdict_kind": "ok", "evaluation_evidence": []string{ref}}
-		}, KindInvalidPayload, 0},
+		}, KindInvalidPayload, 0, ""},
 		{"caller verdict", func(ref string) map[string]any {
 			value := entry("predicate:first", ref)
 			value["verdict_kind"] = "ok"
 			return map[string]any{"verdicts": []any{value}}
-		}, KindInvalidPayload, 0},
+		}, KindInvalidPayload, 0, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			definition, err := BuiltinWorkflowDefinitionForRef("workflow.research")
@@ -87,6 +89,17 @@ func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
 			if tc.kind != "" {
 				if !hasFailureKind(preflight, tc.kind) || !hasFailureKind(err, tc.kind) {
 					t.Fatalf("preflight=%v mutation=%v, want %s", preflight, err, tc.kind)
+				}
+				if tc.badRef != "" {
+					for _, refusal := range []error{preflight, err} {
+						if !strings.Contains(refusal.Error(), tc.badRef) || strings.Contains(refusal.Error(), ref) {
+							t.Errorf("refusal must name only the disqualified reference %q, not %q: %v", tc.badRef, ref, refusal)
+						}
+						var failure *Failure
+						if !failureAs(refusal, &failure) || !strings.Contains(failure.RecoveryAction, "record_work_context") || !strings.Contains(failure.RecoveryAction, "research view reference") {
+							t.Errorf("refusal must explain how to select and cite qualifying research proof: %v", refusal)
+						}
+					}
 				}
 				if after := contractCorrectionEffectSnapshot(t, f.store, workID); after != before {
 					t.Fatal("refused criterion batch changed durable state")

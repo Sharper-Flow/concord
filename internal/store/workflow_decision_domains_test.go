@@ -11,9 +11,9 @@ import (
 // The typed decision fact is a contract-owned array on workflow.contract_approved
 // and its successor construction. The closed canonical set is preference,
 // product, ui_ux; [] is engineering; NULL on the projection column is
-// historical absence, never engineering. These tests pin the storage-layer
-// round trip alone: no public action field exists in this slice, so events are
-// constructed directly at explicit payload versions.
+// historical absence, never engineering. Current approvals require the fact;
+// the read decoder and projection hash still distinguish a stored NULL from [].
+// Storage events are constructed directly at explicit payload versions.
 
 // decisionDomainsContract builds one contract-approved payload for a research
 // fixture with an optional decision_domains value (nil omits the member).
@@ -90,6 +90,20 @@ func storedDecisionDomains(t *testing.T, s *Store, workID string, contractVersio
 	return *raw
 }
 
+// seedStoredDecisionDomainAbsence isolates the read/hash representation of a
+// stored NULL without claiming that a current approval may author that shape.
+func seedStoredDecisionDomainAbsence(t *testing.T, s *Store, workID string) {
+	t.Helper()
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		_, err := tx.tx.ExecContext(context.Background(), `INSERT INTO fold_guard(active) VALUES(1);
+			UPDATE workflow_contracts SET decision_domains=NULL WHERE work_id=?;
+			DELETE FROM fold_guard`, workID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // decisionContractCount counts the contract rows a work item holds.
 func decisionContractCount(t *testing.T, s *Store, workID string) int {
 	t.Helper()
@@ -117,26 +131,19 @@ func projectedDecisionDomains(t *testing.T, s *Store, workID string) []string {
 func TestDecisionDomains(t *testing.T) {
 	t.Parallel()
 
-	t.Run("missing and null are historical absence", func(t *testing.T) {
+	t.Run("current approvals refuse missing and null facts atomically", func(t *testing.T) {
 		t.Parallel()
-		s := openTemp(t)
-		defer s.Close()
-		seedDecisionDomainsItemFatal(t, s, "decision-missing", nil)
-		if stored := storedDecisionDomains(t, s, "decision-missing", 1); stored != "" {
-			t.Fatalf("a contract without the fact stored %q, want NULL absence", stored)
-		}
-		if domains := projectedDecisionDomains(t, s, "decision-missing"); domains != nil {
-			t.Fatalf("a contract without the fact projected %v, want nil absence", domains)
-		}
-		// An explicit JSON null member decodes to the same historical absence.
-		s2 := openTemp(t)
-		defer s2.Close()
-		seedDecisionDomainsItemFatal(t, s2, "decision-null", json.RawMessage("null"))
-		if stored := storedDecisionDomains(t, s2, "decision-null", 1); stored != "" {
-			t.Fatalf("a null decision_domains stored %q, want NULL absence", stored)
-		}
-		if domains := projectedDecisionDomains(t, s2, "decision-null"); domains != nil {
-			t.Fatalf("a null decision_domains projected %v, want nil absence", domains)
+		for name, domains := range map[string]any{"missing": nil, "null": json.RawMessage("null")} {
+			s := openTemp(t)
+			workID := "decision-" + name
+			err := seedDecisionDomainsItem(t, s, workID, domains, workflowContractDecisionDomainsPayloadVersion)
+			if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "requires the declared decision-domain fact") {
+				t.Fatalf("%s decision fact error = %v, want the declared-fact refusal", name, err)
+			}
+			if decisionContractCount(t, s, workID) != 0 || readWorkVersion(t, s, workID) != 2 {
+				t.Fatalf("%s refusal changed the contract population or work version", name)
+			}
+			s.Close()
 		}
 	})
 
@@ -263,7 +270,7 @@ func TestDecisionDomains(t *testing.T) {
 		}
 	})
 
-	t.Run("legacy clone preserves the recorded fact", func(t *testing.T) {
+	t.Run("current supersession refuses the legacy clone route atomically", func(t *testing.T) {
 		t.Parallel()
 		s := openTemp(t)
 		defer s.Close()
@@ -277,11 +284,15 @@ func TestDecisionDomains(t *testing.T) {
 			"previous_contract_version": 1, "new_contract_version": 2,
 			"supersede_reason": "legacy revision", "audit_evidence": []string{"evidence:clone-audit"},
 		})
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{clone}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "decision-clone"): version}}); err != nil {
-			t.Fatalf("legacy clone refused: %v", err)
+		err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{clone}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "decision-clone"): version}})
+		if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "cannot use the legacy clone route") {
+			t.Fatalf("legacy clone error = %v, want the current supersession refusal", err)
 		}
-		if stored := storedDecisionDomains(t, s, "decision-clone", 2); stored != `["ui_ux"]` {
-			t.Fatalf("cloned successor stored %q, want the predecessor's recorded fact carried forward", stored)
+		if decisionContractCount(t, s, "decision-clone") != 1 || readWorkVersion(t, s, "decision-clone") != version {
+			t.Fatal("refused clone changed the contract population or work version")
+		}
+		if stored := storedDecisionDomains(t, s, "decision-clone", 1); stored != `["ui_ux"]` {
+			t.Fatalf("refused clone changed the predecessor's recorded fact to %q", stored)
 		}
 	})
 
@@ -291,39 +302,15 @@ func TestDecisionDomains(t *testing.T) {
 			"v1": 1,
 			"v4": workflowContractDecisionDomainsPayloadVersion - 1,
 		} {
-			s := openTemp(t)
-			if err := seedDecisionDomainsItem(t, s, "decision-old-"+name, nil, version); err != nil {
-				t.Fatalf("recorded v%s replay refused: %v", name, err)
-			}
-			var payload string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, "decision-contract-decision-old-"+name).Scan(&payload); err != nil {
-				t.Fatal(err)
-			}
-			if containsJSONMember(payload) {
-				t.Errorf("replay upcast injected the typed fact into historical bytes: %s", payload)
-			}
-			if stored := storedDecisionDomains(t, s, "decision-old-"+name, 1); stored != "" {
-				t.Errorf("old v%s replay stored %q, want NULL absence", name, stored)
-			}
-			before := fullWorkflowProjectionSnapshot(t, s)
-			hashBefore, err := WorkflowProjectionHash(context.Background(), s)
+			event := workflowEvent("decision-contract-old-"+name, WorkflowContractApproved, "decision-old-"+name, decisionDomainsContract("decision-old-"+name, 1, nil))
+			event.PayloadVersion = version
+			upcast, err := upcastEvent(event)
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("%s upcast refused: %v", name, err)
 			}
-			if err := RebuildFromLog(context.Background(), s); err != nil {
-				t.Fatalf("rebuild: %v", err)
+			if containsJSONMember(string(upcast.Payload)) {
+				t.Errorf("upcast injected the typed fact into historical bytes: %s", upcast.Payload)
 			}
-			if before != fullWorkflowProjectionSnapshot(t, s) {
-				t.Errorf("v%s replay rebuild diverged from the live projection", name)
-			}
-			hashAfter, err := WorkflowProjectionHash(context.Background(), s)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if hashBefore != hashAfter {
-				t.Errorf("v%s replay rebuild moved the full projection hash", name)
-			}
-			s.Close()
 		}
 	})
 
@@ -425,7 +412,6 @@ func TestDecisionDomains(t *testing.T) {
 		t.Parallel()
 		hashes := map[string]string{}
 		for name, domains := range map[string]any{
-			"absent":      nil,
 			"engineering": []string{},
 			"declared":    []string{"product"},
 		} {
@@ -446,6 +432,21 @@ func TestDecisionDomains(t *testing.T) {
 				t.Errorf("%s fact rebuild moved the full production hash", name)
 			}
 			hashes[name] = first
+			if name == "engineering" {
+				seedStoredDecisionDomainAbsence(t, s, "decision-hash")
+				absent, err := WorkflowProjectionHash(context.Background(), s)
+				if err != nil {
+					t.Fatal(err)
+				}
+				hashes["absent"] = absent
+				if err := RebuildFromLog(context.Background(), s); err != nil {
+					t.Fatal(err)
+				}
+				restored, err := WorkflowProjectionHash(context.Background(), s)
+				if err != nil || restored != first {
+					t.Fatalf("rebuild did not restore the recorded explicit fact: %s != %s (%v)", restored, first, err)
+				}
+			}
 			s.Close()
 		}
 		if hashes["absent"] == hashes["engineering"] {

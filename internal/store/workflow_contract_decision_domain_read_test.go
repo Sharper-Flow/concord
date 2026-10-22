@@ -83,7 +83,10 @@ func TestHistoricalReadCarriesContractDecisionDomains(t *testing.T) {
 		t.Parallel()
 		absent := openTemp(t)
 		defer absent.Close()
-		seedDecisionDomainsItemFatal(t, absent, "decision-historical-absent", nil)
+		seedDecisionDomainsItemFatal(t, absent, "decision-historical-absent", []string{})
+		// The read decoder must preserve an existing NULL. Current approval
+		// refuses that shape, so seed the stored read facet directly.
+		seedStoredDecisionDomainAbsence(t, absent, "decision-historical-absent")
 		absentProjection, err := ReadWorkflowProjection(context.Background(), absent, WorkflowReadRequest{WorkID: "decision-historical-absent", ContractVersion: 1})
 		if err != nil {
 			t.Fatalf("absent historical read: %v", err)

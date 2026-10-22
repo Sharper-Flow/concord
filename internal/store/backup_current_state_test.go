@@ -99,6 +99,66 @@ func TestRestoreStageRejectsCurrentStateTampering(t *testing.T) {
 	}
 }
 
+func TestBackupOccupancyPreservesCurrentRowsAndRefusesLoss(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, git, _ := worktreeFixture(t)
+	defer s.Close()
+	if _, err := s.ClaimWorktree(ctx, baseClaim(git)); err != nil {
+		t.Fatal(err)
+	}
+	worktreeID := worktreeOccupancyID(WorktreeSetID("work-w"), "project-w", "wt-op-1")
+	// Current occupancy is authority even without an event that recreates it.
+	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,has_process_identity) VALUES(?,'session:current-occupant','2026-10-22T00:00:00Z',0);
+DELETE FROM fold_guard`, worktreeID); err != nil {
+		t.Fatal(err)
+	}
+	query := `SELECT * FROM worktree_occupancy WHERE session_ref='session:current-occupant'`
+	want := captureEvidenceRows(t, s.db, query)
+	if len(want) != 1 {
+		t.Fatalf("fixture must carry the current occupant: %v", want)
+	}
+	snapshot := filepath.Join(t.TempDir(), "snapshot.db")
+	manifest, err := Backup(ctx, s, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage := filepath.Join(t.TempDir(), "stage.db")
+	if err := runOnlineRestore(ctx, snapshot, stage); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open(driverName, dataSourceName(stage))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO fold_guard VALUES(1); DELETE FROM worktree_occupancy; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifyRestoredStage(ctx, stage, manifest); err == nil {
+		t.Fatal("current-state verification accepted lost occupancy")
+	} else {
+		assertFailureKind(t, err, KindInvariantViolation)
+	}
+	destination := filepath.Join(t.TempDir(), "restored.db")
+	if _, err := RestoreBackup(ctx, snapshot, destination); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := sql.Open(driverName, readOnlyDataSource(destination))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	for _, current := range []*sql.DB{s.db, restored} {
+		if got := captureEvidenceRows(t, current, query); strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Fatalf("backup/restore changed current occupancy: got %v want %v", got, want)
+		}
+	}
+}
+
 func TestBackupCurrentStateDigestIgnoresRowOrderNotValues(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

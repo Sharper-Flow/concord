@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -257,7 +256,7 @@ func TestRecordedOccupancyVacateAdmitsReleasedEmptyTargets(t *testing.T) {
 	}
 }
 
-func TestRecordedOccupancyUnreproducibleRowRefusesRebuildAndBackup(t *testing.T) {
+func TestRecordedOccupancyUnreproducibleRowRefusesRebuild(t *testing.T) {
 	s := recordedOccupancyFixture(t, "")
 	defer s.Close()
 	worktreeID := worktreeOccupancyID(WorktreeSetID("work-w"), "project-w", "wt-op-1")
@@ -272,13 +271,6 @@ func TestRecordedOccupancyUnreproducibleRowRefusesRebuildAndBackup(t *testing.T)
 	}
 	if !reflect.DeepEqual(before, histProjectionRows(t, s.db)) || !reflect.DeepEqual(events, histEventRows(t, s)) {
 		t.Fatal("unreproducible occupancy refusal changed the store")
-	}
-	snapshot := filepath.Join(t.TempDir(), "snapshot.db")
-	if _, err := Backup(context.Background(), s, snapshot); err == nil {
-		t.Fatal("backup promoted unreproducible occupancy")
-	}
-	if _, err := os.Stat(snapshot); !os.IsNotExist(err) {
-		t.Fatalf("refused backup left a snapshot: %v", err)
 	}
 }
 

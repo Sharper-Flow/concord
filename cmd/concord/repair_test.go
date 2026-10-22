@@ -136,15 +136,25 @@ func TestRepairBacksUpTheWorkDatabaseBeforeRepair(t *testing.T) {
 }
 
 func TestRepairSnapshotRefusesInvalidSourceBeforeInstaller(t *testing.T) {
-	for _, invalid := range []string{"directory", "stat-error"} {
+	for _, invalid := range []string{"directory", "stat-error", "foreign-key"} {
 		t.Run(invalid, func(t *testing.T) {
 			marker := filepath.Join(t.TempDir(), "installer-ran")
 			fixture := newRepairFixture(t, "#!/bin/sh\ntouch \""+marker+"\"\nexit 0\n")
 			path := filepath.Join(fixture.dataRoot, "store.db")
+			var failures []string
 			if invalid == "directory" {
 				if err := os.Mkdir(path, 0o700); err != nil {
 					t.Fatal(err)
 				}
+			} else if invalid == "foreign-key" {
+				db, err := store.Open(context.Background(), path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := db.Close(); err != nil {
+					t.Fatal(err)
+				}
+				failures = seedSnapshotForeignKeyCorruption(t, path)
 			} else {
 				if err := os.WriteFile(path, []byte("not a directory"), 0o600); err != nil {
 					t.Fatal(err)
@@ -166,6 +176,10 @@ func TestRepairSnapshotRefusesInvalidSourceBeforeInstaller(t *testing.T) {
 			}
 			if _, err := os.Stat(marker); !os.IsNotExist(err) {
 				t.Fatalf("repair invoked the installer after snapshot refusal: %v", err)
+			}
+			if invalid == "foreign-key" {
+				assertSnapshotIntegrityAttribution(t, errOut.String(), failures)
+				assertNoQualifiedSnapshot(t, fixture.dataRoot)
 			}
 		})
 	}

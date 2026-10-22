@@ -525,7 +525,7 @@ func verifyRestoredStage(ctx context.Context, stage string, source BackupManifes
 	var inventory RestoredDatabaseInventory
 	integrity, quick, foreign, err := verifySQLiteTriple(ctx, stageDB)
 	if err == nil && (integrity != "ok" || quick != "ok" || len(foreign) != 0) {
-		err = newFailure(KindInvariantViolation, "restore_backup", "restored staging database failed SQLite integrity verification", false, "restore a consistent snapshot")
+		err = newFailure(KindInvariantViolation, "restore_backup", fmt.Sprintf("restored staging database failed SQLite integrity verification: integrity_check=%q quick_check=%q foreign_key_check=%v", integrity, quick, foreign), false, "restore a consistent snapshot")
 	}
 	if err == nil {
 		err = validateMembershipInvariants(ctx, stageDB)
@@ -622,7 +622,7 @@ func verifyBackupFile(ctx context.Context, destination string, supportedMax int,
 		return BackupManifest{}, err
 	}
 	if integrity != "ok" || quick != "ok" || len(foreign) != 0 {
-		return BackupManifest{}, newFailure(KindInvariantViolation, "verify_backup", "SQLite integrity verification failed", false, "discard the corrupt snapshot and restore a verified backup")
+		return BackupManifest{}, newFailure(KindInvariantViolation, "verify_backup", fmt.Sprintf("SQLite integrity verification failed: integrity_check=%q quick_check=%q foreign_key_check=%v", integrity, quick, foreign), false, "discard the corrupt snapshot and restore a verified backup")
 	}
 	stateDigest, err := backupCurrentStateDigest(ctx, db)
 	if err != nil {

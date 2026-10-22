@@ -182,12 +182,15 @@ typed exemption naming the backup test that proves the guarantee. The checker
 - Criterion 3 is proved by `TestBackupRejectsForeignKeyOnlyCorruption`
   (`internal/store/backup_test.go`).
 - Criterion 4 is proved by
-  `TestBackupRefusesUnreplayableLogAndDiscardsSnapshot`
+  `TestRestoreStageRejectsCurrentStateTampering`
+  (`internal/store/backup_current_state_test.go`),
+  `TestBackupRestoreDoesNotInterpretHistoryPayloads` and
+  `TestInterruptedBackupVerificationDiscardsSnapshotAndStaging`
   (`internal/store/backup_test.go`),
-  `TestHistoricalPayloadUpgradeSnapshotQualification`, and
-  `TestHistoricalPayloadRepairSnapshotQualification`
-  (`cmd/concord/historical_backup_cli_test.go`), which hold until the CD-0242
-  cutover replaces replay-based qualification.
+  `TestUpgradeSnapshotFailureCommitsNothingAndClosesOwnedFence`
+  (`cmd/concord/upgrade_snapshot_cli_test.go`), and
+  `TestRepairSnapshotRefusesInvalidSourceBeforeInstaller`
+  (`cmd/concord/repair_test.go`).
 - Criterion 5 is proved by
   `TestRestoreBackupUsesCleanOnlineRestoreAndPromotesVerifiedDatabase`,
   `TestRestoreBackupRefusesExistingDestinationUntouched`, and

@@ -612,8 +612,10 @@ verification supplies this evidence, not a fabricated workflow record.
 - `internal/store.TestUnfencedCheckpointEpochUsesCausalPrefix` proves
   repeated direct checkpoints keep distinct identities, each derived
   from the causal prefix that precedes it.
-- `internal/agent.TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep`
-  enumerates declared routes and refuses missing public journeys.
+- `internal/store.TestCurrentReviewRoutesStayInsideExecution` and
+  `internal/store.TestExecutionReviewCorrectionRequiresItsOwningActions`
+  prove current execution/refine correction targets and require their
+  dispatch and Main-acceptance actions at registration.
 - `internal/agent.TestWorkflowRecoveryRoutesJourneyAdmitsEveryDeclaredRoute`
   proves approved revision, unhealthy evaluation, exact correction
   approval, fresh production, independent evaluation, and completion.

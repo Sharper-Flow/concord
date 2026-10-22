@@ -54,7 +54,11 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep"
+      "value": "internal/store.TestCurrentRecoveryRoutesAreDeclaredAndDefensive"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestExecutionReviewCorrectionRequiresItsOwningActions"
     },
     {
       "kind": "go_test",

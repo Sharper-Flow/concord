@@ -92,10 +92,8 @@ type workflowRecoveryRouteTuple struct {
 // tuple. Live rows are the canonical heads the public boundary serves:
 // batched verdicts, explicit outcome predicates, derived starts, and the
 // typed diagnosis are the only authoring shapes the closed input union
-// admits (CD-0218 D1/D2). Recorded-history rows are retained-family pins
-// the binary keeps readable at their exact released versions; their public
-// journeys rode shapes the live union no longer publishes, so their frozen
-// route tables stay covered by the static guard alone. Archived-refusal
+// admits (CD-0218 D1/D2). Recorded-history rows probe exact released
+// versions rather than executing their public mutation shapes. Archived-refusal
 // rows are the retired families: every public mutation on a nonterminal
 // archived instance refuses with zero effects (CD-0218 D1).
 type workflowRecoveryRouteDisposition string
@@ -138,9 +136,7 @@ func workflowRecoveryRouteDispositionOf(tuple workflowRecoveryRouteTuple) workfl
 }
 
 // workflowRecoveryRouteTuples is the unhealthy-route table enumerated by the
-// public journey and its coverage guard. Historical pins and frozen v13 trips
-// run alongside the worker-job pins; complete-step supersessions have their
-// own executable table below.
+// public journey. Complete-step supersessions have their own table below.
 func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 	tuples := []workflowRecoveryRouteTuple{
 		{
@@ -1133,132 +1129,6 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 	return tuples
 }
 
-// TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep is the static
-// coverage guard: every declared route row above carries the (step,
-// trigger, action, target) shape the engine folds (CD-0201 D1) and every
-// (ref, version) is one of the new builtin versions the test enumerates.
-// A missing route, a duplicate step/trigger pair, or an unregistered
-// (ref, version) fails the test before the journey runs.
-func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
-	tuples := workflowRecoveryRouteTuples()
-	if len(tuples) != 110 {
-		t.Fatalf("recovery-route journey table carries %d tuples, want 110 (32 archived-refusal rows + 72 recorded-history rows at the retained pins through v36/v33/v21/v35/v32/v34/v31/v33/v30/v20 + six live rows at the v37/v34/v22 obligation-satisfaction heads)", len(tuples))
-	}
-	seen := map[string]bool{}
-	live, history, refusals := 0, 0, 0
-	for _, tuple := range tuples {
-		if tuple.Action != "request_correction" {
-			t.Errorf("%s tuple action=%q, want request_correction", tuple.WorkflowID, tuple.Action)
-		}
-		if tuple.Target == tuple.Step {
-			t.Errorf("%s tuple target=%q equals step", tuple.WorkflowID, tuple.Target)
-		}
-		switch workflowRecoveryRouteDispositionOf(tuple) {
-		case recoveryRouteLive:
-			live++
-			if head := workflowRecoveryCanonicalHeads[tuple.Ref]; tuple.Version != head {
-				t.Errorf("%s live tuple pins %s v%d, want the canonical head v%d", tuple.WorkflowID, tuple.Ref, tuple.Version, head)
-			}
-		case recoveryRouteRecordedHistory:
-			history++
-			if workflowRecoveryArchivedFamilies[tuple.Ref] {
-				t.Errorf("%s history tuple pins an archived family", tuple.WorkflowID)
-			}
-		case recoveryRouteArchivedRefusal:
-			refusals++
-			if !workflowRecoveryArchivedFamilies[tuple.Ref] {
-				t.Errorf("%s refusal tuple pins a live family", tuple.WorkflowID)
-			}
-		}
-		// The frozen v13 and the new v14 share the same (ref,
-		// step, trigger) keys because v13 resolves through the
-		// quarantined table; the deduplication key is (ref,
-		// version, step, trigger).
-		key := tuple.Ref + "|v" + strconv.FormatInt(tuple.Version, 10) + "|" + tuple.Step + "|" + string(tuple.Trigger)
-		if seen[key] {
-			t.Errorf("duplicate (ref, version, step, trigger) tuple in journey table: %s", key)
-		}
-		seen[key] = true
-		entry, ok := store.BuiltinWorkflowRegistry().Lookup(tuple.Ref, tuple.Version)
-		if !ok {
-			t.Errorf("%s ref/version not registered", tuple.WorkflowID)
-			continue
-		}
-		if tuple.Version == 13 && tuple.Ref == "workflow.generic_one_off" {
-			// Frozen v13 carries no declared table; the
-			// quarantined table is the only source of its routes.
-			if entry.Definition.RecoveryRoutes != nil {
-				t.Errorf("%s v13 carries a declared table; the frozen digest would have moved", tuple.WorkflowID)
-			}
-		} else {
-			if len(entry.Definition.RecoveryRoutes) == 0 {
-				t.Errorf("%s v%d declares no recovery-route table", tuple.Ref, tuple.Version)
-			}
-		}
-		hit := false
-		// The declared table is the source for new builtins; the
-		// frozen v13 routes resolve through the quarantined
-		// table, which the engine reads for table-less
-		// released versions. The static guard asserts the
-		// declared shape for new builtins; the frozen v13
-		// routes are covered by the journey test.
-		var resolvedRoutes []store.WorkflowRecoveryRoute
-		if tuple.Version == 13 && tuple.Ref == "workflow.generic_one_off" {
-			// The frozen v13 routes are: verify -> execute
-			// (request_correction) and complete -> execute
-			// (request_correction). The journey test
-			// exercises both; the static guard asserts the
-			// frozen v13 digest unchanged in the separate
-			// digest test.
-			resolvedRoutes = nil
-		} else {
-			resolvedRoutes = entry.Definition.RecoveryRoutes
-		}
-		for _, route := range resolvedRoutes {
-			if route.Step == tuple.Step && route.Trigger == tuple.Trigger {
-				if route.Action != tuple.Action {
-					t.Errorf("%s declared action=%q, want %q", tuple.WorkflowID, route.Action, tuple.Action)
-				}
-				if route.Target != tuple.Target {
-					t.Errorf("%s declared target=%q, want %q", tuple.WorkflowID, route.Target, tuple.Target)
-				}
-				hit = true
-			}
-		}
-		if !hit && !(tuple.Ref == "workflow.generic_one_off" && tuple.Version == 13) {
-			t.Errorf("%s declares no route for (step=%q, trigger=%q)", tuple.WorkflowID, tuple.Step, tuple.Trigger)
-		}
-	}
-	// The disposition split is the CD-0218 battery shape: the six live
-	// canonical journeys run at the current heads (v37/v34/v22), the
-	// retained-family released pins plus every retained predecessor-head row
-	// (v36/v33/v21, v35/v32, v34/v31, v33/v30/v20 now among them) as
-	// recorded history, and the 32 retired-family rows as archived-refusal
-	// coverage.
-	if live != 6 || history != 72 || refusals != 32 {
-		t.Fatalf("journey table dispositions: live=%d history=%d refusals=%d, want 6/72/32", live, history, refusals)
-	}
-	for _, tuple := range workflowRecoveryRouteSupersedeTuples() {
-		key := tuple.Ref + "|v" + strconv.FormatInt(tuple.Version, 10) + "|" + tuple.Step + "|" + string(store.WorkflowRecoveryTriggerDisprovedPremiseAtComplete)
-		if seen[key] {
-			t.Fatalf("duplicate supersession journey: %s", key)
-		}
-		seen[key] = true
-		entry, ok := store.BuiltinWorkflowRegistry().Lookup(tuple.Ref, tuple.Version)
-		if !ok || !slices.Contains(entry.Definition.RecoveryRoutes, store.WorkflowRecoveryRoute{Step: tuple.Step, Trigger: store.WorkflowRecoveryTriggerDisprovedPremiseAtComplete, Action: "supersede_contract", Target: tuple.Target}) {
-			t.Errorf("%s has no matching declared supersession route", tuple.WorkflowID)
-		}
-	}
-	for _, definition := range store.BuiltinWorkflowDefinitions() {
-		for _, route := range definition.RecoveryRoutes {
-			key := definition.Ref + "|v" + strconv.FormatInt(definition.Version, 10) + "|" + route.Step + "|" + string(route.Trigger)
-			if !seen[key] {
-				t.Errorf("declared route %s has no journey-table row", key)
-			}
-		}
-	}
-}
-
 // TestWorkflowRecoveryRoutesJourneyAdmitsEveryDeclaredRoute is the
 // table-driven public-tool regression. Live tuples drive the real Concord
 // mutation boundary through the exact journey CD-0143, CD-0164, CD-0201,
@@ -1266,11 +1136,8 @@ func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 // the artifact comes from a causal fresh dispatch at the declared target.
 // Archived tuples drive the CD-0218 D1 refusal battery: the same public
 // boundary refuses every nonterminal archived-family mutation with zero
-// effects. Recorded-history tuples carry no executable journey — the live
-// union no longer publishes the shapes their released journeys rode — so
-// the static coverage guard above holds their declared routes at the exact
-// released pins. The D7 coverage guard is the same test: a failure on any
-// tuple is a failure of the suite, not a skip.
+// effects. Recorded-history tuples inspect their registry entries rather
+// than executing public mutations. A failure on any tuple fails the suite.
 func TestWorkflowRecoveryRoutesJourneyAdmitsEveryDeclaredRoute(t *testing.T) {
 	for _, tuple := range workflowRecoveryRouteTuples() {
 		tuple := tuple

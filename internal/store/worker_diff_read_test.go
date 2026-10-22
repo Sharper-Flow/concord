@@ -118,7 +118,7 @@ func TestReadWorkerDiffMissingFirstHistoryRefusesRatherThanUsingLaterSubject(t *
 	}
 }
 
-func TestReadWorkerDiffRefusesSelectorsDirtyHeadAndRetiredAttempt(t *testing.T) {
+func TestReadWorkerDiffRefusesSelectorsAndRetiredAttempt(t *testing.T) {
 	j, _ := descendantReviewFixture(t, "diff-refusal")
 	head := workerDiffCommit(t, j, "change", "review change\n")
 	original := workerDiffDispatch(t, j, "review-refusal")
@@ -145,8 +145,13 @@ func TestReadWorkerDiffRefusesSelectorsDirtyHeadAndRetiredAttempt(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(j.repo, "seed.txt"), []byte("dirty"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if page, err := j.s.ReadWorkerDiff(context.Background(), original); !hasFailureKind(err, KindUnauthorizedDispatch) || len(page.Data) != 0 {
-		t.Fatalf("dirty review returned bytes: %+v %v", page, err)
+	if page, err := j.s.ReadWorkerDiff(context.Background(), original); err != nil || page.SubjectCommit != head || !bytes.Contains(page.Data, []byte("+review change")) || bytes.Contains(page.Data, []byte("dirty")) {
+		t.Fatalf("mutable repair leaked into the pinned input diff: %+v %v", page, err)
+	}
+	// A read-only assignment still requires exact clean B on every read.
+	readOnly := workerDiffSnapshot{repo: j.repo, window: WorkerDispatchWindow{SubjectCommit: head}}
+	if err := checkWorkerDiffSubject(context.Background(), CommittedReadGitRunner{}, readOnly); !hasFailureKind(err, KindUnauthorizedDispatch) {
+		t.Fatalf("read-only dirty HEAD was admitted: %v", err)
 	}
 	gitRunStore(t, j.repo, "restore", "seed.txt")
 	if page, err := j.s.ReadWorkerDiff(context.Background(), original); err != nil || page.SubjectCommit != head || !bytes.Contains(page.Data, []byte("+review change")) {

@@ -324,9 +324,9 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         "`unavailable`/`not_run` carry the empty `run_ref` and name the explanation in "
         "`evidence_refs`. A receipt is reported evidence, never native-run authority: when no "
         "producing route issued an immutable locator, report `unavailable` and name the missing "
-        "producer honestly — never invent a run locator. `subject_commit` is the dispatch-owned raw OID "
-        "identity: never author it; any echo is stripped and the observed subject is injected "
-        "from the dispatch packet.",
+        "producer honestly — never invent a run locator. `subject_commit` is the producer-owned raw OID "
+        "identity: never author it; any echo is stripped and the store resolves the actual subject "
+        "from the native receipt's `run_ref`, never from the dispatch input.",
         "oracle_receipt.control_ids: "
         f"type={oracle_receipt['properties']['control_ids']['type']}, "
         f"minItems={oracle_receipt['properties']['control_ids']['minItems']}, "
@@ -611,18 +611,20 @@ def committed_content_instructions(lane: dict) -> str:
     committed_content_rule()
     capabilities = lane.get("capabilities", [])
     rule = f'the conduct rule that opens "{COMMITTED_CONTENT_LEAD}" in `.concord/instructions/change.md`'
+    duties = []
     if edits_scoped_files(lane):
-        text = f"Apply {rule} to every comment and document you add or change."
-    elif "inspect_diff" in capabilities:
-        text = (
+        duties.append(f"Apply {rule} to every comment and document you add or change.")
+    if "inspect_diff" in capabilities:
+        duties.append(
             f"Review every added comment and committed document against {rule}. Report "
             "each violation as a review finding whose `detail` starts with `committed-content:`."
             " Read the committed delta through `concord_worker_diff`, supplying only a "
             "byte offset and length from 1 to 4096; continue pages until EOF. Missing "
             "base history or job path scope is a blocking gap, not permission to guess a base."
         )
-    else:
+    if not duties:
         return ""
+    text = " ".join(duties)
     wrapped = textwrap.fill(text, width=80, break_on_hyphens=False, break_long_words=False)
     return f"## Committed content\n\n{wrapped}\n\n"
 

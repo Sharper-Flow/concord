@@ -1374,7 +1374,7 @@ function normalizeWorkerReport(report: Record<string, unknown>): Record<string, 
 function workerContent(report: Record<string, unknown>, packet?: AgentLanePacket, readbackModel?: string): Record<string, unknown> {
   const stripped = { ...report }
   for (const field of DISPATCH_OWNED_REPORT_FIELDS) delete stripped[field]
-  const rebound = packet ? rebindOracleReceiptSubjects(stripped, packet) : stripped
+  const rebound = packet ? rebindOracleReceiptSubjects(stripped) : stripped
   return normalizeWorkerReport({
     ...rebound,
     schema_version: packet?.schema_version ?? report.schema_version,
@@ -1421,23 +1421,15 @@ export function resolvedFindingsAggregateRefusal(review: unknown, maxArrayBytes:
   return `worker report failed the closed agent-lane-report.v1 schema: review.resolved_findings: serialize to ${bytes} UTF-8 bytes against a limit of ${maxArrayBytes}; the claims are refused, never truncated`
 }
 
-// rebindOracleReceiptSubjects composes the dispatch-owned subject-commit
-// identity of every oracle receipt. A worker-echoed
-// subject_commit is stripped exactly like the other dispatch-owned report
-// fields: the model never authors subject identity. The observed subject is
-// injected from the packet's work context when the core supplied one; absent
-// it, the receipt rides without a candidate subject rather than inventing
-// one, and the store's reference/subject joins stay the authority.
-function rebindOracleReceiptSubjects(report: Record<string, unknown>, packet: AgentLanePacket): Record<string, unknown> {
-  const observed = packet.inputs?.work_context?.subject_commit
-  const observedSubject = typeof observed === "string" && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(observed) ? observed : undefined
+// The store resolves run_ref to its producer-captured subject at terminal
+// ingress. Neither the worker's claim nor input B can replace output C.
+function rebindOracleReceiptSubjects(report: Record<string, unknown>): Record<string, unknown> {
   if (!Array.isArray(report.evidence)) return report
   let changed = false
   const evidence = report.evidence.map((entry) => {
     if (!isRecord(entry) || !isRecord(entry.oracle_receipt)) return entry
     const receipt = entry.oracle_receipt as Record<string, unknown>
     const rebound = omitMember(receipt, "subject_commit")
-    if (observedSubject !== undefined) rebound.subject_commit = observedSubject
     changed = true
     return { ...entry, oracle_receipt: rebound }
   })
@@ -3001,7 +2993,7 @@ async function completeWorkerSession(
   // A committed terminal replays its proof. An open attempt still owes the
   // subject check before its first terminal admission, including recovery.
   const subjectFailure = hostFailure === undefined && options.recovery?.lifecycle_state !== "completed"
-    ? await reviewSubjectFailure(lane, packet, workerDirectory, signal, options.subjectRunner ?? defaultRunner)
+    ? await reviewSubjectFailure(lane, packet, workerDirectory, signal, options.subjectRunner ?? defaultRunner, "terminal")
     : null
   const terminal: { verb: "worker-complete"; report: CanonicalLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string; context_findings?: AgentLaneReportContextFinding[]; failureAttribution: WorkerFailureObservation } =
     hostFailure !== undefined

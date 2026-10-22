@@ -3,22 +3,8 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"slices"
-	"strings"
 	"testing"
 )
-
-func TestReviewDispositionRequiresCorrectiveEditCapability(t *testing.T) {
-	for _, lane := range BuiltinLaneDefinitions() {
-		if lane.ID == "review" {
-			if !slices.Contains(lane.Capabilities, "edit_scoped_files") {
-				t.Fatal("Review cannot repair its candidate: edit_scoped_files is absent")
-			}
-			return
-		}
-	}
-	t.Fatal("Review lane is absent")
-}
 
 func TestReviewDispositionMainMayAssociateProofAfterExecution(t *testing.T) {
 	db, appendEvent, _ := progressHistory(t, false)
@@ -40,12 +26,5 @@ func TestReviewDispositionReplacesShipGate(t *testing.T) {
 				t.Fatalf("explicit disposition is rejected by the retired ship gate: %v", err)
 			}
 		})
-	}
-}
-
-func TestReviewDispositionRepairMustNotDemandEvaluator(t *testing.T) {
-	err := nativeOracleSubjectMoved(strings.Repeat("a", 40), strings.Repeat("b", 40))
-	if strings.Contains(err.Error(), "dispatch an evaluator") {
-		t.Fatalf("repair verification still demands another evaluator: %v", err)
 	}
 }

@@ -222,15 +222,10 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 		t.Fatalf("research criterion association=%+v", response.Error)
 	}
 
-	// 6. The operator premise confirmation and the completion. The question
-	// digest binds the operator's exact decision context.
-	question, questionErr := readOperatorQuestionFromWorkPinForTest(ctx, s, rcaID)
-	if questionErr != nil || question == nil {
-		t.Fatalf("operator question=%+v err=%v", question, questionErr)
-	}
-	confirmed := approvedAction(env, map[string]any{"work_id": rcaID, "expected_version": workVersion(t, s, rcaID), "action_id": "confirm_premise", "selected_choice": "confirm", "decision_context_digest": question.DecisionContextDigest, "idempotency_key": "defect-journey-confirm"}, "defect-journey-confirm")
-	if confirmed.Outcome != OutcomeOK {
-		t.Fatalf("confirm_premise=%+v", confirmed.Error)
+	if !t.Run("premise consent", func(t *testing.T) {
+		assertPublicPremiseConsent(t, s, service, env, rcaID)
+	}) {
+		t.Fatal("premise consent boundary failed")
 	}
 	completed := approvedAction(env, map[string]any{"work_id": rcaID, "expected_version": workVersion(t, s, rcaID), "action_id": "complete", "fields": map[string]any{"impact_verdict": "non-breaking"}, "idempotency_key": "defect-journey-complete"}, "defect-journey-complete")
 	if completed.Outcome != OutcomeOK {

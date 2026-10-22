@@ -411,7 +411,6 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		if state.debt == ReviewDebtOutstanding {
 			folded.ReadyReviewAttemptID = admissionReadyAttemptID(state)
 			folded.ReadyReviewVerdict = admissionReadyVerdict(state)
-			folded.ReadyReviewSettles = state.ready != "" && workflowReviewSettlesDebt(folded.ReadyReviewVerdict)
 		}
 	}
 	gate := workflowStepIsDeliveryGate(workflowStep(definition, state.step))

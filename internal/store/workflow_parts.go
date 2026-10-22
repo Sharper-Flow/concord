@@ -6,11 +6,9 @@ import (
 	"slices"
 )
 
-// WorkflowPart is one released, versioned unit of steps (CD-0229 D1) with
-// declared parameters. Each step is defined in exactly one part; a variant
-// of a step is a parameter of its part, never a copy. A released part
-// version is frozen (D3): a content change is a new part version, which the
-// compositions that want it pin explicitly.
+// WorkflowPart owns one unit of steps with declared parameters. Each step is
+// defined in exactly one part; a variant is a parameter of its part, never a
+// copy. Compositions resolve the current parts into the canonical definition.
 type WorkflowPart struct {
 	Ref     string           `json:"ref"`
 	Version int              `json:"version"`

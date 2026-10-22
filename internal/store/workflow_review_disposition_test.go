@@ -248,45 +248,6 @@ func TestRefineReviewEvidenceDispositionRefusesInvalidAttempts(t *testing.T) {
 	}
 }
 
-func TestRefineReviewEvidenceAcceptancePreservesVerdictDebt(t *testing.T) {
-	const workID = "review-evidence-debt"
-	ctx := context.Background()
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "refine", []string{"review"}, []string{"review"})
-	s := fixture.store
-	ownerRef, err := WorkflowActorRef(fixture.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
-	for i, verdict := range []string{"no_ship", "ship"} {
-		attemptID := "attempt:" + workID + ":" + verdict
-		verdictEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, reviewGateLane(t, "review"), ownerRef, verdict, int64(100+i*10))
-		payload := mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": verdictEpoch})
-		if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", payload, 0, reviewGateAcceptor(workID)); err != nil {
-			t.Fatal(err)
-		}
-		outstanding, err := workflowPostRejectionReviewOutstanding(ctx, s.db, workID, definition.Definition, "review_evidence_test")
-		if err != nil || outstanding != (verdict == "no_ship") {
-			t.Fatalf("%s evidence acceptance debt=(%v,%v)", verdict, outstanding, err)
-		}
-		reviewGateRequireStep(t, s, workID, "refine")
-		if err := reviewGateRecordDelivery(t, s, workID, reviewGateAcceptor(workID)); err == nil {
-			t.Fatal("review evidence acceptance bypassed the delivery verification proof")
-		}
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("replay sequential review evidence dispositions: %v", err)
-	}
-	outstanding, err := workflowPostRejectionReviewOutstanding(ctx, s.db, workID, definition.Definition, "review_evidence_test")
-	if err != nil || outstanding {
-		t.Fatalf("replay did not preserve settled review debt: (%v,%v)", outstanding, err)
-	}
-}
-
 func TestRefineReviewEvidenceCorrectionHoldsUndispositionedAuthorization(t *testing.T) {
 	for _, recordedFailure := range []bool{false, true} {
 		t.Run(fmt.Sprintf("recorded-failure-%v", recordedFailure), func(t *testing.T) {

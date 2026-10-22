@@ -1165,56 +1165,6 @@ func workflowPostRejectionReviewStep(definition WorkflowDefinition, currentStep 
 	return stepDeclaresAction(definition, currentStep, "checkpoint_refine") || workflowStepIsDeliveryGate(workflowStep(definition, currentStep))
 }
 
-// workflowReviewSettlesDebt is the single owner of the review-verdict half of
-// the settlement rule: a fresh accepted review settles post-rejection review
-// debt only when its typed verdict is ship, or absent for the pre-CD-0197
-// reports that carry no verdict. A no_ship review binds its findings and
-// leaves the debt outstanding, so refine does not advance to delivery and a
-// parked delivery gate keeps admitting the evidence-bearing corrective return.
-func workflowReviewSettlesDebt(verdict string) bool {
-	return verdict == "" || verdict == "ship"
-}
-
-// workflowReviewSettlesDebtSQL is the SQL form of workflowReviewSettlesDebt
-// over the attempt's worker.completed record: the review verdict is absent, or
-// ship. The settlement query composes this fragment, so the verdict rule
-// cannot drift between the settlement query and the guard that records the
-// accept's admission decision on its completion (CD-0201 D3).
-const workflowReviewSettlesDebtSQL = "COALESCE(json_extract(wc.payload,'$.review.verdict'),'') IN ('','ship')"
-
-// workflowPostRejectionFrontier returns the seq frontier a settling review
-// dispatch must postdate: the refinement step's latest failed review outcome,
-// or the latest non-review dispatch or completion at the refinement step that
-// follows it, whichever is later. A rejection and an accepted no_ship review
-// both require a fresh settling review.
-func workflowPostRejectionFrontier(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, subject string) (int64, error) {
-	rejectSeq, _, err := workflowRefinementReviewFailure(ctx, q, workID, definition, subject)
-	if err != nil || rejectSeq == 0 {
-		return 0, err
-	}
-	frontier, err := workflowPostRejectionRepairFrontier(ctx, q, workID, workflowRefinementStepID(definition), rejectSeq, subject)
-	if err != nil {
-		return 0, err
-	}
-	if frontier == 0 {
-		frontier = rejectSeq
-	}
-	return frontier, nil
-}
-
-// workflowPostRejectionRepairFrontier returns the latest event seq of any
-// non-review worker dispatch or completion at the refinement step that
-// follows the rejection, or 0 when none exists. Activity after a review's
-// dispatch means the review never saw the result it would cover.
-func workflowPostRejectionRepairFrontier(ctx context.Context, q queryer, workID, refineStep string, rejectSeq int64, subject string) (int64, error) {
-	var frontier int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(e.seq),0) FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.kind IN (?,?) AND e.seq>? AND EXISTS(SELECT 1 FROM domain_events d WHERE d.subject_type=e.subject_type AND d.subject_id=e.subject_id AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=json_extract(e.payload,'$.attempt_id') AND json_extract(d.payload,'$.capability_class')<>'review') AND EXISTS(SELECT 1 FROM domain_events a WHERE a.subject_type=e.subject_type AND a.subject_id=e.subject_id AND a.kind=? AND json_extract(a.payload,'$.action_id')='dispatch_worker' AND json_extract(a.payload,'$.step_id')=? AND json_extract(a.payload,'$.worker_attempt_id')=json_extract(e.payload,'$.attempt_id'))`,
-		string(SubjectWorkItem), workID, WorkerDispatched, WorkerCompleted, rejectSeq, WorkerDispatched, WorkflowActionCompleted, refineStep).Scan(&frontier); err != nil {
-		return 0, wrapFailure(KindUnavailable, subject, "cannot read the refinement repair history", true, "retry once the worker dispatch projection is readable", err)
-	}
-	return frontier, nil
-}
-
 // workflowRefinementReviewFailure reads the latest refinement disposition that
 // requires a fresh settling review. Accepting a no_ship report binds findings,
 // not permission to ship; it carries the same review obligation as a rejected
@@ -1268,45 +1218,6 @@ func workflowStaleReviewAcceptBeforeTx(ctx context.Context, q queryer, workID, a
 		return false, wrapFailure(KindUnavailable, subject, "cannot read the completed review history", true, "retry once the workflow projection is readable", err)
 	}
 	return stale == 1, nil
-}
-
-// workflowPostRejectionReviewOutstanding reports a refinement history where a
-// rejected result or accepted no_ship review has no fresh settling review. A
-// review is an accepted worker attempt dispatched on the review capability
-// class after the debt's frontier; a repair attempt accepted after the
-// rejection does not cover it, so the repaired result reaches delivery
-// unreviewed.
-func workflowPostRejectionReviewOutstanding(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, subject string) (bool, error) {
-	rejectSeq, _, err := workflowRefinementReviewFailure(ctx, q, workID, definition, subject)
-	if err != nil || rejectSeq == 0 {
-		return false, err
-	}
-	return workflowPostRejectionReviewMissing(ctx, q, workID, workflowRefinementStepID(definition), rejectSeq, subject)
-}
-
-// workflowPostRejectionReviewMissing reports whether no accepted review
-// attempt covers the rejected refinement result. The query encodes the shared
-// fresh-review dispatch-order rule — the accepted attempt must dispatch on
-// the review capability class after the debt's frontier, so a repair
-// completed after the review's dispatch reopens the debt — and the verdict
-// rule workflowReviewSettlesDebt: only an accepted review whose verdict is
-// ship or absent settles, so a no_ship review leaves the debt outstanding.
-func workflowPostRejectionReviewMissing(ctx context.Context, q queryer, workID, refineStep string, rejectSeq int64, subject string) (bool, error) {
-	frontier, err := workflowPostRejectionRepairFrontier(ctx, q, workID, refineStep, rejectSeq, subject)
-	if err != nil {
-		return false, err
-	}
-	if frontier == 0 {
-		frontier = rejectSeq
-	}
-	var reviewed int
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events acc
-		JOIN domain_events disp ON disp.subject_type=acc.subject_type AND disp.subject_id=acc.subject_id AND disp.kind=? AND json_extract(disp.payload,'$.attempt_id')=json_extract(acc.payload,'$.worker_attempt_id') AND json_extract(disp.payload,'$.capability_class')=? AND disp.seq>?
-		JOIN domain_events wc ON wc.subject_type=acc.subject_type AND wc.subject_id=acc.subject_id AND wc.kind=? AND json_extract(wc.payload,'$.attempt_id')=json_extract(acc.payload,'$.worker_attempt_id')
-		WHERE acc.subject_type=? AND acc.subject_id=? AND acc.kind=? AND json_extract(acc.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence') AND json_extract(acc.payload,'$.step_id')=? AND acc.seq>? AND `+workflowReviewSettlesDebtSQL+`)`, WorkerDispatched, "review", frontier, WorkerCompleted, string(SubjectWorkItem), workID, WorkflowActionCompleted, refineStep, rejectSeq).Scan(&reviewed); err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot read the post-rejection review history", true, "retry once the worker delivery projection is readable", err)
-	}
-	return reviewed == 0, nil
 }
 
 // workflowDeliveryGateCorrectionContextForRegistry resolves the same gate

@@ -1244,26 +1244,3 @@ func workflowRejectionAdvanceFailure(held bool, actionID string, advances bool) 
 		"an unconsumed rejected worker result holds the step's advance", false,
 		"dispatch a fresh worker whose materialized completion consumes the correction, then advance")
 }
-
-// workflowReadyReviewAttemptTx names the latest completed review attempt
-// that stands ready for acceptance: its review-class dispatch postdates the
-// debt's frontier, so it covers the rejected result, and no accept has
-// dispositioned it yet. The verdict does not qualify it — a no_ship review
-// stands ready exactly like a ship one, binds its findings on acceptance,
-// and settles nothing, because the settlement query owns that rule. It is
-// the loader's read of the ready-review predicate the work pin and the
-// accept guard share.
-func workflowReadyReviewAttemptTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, subject string) (string, string, error) {
-	frontier, err := workflowPostRejectionFrontier(ctx, q, workID, definition, subject)
-	if err != nil || frontier == 0 {
-		return "", "", err
-	}
-	var attemptID, verdict string
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(wc.payload,'$.attempt_id'),''), COALESCE(json_extract(wc.payload,'$.review.verdict'),'') FROM domain_events wc JOIN domain_events wd ON wd.subject_type=wc.subject_type AND wd.subject_id=wc.subject_id AND wd.kind=? AND json_extract(wd.payload,'$.attempt_id')=json_extract(wc.payload,'$.attempt_id') AND json_extract(wd.payload,'$.capability_class')='review' AND wd.seq>? WHERE wc.subject_type=? AND wc.subject_id=? AND wc.kind=? AND wc.seq>? AND NOT EXISTS(SELECT 1 FROM domain_events ax WHERE ax.subject_type=wc.subject_type AND ax.subject_id=wc.subject_id AND ax.kind=? AND json_extract(ax.payload,'$.action_id')='accept_worker_result' AND json_extract(ax.payload,'$.worker_attempt_id')=json_extract(wc.payload,'$.attempt_id') AND ax.seq>?) ORDER BY wc.seq DESC LIMIT 1`, WorkerDispatched, frontier, string(SubjectWorkItem), workID, WorkerCompleted, frontier, WorkflowActionCompleted, frontier).Scan(&attemptID, &verdict); err != nil {
-		if err == sql.ErrNoRows {
-			return "", "", nil
-		}
-		return "", "", wrapFailure(KindUnavailable, subject, "cannot read the completed review history", true, "retry once the worker delivery projection is readable", err)
-	}
-	return attemptID, verdict, nil
-}

@@ -5202,7 +5202,9 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		if replay {
 			return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
 		}
-		changedJSON, _ := json.Marshal(changed)
+		// Retain the list the response reported: an effect that changed no
+		// auxiliary reference commits an explicit empty list, never null.
+		changedJSON, _ := json.Marshal(*response.ChangedRefs)
 		authorizedSnapshot := mutationResponseScope(scope, response, pinless, requiresApproval)
 		authorizedSnapshot["durable_commit"] = durable
 		authorizedScope, _ := json.Marshal(authorizedSnapshot)

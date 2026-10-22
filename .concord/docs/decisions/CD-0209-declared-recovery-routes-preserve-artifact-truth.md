@@ -616,9 +616,10 @@ verification supplies this evidence, not a fabricated workflow record.
   `internal/store.TestExecutionReviewCorrectionRequiresItsOwningActions`
   prove current execution/refine correction targets and require their
   dispatch and Main-acceptance actions at registration.
-- `internal/agent.TestWorkflowRecoveryRoutesJourneyAdmitsEveryDeclaredRoute`
-  proves approved revision, unhealthy evaluation, exact correction
-  approval, fresh production, independent evaluation, and completion.
+- `internal/agent.TestSpineCurrentReviewCorrectionAdmission` proves public
+  preflight/mutation agreement, scoped current-Review correction, no-effect
+  refusals and replay, and checked corrective execution before accepted ready
+  Review permits delivery.
 - `internal/agent.TestWorkflowRecoveryRoutesCompleteStepSupersedeAdmitsEveryDeclaredRoute`
   proves both supported complete-step supersessions through fresh
   production and completion without moving the step through fixture SQL.

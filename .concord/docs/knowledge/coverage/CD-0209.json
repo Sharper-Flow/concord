@@ -62,7 +62,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestWorkflowRecoveryRoutesJourneyAdmitsEveryDeclaredRoute"
+      "value": "internal/agent.TestSpineCurrentReviewCorrectionAdmission"
     },
     {
       "kind": "go_test",

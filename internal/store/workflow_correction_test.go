@@ -57,125 +57,51 @@ func issue1013Preflight(t *testing.T, s *Store, workID, action string, payload j
 	})
 }
 
-// issue1013LateVerdictProduction does one fresh producing attempt at the
-// declared recovery-route target (execution). The start + dispatch + complete
-// + accept cycle is the only event sequence the artifact-staleness
-// production frontier recognizes (CD-0201 D5): the dispatch_worker action
-// completion at the target binds the accepted delivery to a producing
-// dispatch origin at the same step, and the acceptance is what the frontier
-// reads. The cycle advances the workflow one step. The v2 fixture has no
-// refine step, so this lands the workflow at acceptance directly; callers on
-// the v23 implementation must continue the journey from refine to delivery
-// before the next verdict or premise confirmation.
-func issue1013LateVerdictProduction(t *testing.T, s *Store, workID string) {
-	t.Helper()
-	ctx := context.Background()
-	lane := BuiltinLaneDefinitions()[0]
-	attemptID := "attempt:" + workID + ":late-verdict-fresh"
-	// Fresh execution follows the seed's two starts. Its dispatch authorization
-	// owns the fourth epoch.
-	startEpoch := int64(3)
-	attemptEpoch := int64(4)
-	ownerRef, err := WorkflowActorRef(WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent})
-	if err != nil {
-		t.Fatal(err)
-	}
-	version := readWorkVersion(t, s, workID)
-	start := workflowEventWithActor("start-late-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": startEpoch,
-		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start-late:" + workID, "actor_ref": ownerRef,
-		"execution_model": preferredModelForLane(lane),
-	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		t.Fatalf("fresh start_execution: %v", err)
-	}
-	dispatchVersion := readWorkVersion(t, s, workID)
-	dispatchStart := workflowEventWithActor("dispatch-start-late-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
-		"work_id": workID, "expected_version": dispatchVersion, "resulting_version": dispatchVersion + 1,
-		"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": attemptEpoch,
-		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "dispatch-late:" + workID,
-		"actor_ref": ownerRef, "execution_model": preferredModelForLane(lane),
-	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{dispatchStart, {
-		EventID: "dispatch-action-late-" + workID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: ownerRef, OccurredAt: time.Unix(60, 0).UTC(), PayloadVersion: 2,
-		Payload: mustJSONValue(map[string]any{
-			"work_id": workID, "expected_version": dispatchVersion + 1, "resulting_version": dispatchVersion + 2,
-			"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": attemptEpoch, "worker_attempt_id": attemptID,
-			"actor_ref": ownerRef, "worker_worktree_identity": workerFixtureWorktreeIdentity(t, s, workID),
-			"worker_packet_predicate_ids": []string{},
-		}),
-	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): dispatchVersion}}); err != nil {
-		t.Fatalf("fresh dispatch action completion: %v", err)
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
-		EventID: "dispatch-late-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: ownerRef, OccurredAt: time.Unix(60, 0).UTC(), PayloadVersion: 2,
-		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
-	}}}); err != nil {
-		t.Fatalf("fresh dispatch: %v", err)
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerCompleteEventForLane(workID, "completed-late-"+workID, attemptID, lane, time.Unix(61, 0).UTC(), workerFixtureDirectory(t, s, workID))}}); err != nil {
-		t.Fatalf("fresh complete: %v", err)
-	}
-	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/late-verdict-acceptor", SessionRef: "session/" + workID + "-late-verdict-acceptor", ActorClass: ActorAgent}
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(attemptEpoch)+`}`), 0, acceptor); err != nil {
-		t.Fatalf("fresh accept: %v", err)
-	}
-}
-
-// The late verdict recovery admitted by the owning transaction must also pass
-// the read-only preflight, and the admission closes again once the predicate
-// holds a healthy verdict (#1013). The same journey shows the supersede
-// refusal outside a recovery state names the stale-contract recovery route.
-// The recorded non-ok verdict makes the artifact the premise confirms stale
-// (CD-0201 D5); the journey drives a request_correction to the declared
-// recovery-route target, runs a fresh dispatch + complete + accept, and only
-// then confirms the premise against the fresh artifact.
+// Late criterion association agrees across discovery, the work pin, preflight
+// and mutation. It closes when every criterion has applicable proof.
 func TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight(t *testing.T) {
 	t.Parallel()
 	const workID = "issue1013-late-verdict-preflight"
-	s, owner, _ := seedItemAtAcceptance(t, workID, false)
-	reviewer := verdictReviewer(t, s, workID)
-	verdictVersion := readWorkVersion(t, s, workID)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}`), verdictVersion, reviewer); err != nil {
-		t.Fatalf("record mismatch verdict: %v", err)
+	fixture, ref := seedLateCriterionAssociation(t, workID)
+	s, owner := fixture.store, fixture.owner
+	for _, predicate := range []string{"predicate:first", "predicate:second"} {
+		payload := criterionAssociationPayload(ref, predicate)
+		if !issue1013HasIntent(issue1013Pin(t, s, workID), "record_verdict") {
+			t.Fatal("missing criterion proof has no late-association intent")
+		}
+		_, action, err := WorkflowActionDefinitionFor(t.Context(), s, BuiltinWorkflowRegistry(), workID, "record_verdict")
+		if err != nil || action.ExecutionMode != ActionHold {
+			t.Fatalf("late association discovery=%+v err=%v", action, err)
+		}
+		before := contractCorrectionEffectSnapshot(t, s, workID)
+		if err := issue1013Preflight(t, s, workID, "record_verdict", payload, owner); err != nil {
+			t.Fatalf("late association preflight: %v", err)
+		}
+		if after := contractCorrectionEffectSnapshot(t, s, workID); after != before {
+			t.Fatal("read-only late association preflight changed state")
+		}
+		if err := runVerdictActionAs(t, s, workID, "record_verdict", payload, 0, owner); err != nil {
+			t.Fatalf("late association: %v", err)
+		}
+		if got := currentStep(t, s, workID); got != "complete" {
+			t.Fatalf("late association moved to %s", got)
+		}
 	}
-	operator := operatorVerdictActor(t, workID)
-	verdictEvidence := "evidence:record_verdict-" + workID + "-" + fmt.Sprint(verdictVersion)
-	correction := json.RawMessage(`{"diagnosis":"the late verdict needs re-production","strategy":"repeat the external effect with a fresh worker","predicate_ids":["predicate:primary"],"evidence_refs":["` + verdictEvidence + `"]}`)
-	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, owner, operator); err != nil {
-		t.Fatalf("request correction after the mismatch verdict: %v", err)
+	payload := criterionAssociationPayload(ref, "predicate:first")
+	before := contractCorrectionEffectSnapshot(t, s, workID)
+	if issue1013HasIntent(issue1013Pin(t, s, workID), "record_verdict") {
+		t.Fatal("all criteria proved but the late route remains advertised")
 	}
-	issue1013LateVerdictProduction(t, s, workID)
-	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), owner, operator); err != nil {
-		t.Fatalf("confirm premise: %v", err)
+	for _, err := range []error{issue1013Preflight(t, s, workID, "record_verdict", payload, owner), runVerdictActionAs(t, s, workID, "record_verdict", payload, 0, owner)} {
+		if !hasFailureKind(err, KindIllegalLifecycleTransition) {
+			t.Fatalf("closed late route=%v, want current-step refusal", err)
+		}
 	}
-	healthy := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`)
-	if err := issue1013Preflight(t, s, workID, "record_verdict", healthy, owner); err != nil {
-		t.Fatalf("read-only preflight refused the late verdict recovery: %v", err)
+	if after := contractCorrectionEffectSnapshot(t, s, workID); after != before {
+		t.Fatal("closed-route refusals changed durable state")
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", healthy, 0, reviewer); err != nil {
-		t.Fatalf("late healthy verdict recovery: %v", err)
-	}
-	// The predicate now holds a healthy verdict, so the recovery admission
-	// must close and the read-only preflight return to the step refusal.
-	err := issue1013Preflight(t, s, workID, "record_verdict", healthy, owner)
-	if err == nil {
-		t.Fatal("healthy comparable verdict replacement passed the read-only preflight")
-	}
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindIllegalLifecycleTransition || failure.Detail != "workflow action is not declared on the current step" {
-		t.Fatalf("post-recovery verdict failure=%v, want the current-step refusal", err)
-	}
-	// At release, away from the premise checkpoint and with the active
-	// contract current, contract correction keeps its recovery refusal.
-	err = issue1013Preflight(t, s, workID, "supersede_contract", issue1013SuccessorContract(), owner)
-	if err == nil {
-		t.Fatal("supersede_contract passed the read-only preflight outside a recovery state")
-	}
-	if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "contract recovery is available only for a stale workflow contract" {
-		t.Fatalf("outside-recovery supersede failure=%v, want the stale-contract recovery refusal", err)
+	if err := issue1013Preflight(t, s, workID, "supersede_contract", issue1013SuccessorContract(), owner); !hasFailureKind(err, KindInvalidOperation) {
+		t.Fatalf("unrelated contract recovery became available: %v", err)
 	}
 }
 

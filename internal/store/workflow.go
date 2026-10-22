@@ -2466,6 +2466,19 @@ func workflowCorrectionSchemaValuesFaultWithReference(predicateIDs, correctionRe
 // admitWorkflowActionOffStep decides whether an action the pinned step does
 // not declare may still fold under an engine-owned recovery route.
 func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, entry RegisteredDefinition, currentStep string, registry DefinitionRegistry) error {
+	if p.ActionID == "record_verdict" && workflowLateCriterionAssociationStep(entry.Definition, currentStep) {
+		// Association events fold before their completion. Availability has
+		// therefore closed for the last criterion already; join this action's
+		// own verified effect rather than re-test the post-association state.
+		var paired bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq<? AND actor=? AND json_extract(payload,'$.resulting_version')=?)`, event.SubjectID, WorkflowVerdictRecorded, event.Seq, p.ActorRef, p.ExpectedVersion).Scan(&paired); err != nil {
+			return workflowProjectionError(err, "cannot read late criterion association effect")
+		}
+		if paired {
+			return nil
+		}
+		return newFailure(KindMissingEvidence, "fold_event", "late criterion association requires its own verified association effect", false, "associate applicable producer receipts before recording completion")
+	}
 	if p.ActionID == "accept_worker_evidence" {
 		return validateRefineReviewEvidenceAttempt(ctx, tx, event.SubjectID, entry.Definition, currentStep, p.WorkerAttemptID, p.AttemptEpoch, "fold_event", event.Seq)
 	}

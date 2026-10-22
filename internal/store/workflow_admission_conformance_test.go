@@ -31,6 +31,7 @@ type admissionConformanceView struct {
 	RefinementWorkflow            bool
 	ReviewStep                    bool
 	ActiveContracts               int64
+	LateCriterionAssociation      bool
 	LawPinStale                   bool
 	DesignStale                   bool
 	ArtifactStale                 bool
@@ -76,8 +77,9 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 		Step: state.Step, Lifecycle: state.Lifecycle, InstanceState: state.InstanceState,
 		RefinementWorkflow: state.RefinementWorkflow, ReviewStep: state.ReviewStep,
 		ActiveContracts: state.ActiveContracts, LawPinStale: state.LawPinStale, DesignStale: state.DesignStale,
-		ArtifactStale: state.ArtifactStale,
-		ReviewDebt:    state.ReviewDebt, ReadyReview: state.ReadyReviewAttemptID != "",
+		LateCriterionAssociation: state.LateCriterionAssociation,
+		ArtifactStale:            state.ArtifactStale,
+		ReviewDebt:               state.ReviewDebt, ReadyReview: state.ReadyReviewAttemptID != "",
 		WorkerFailureRecovery: state.WorkerFailureRecovery,
 		CorrectionRecovery:    state.CorrectionRecovery, CorrectionRequestRecovery: state.CorrectionRequestRecovery,
 		CorrectionEscalated: state.CorrectionEscalated, UnconsumedUnboundRejection: state.UnconsumedUnboundRejection, NonProgressAttempts: state.NonProgressAttempts,

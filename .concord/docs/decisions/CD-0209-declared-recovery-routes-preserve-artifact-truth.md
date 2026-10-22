@@ -570,6 +570,14 @@ verification supplies this evidence, not a fabricated workflow record.
 - `internal/store.TestRecoveryRouteRegistrationRefusals` proves the
   undeclared-return gate: removing the required route or its table
   refuses validation and registration on the current definition.
+- `internal/store.TestCriterionAssociationRequiresItsOwnDeclaredLateReturn`
+  proves a late association needs its own declared return, an upstream
+  association declaration, one contract and missing applicable proof.
+  Artifact staleness alone opens no route.
+- `internal/store.TestCriterionAssociationAtPremiseQuestionWithoutDeclaration`
+  and `internal/store.TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight`
+  prove late association at a premise-question or terminal step holds that
+  step instead of taking its declared producer return.
 - `internal/store.TestCurrentRecoveryRoutesAreDeclaredAndDefensive`
   proves the D3 reader returns the declared table as a defensive copy.
 - `internal/store.TestCurrentRecoveryRoutesAreDeclaredAndDefensive`

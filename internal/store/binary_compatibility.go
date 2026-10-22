@@ -74,6 +74,11 @@ func checkWorkflowBinaryCompatibility(ctx context.Context, q queryer) error {
 		if err := rows.Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
 			return compatibilityReadFailure(err)
 		}
+		// Known retired families remain readable metadata. Their nonterminal
+		// work still answers to cutover readiness and mutation admission.
+		if workflowFamilyArchived(pin.Ref) {
+			continue
+		}
 		if _, current := builtinWorkflowCurrentVersions[pin.Ref]; !current && !registryHolds(pin) {
 			unsupported = &pin
 			break

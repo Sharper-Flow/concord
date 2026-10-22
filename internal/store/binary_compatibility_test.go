@@ -147,6 +147,50 @@ func TestBinaryCompatibilityUsesCurrentFamilyAndLaterAdditiveSchema(t *testing.T
 	}
 }
 
+func TestArchivedFamilyMetadataReachesCutoverReadiness(t *testing.T) {
+	for _, ref := range []string{"workflow.architecture_spike", "workflow.ops_runbook", "workflow.static_analysis", "workflow.generic_one_off"} {
+		for _, axis := range []string{"workflow", "contract"} {
+			t.Run(ref+"/"+axis, func(t *testing.T) {
+				s := openTemp(t)
+				defer s.Close()
+				seedUpgradeWindowState(t, s, axis)
+				table := "workflow_instances"
+				if axis == "contract" {
+					table = "workflow_contracts"
+				}
+				if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE `+table+` SET definition_ref=? WHERE work_id='work-skew'; DELETE FROM fold_guard`, ref); err != nil {
+					t.Fatal(err)
+				}
+				eventsBefore := countRows(t, s, "domain_events")
+				ctx := context.Background()
+				if err := s.checkBinaryCompatibility(ctx); err != nil {
+					t.Fatalf("recorded archived metadata must reach its cutover owner: %v", err)
+				}
+				if _, err := PlanUpgradeReadiness(ctx, s.Path()); err == nil {
+					t.Fatal("nonterminal archived work must still refuse activation")
+				} else {
+					assertFailureKind(t, err, KindSchemaUnsupported)
+					if !strings.Contains(err.Error(), ref) || !strings.Contains(err.Error(), `{"cancel_cutover_pinned_work":true}`) {
+						t.Fatalf("readiness must name its archived item and recovery: %v", err)
+					}
+				}
+				plan, err := PlanUpgradeReadiness(ctx, s.Path(), UpgradeOptions{CancelCutoverPinnedWork: true})
+				if err != nil || plan.CutoverDisposition == nil || plan.CutoverDisposition.WorkCount != 1 || len(plan.CutoverDisposition.WorkIDs) != 1 || plan.CutoverDisposition.WorkIDs[0] != "work-skew" {
+					t.Fatalf("read-only disposition must select the archived current row: %+v err=%v", plan, err)
+				}
+				var lifecycle string
+				var version int64
+				if err := s.db.QueryRow(`SELECT lifecycle,version FROM work_items WHERE id='work-skew'`).Scan(&lifecycle, &version); err != nil {
+					t.Fatal(err)
+				}
+				if lifecycle != "needed" || version != 1 || countRows(t, s, "domain_events") != eventsBefore {
+					t.Fatal("compatibility/readiness moved work or appended history")
+				}
+			})
+		}
+	}
+}
+
 func TestBinaryCompatibilityDoesNotGuessLegacyWriter(t *testing.T) {
 	s := openTemp(t)
 	seedUpgradeWindowState(t, s, "knowledge")

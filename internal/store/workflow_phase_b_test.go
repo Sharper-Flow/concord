@@ -36,9 +36,9 @@ func TestBuiltinWorkflowRegistryHasTheThreeLiveContractFamilies(t *testing.T) {
 	// A composed head lists each action once, in first appearance over its
 	// compiled steps.
 	wantActions := map[string][]string{
-		"workflow.implementation": {"record_proposal", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_work_context", "record_alignment", "record_design", "approve_contract", "accept_worker_evidence", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "record_worker_job", "checkpoint_refine", "request_correction", "record_verdict", "confirm_premise", "complete"},
-		"workflow.break_fix":      {"record_diagnosis", "checkpoint_context", "cross_context_boundary", "record_work_context", "approve_contract", "dispatch_worker", "accept_worker_evidence", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "accept_worker_result", "record_worker_job", "checkpoint_refine", "request_correction", "record_verdict", "confirm_premise", "complete"},
-		"workflow.research":       {"frame_research", "approve_contract", "checkpoint_context", "cross_context_boundary", "dispatch_worker", "accept_worker_evidence", "record_work_context", "record_finding", "revise_candidates", "bind_evidence", "accept_worker_result", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete"},
+		"workflow.implementation": {"record_proposal", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_work_context", "record_alignment", "record_design", "approve_contract", "accept_worker_evidence", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "request_correction", "record_worker_job", "checkpoint_refine", "record_verdict", "confirm_premise", "complete"},
+		"workflow.break_fix":      {"record_diagnosis", "checkpoint_context", "cross_context_boundary", "record_work_context", "approve_contract", "dispatch_worker", "accept_worker_evidence", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "request_correction", "accept_worker_result", "record_worker_job", "checkpoint_refine", "record_verdict", "confirm_premise", "complete"},
+		"workflow.research":       {"frame_research", "approve_contract", "checkpoint_context", "cross_context_boundary", "dispatch_worker", "accept_worker_evidence", "record_work_context", "record_finding", "revise_candidates", "bind_evidence", "accept_worker_result", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "record_worker_job", "complete"},
 	}
 	wantTerminals := map[string]string{
 		"workflow.implementation": "release", "workflow.break_fix": "complete", "workflow.research": "complete",
@@ -131,9 +131,9 @@ func TestRefinementStepsRequireArtifactEvidenceAndHaveNoSkipEdge(t *testing.T) {
 			t.Fatalf("%s definition evidence = %v, want artifact", definition.Ref, definition.RequiredEvidenceKinds)
 		}
 		// The derived-start shape: the qualifying checkpoint opens the fence,
-		// and the evidence, delivery, and continuity actions follow it.
-		if !reflect.DeepEqual(refine.Actions[:4], []string{"checkpoint_refine", "bind_evidence", "record_delivery", "checkpoint_context"}) {
-			t.Fatalf("%s refine actions = %v, want derived-start checkpoint, evidence, delivery, continuity", definition.Ref, refine.Actions)
+		// and the evidence, delivery, correction, and continuity actions follow it.
+		if !reflect.DeepEqual(refine.Actions[:5], []string{"checkpoint_refine", "bind_evidence", "record_delivery", "request_correction", "checkpoint_context"}) {
+			t.Fatalf("%s refine actions = %v, want derived-start checkpoint, evidence, delivery, correction, continuity", definition.Ref, refine.Actions)
 		}
 		var delivery WorkflowStep
 		for _, candidate := range definition.StepGraph.Steps {

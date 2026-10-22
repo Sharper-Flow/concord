@@ -888,7 +888,9 @@ func completeChecksRepairReviewWithVerdict(t *testing.T, s *Store, workID, attem
 			},
 		}}
 	}
-	workerTerminalEventThroughSeam(t, s, checksRepairReviewCompletion(t, s, workID, attemptID, lane, dispatched, review, project))
+	event := checksRepairReviewCompletion(t, s, workID, attemptID, lane, dispatched, review, project)
+	ctx := prepareWorkerTerminalDelivery(t, s, workID, attemptID, event.EventID)
+	workerTerminalEventThroughSeamCtx(t, ctx, s, event)
 }
 
 func checksRepairReviewCompletion(t *testing.T, s *Store, workID, attemptID string, lane LaneDefinition, dispatched *WorkerJobBinding, review *WorkerReviewBlock, project string) Event {

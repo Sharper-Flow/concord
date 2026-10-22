@@ -132,6 +132,7 @@ type nativeOraclePlan struct {
 	Stages           []NativeOracleStage       `json:"stages"`
 	StreamLimit      int                       `json:"stream_limit"`
 	CachePolicy      string                    `json:"cache_policy"`
+	ReviewRepair     *nativeReviewRepair       `json:"review_repair,omitempty"`
 }
 
 // nativePlanEnvironment returns the family-owned environment identity the
@@ -313,20 +314,17 @@ func readNativeOracleDispatchBundleTx(ctx context.Context, q queryer, req Worktr
 	if err != nil {
 		return b, version, auth, err
 	}
-	if dispatch.WorkerSubjectCommit != observedHead {
+	if dispatch.WorkerSubjectCommit != observedHead && !workerLaneRepairs(dispatch.WorkerLaneID, dispatch.WorkerLaneVersion, dispatch.WorkerLaneDigest) {
 		return b, version, auth, nativeOracleSubjectMoved(dispatch.WorkerSubjectCommit, observedHead)
 	}
 	return b, job.ContractVersion, auth, nil
 }
 
-// nativeOracleSubjectMoved refuses a genuine attempt binding whose dispatch
-// subject is not HEAD (CD-0067 D2). An editing attempt cannot grade its own
-// later commit; a fresh dispatch on that commit can. It is the only route
-// failure the dispatch join returns, and it is admitted only after the
-// control and preparation joins also pass.
+// A non-repairing assignment keeps its exact input subject. A repairing pass
+// has its own producer-observed ancestry and containment admission.
 func nativeOracleSubjectMoved(subject, head string) error {
 	return newRouteFailure(KindUnauthorizedDispatch, "worker_oracle",
-		"native oracle execution grades only this attempt's dispatch subject "+subject+", and HEAD is "+head+"; no attempt grades a later commit, including its own edit. After this attempt ends, pin the clean HEAD with a worktree_verify command, prepare that subject, record a ready job revision with the new preparation, dispatch an evaluator lane, and execute under its attempt",
+		"native oracle execution requires this assignment's subject "+subject+", and HEAD is "+head+"; restore the assigned candidate or finish this attempt and authorize a scoped repairing Review on the clean candidate",
 		false, "worktree_verify", "record_worker_job", "dispatch_worker")
 }
 
@@ -376,17 +374,33 @@ func readNativeOracleAuthorizationTx(ctx context.Context, tx queryer, req Worktr
 	if err != nil {
 		return b, version, auth, err
 	}
-	if core == "" || core != observed.head {
+	repair := nativeReviewRepairFrom(ctx)
+	preparationSubject := observed.head
+	if repair != nil {
+		dispatch, _, err := readNativeOracleDispatchBindingTx(ctx, tx, req.WorkID, req.Oracle.AttemptID)
+		if err != nil {
+			return b, version, auth, err
+		}
+		if repair.Commit != observed.head || validateNativeReviewRepairTx(ctx, tx, req.WorkID, dispatch, repair) != nil {
+			return refuse()
+		}
+		preparationSubject = repair.Base
+	}
+	if core == "" || (core != observed.head && (repair == nil || core != repair.Base)) {
 		return refuse()
 	}
-	if err := requireWorkerJobRevisionReadyTx(ctx, tx, req.WorkID, *req.Oracle.WorkerJobBinding); err != nil {
+	if repair == nil {
+		if err := requireWorkerJobRevisionReadyTx(ctx, tx, req.WorkID, *req.Oracle.WorkerJobBinding); err != nil {
+			return b, version, auth, err
+		}
+	} else if err := requireWorkerJobRevisionStateReadyTx(ctx, tx, req.WorkID, *req.Oracle.WorkerJobBinding); err != nil {
 		return b, version, auth, err
 	}
 	preparation, err := readOraclePreparationReceiptTx(ctx, tx, req.WorkID, req.ProjectID, req.Oracle.PreparationRunRef)
 	if err != nil {
 		return b, version, auth, err
 	}
-	if preparation == nil || preparation.ContractVersion != version || preparation.SubjectCommit != observed.head || preparation.SubjectCommit != core || preparation.BundleDigest != nativeBundleDigest(b) {
+	if preparation == nil || preparation.ContractVersion != version || preparation.SubjectCommit != preparationSubject || preparation.BundleDigest != nativeBundleDigest(b) {
 		return refuse()
 	}
 	return b, version, auth, nil
@@ -756,10 +770,31 @@ func (s *Store) verifyNativeOracle(ctx context.Context, req WorktreeVerifyReques
 	if err != nil {
 		return WorktreeVerifyResult{}, err
 	}
+	var repair *nativeReviewRepair
+	if req.Oracle.Phase == "execute" {
+		dispatch, _, err := readNativeOracleDispatchBindingTx(ctx, s.db, req.WorkID, req.Oracle.AttemptID)
+		if err != nil {
+			return WorktreeVerifyResult{}, err
+		}
+		// The SQL sample is closed before Git; no queryer enters the probe.
+		repair, err = observeNativeReviewRepair(ctx, runner, dispatch, entry, before)
+		if err != nil {
+			return WorktreeVerifyResult{}, err
+		}
+		if repair != nil {
+			if err := validateNativeReviewRepairTx(ctx, s.db, req.WorkID, dispatch, repair); err != nil {
+				return WorktreeVerifyResult{}, err
+			}
+		}
+	}
+	if repair != nil {
+		ctx = context.WithValue(ctx, nativeReviewRepairKey{}, repair)
+	}
 	plan, err := normalizeNativeOraclePlan(ctx, runner, entry, req, bundle, version, before.head, identity, auth)
 	if err != nil {
 		return WorktreeVerifyResult{}, err
 	}
+	plan.ReviewRepair = repair
 	if req.Oracle.Phase == "execute" {
 		prep, err := readOraclePreparationReceiptTx(ctx, s.db, req.WorkID, req.ProjectID, req.Oracle.PreparationRunRef)
 		if err != nil {

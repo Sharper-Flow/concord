@@ -5,11 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 )
 
-// Core-observed terminal delivery. A completed implementation-lane report
+// Core-observed terminal output. A completed editing-lane report
 // records one closed observed_delivery value the store observed itself at
 // the attempt's authorized worktree, and every terminal event derives its
 // consumed_context_frontier from the attempt's own dispatch authorization.
@@ -95,7 +96,7 @@ type PrepareWorkerTerminalDeliveryRequest struct {
 
 // PrepareWorkerTerminalDelivery samples the dispatch window, attempt, and
 // claim identities with plain SQL reads, closes those reads, and — only for
-// a new completed implementation-lane attempt whose authorization recorded a
+// a new completed editing or review attempt whose authorization recorded a
 // worktree binding — observes HEAD and clean status at the claimed worktree
 // under one fixed deadline. An exact already-recorded event is a replay: the
 // preparation marks it and performs no Git calls. Every failure is a typed
@@ -197,9 +198,13 @@ func PrepareWorkerTerminalDelivery(ctx context.Context, s *Store, request Prepar
 	proof.windowWorktreeIdentity = sample.window.WorktreeIdentity
 	proof.windowSubjectCommit = sample.window.SubjectCommit
 	proof.frontier, proof.frontierPresent = sample.window.ContextFrontier, sample.window.ContextFrontierPresent
-	if sample.attempt.CapabilityClass != "implementation" {
-		// Only the implementation lane is the delivery producer; other
-		// lanes record their frontier and no delivery observation.
+	lane, err := LookupLane(sample.attempt.LaneID, sample.attempt.LaneVersion, sample.attempt.LaneDigest)
+	if err != nil {
+		return nil, err
+	}
+	editing := workerLaneEdits(sample.attempt.LaneID, sample.attempt.LaneVersion, sample.attempt.LaneDigest)
+	reviewing := slices.Contains(lane.Capabilities, "inspect_diff")
+	if !editing && !reviewing {
 		return &WorkerTerminalPreparation{proof: proof}, nil
 	}
 	if sample.window.WorktreeIdentity == "" {
@@ -217,9 +222,21 @@ func PrepareWorkerTerminalDelivery(ctx context.Context, s *Store, request Prepar
 	if runner == nil {
 		runner = ExecGitRunner{}
 	}
-	observation, err := observeWorkerDelivery(ctx, runner, proof.probePath, sample.window.SubjectCommit)
+	probeCtx, cancel := context.WithTimeout(ctx, workerTerminalObservationDeadline)
+	defer cancel()
+	observation, err := observeWorkerDelivery(probeCtx, runner, proof.probePath, sample.window.SubjectCommit)
 	if err != nil {
 		return nil, err
+	}
+	if reviewing {
+		if observation.State != "clean" || (!editing && observation.Commit != sample.window.SubjectCommit) {
+			return nil, newFailure(KindUnauthorizedDispatch, workerTerminalObservationOp, "review requires a clean authorized output candidate", false, "restore the assigned candidate or finish and commit the scoped repair before reporting")
+		}
+		if observation.Commit != sample.window.SubjectCommit {
+			if _, err := runner.Run(probeCtx, proof.probePath, "merge-base", "--is-ancestor", sample.window.SubjectCommit, observation.Commit); err != nil {
+				return nil, workerDeliveryProbeFailure("review output ancestry", probeCtx, err)
+			}
+		}
 	}
 	proof.observation = observation
 	return &WorkerTerminalPreparation{proof: proof}, nil
@@ -277,6 +294,7 @@ func observeWorkerDelivery(ctx context.Context, runner GitRunner, path, subject 
 		return nil, workerDeliveryProbeFailure("changed paths", probeCtx, err)
 	}
 	observation.Base = subject
+	observation.ChangedPaths = []string{}
 	for _, name := range strings.Split(string(names), "\x00") {
 		if name != "" {
 			observation.ChangedPaths = append(observation.ChangedPaths, name)
@@ -360,7 +378,10 @@ func enrichWorkerTerminalEventTx(ctx context.Context, tx *sql.Tx, event Event) (
 		if deliveryErr != nil {
 			return Event{}, deliveryErr
 		}
-		if window.ContextFrontierPresent || payload.ObservedDelivery != nil {
+		if err := bindWorkerReceiptSubjectsTx(ctx, tx, event.SubjectID, payload.Evidence); err != nil {
+			return Event{}, err
+		}
+		if window.ContextFrontierPresent || payload.ObservedDelivery != nil || len(payload.Evidence) > 0 {
 			if window.ContextFrontierPresent {
 				frontier := window.ContextFrontier
 				payload.ConsumedContextFrontier = &frontier
@@ -390,19 +411,23 @@ func enrichWorkerTerminalEventTx(ctx context.Context, tx *sql.Tx, event Event) (
 }
 
 // enrichWorkerObservedDeliveryTx attaches the prepared delivery observation
-// to a completed implementation-lane payload, refusing when the preparation
+// to a completed editing or review payload, refusing when the preparation
 // is missing or any sampled identity changed under the probe.
 func enrichWorkerObservedDeliveryTx(ctx context.Context, tx *sql.Tx, event Event, window WorkerDispatchWindow, payload *WorkerCompletedPayload) error {
 	attempt, err := workerAttemptByIDCore(ctx, tx, payload.AttemptID)
 	if err != nil {
 		return err
 	}
-	if attempt.CapabilityClass != "implementation" || window.WorktreeIdentity == "" {
+	lane, err := workerAttemptLane(ctx, tx, payload.AttemptID)
+	if err != nil {
+		return err
+	}
+	if (!slices.Contains(lane.Capabilities, "edit_scoped_files") && !slices.Contains(lane.Capabilities, "inspect_diff")) || window.WorktreeIdentity == "" {
 		return nil
 	}
 	preparation := workerTerminalPreparationFrom(ctx)
 	if preparation == nil {
-		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the completed implementation attempt reached the ingest seam without the core delivery observation", false, "record the completion through the authenticated worker evidence boundary")
+		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the completed editing or review attempt reached the ingest seam without the core output observation", false, "record the completion through the authenticated worker evidence boundary")
 	}
 	proof := preparation.proof
 	if proof.replay {
@@ -444,7 +469,7 @@ func enrichWorkerObservedDeliveryTx(ctx context.Context, tx *sql.Tx, event Event
 		return newFailure(KindProjectionConflict, workerTerminalObservationOp, "the claimed worktree changed under the terminal observation", true, "prepare the same completion again against the current claim")
 	}
 	if proof.observation == nil {
-		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared delivery proof carries no observation for an implementation completion", false, "prepare the completion against a reachable claimed worktree")
+		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared output proof carries no observation for an editing or review completion", false, "prepare the completion against a reachable claimed worktree")
 	}
 	// The observed delta is measured from the authorization's own subject
 	// commit, or recorded absent for a subject-less authorization.
@@ -452,5 +477,39 @@ func enrichWorkerObservedDeliveryTx(ctx context.Context, tx *sql.Tx, event Event
 		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared delivery observation names base "+proof.observation.Base+", not the dispatch's recorded subject commit", false, "prepare the completion against the recorded authorization")
 	}
 	payload.ObservedDelivery = proof.observation
+	return nil
+}
+
+// Receipt subjects come from the retained native producer, never the packet's
+// input candidate or a worker's subject claim. The fold still validates all
+// control, recipe, result, and current-subject joins.
+func bindWorkerReceiptSubjectsTx(ctx context.Context, q queryer, workID string, evidence []WorkerReportEvidence) error {
+	for _, entry := range evidence {
+		receipt := entry.OracleReceipt
+		if receipt == nil || receipt.RunRef == "" {
+			continue
+		}
+		producer, err := readOracleControlProducerTx(ctx, q, workID, receipt.RunRef, receipt.Result)
+		if err != nil {
+			return err
+		}
+		if producer == nil {
+			current, err := readCurrentOracleSubject(ctx, q, workID)
+			if err != nil {
+				return err
+			}
+			producer, err = readMatchedOracleControlProducerTx(ctx, q, workID, receipt, current)
+			if err != nil {
+				return err
+			}
+		}
+		if producer == nil || producer.Oracle == nil {
+			return oracleFailure(KindMissingEvidence, "reported receipt has no native producer", "execute the assigned control or report unavailable")
+		}
+		if receipt.SubjectCommit != "" && receipt.SubjectCommit != producer.Oracle.SubjectCommit {
+			return oracleFailure(KindMissingEvidence, "reported receipt subject differs from its producer", "use the producer's receipt unchanged")
+		}
+		receipt.SubjectCommit = producer.Oracle.SubjectCommit
+	}
 	return nil
 }

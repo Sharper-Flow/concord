@@ -281,7 +281,7 @@ test("the worker-echoed candidate subject is stripped from an oracle receipt", (
   expect(receipt?.subject_commit).toBeUndefined()
 })
 
-test("the observed candidate subject from the packet's work context is injected when present", () => {
+test("input B never overwrites a receipt's producer subject; the store resolves its run locator", () => {
   const packet = reviewPacket() as AgentLanePacket
   ;(packet.inputs as { work_context?: unknown }).work_context = {
     source_event_frontier: 7,
@@ -293,7 +293,8 @@ test("the observed candidate subject from the packet's work context is injected 
   const admitted = resolveWorkerReportFromText(oracleReportText(), packet, "provider/host-model")
   if (!("report" in admitted)) throw new Error(admitted.detail)
   const receipt = admitted.report.evidence.find((entry) => entry.oracle_receipt)?.oracle_receipt
-  expect(receipt?.subject_commit).toBe("f".repeat(40))
+  expect(receipt?.subject_commit).toBeUndefined()
+  expect(receipt?.run_ref).toBe(JSON.parse(oracleReportText()).evidence[1].oracle_receipt.run_ref)
 })
 
 test("an executed receipt without a run locator is refused by the closed report schema", () => {

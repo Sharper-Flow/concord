@@ -471,6 +471,17 @@ func workerJobPathsIntersect(pathScope []string, path string) bool {
 	return false
 }
 
+// Containment is directional: a scoped child never grants its parent path.
+// Intersections remain symmetric for ownership and exclusion comparisons.
+func workerJobContainsPath(pathScope []string, path string) bool {
+	for _, scope := range pathScope {
+		if path == scope || strings.HasPrefix(path, scope+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // workerJobPathScopeTx reads the recorded path scope of one dispatched job
 // revision.
 func workerJobPathScopeTx(ctx context.Context, tx *sql.Tx, workID string, binding WorkerJobBinding) ([]string, error) {
@@ -502,17 +513,6 @@ func workerDispatchCallerExclusionsTx(ctx context.Context, tx *sql.Tx, workID, a
 		return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "a dispatch authorization carries caller exclusions that are not one string list", false, "rebuild the workflow events from the authoritative log")
 	}
 	return exclusions, nil
-}
-
-// workerAttemptCapabilityTx returns the attempt's lane capability class, or
-// the empty string when no attempt row exists.
-func workerAttemptCapabilityTx(ctx context.Context, tx *sql.Tx, attemptID string) (string, error) {
-	var capability string
-	err := tx.QueryRowContext(ctx, `SELECT capability_class FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&capability)
-	if err != nil && err != sql.ErrNoRows {
-		return "", wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read the accepted attempt's capability class", true, "retry once the worker-attempt projection is readable", err)
-	}
-	return capability, nil
 }
 
 // readWorkerCompletedDeliveryTx reads the direct-caller repairs and the
@@ -551,7 +551,14 @@ func readWorkerCompletedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, atte
 // allowance cannot be accepted without an observed delta to hold. The check
 // compares path sets only; it counts no lines.
 func admitWorkerDeliveredPathsTx(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, job *WorkerJobBinding, attemptID string) error {
-	if job == nil || !workflowCallerScopeActive(definition) {
+	if job == nil {
+		return nil
+	}
+	lane, err := workerAttemptLane(ctx, tx, attemptID)
+	if err != nil {
+		return err
+	}
+	if !workflowCallerScopeActive(definition) && !slices.Contains(lane.Capabilities, "inspect_diff") {
 		return nil
 	}
 	refuse := func(detail, recovery string) error {
@@ -571,23 +578,22 @@ func admitWorkerDeliveredPathsTx(ctx context.Context, tx *sql.Tx, workID string,
 		return refuse("reports direct-caller repairs, but its dispatched revision records no direct-caller allowance",
 			"reject the result with reject_worker_result; a job without the allowance cannot acquire one from a worker report")
 	}
-	capability, err := workerAttemptCapabilityTx(ctx, tx, attemptID)
-	if err != nil {
-		return err
-	}
-	if capability != "implementation" {
+	if !slices.Contains(lane.Capabilities, "edit_scoped_files") {
 		if len(repairs) > 0 {
-			return refuse("reports direct-caller repairs on a "+capability+" attempt; the caller boundary follows the implementation class",
+			return refuse("reports direct-caller repairs on a "+lane.CapabilityClass+" attempt without editing authority",
 				"reject the result with reject_worker_result; a repair claim belongs to an implementation attempt")
+		}
+		if observed != nil && (observed.Commit != observed.Base || len(observed.ChangedPaths) > 0 || len(observed.Paths) > 0) {
+			return refuse("changed its subject without editing authority", "reject the result with reject_worker_result and restore the assigned candidate")
 		}
 		return nil
 	}
 	if observed == nil || observed.State != "clean" || observed.Base == "" {
-		if allowance == nil {
+		if allowance == nil && !slices.Contains(lane.Capabilities, "inspect_diff") {
 			return nil
 		}
 		return newFailure(KindMissingEvidence, "workflow_action",
-			"accept_worker_result: worker job "+job.JobID+" records a direct-caller allowance, but its completion carries no clean delta observed from the dispatched subject commit, so its changed paths cannot be held to its path scope",
+			"accept_worker_result: worker job "+job.JobID+" completion carries no clean delta observed from the dispatched subject commit, so its changed paths cannot be held to its path scope",
 			false, "reject the result with reject_worker_result and dispatch a correction from a qualified subject that delivers a clean committed tree")
 	}
 	// A stored v8 completion observed its delta as the retired measured
@@ -629,7 +635,7 @@ func admitWorkerDeliveredPathsTx(ctx context.Context, tx *sql.Tx, workID string,
 		}
 	}
 	for _, path := range delta {
-		if workerJobPathsIntersect(pathScope, path) {
+		if workerJobContainsPath(pathScope, path) {
 			continue
 		}
 		if !repaired[path] {

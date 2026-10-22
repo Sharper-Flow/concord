@@ -858,23 +858,9 @@ func workerOracleReceiptProducerTx(ctx context.Context, q queryer, workID string
 		return nil, err
 	}
 	if producer == nil {
-		var evidenceRef string
-		status := "healthy"
-		if receipt.Result == OracleReceiptResultFail {
-			status = "failed"
-		}
-		err := q.QueryRowContext(ctx, `SELECT n.evidence_ref FROM workflow_native_runs n JOIN external_observations o ON o.observation_id=n.observation_id AND o.work_id=n.work_id
-			WHERE n.work_id=? AND n.run_id=? AND n.phase='health' AND n.status=? AND n.native_subject_ref=? AND n.verification_state=?
-			AND o.subject_kind='native_run' AND o.subject_ref=n.native_subject_ref AND o.subject_digest=n.subject_digest
-			AND o.verification_state=? AND o.verification_result=?`, workID, receipt.RunRef, status, "commit:"+currentSubject, string(VerificationVerified), string(VerificationVerified), string(VerificationMatched)).Scan(&evidenceRef)
-		if err != nil && err != sql.ErrNoRows {
-			return nil, wrapFailure(KindUnavailable, "worker_oracle_findings", "cannot read the receipt's verified native producer", true, "retry once the projection is readable", err)
-		}
-		if err == nil {
-			producer, err = readOracleControlProducerTx(ctx, q, workID, evidenceRef, receipt.Result)
-			if err != nil {
-				return nil, err
-			}
+		producer, err = readMatchedOracleControlProducerTx(ctx, q, workID, receipt, currentSubject)
+		if err != nil {
+			return nil, err
 		}
 	}
 	if producer == nil {

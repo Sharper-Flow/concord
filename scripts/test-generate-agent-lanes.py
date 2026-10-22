@@ -926,6 +926,13 @@ class CommittedContentRuleTests(unittest.TestCase):
         self.assertIn("`committed-content:`", projection)
         self.assertNotIn(self.owner_paragraph(), projection)
 
+    def test_repairing_review_keeps_both_author_and_diff_duties(self):
+        capabilities = self.REVIEWING + ["edit_scoped_files"]
+        projection = " ".join(lane_projection(self.lane("review", capabilities)).split())
+        self.assertIn(f"Apply {self.owner_reference()} to every comment and document you add or change", projection)
+        self.assertIn(f"Review every added comment and committed document against {self.owner_reference()}", projection)
+        self.assertIn("concord_worker_diff", projection)
+
     def test_other_lanes_carry_no_committed_content_section(self):
         self.assertNotIn("## Committed content", lane_projection(self.lane("verify", self.VERIFYING)))
 

@@ -3,7 +3,7 @@
   "attempt_id": "attempt:eval-review-seeded-scope-violation",
   "lane_id": "review",
   "lane_version": 1,
-  "lane_digest": "sha256:3a4cd631ddffb655e6a432bb186af0dfe70113031a79c4d45487f53412f2f15d",
+  "lane_digest": "sha256:f98da75c2a31fecfff7aba2f74c45572c7238f86cd57572757ae1ba007b4efce",
   "work_id": "work:eval-harness",
   "step_id": "execution",
   "inputs": {

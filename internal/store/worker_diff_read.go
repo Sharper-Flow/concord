@@ -40,6 +40,7 @@ type workerDiffSnapshot struct {
 	contractVersion int64
 	job             WorkerJobBinding
 	paths           []string
+	repairing       bool
 }
 
 func workerDiffRefusal(detail string) error {
@@ -101,7 +102,9 @@ func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity 
 		if err != nil {
 			return "", err
 		}
-		d.editing = slices.Contains(lane.Capabilities, "edit_scoped_files")
+		// Review's B→C repair belongs to the accumulated solution. It does
+		// not open a new foundation for that solution's review diff.
+		d.editing = workerLaneEdits(lane.ID, lane.Version, d.digest) && !slices.Contains(lane.Capabilities, "inspect_diff")
 		editors = append(editors, d)
 	}
 	if err := rows.Err(); err != nil {
@@ -212,7 +215,7 @@ func sampleWorkerDiff(ctx context.Context, q queryer, req WorkerDiffRequest, sna
 	if err != nil {
 		return err
 	}
-	*snapshot = workerDiffSnapshot{window: window, base: base, repo: entry.Path, contractVersion: version, job: jobBinding, paths: job.PathScope}
+	*snapshot = workerDiffSnapshot{window: window, base: base, repo: entry.Path, contractVersion: version, job: jobBinding, paths: job.PathScope, repairing: workerLaneRepairs(dispatch.WorkerLaneID, dispatch.WorkerLaneVersion, dispatch.WorkerLaneDigest)}
 	return nil
 }
 
@@ -221,7 +224,7 @@ func revalidateWorkerDiff(ctx context.Context, q queryer, req WorkerDiffRequest,
 	if err := sampleWorkerDiff(ctx, q, req, &after); err != nil {
 		return err
 	}
-	if before.window != after.window || before.base != after.base || before.repo != after.repo || before.contractVersion != after.contractVersion || before.job != after.job || !slices.Equal(before.paths, after.paths) {
+	if before.window != after.window || before.base != after.base || before.repo != after.repo || before.contractVersion != after.contractVersion || before.job != after.job || before.repairing != after.repairing || !slices.Equal(before.paths, after.paths) {
 		return workerDiffRefusal("review authority changed while reading the committed diff")
 	}
 	return nil
@@ -229,6 +232,18 @@ func revalidateWorkerDiff(ctx context.Context, q queryer, req WorkerDiffRequest,
 
 func checkWorkerDiffSubject(ctx context.Context, runner GitRunner, before workerDiffSnapshot) error {
 	args := []string{"--no-optional-locks", "-c", "core.fsmonitor=false"}
+	if before.repairing {
+		// A repairing pass can edit the checkout while reading its immutable
+		// input B. This reader never substitutes mutable HEAD or output C.
+		commit, err := runner.Run(ctx, before.repo, append(args, "rev-parse", "--verify", before.window.SubjectCommit+"^{commit}")...)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(string(commit)) != before.window.SubjectCommit {
+			return workerDiffRefusal("review input commit is unavailable")
+		}
+		return nil
+	}
 	head, err := runner.Run(ctx, before.repo, append(args, "rev-parse", "--verify", "HEAD^{commit}")...)
 	if err != nil {
 		return err

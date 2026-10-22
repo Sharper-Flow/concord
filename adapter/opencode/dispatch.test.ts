@@ -3395,10 +3395,10 @@ test("a typed review block rides worker-complete and the completed envelope", as
   expect(result.review).toEqual({ verdict: "no_ship", findings: { P0: 0, P1: 2, P2: 0, P3: 1 } })
 })
 
-test("review subject drift at settlement records a host validator failure, never a completed review", async () => {
+test("unrelated review output at settlement records a host validator failure, never a completed review", async () => {
   const dispatched = reviewPacket()
   dispatched.inputs.work_context = { source_event_frontier: 1, required_reading: [], findings: [], domain_groups: [], subject_commit: "a".repeat(40) }
-  const subjectRunner: DispatchRunner = { run: async (argv) => ({ exitCode: 0, stdout: argv.includes("rev-parse") ? "b".repeat(40) + "\n" : "", stderr: "" }) }
+  const subjectRunner: DispatchRunner = { run: async (argv) => ({ exitCode: argv.includes("merge-base") ? 1 : 0, stdout: argv.includes("rev-parse") ? "b".repeat(40) + "\n" : "", stderr: "" }) }
   const { result, verbs, payloads } = await terminalReviewEvidence(reviewReport(), { subjectRunner }, dispatched)
   expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
   expect(result.outcome).toBe("error")
@@ -3416,7 +3416,7 @@ test.each(["dispatched", "completed"] as const)("review subject checks distingui
   let probes = 0
   const subjectRunner: DispatchRunner = { run: async (argv) => {
     probes++
-    return { exitCode: 0, stdout: argv.includes("rev-parse") ? "b".repeat(40) + "\n" : "", stderr: "" }
+    return { exitCode: argv.includes("merge-base") ? 1 : 0, stdout: argv.includes("rev-parse") ? "b".repeat(40) + "\n" : "", stderr: "" }
   } }
   const recovery: NonNullable<CompleteOptions["recovery"]> = {
     packet_digest: PACKET_DIGEST, worker_worktree: WORKER_DIRECTORY, coordinator_session: "parent", attempt_epoch: 1,
@@ -3430,7 +3430,7 @@ test.each(["dispatched", "completed"] as const)("review subject checks distingui
   const { result, verbs } = await terminalReviewEvidence(reviewReport(), { subjectRunner, recovery, sessionReader }, dispatched)
   expect(verbs, JSON.stringify(result)).toEqual(["worker-dispatch", state === "completed" ? "worker-complete" : "worker-fail"])
   expect(result.outcome).toBe(state === "completed" ? "ok" : "error")
-  expect(probes).toBe(state === "completed" ? 0 : 2)
+  expect(probes).toBe(state === "completed" ? 0 : 3)
 })
 
 test("a ship verdict with findings completes and counts each severity", async () => {

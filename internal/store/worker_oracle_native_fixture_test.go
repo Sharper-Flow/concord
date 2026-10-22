@@ -291,9 +291,16 @@ func oracleFixtureGraphForCommand(t *testing.T, s *Store, work string, command [
 
 func nativeFixtureDispatch(t *testing.T, f *nativeOracleFixture, o NativeOracleRequest) {
 	t.Helper()
-	lane := reviewGateLane(t, "implementation")
+	attempt, err := workerAttemptByIDCore(context.Background(), f.s.db, o.AttemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lane, err := LookupLane(attempt.LaneID, attempt.LaneVersion, attempt.LaneDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lane.Digest = attempt.LaneDigest
 	e := workerDispatchEvent(f.work, "native-dispatched-"+o.AttemptID, lane, map[string]any{"attempt_id": o.AttemptID, "packet_digest": o.WorkerPacketDigest, "worker_job": o.WorkerJobBinding})
-	var err error
 	e, err = upcastWorkerDispatchedV2(e)
 	if err != nil {
 		t.Fatal(err)

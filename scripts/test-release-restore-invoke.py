@@ -1085,21 +1085,19 @@ FENCE = "fence:gate-release-restore"
 OBS_ID = "obs:0000000000000001"
 RECORD = {
     "outcome": "ok",
-    "plan": ("invoke:concord_work_relate.resource_claim",
-             "invoke:concord_work_relate.resource_release",
-             "invoke:concord_work_define.observation_record"),
+    "plan": ("invoke:concord_work_define.capture", "invoke:concord_work_relate.message_send",
+             "invoke:concord_work_relate.message_withdraw", "invoke:concord_work_relate.resource_claim",
+             "invoke:concord_work_relate.resource_release", "invoke:concord_work_define.observation_record"),
+    "works": [{"id": SENDER, "title": invoke.INVOKE_TITLE, "version": 6},
+              {"id": "gate-work-2", "title": "Invoke Recipient Work", "version": 2}],
+    "message": {"id": "msg:fixture", "sender": SENDER, "recipient": "gate-work-2"},
     "resource": {"sender": SENDER, "key": FENCE, "input_version": 4, "claim_version": 5, "release_version": 6},
     "observation": {"sender": SENDER, "id": OBS_ID, "statement": "gate release-restore observation"},
 }
-EVENTS = (
-    (10, "work.resource_claimed", {"work_id": SENDER, "resource_key": FENCE, "expected_version": 4, "resulting_version": 5}),
-    (11, "work.resource_claim_released", {"work_id": SENDER, "resource_key": FENCE, "expected_version": 5, "resulting_version": 6}),
-    (12, "work.observation_recorded", {"observation_id": OBS_ID, "statement": "gate release-restore observation"}),
-)
 
 
 class R1ProtocolTest(unittest.TestCase):
-    """Non-unit receipt jumps prove forwarding only, never witness admission."""
+    """Non-unit receipt jumps prove forwarding only, never current-effect proof."""
 
     ORDER = ("capture", "capture", "message_send", "message_withdraw",
              "resource_claim", "resource_release", "observation_record")
@@ -1191,18 +1189,20 @@ class SnapshotTest(unittest.TestCase):
         db = sqlite3.connect(":memory:")
         self.addCleanup(db.close)
         db.executescript(
-            "CREATE TABLE domain_events (seq INTEGER PRIMARY KEY, kind TEXT, subject_type TEXT, subject_id TEXT,"
-            " payload_version INTEGER, payload TEXT);"
+            "CREATE TABLE domain_events (seq INTEGER PRIMARY KEY, payload TEXT);"
+            "INSERT INTO domain_events VALUES (1, 'opaque retained bytes');"
             "CREATE TABLE resource_claims (resource_key TEXT PRIMARY KEY, holder_work_id TEXT, holder_agent TEXT,"
             " holder_session TEXT, reason TEXT, state TEXT);"
-            "CREATE TABLE work_items (id TEXT PRIMARY KEY, version INTEGER);"
+            "CREATE TABLE work_items (id TEXT PRIMARY KEY, title TEXT, lifecycle TEXT, version INTEGER);"
+            "CREATE TABLE work_messages (message_id TEXT PRIMARY KEY, sender_work_id TEXT, recipient_work_id TEXT, body TEXT, state TEXT);"
             "CREATE TABLE work_observations (observation_id TEXT PRIMARY KEY, work_id TEXT, statement TEXT);"
         )
-        db.executemany("INSERT INTO domain_events VALUES (?,?,?,?,?,?)",
-                       [(seq, kind, "work_item", SENDER, 1, json.dumps(row)) for seq, kind, row in EVENTS])
         db.execute("INSERT INTO resource_claims VALUES (?,?,?,?,?,?)",
                    (FENCE, SENDER, invoke.INVOKE_AGENT, invoke.INVOKE_SESSION, "gate release-restore claim", "released"))
-        db.execute("INSERT INTO work_items VALUES (?,?)", (SENDER, 6))
+        db.executemany("INSERT INTO work_items VALUES (?,?,'needed',?)",
+                       [(work["id"], work["title"], work["version"]) for work in RECORD["works"]])
+        db.execute("INSERT INTO work_messages VALUES (?,?,?,?,'withdrawn')",
+                   ("msg:fixture", SENDER, "gate-work-2", invoke.INVOKE_MESSAGE_BODY))
         db.execute("INSERT INTO work_observations VALUES (?,?,?)", (OBS_ID, SENDER, "gate release-restore observation"))
         db.commit()
         return db
@@ -1219,6 +1219,11 @@ class SnapshotTest(unittest.TestCase):
         invoke.verify_invoke_snapshot(db, RECORD)
         self.assertEqual(list(db.iterdump()), before)
 
+    def test_current_effects_do_not_require_history(self) -> None:
+        db = self.fixture()
+        db.execute("DROP TABLE domain_events")
+        invoke.verify_invoke_snapshot(db, RECORD)
+
     def test_empty_record_on_blank_db_runs_no_queries(self) -> None:
         db = sqlite3.connect(":memory:")
         self.addCleanup(db.close)
@@ -1226,33 +1231,40 @@ class SnapshotTest(unittest.TestCase):
 
     def test_negative_mutations_hold(self) -> None:
         invoke.verify_invoke_snapshot(self.fixture(), RECORD)
-
-        def body(index: int, **patch: object) -> str:
-            return json.dumps({**EVENTS[index][2], **patch})
-
         cases = (
-            ("delete event", "DELETE FROM domain_events WHERE seq=?", (10,)),
-            ("wrong subject", "UPDATE domain_events SET subject_id='foreign' WHERE seq=?", (10,)),
-            ("bad key", "UPDATE domain_events SET payload=? WHERE seq=?", (body(0, resource_key="fence:other"), 10)),
-            ("version type", "UPDATE domain_events SET payload=? WHERE seq=?", (body(0, expected_version="4"), 10)),
-            ("discontinuity", "UPDATE domain_events SET seq=? WHERE seq=?", (13, 11)),
+            ("missing work", "DELETE FROM work_items WHERE id=?", (SENDER,)),
+            ("work title", "UPDATE work_items SET title='tampered' WHERE id=?", (SENDER,)),
+            ("work lifecycle", "UPDATE work_items SET lifecycle='cancelled' WHERE id=?", (SENDER,)),
+            ("recipient lost", "DELETE FROM work_items WHERE id=?", ("gate-work-2",)),
+            ("message missing", "DELETE FROM work_messages", ()),
+            ("message state", "UPDATE work_messages SET state='sent'", ()),
+            ("message recipient", "UPDATE work_messages SET recipient_work_id='foreign'", ()),
+            ("message body", "UPDATE work_messages SET body='tampered'", ()),
+            ("claim missing", "DELETE FROM resource_claims", ()),
             ("held state", "UPDATE resource_claims SET state='held'", ()),
             ("wrong holder", "UPDATE resource_claims SET holder_work_id='foreign'", ()),
+            ("wrong agent", "UPDATE resource_claims SET holder_agent='foreign'", ()),
+            ("wrong session", "UPDATE resource_claims SET holder_session='foreign'", ()),
+            ("wrong reason", "UPDATE resource_claims SET reason='tampered'", ()),
             ("work version", "UPDATE work_items SET version=7", ()),
-            ("malformed json", "UPDATE domain_events SET payload='{' WHERE seq=?", (12,)),
-            ("observation statement", "UPDATE domain_events SET payload=? WHERE seq=?", (body(2, statement="tampered"), 12)),
-            ("missing projection", "DELETE FROM work_observations", ()),
-            ("duplicate event", "INSERT INTO domain_events SELECT 13, kind, subject_type, subject_id, payload_version, payload"
-                                " FROM domain_events WHERE seq=?", (10,)),
+            ("observation statement", "UPDATE work_observations SET statement='tampered'", ()),
+            ("observation work", "UPDATE work_observations SET work_id='foreign'", ()),
+            ("missing observation", "DELETE FROM work_observations", ()),
         )
         for name, sql, params in cases:
             with self.subTest(case=name):
                 self.refused(sql, params)
 
     def test_planned_proof_cannot_be_omitted(self) -> None:
-        for omitted in ("resource", "observation"):
+        for omitted in ("works", "message", "resource", "observation"):
             record = {key: value for key, value in RECORD.items() if key != omitted}
             with self.subTest(omitted=omitted), self.assertRaises(invoke.InvokeError):
+                invoke.verify_invoke_snapshot(self.fixture(), record)
+
+    def test_receipt_continuity_does_not_depend_on_events(self) -> None:
+        for key, value in (("input_version", "4"), ("claim_version", 4), ("release_version", 8)):
+            record = RECORD | {"resource": RECORD["resource"] | {key: value}}
+            with self.subTest(key=key), self.assertRaises(invoke.InvokeError):
                 invoke.verify_invoke_snapshot(self.fixture(), record)
 
 

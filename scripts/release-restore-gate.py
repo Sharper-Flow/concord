@@ -1,54 +1,31 @@
 #!/usr/bin/env python3
-"""Prove that a candidate core restores an event log written by every earlier release.
+"""Check current recipe effects through two candidate restores for every earlier release.
 
-Every published, nondraft release of the repository is a writer. For each one
-the gate downloads the published standalone binary, verifies it against the
-release's asset digest and checksum manifest, and runs a pinned recipe through
-that binary's own commands in a disposable root. It then takes an SQLite Online
-Backup snapshot after the writer exits and restores the snapshot with the
-candidate's `restore` command, then snapshots and restores that result again. Restore migrates a clean stage and rebuilds its
-projections from the log (internal/store/backup.go verifyRestoredStage). The
-gate then requires the source event rows to survive byte for byte, the
-recipe's effects to be present with their values, and the second restore to
-reproduce the first. A candidate migration may append events after
-the writer's watermark (a locator renormalization does); those are reported,
-and the writer's events must remain the unchanged prefix.
+Every published, nondraft release remains a writer. The gate downloads its
+standalone binary by enumerated asset ID, verifies its checksum and identity,
+and runs the pinned domain/invoke recipe in a disposable root. It takes an
+SQLite Online Backup snapshot after the writer exits, restores that snapshot
+with the candidate's `restore`, and snapshots and restores the result again.
 
-Assets are fetched by the asset IDs read at enumeration, so a replaced asset
-is refused rather than verified. A missing artifact, refused recipe step,
-exhausted budget, or incomplete
-population is a named `unknown`, never a skip.
+The core verifier checks whole-store current-state equality before accepted
+migrations. This harness checks source provenance, immutable snapshot bytes,
+restore report checksums, and the recipe's expected current effects in the
+source and both restored databases. It neither reconstructs history nor
+implements a competing store digest. These recipe assertions do not prove
+arbitrary migration transformations or complete active-work cutover coverage.
+The aggregate coverage stays held until that Main-owned target proof exists.
+Exit status is 3 when all writer cases pass but target coverage is held, and 1
+when any writer fails, is unknown, or the population is incomplete.
 
-A passing case emits one writer-produced witness per source event row to
-`witnesses.jsonl`: the row's exact bytes with the tag, verified asset digest,
-recipe hash, and snapshot checksum that produced it. A row is emitted only
-after it survived both candidate restores, and the recipe is a closed list of
-domain commands, so no imported or synthesized row can become a witness.
-scripts/release-restore-inventory/ binds each one to its own release's
-registered shape or older accepted version. Exit status: 0 when every writer
-passes and shape coverage is closed, 3 when every writer passes but coverage is
-held, 1 otherwise. Coverage closes only when the committed shape census
-inventories every writer outside the approved exclusion, witnesses every shape
-and every older accepted version it writes, and binds every writer row, so a
-gate run alone is never
-acceptance.
+Missing artifacts, refused recipe steps and exhausted budgets are named
+unknowns, never skips. Source-proven v0.1.0-v0.7.1 bootstrap-only writers retain
+their pinned fingerprints, source commit, owner hashes and distinct recipe
+hash. An unbound or drifted source never becomes bootstrap-only.
 
-The v0.1.0-v0.7.1 writers run the source-proven bootstrap-only variant:
-their complete whole-file owner fingerprints (scripts/release_restore_legacy.py)
-select the operator product-create/project-locator-add pair before any
-execution, the invoke phase registers and invokes nothing, and the case
-report carries the proof's variant, source commit, fingerprint, and
-component owner hashes. A drifted, disconnected, or unbound legacy source
-holds by name; it never becomes bootstrap-only.
-
-Writer processes get a constructed environment: synthetic HOME, XDG, TMPDIR,
-and CONCORD_DB_PATH roots, and no inherited variable. Earlier releases predate
-the installed-store refusal (CD-0240), so an inherited CONCORD_DB_PATH would
-send them to the live store.
-
-The caller owns candidate provenance: it builds the candidate from the target
-commit and passes both. The gate binds the candidate's bytes by hashing them
-before the first case and refusing a change by the end of the run.
+Writer and candidate processes get constructed HOME, XDG, TMPDIR and
+CONCORD_DB_PATH roots, not the caller's environment. The caller builds the
+candidate from the target commit and supplies both identities. The gate binds
+the candidate's bytes before the first case and refuses any change by the end.
 """
 
 from __future__ import annotations
@@ -80,7 +57,6 @@ FULL_SHA_RE = re.compile(r"\A[0-9a-f]{40}\Z")
 REPOSITORY_RE = re.compile(r"\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 NETWORK_SECONDS = 120
 RECIPE_ID = "domain-v2"
-CENSUS_DIR = Path(__file__).resolve().parents[1] / "cmd" / "concord" / "testdata" / "release_restore"
 PRODUCT = {
     "product_id": "gate-product", "display_name": "Gate Product", "stage_maturity": "prototype",
     "stage_audience_commitment": "operator_only", "project_id": "gate-project",
@@ -311,14 +287,6 @@ def verify_writer_asset(repository: str, writer: Writer, case: Path, deadline: f
     return binary, f"sha256:{actual}"
 
 
-def witnesses(snapshot: Path, deadline: float, provenance: dict) -> list[dict]:
-    """One witness per writer event row, with the provenance that produced it."""
-    _, rows = event_rows(snapshot, deadline, ["seq", "event_id", "kind", "payload_version", "payload"])
-    return [{"writer": provenance, "seq": seq, "event_id": event_id, "kind": kind, "payload_version": payload_version,
-             "payload": payload.decode() if isinstance(payload, bytes) else payload}
-            for seq, event_id, kind, payload_version, payload in rows]
-
-
 def connect(path: Path, deadline: float, readonly: bool = True) -> sqlite3.Connection:
     """A connection whose statements abort at the deadline or on a signal; checkpoint() then names why."""
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True) if readonly else sqlite3.connect(path)
@@ -349,7 +317,6 @@ def snapshot_fixture(source: Path, destination: Path, writer: str, room=lambda: 
             "snapshot_id": f"release-restore-gate-{writer}",
             "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "git_commit_ids": {},
-            "event_watermark": snapshot.execute("SELECT COALESCE(MAX(seq),0) FROM domain_events").fetchone()[0],
             "binary_version": writer,
             "integrity_check": snapshot.execute("PRAGMA integrity_check").fetchone()[0],
             "foreign_key_check": [],
@@ -363,24 +330,10 @@ def snapshot_fixture(source: Path, destination: Path, writer: str, room=lambda: 
         snapshot.close()
     if manifest["integrity_check"] != "ok" or manifest["quick_check"] != "ok" or foreign:
         raise CaseFailure("fail", "snapshot", "writer store fails SQLite integrity verification")
-    if manifest["event_watermark"] < 1:
-        raise CaseFailure("fail", "snapshot", "writer journal is empty")
     guard()
     manifest["db_checksum"] = sha256_file(destination)
     Path(f"{destination}.manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     return manifest
-
-
-def event_rows(path: Path, deadline: float, columns: list[str] | None = None) -> tuple[list[str], list[tuple]]:
-    db = connect(path, deadline)
-    try:
-        columns = columns or [row[1] for row in db.execute("PRAGMA table_info(domain_events)")]
-        return columns, db.execute(f"SELECT {', '.join(columns)} FROM domain_events ORDER BY seq").fetchall()
-    except sqlite3.Error:
-        checkpoint(deadline)
-        raise
-    finally:
-        db.close()
 
 
 def effects(path: Path, deadline: float) -> list[str]:
@@ -396,28 +349,32 @@ def effects(path: Path, deadline: float) -> list[str]:
 
 
 def restore(candidate: Path, snapshot: Path, restored: Path, case: Path, deadline: float, streams: Path, label: str, guard) -> dict:
+    """Use the core's source-to-stage verifier, then check expected current effects.
+
+    The core verifies every table before migration. Post-migration assertions
+    below cover the recipe only, not arbitrary schema transformations.
+    """
     manifest = json.loads(Path(f"{snapshot}.manifest.json").read_text())
+    if sha256_file(snapshot) != manifest["db_checksum"]:
+        raise CaseFailure("fail", label, "source snapshot checksum disagrees with its manifest")
     request = json.dumps({"source": str(snapshot), "destination": str(restored)})
     rc, out = run_bounded([str(candidate), "restore"], sandbox_env(case / label), request, deadline, streams, label, guard)
     if rc != 0:
         raise CaseFailure("fail", label, f"candidate restore exited {rc}")
     report = json.loads(out)
+    source = report.get("source_snapshot") or {}
     inventory = report.get("restored_database") or {}
-    if report.get("source_snapshot", {}).get("db_checksum") != manifest["db_checksum"] or inventory.get("event_watermark", -1) < manifest["event_watermark"]:
-        raise CaseFailure("fail", label, "restore report disagrees with the snapshot inventory")
+    if any(source.get(key) != manifest[key] for key in ("db_checksum", "schema_version", "snapshot_id")):
+        raise CaseFailure("fail", label, "restore report disagrees with the source snapshot")
+    if (type(inventory.get("schema_version")) is not int or inventory["schema_version"] < manifest["schema_version"]
+            or inventory.get("db_checksum") != sha256_file(restored)):
+        raise CaseFailure("fail", label, "restore report disagrees with the restored database")
     if sha256_file(snapshot) != manifest["db_checksum"]:
         raise CaseFailure("fail", "conservation", "restore modified the source snapshot")
-    columns, source_events = event_rows(snapshot, deadline)
-    try:
-        _, restored_events = event_rows(restored, deadline, columns)
-    except sqlite3.Error as error:
-        raise CaseFailure("fail", "conservation", f"restored event log lacks a source column: {error}") from None
-    if restored_events[:len(source_events)] != source_events:
-        raise CaseFailure("fail", "conservation", "restored event rows differ from the snapshot's bytes")
     missing = effects(restored, deadline)
     if missing:
         raise CaseFailure("fail", "effects", f"{label} lacks the recipe's {', '.join(missing)}")
-    return inventory | {"appended_events": len(restored_events) - len(source_events)}
+    return inventory
 
 
 def invoke_runner(binary: Path, env: dict[str, str], streams: Path, deadline: float, guard):
@@ -448,7 +405,7 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
     repo = Path(__file__).resolve().parents[1]
     steps = recipe_for(writer.tag)
     # No hash claims a plan when the wall is exhausted or its source is unreadable.
-    row = dataclasses.asdict(writer) | {"recipe": RECIPE_ID, "recipe_sha256": "", "streams": str(streams), "witnesses": []}
+    row = dataclasses.asdict(writer) | {"recipe": RECIPE_ID, "recipe_sha256": "", "streams": str(streams)}
     case = work / writer.tag
 
     def room() -> int:
@@ -495,20 +452,22 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
             raise CaseFailure("unknown", "invoke-plan", "invoke phase plan diverged from the recipe-hashed plan")
         snapshot = case / "snapshot.db"
         manifest = snapshot_fixture(store, snapshot, writer.tag, room, guard, deadline)
+        missing = effects(snapshot, deadline)
+        if missing:
+            raise CaseFailure("unknown", "snapshot-effects", f"writer lacks the recipe's {', '.join(missing)}")
         check_invoke_effects(snapshot, record, deadline, "unknown", "invoke-snapshot-effects")
         if record["outcome"] != "bootstrap-only":
             row["invoke"] = {"outcome": record["outcome"], "plan": record["plan"]}
-        row["source"] = {key: manifest[key] for key in ("schema_version", "event_watermark", "db_checksum")}
+        row["source"] = {key: manifest[key] for key in ("schema_version", "db_checksum")}
+        row["source"]["asset_digest"] = asset_digest
         row["restored"] = restore(candidate, snapshot, case / "restored.db", case, deadline, streams, "restore", guard)
         check_invoke_effects(case / "restored.db", record, deadline, "fail", "effects")
         again = case / "restored-snapshot.db"
         snapshot_fixture(case / "restored.db", again, f"{writer.tag}-restored", room, guard, deadline)
-        row["rebuilt"] = restore(candidate, again, case / "rebuilt.db", case, deadline, streams, "rebuild", guard)
-        check_invoke_effects(case / "rebuilt.db", record, deadline, "fail", "rebuild-effects")
-        if row["rebuilt"]["appended_events"] or row["rebuilt"]["event_watermark"] != row["restored"]["event_watermark"]:
-            raise CaseFailure("fail", "rebuild", "a second restore of the restored store changed its event log")
-        row["witnesses"] = witnesses(snapshot, deadline, {"tag": writer.tag, "asset_digest": asset_digest, "recipe": RECIPE_ID,
-                                                          "recipe_sha256": row["recipe_sha256"], "snapshot_sha256": manifest["db_checksum"]})
+        row["restored_again"] = restore(candidate, again, case / "restored-again.db", case, deadline, streams, "restore-again", guard)
+        check_invoke_effects(case / "restored-again.db", record, deadline, "fail", "restore-again-effects")
+        if row["restored_again"]["schema_version"] != row["restored"]["schema_version"]:
+            raise CaseFailure("fail", "restore-again", "a second restore changed the candidate schema version")
         guard()
         if time.monotonic() > deadline:
             raise CaseFailure("unknown", "budget", "case finished after its budget")
@@ -530,31 +489,6 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
         shutil.rmtree(case / "asset", ignore_errors=True)
     scratch.retain(tree_bytes(case) + tree_bytes(streams))
     return row
-
-
-def shape_coverage(census: Path, writers: list[Writer]) -> dict:
-    """Close coverage only when the committed census (scripts/release-restore-inventory/)
-    inventories every writer outside the approved exclusion, witnesses every shape and older
-    accepted version, and binds every writer-produced row."""
-    try:
-        rows = {row["tag"]: row for row in json.loads((census / "writers.json").read_text(encoding="utf-8"))["rows"]}
-        census_coverage = json.loads((census / "coverage.json").read_text(encoding="utf-8"))
-        shapes = census_coverage["shapes"]
-        written = {tag for shape in shapes for tag in shape["writers"]}
-        gaps = {
-            "uninventoried writers": [w.tag for w in writers if w.tag not in rows],
-            "refused writers": [tag for tag, row in rows.items() if row["status"] != "inventoried" and not row.get("excluded")],
-            "inventoried writers without shapes": [tag for tag, row in rows.items() if row["status"] == "inventoried" and tag not in written],
-            "unwitnessed shapes": [f"{shape['kind']} v{shape['payload_version']}" for shape in shapes if not shape["covered"]],
-            "unwitnessed older versions": [f"{older['kind']} v{older['payload_version']}" for older in census_coverage["older_versions"] if not older["covered"]],
-            "unbound writer witnesses": list(census_coverage["unbound_writer_witnesses"]),
-        }
-    except (OSError, ValueError, KeyError, TypeError) as error:
-        return {"status": "held", "detail": f"the shape census at {census} is unreadable: {error}"}
-    gaps = {name: items for name, items in gaps.items() if items}
-    if gaps:
-        return {"status": "held", "detail": "; ".join(f"{len(items)} {name}, first {items[0]}" for name, items in gaps.items())}
-    return {"status": "closed", "writers": len(rows), "shapes": len(shapes)}
 
 
 def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tuple[str, str]], wall_deadline: float | None = None,
@@ -590,10 +524,8 @@ def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tup
         rows = [future.result() for future in futures]
     if sha256_file(candidate) != candidate_sha256:
         raise GateError("the candidate binary changed during the run")
-    emitted = [witness for row in rows for witness in row.pop("witnesses") if row["status"] == "pass"]
-    (output / "witnesses.jsonl").write_text("".join(json.dumps(w, sort_keys=True) + "\n" for w in emitted), encoding="utf-8")
     rows += unknown
-    coverage = shape_coverage(Path(args.census_dir), writers)
+    coverage = {"status": "held", "detail": "target-cutover current-state coverage is unproved; writer recipe cases do not establish it"}
     counts = {status: sum(row["status"] == status for row in rows) for status in ("pass", "fail", "unknown")}
     result = "fail" if counts["fail"] else "unknown" if STOP.is_set() or counts["unknown"] or not writers or len(rows) != len(writers) + len(unknown) else "pass"
     report = {
@@ -605,11 +537,11 @@ def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tup
         "budgets": {"workers": args.workers, "wall_seconds": args.wall_seconds, "case_seconds": args.case_seconds,
                     "disk_bytes": args.disk_bytes, "retained_bytes": scratch.retained,
                     "transfer_bytes": args.transfer_bytes, "transferred_bytes": transfer.used},
-        "counts": counts, "result": result, "witnesses": len(emitted),
+        "counts": counts, "result": result,
         "coverage": coverage,
         "rows": rows,
     }
-    return report, 1 if result != "pass" else 0 if coverage["status"] == "closed" else 3
+    return report, 1 if result != "pass" else 3
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -621,7 +553,6 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--candidate", required=True)
     run.add_argument("--candidate-version", required=True)
     run.add_argument("--output-dir", required=True)
-    run.add_argument("--census-dir", default=str(CENSUS_DIR))
     for name, default in (("--workers", 4), ("--wall-seconds", 14400), ("--case-seconds", 120), ("--disk-bytes", 6 << 30), ("--transfer-bytes", 40 << 30)):
         run.add_argument(name, type=int, default=default)
     args = parser.parse_args(argv)

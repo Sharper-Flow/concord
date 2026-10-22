@@ -627,8 +627,8 @@ func (r runtime) replayWorkflowAction(ctx context.Context, base Envelope, step s
 	return r.recordedMutationResult(base, prior), nil
 }
 
-// workflowActionReplayResult classifies the retained operation independently
-// of the projection reader used to enrich a completed response.
+// workflowActionReplayResult classifies the retained operation before replay
+// reads a completed response's committed snapshot.
 func workflowActionReplayResult(base Envelope, step store.FenceResult, observed time.Time) Envelope {
 	state := OperationState(step.ResultKind)
 	if step.ResultKind == store.ResultFailedStale {
@@ -699,17 +699,6 @@ func decodeWorkflowChangedRefs(values []string) []ChangedRef {
 		}
 	}
 	return out
-}
-
-// completionEvidenceRefs reports the evidence a lifecycle transition into the
-// completed state carries, so a replayed completion surfaces the same
-// evidence_refs as the original response.
-func completionEvidenceRefs(raw []byte) ([]EvidenceRef, bool) {
-	var in lifecycleMutationInput
-	if json.Unmarshal(raw, &in) != nil || in.Target != "completed" {
-		return nil, false
-	}
-	return append([]EvidenceRef{}, in.Evidence...), true
 }
 
 func scopeFromMap(scope map[string]any) *Scope {

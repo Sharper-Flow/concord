@@ -260,7 +260,6 @@ func ApplyWorkflowActionTx(ctx context.Context, transaction *Transaction, regist
 }
 
 func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
-	ctx = withWorkflowDispatchHost(ctx, request.ActionID, request.Actor.SessionRef, request.SessionWorktree)
 	var result WorkflowActionExecutionResult
 	if tx == nil {
 		return result, newFailure(KindInvalidOperation, "workflow_action", "transaction is not open", false, "supply an active store transaction")

@@ -1,6 +1,6 @@
 # Isolated native issue-key resume
 
-`scripts/test-native-issue-key-resume.py` drives the installed OpenCode server
+`scripts/native-issue-key-resume.py` drives the installed OpenCode server
 through its session API and a scripted loopback provider. The candidate's actual
 plugin and CLI run unchanged except for the installer's release-path stamp in
 the disposable adapter copy. The observer cannot move a session, claim a
@@ -13,8 +13,8 @@ existing configuration. Build the CLI from the same candidate before running:
 
 ```sh
 go build -o "$ARTIFACTS/concord" ./cmd/concord
-bin/oc-test targeted -- python3 scripts/test-native-issue-key-resume-fixture.py
-bin/oc-test targeted -- python3 scripts/test-native-issue-key-resume.py \
+bin/oc-test targeted -- python3 scripts/test-native-issue-key-resume.py
+bin/oc-test targeted -- python3 scripts/native-issue-key-resume.py \
   --host "$INSTALLED_OPENCODE" --cli "$ARTIFACTS/concord" \
   --host-deps "$PUBLIC_HOST_PACKAGES" --run-root "$ARTIFACTS/fresh-run" \
   --budget-seconds 210

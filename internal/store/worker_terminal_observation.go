@@ -294,6 +294,7 @@ func observeWorkerDelivery(ctx context.Context, runner GitRunner, path, subject 
 		return nil, workerDeliveryProbeFailure("changed paths", probeCtx, err)
 	}
 	observation.Base = subject
+	observation.ChangedPaths = []string{}
 	for _, name := range strings.Split(string(names), "\x00") {
 		if name != "" {
 			observation.ChangedPaths = append(observation.ChangedPaths, name)

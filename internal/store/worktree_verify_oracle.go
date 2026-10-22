@@ -770,9 +770,22 @@ func (s *Store) verifyNativeOracle(ctx context.Context, req WorktreeVerifyReques
 	if err != nil {
 		return WorktreeVerifyResult{}, err
 	}
-	repair, err := observeNativeReviewRepair(ctx, s.db, runner, req, entry, before)
-	if err != nil {
-		return WorktreeVerifyResult{}, err
+	var repair *nativeReviewRepair
+	if req.Oracle.Phase == "execute" {
+		dispatch, _, err := readNativeOracleDispatchBindingTx(ctx, s.db, req.WorkID, req.Oracle.AttemptID)
+		if err != nil {
+			return WorktreeVerifyResult{}, err
+		}
+		// The SQL sample is closed before Git; no queryer enters the probe.
+		repair, err = observeNativeReviewRepair(ctx, runner, dispatch, entry, before)
+		if err != nil {
+			return WorktreeVerifyResult{}, err
+		}
+		if repair != nil {
+			if err := validateNativeReviewRepairTx(ctx, s.db, req.WorkID, dispatch, repair); err != nil {
+				return WorktreeVerifyResult{}, err
+			}
+		}
 	}
 	if repair != nil {
 		ctx = context.WithValue(ctx, nativeReviewRepairKey{}, repair)

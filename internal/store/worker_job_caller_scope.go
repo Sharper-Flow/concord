@@ -471,6 +471,17 @@ func workerJobPathsIntersect(pathScope []string, path string) bool {
 	return false
 }
 
+// Containment is directional: a scoped child never grants its parent path.
+// Intersections remain symmetric for ownership and exclusion comparisons.
+func workerJobContainsPath(pathScope []string, path string) bool {
+	for _, scope := range pathScope {
+		if path == scope || strings.HasPrefix(path, scope+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // workerJobPathScopeTx reads the recorded path scope of one dispatched job
 // revision.
 func workerJobPathScopeTx(ctx context.Context, tx *sql.Tx, workID string, binding WorkerJobBinding) ([]string, error) {
@@ -624,7 +635,7 @@ func admitWorkerDeliveredPathsTx(ctx context.Context, tx *sql.Tx, workID string,
 		}
 	}
 	for _, path := range delta {
-		if workerJobPathsIntersect(pathScope, path) {
+		if workerJobContainsPath(pathScope, path) {
 			continue
 		}
 		if !repaired[path] {

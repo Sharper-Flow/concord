@@ -246,7 +246,7 @@ func TestBuiltinLaneObligationsAreClosedAndMatchGeneratedDigests(t *testing.T) {
 		"research":  "sha256:4091e91c9c095b96be54aba40d9704d97ab025238663409768fcf205c171102f",
 		"implement": "sha256:f4dad03f0b94430af796eecc1c53740d6441286c78879b46bee17ec79ce604e5",
 		"design":    "sha256:1178f4074a4212eb0e8a95a61aa74a52161b9a275f8a1ef52b5edf4f584c79ef",
-		"review":    "sha256:3a4cd631ddffb655e6a432bb186af0dfe70113031a79c4d45487f53412f2f15d",
+		"review":    "sha256:f98da75c2a31fecfff7aba2f74c45572c7238f86cd57572757ae1ba007b4efce",
 		"verify":    "sha256:807c155cf9e41729c4f7446c60b965ecb5519082d0611b67454b4db707e3bfd6",
 	}
 	definitions := BuiltinLaneDefinitions()

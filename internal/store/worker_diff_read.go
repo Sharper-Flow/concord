@@ -102,7 +102,9 @@ func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity 
 		if err != nil {
 			return "", err
 		}
-		d.editing = workerLaneEdits(lane.ID, lane.Version, d.digest)
+		// Review's B→C repair belongs to the accumulated solution. It does
+		// not open a new foundation for that solution's review diff.
+		d.editing = workerLaneEdits(lane.ID, lane.Version, d.digest) && !slices.Contains(lane.Capabilities, "inspect_diff")
 		editors = append(editors, d)
 	}
 	if err := rows.Err(); err != nil {

@@ -22,13 +22,9 @@ func nativeReviewRepairFrom(ctx context.Context) *nativeReviewRepair {
 	return r
 }
 
-func observeNativeReviewRepair(ctx context.Context, q queryer, runner GitRunner, req WorktreeVerifyRequest, entry WorktreeEntry, observed oracleGitSubjectSnapshot) (*nativeReviewRepair, error) {
-	if req.Oracle.Phase != "execute" {
+func observeNativeReviewRepair(ctx context.Context, runner GitRunner, d workflowActionCompletedPayload, entry WorktreeEntry, observed oracleGitSubjectSnapshot) (*nativeReviewRepair, error) {
+	if d.WorkerSubjectCommit == observed.head {
 		return nil, nil
-	}
-	d, _, err := readNativeOracleDispatchBindingTx(ctx, q, req.WorkID, req.Oracle.AttemptID)
-	if err != nil || d.WorkerSubjectCommit == observed.head {
-		return nil, err
 	}
 	if !observed.clean || !workerLaneRepairs(d.WorkerLaneID, d.WorkerLaneVersion, d.WorkerLaneDigest) {
 		return nil, nativeOracleSubjectMoved(d.WorkerSubjectCommit, observed.head)
@@ -47,9 +43,6 @@ func observeNativeReviewRepair(ctx context.Context, q queryer, runner GitRunner,
 		if path != "" {
 			repair.ChangedPaths = append(repair.ChangedPaths, path)
 		}
-	}
-	if err := validateNativeReviewRepairTx(ctx, q, req.WorkID, d, repair); err != nil {
-		return nil, err
 	}
 	return repair, nil
 }
@@ -71,7 +64,7 @@ func validateNativeReviewRepairTx(ctx context.Context, q queryer, work string, d
 		return refuse()
 	}
 	for _, path := range repair.ChangedPaths {
-		if !workerJobPathsIntersect(job.PathScope, path) {
+		if !workerJobContainsPath(job.PathScope, path) {
 			return refuse()
 		}
 	}

@@ -10,6 +10,19 @@ import (
 	"testing"
 )
 
+func TestReviewRepairUnchangedTerminalRecordsAnEmptyDelta(t *testing.T) {
+	f := newNativeOracleFixture(t)
+	o := f.authorizeLane(t, "review", f.actor, "review")
+	prepared, err := PrepareWorkerTerminalDelivery(context.Background(), f.s, PrepareWorkerTerminalDeliveryRequest{WorkID: f.work, AttemptID: o.AttemptID, EventID: "review-unchanged"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := prepared.proof.observation
+	if output == nil || output.Commit != f.head || output.Base != f.head || output.State != "clean" || output.ChangedPaths == nil || len(output.ChangedPaths) != 0 {
+		t.Fatalf("unchanged Review must record an observed empty delta: %+v", output)
+	}
+}
+
 func TestReviewDispositionRequiresCorrectiveEditCapability(t *testing.T) {
 	for _, lane := range BuiltinLaneDefinitions() {
 		if lane.ID == "review" {
@@ -20,6 +33,20 @@ func TestReviewDispositionRequiresCorrectiveEditCapability(t *testing.T) {
 		}
 	}
 	t.Fatal("Review lane is absent")
+}
+
+func TestReviewRepairContainmentDoesNotGrantAncestorPaths(t *testing.T) {
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{"pkg/value.go", true}, {"pkg/value.go/child", true},
+		{"pkg", false}, {"pkg/other.go", false},
+	} {
+		if got := workerJobContainsPath([]string{"pkg/value.go"}, tc.path); got != tc.want {
+			t.Errorf("contained(%q)=%t, want %t", tc.path, got, tc.want)
+		}
+	}
 }
 
 func TestReviewDispositionRepairMustNotDemandEvaluator(t *testing.T) {

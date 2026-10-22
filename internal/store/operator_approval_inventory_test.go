@@ -1666,6 +1666,25 @@ func approvalInventoryTripleCoverageProblems(builtinTriples []approvalInventoryT
 	return problems
 }
 
+func TestOperatorApprovalInventoryCensusRejectsStaleOwnerRow(t *testing.T) {
+	gated := approvalInventoryGatedManifestOperations(t)
+	points, _ := approvalInventoryCensus(t, gated)
+	table := approvalInventoryLoadTable(t)
+	holding := "CD-0037"
+	rows := append(table.ApprovalPoints, approvalInventoryPointRow{
+		ID:             "synthetic-stale-owner",
+		Owner:          approvalInventoryOwner{Path: "internal/store/workflow_registry.go", Symbol: "absentApprovalOwner", Branch: "absentApprovalOwner"},
+		HoldingLaw:     &holding,
+		Reachability:   []string{"live"},
+		Classification: json.RawMessage(`{"class":"product_preference"}`),
+	})
+	planners := approvalInventoryManifestConditionalPlanners(t, gated)
+	problems := approvalInventoryCoverageProblems(points, rows, gated, planners)
+	if len(problems) != 1 || !strings.Contains(problems[0], "row synthetic-stale-owner claims owner") || !strings.Contains(problems[0], "which the census does not find in the current sources") {
+		t.Fatalf("stale owner did not produce its exact census refusal: %v", problems)
+	}
+}
+
 // TestOperatorApprovalInventoryTableCoversCensus asserts set equality between
 // census entries and approval_points rows, through the declared aliases and
 // witnesses, plus the manifest axis. It fails while the table carries no
@@ -1685,6 +1704,9 @@ func TestOperatorApprovalInventoryTableCoversCensus(t *testing.T) {
 	}
 	if table.CatalogGeneration < 1 {
 		t.Errorf("catalog_generation must be a positive per-revision identity")
+	}
+	if table.CatalogGeneration != conflictRuleCatalogGeneration {
+		t.Errorf("catalog generation %d differs from generated catalog %d; rerun scripts/generate-conflict-rules.py", table.CatalogGeneration, conflictRuleCatalogGeneration)
 	}
 	planners := approvalInventoryManifestConditionalPlanners(t, gated)
 	problems := approvalInventoryCoverageProblems(points, table.ApprovalPoints, gated, planners)

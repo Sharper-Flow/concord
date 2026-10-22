@@ -210,6 +210,9 @@ func TestReviewCurrentFindingRetainsItsObligationBinding(t *testing.T) {
 	for _, change := range []string{"omit oracle", "different owner", "different criterion", "different control"} {
 		t.Run(change, func(t *testing.T) {
 			db, appendEvent, _ := progressHistory(t, false)
+			if _, err := db.Exec(`CREATE TABLE workflow_contracts(work_id TEXT,contract_version INTEGER,superseded_by INTEGER)`); err != nil {
+				t.Fatal(err)
+			}
 			original := reviewBlockFixture()
 			original.Findings[0].Oracle = &WorkerOracleFinding{
 				Classification: OracleClassificationDeliveryBlocker,
@@ -246,7 +249,9 @@ func TestReviewCurrentFindingRetainsItsObligationBinding(t *testing.T) {
 				t.Fatalf("unchanged obligation refused: %v", err)
 			}
 			var extended WorkerReviewFinding
-			if err := json.Unmarshal(mustJSONValue(original.Findings[0]), &extended); err != nil { t.Fatal(err) }
+			if err := json.Unmarshal(mustJSONValue(original.Findings[0]), &extended); err != nil {
+				t.Fatal(err)
+			}
 			extended.Oracle.ControlIDs = append(extended.Oracle.ControlIDs, "control:additional")
 			if err := validateReviewFindingBinding(state.Findings[0], extended); err != nil {
 				t.Fatalf("additional coverage erased no original obligation but was refused: %v", err)

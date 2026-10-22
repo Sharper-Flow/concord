@@ -12,7 +12,33 @@ import (
 
 func TestReviewRepairDiffKeepsInputBWhileCheckoutChanges(t *testing.T) {
 	j, _ := descendantReviewFixture(t, "repair-diff-input")
+	acceptCurrentReviewForTest(t, j.fixture, j.repo, "continue")
+	const jobID = "job:repair-diff-implementation"
+	if err := recordWorkerJobFieldsForTest(t, j.s, j.workID, j.fixture.owner, map[string]any{
+		"job_id": jobID, "objective": "Produce the bounded diff input.", "stopping_condition": "The committed input can be reviewed.",
+		"path_scope": []string{"internal/store", "seed.txt"}, "checks": []string{}, "ready": true, "readiness_evidence": []string{"evidence:ready"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	views, err := readWorkerJobRevisions(t.Context(), j.s.db, j.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var job WorkerJobBinding
+	for _, view := range views {
+		if view.Binding.JobID == jobID {
+			job = view.Binding
+		}
+	}
+	if err := descendantDispatch(t, j, "implement", "repair-diff-implementation", job, nil); err != nil {
+		t.Fatal(err)
+	}
+	j.laneDispatch(t, "repair-diff-implementation", "implementation", &job)
 	b := workerDiffCommit(t, j, "input-b", "input B\n")
+	j.completeLane(t, "repair-diff-implementation", "implementation", &job, nil)
+	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": "repair-diff-implementation", "attempt_epoch": j.dispatchEpoch(t, "repair-diff-implementation")}, j.fixture.owner); err != nil {
+		t.Fatal(err)
+	}
 	req := workerDiffDispatch(t, j, "repair-diff")
 	before, err := j.s.ReadWorkerDiff(context.Background(), req)
 	if err != nil || before.SubjectCommit != b {

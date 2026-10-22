@@ -112,6 +112,10 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 			}
 		})
 	}
+	// A command receipt has semantic coverage only because the exact accepted
+	// assessment above cites it for this criterion on C. The unrelated passing
+	// command in the negative table never receives that coverage.
+	spineOK(t, f.action(t, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{f.proof}}}}))
 	spineOK(t, f.action(t, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{checked.OperationRef}}}}))
 	spineOK(t, f.call(t, "concord_work_define", "observation_record", map[string]any{"work_id": f.work, "statement": "The declared value check passes on the repaired candidate; Main accepted its attributed Review and native producer proof.", "refs": []string{f.read(t).Pinned.Contract.ArchitectureBinding.HomeDomainID, checked.OperationRef}, "idempotency_key": "spine-premise-investigation"}))
 	pin := f.read(t).Pinned.Pin

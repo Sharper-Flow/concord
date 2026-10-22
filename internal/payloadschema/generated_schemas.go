@@ -3223,6 +3223,8 @@ const GeneratedPayloadSchemaDocument = `{
       "description": "Review's candidate claim. Acceptance derives authority from the admitted input and the host's clean terminal observation, not these claims.",
       "properties": {
         "commit": {
+          "maxLength": 64,
+          "minLength": 40,
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
           "type": "string"
         },
@@ -3232,6 +3234,8 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "tree": {
+          "maxLength": 64,
+          "minLength": 40,
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
           "type": "string"
         }
@@ -3271,6 +3275,8 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "properties": {
         "architecture_digest": {
+          "maxLength": 71,
+          "minLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$",
           "type": "string"
         },
@@ -3282,6 +3288,8 @@ const GeneratedPayloadSchemaDocument = `{
             "additionalProperties": false,
             "properties": {
               "content_digest": {
+                "maxLength": 71,
+                "minLength": 71,
                 "pattern": "^sha256:[0-9a-f]{64}$",
                 "type": "string"
               },
@@ -3381,6 +3389,8 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "input_digest": {
+          "maxLength": 71,
+          "minLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$",
           "type": "string"
         },

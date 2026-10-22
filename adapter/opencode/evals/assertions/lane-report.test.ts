@@ -2,6 +2,7 @@ import { test, expect } from "bun:test"
 import { agentLanePacketSchema } from "../../generated-agent-lanes.js"
 import assertLaneReport from "./lane-report.js"
 import { WORKER_REPORT_PROTOCOL } from "../../worker-report-protocol.js"
+import { reviewBlockFixture, reviewFindingFixture } from "../../review-test-fixture"
 
 // Unit coverage for the lane behavioural evals' shared assertion. The
 // assertion is the behavioural gate for eval runs (CD-0017 D7) and mirrors
@@ -38,15 +39,12 @@ const reviewPacket = (overrides: Record<string, unknown> = {}): Record<string, u
 })
 
 const finding = (overrides: Record<string, unknown> = {}) => ({
-  severity: "P1",
-  confidence: "high",
-  detail: "the bound is not checked at the boundary",
+  ...reviewFindingFixture(),
   ...overrides,
 })
 
 const reviewBlock = (overrides: Record<string, unknown> = {}) => ({
-  verdict: "no_ship",
-  findings: [finding()],
+  ...reviewBlockFixture(),
   ...overrides,
 })
 
@@ -443,13 +441,13 @@ test("a lane whose manifest declares no review block needs none", () => {
 
 test("a review block outside the declared shape is refused", () => {
   const refusals: Array<{ name: string; block: unknown }> = [
-    { name: "not an object", block: "ship" },
+    { name: "not an object", block: "continue" },
     { name: "undeclared review property", block: { ...reviewBlock(), summary: "looks fine" } },
-    { name: "missing verdict", block: { findings: [finding()] } },
-    { name: "missing findings", block: { verdict: "ship" } },
-    { name: "verdict outside the closed set", block: { verdict: "conditional", findings: [finding()] } },
-    { name: "findings not an array", block: { verdict: "ship", findings: "none" } },
-    { name: "findings past the item bound", block: { verdict: "ship", findings: Array.from({ length: 65 }, () => finding()) } },
+    { name: "missing disposition", block: reviewBlock({ disposition: undefined }) },
+    { name: "missing findings", block: reviewBlock({ findings: undefined }) },
+    { name: "disposition outside the closed set", block: reviewBlock({ disposition: "conditional" }) },
+    { name: "findings not an array", block: reviewBlock({ findings: "none" }) },
+    { name: "findings past the item bound", block: reviewBlock({ findings: Array.from({ length: 65 }, () => finding()) }) },
     { name: "finding with an undeclared property", block: reviewBlock({ findings: [{ ...finding(), mood: "sure" }] }) },
     { name: "finding missing a required property", block: reviewBlock({ findings: [{ severity: "P1", detail: "x" }] }) },
     { name: "severity outside the closed scale", block: reviewBlock({ findings: [finding({ severity: "S1" })] }) },
@@ -463,34 +461,31 @@ test("a review block outside the declared shape is refused", () => {
 })
 
 test("a finding detail inside the UTF-8 byte bound passes at its character length", () => {
-  const ship = { verdict: "ship", findings: [finding({ detail: "é".repeat(255) })] }
+  const ship = reviewBlock({ disposition: "ready_for_final_proof", findings: [finding({ detail: "é".repeat(255) })] })
   expect(run(report({ review: ship }))).toMatchObject({ pass: true, score: 1 })
 })
 
-test("a ship verdict with a finding severity the verdict excludes is refused", () => {
-  const result = run(report({ review: { verdict: "ship", findings: [finding({ severity: "P0" })] } }))
-  expect(result.pass).toBe(false)
-  expect(result.reason).toContain("severity")
-  expect(result.reason).toContain("closed enum")
-  expect(result.reason).toContain("P1")
+test("a typed high-severity blocker remains reported content, not progression authority", () => {
+  const result = run(report({ review: reviewBlock({ findings: [finding({ severity: "P0", in_scope: true, blocking: true })] }) }))
+  expect(result).toMatchObject({ pass: true, score: 1 })
 })
 
 test("a ship verdict with only non-blocking severities passes", () => {
   const ship = {
-    verdict: "ship",
+    ...reviewBlock({ disposition: "ready_for_final_proof" }),
     findings: [finding({ severity: "P1" }), finding({ severity: "P2" }), finding({ severity: "P3" })],
   }
   expect(run(report({ review: ship }))).toMatchObject({ pass: true, score: 1 })
 })
 
 test("a ship verdict with zero findings passes", () => {
-  expect(run(report({ review: { verdict: "ship", findings: [] } }))).toMatchObject({ pass: true, score: 1 })
+  expect(run(report({ review: reviewBlock({ disposition: "ready_for_final_proof", findings: [] }) }))).toMatchObject({ pass: true, score: 1 })
 })
 
-test("a no_ship verdict with zero findings is refused", () => {
-  const result = run(report({ review: { verdict: "no_ship", findings: [] } }))
-  expect(result.pass).toBe(false)
-  expect(result.reason).toContain("fewer than 1")
+test("a blocking disposition can report missing proof without inventing an implementation finding", () => {
+  for (const disposition of ["correction_required", "revision_required"]) {
+    expect(run(report({ review: reviewBlock({ disposition, findings: [] }) }))).toMatchObject({ pass: true, score: 1 })
+  }
 })
 
 test("an evidence entry may carry the schema's declared optional predicate_ids", () => {

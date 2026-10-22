@@ -546,6 +546,12 @@ export interface AgentLaneReportDirectCallerRepair {
 // law, case, and control references that bind the finding to the job's
 // acceptance oracle; it records no acceptance.
 export interface AgentLaneReportReviewFinding {
+  finding_id: string
+  in_scope: boolean
+  blocking: boolean
+  status: "open" | "closed"
+  evidence_refs: string[]
+  closure_refs: string[]
   severity: "P0" | "P1" | "P2" | "P3"
   confidence: "low" | "medium" | "high"
   detail: string
@@ -578,8 +584,8 @@ export interface AgentLaneReportResolvedFinding {
 
 // AgentLaneReportOracleReceipt is one typed control-execution receipt:
 // reported evidence, never native-run authority. The adapter
-// strips any worker-echoed subject_commit and injects the observed raw OID
-// subject from the dispatch packet before the canonical report forms.
+// strips worker subject claims; the store resolves the producer's actual
+// subject through run_ref instead of substituting the dispatch input.
 export interface AgentLaneReportOracleReceipt {
   control_ids: string[]
   case_ids: string[]
@@ -592,13 +598,20 @@ export interface AgentLaneReportOracleReceipt {
 }
 
 // AgentLaneReportReview mirrors the optional top-level review object of
-// contracts/agent-lane-report.schema.json: the lane's explicit verdict, its
-// findings, and the optional evidenced closure claims. The verdict
-// is report content only (CD-0197): it maps to no workflow field and records
-// no transition.
+// contracts/agent-lane-report.schema.json. Report arrival grants no progression;
+// Main accepts the exact report through the existing result-acceptance route.
 export interface AgentLaneReportReview {
-  verdict: "ship" | "no_ship"
+  disposition: "continue" | "correction_required" | "revision_required" | "ready_for_final_proof"
+  input_candidate: { project_id: string; commit: string; tree: string }
+  output_candidate: { project_id: string; commit: string; tree: string }
+  dependencies: {
+    criteria: { predicate_id: string; content_digest: string }[]
+    architecture_digest?: string
+    architecture_not_applicable: boolean
+  }
+  assessments: { predicate_id: string; assessment: "supported" | "unproved" | "mismatch"; receipt_refs: string[] }[]
   findings: AgentLaneReportReviewFinding[]
+  remaining_obligations: { obligation_id: string; owner_ref: string; subject_ref: string; input_digest: string; needed_proof: string }[]
   resolved_findings?: AgentLaneReportResolvedFinding[]
 }
 
@@ -632,9 +645,9 @@ export interface AgentLaneReport {
 export type CanonicalLaneReport = AgentLaneReport & Pick<AgentLanePacket, "attempt_id" | "lane_id" | "lane_version" | "lane_digest">
 
 // AgentResultReviewSummary is the attempt readback's typed view of a review
-// report: the verdict and one count per severity of the closed P0-P3 scale.
+// report: the disposition and one count per severity of the closed P0-P3 scale.
 export interface AgentResultReviewSummary {
-  verdict: AgentLaneReportReview["verdict"]
+  disposition: AgentLaneReportReview["disposition"]
   findings: Record<AgentLaneReportReviewFinding["severity"], number>
 }
 
@@ -2954,7 +2967,7 @@ async function completeWorkerSession(
   if (!("detail" in resolution) && resolution.report.status === "completed" && resolution.report.review) {
     const counts: AgentResultReviewSummary["findings"] = { P0: 0, P1: 0, P2: 0, P3: 0 }
     for (const finding of resolution.report.review.findings) counts[finding.severity] += 1
-    envelope.review = { verdict: resolution.report.review.verdict, findings: counts }
+    envelope.review = { disposition: resolution.report.review.disposition, findings: counts }
   }
 
   // CD-0017 D5: a worker attempt is durable evidence, not an in-memory envelope.

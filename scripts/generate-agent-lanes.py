@@ -343,8 +343,13 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"type={review['type']}, "
         f"additionalProperties={json.dumps(review['additionalProperties'])}, "
         f"required={json.dumps(review['required'], ensure_ascii=False)}.",
-        "review.verdict: "
-        f"enum={json.dumps(review['properties']['verdict']['enum'], ensure_ascii=False)}.",
+        "review.disposition: "
+        f"enum={json.dumps(review['properties']['disposition']['enum'], ensure_ascii=False)}. "
+        "Main accepts this exact report; it cannot rewrite the disposition. "
+        "Report the input/output Project, commit and tree, judged dependency digests, "
+        "criterion assessments with producer receipt references, explicit finding identities, "
+        "scope/blocking/status and evidenced closures, and remaining obligations. "
+        "A repair binds input B and clean output C. Proof on B does not prove C.",
         "review.findings: "
         f"type={review_findings['type']}, "
         f"minItems={review_findings['minItems']}, "

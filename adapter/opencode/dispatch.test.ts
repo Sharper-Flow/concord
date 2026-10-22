@@ -4,6 +4,7 @@ import fs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
 import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
+import { reviewBlockFixture, reviewFindingFixture } from "./review-test-fixture"
 import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, HostProvenanceError, MAX_HOST_PROVENANCE_SOURCES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, withWorkerReadbackScope, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner, type WorkerFailureObservation } from "./dispatch"
 // The published scenario contract pins the provenance source bound the
 // adapter refuses past. The schema is read at runtime, so the staged host
@@ -2620,7 +2621,7 @@ for (const registered of agentLanes) {
     const requiresReviewBlock = (registered.required_report_blocks as readonly string[]).includes("review")
     const blockDischarged = requiresReviewBlock ? ["severity"] : []
     const evidence = dischargingEvidence(laneID).filter((entry) => !blockDischarged.includes(entry.obligation))
-    const extra = requiresReviewBlock ? { review: { verdict: "ship", findings: [] } } : {}
+    const extra = requiresReviewBlock ? { review: reviewBlockFixture({ disposition: "ready_for_final_proof", findings: [] }) } : {}
     const { result, verbs, payloads } = await laneTerminalEvidence(laneID, evidence, extra)
     expect(result.outcome).toBe("ok")
     expect(result.assigned_result).toBe(workerScopeAssignedResult(laneID)!)
@@ -2634,7 +2635,7 @@ for (const registered of agentLanes) {
       const evidence = dischargingEvidence(laneID)
         .filter((entry) => !requiresReviewBlock || entry.obligation !== "severity")
         .map((entry) => shape === "empty" ? { ...entry, predicate_ids: [] } : entry)
-      const extra = requiresReviewBlock ? { review: { verdict: "ship", findings: [] } } : {}
+      const extra = requiresReviewBlock ? { review: reviewBlockFixture({ disposition: "ready_for_final_proof", findings: [] }) } : {}
       expect(validateAgentLaneReport(report({ evidence, ...extra }))).toBe(true)
       const { result, verbs, payloads } = await laneTerminalEvidence(laneID, evidence, extra)
       expect(result.outcome, JSON.stringify(result.error)).toBe("ok")
@@ -3283,8 +3284,8 @@ const reviewPacket = (): AgentLanePacket => ({ ...packet(), lane_id: reviewLane.
 // for the blockless refusals.
 const reviewEvidence = () => reviewLane.evidence_obligations.filter((obligation) => obligation !== "severity").map((obligation) => ({ obligation, detail: `${obligation} discharged` }))
 const reviewEvidenceWithSeverity = () => reviewLane.evidence_obligations.map((obligation) => ({ obligation, detail: `${obligation} discharged` }))
-const reviewFinding = () => ({ severity: "P1" as const, confidence: "high" as const, detail: "the bound is not checked at the boundary" })
-const reviewBlock = () => ({ verdict: "no_ship", findings: [reviewFinding()] })
+const reviewFinding = reviewFindingFixture
+const reviewBlock = reviewBlockFixture
 const reviewReport = (overrides: Record<string, unknown> = {}) =>
   report({ evidence: reviewEvidence(), review: reviewBlock(), ...overrides })
 const completeReview = (body: string, options: Partial<CompleteOptions> = {}, dispatched: AgentLanePacket = reviewPacket()) =>
@@ -3306,20 +3307,20 @@ test("the report schema admits the typed review block and refuses drifted shapes
   // The block is optional for every lane, and ship with zero findings is a
   // legal verdict.
   expect(validateAgentLaneReport(report())).toBe(true)
-  expect(validateAgentLaneReport(reviewReport({ review: { verdict: "ship", findings: [] } }))).toBe(true)
+  expect(validateAgentLaneReport(reviewReport({ review: reviewBlock({ disposition: "ready_for_final_proof", findings: [] }) }))).toBe(true)
   const refusals = [
     { name: "unknown sibling property", value: { ...reviewBlock(), mood: "confident" } },
-    { name: "missing verdict", value: { findings: [reviewFinding()] } },
-    { name: "missing findings", value: { verdict: "ship" } },
-    { name: "verdict outside the closed set", value: { verdict: "conditional", findings: [reviewFinding()] } },
-    { name: "finding with an undeclared property", value: { verdict: "no_ship", findings: [{ ...reviewFinding(), exit_code: 0 }] } },
-    { name: "severity outside the closed scale", value: { verdict: "no_ship", findings: [{ ...reviewFinding(), severity: "S1" }] } },
-    { name: "confidence outside the closed scale", value: { verdict: "no_ship", findings: [{ ...reviewFinding(), confidence: "certain" }] } },
-    { name: "empty finding detail", value: { verdict: "no_ship", findings: [{ ...reviewFinding(), detail: "" }] } },
-    { name: "finding detail beyond 512 bytes", value: { verdict: "no_ship", findings: [{ ...reviewFinding(), detail: "é".repeat(300) }] } },
-    { name: "more than 64 findings", value: { verdict: "ship", findings: Array.from({ length: 65 }, () => ({ severity: "P3", confidence: "low", detail: "a finding" })) } },
-    { name: "ship with a P0 finding", value: { verdict: "ship", findings: [{ severity: "P0", confidence: "high", detail: "a blocker" }] } },
-    { name: "no_ship with zero findings", value: { verdict: "no_ship", findings: [] } },
+    { name: "missing disposition", value: { ...reviewBlock(), disposition: undefined } },
+    { name: "missing findings", value: { ...reviewBlock(), findings: undefined } },
+    { name: "disposition outside the closed set", value: { ...reviewBlock(), disposition: "conditional" } },
+    { name: "finding with an undeclared property", value: { ...reviewBlock(), findings: [{ ...reviewFinding(), exit_code: 0 }] } },
+    { name: "severity outside the closed scale", value: { ...reviewBlock(), findings: [{ ...reviewFinding(), severity: "S1" }] } },
+    { name: "confidence outside the closed scale", value: { ...reviewBlock(), findings: [{ ...reviewFinding(), confidence: "certain" }] } },
+    { name: "empty finding detail", value: reviewBlock({ findings: [reviewFinding({ detail: "" })] }) },
+    { name: "finding detail beyond 512 bytes", value: reviewBlock({ findings: [reviewFinding({ detail: "é".repeat(300) })] }) },
+    { name: "more than 64 findings", value: reviewBlock({ findings: Array.from({ length: 65 }, (_, index) => reviewFinding({ finding_id: `finding:${index}` })) }) },
+    { name: "missing explicit scope", value: { ...reviewBlock(), findings: [{ ...reviewFinding(), in_scope: undefined }] } },
+    { name: "missing candidate tree", value: { ...reviewBlock(), output_candidate: { ...reviewBlock().output_candidate, tree: undefined } } },
   ]
   for (const refusal of refusals) {
     expect(validateAgentLaneReport(reviewReport({ review: refusal.value })), refusal.name).toBe(false)
@@ -3387,12 +3388,12 @@ test("the review lane refuses a free-text severity entry beside the typed review
 })
 
 test("a typed review block rides worker-complete and the completed envelope", async () => {
-  const block = { verdict: "no_ship" as const, findings: [reviewFinding(), { ...reviewFinding(), detail: "a second finding" }, { severity: "P3" as const, confidence: "medium" as const, detail: "a third finding" }] }
+  const block = reviewBlock({ findings: [reviewFinding(), reviewFinding({ finding_id: "finding:second", detail: "a second finding" }), reviewFinding({ finding_id: "finding:third", severity: "P3", confidence: "medium", detail: "a third finding" })] })
   const { result, verbs, payloads } = await terminalReviewEvidence(reviewReport({ review: block }))
   expect(result.outcome).toBe("ok")
   expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
   expect(payloads[1].review).toEqual(block)
-  expect(result.review).toEqual({ verdict: "no_ship", findings: { P0: 0, P1: 2, P2: 0, P3: 1 } })
+  expect(result.review).toEqual({ disposition: "correction_required", findings: { P0: 0, P1: 2, P2: 0, P3: 1 } })
 })
 
 test("unrelated review output at settlement records a host validator failure, never a completed review", async () => {
@@ -3433,13 +3434,13 @@ test.each(["dispatched", "completed"] as const)("review subject checks distingui
   expect(probes).toBe(state === "completed" ? 0 : 3)
 })
 
-test("a ship verdict with findings completes and counts each severity", async () => {
-  const block = { verdict: "ship" as const, findings: [{ severity: "P2" as const, confidence: "low" as const, detail: "one" }, { severity: "P2" as const, confidence: "low" as const, detail: "two" }] }
+test("a ready disposition with findings completes its report and counts each severity", async () => {
+  const block = reviewBlock({ disposition: "ready_for_final_proof", findings: [reviewFinding({ severity: "P2", confidence: "low", detail: "one" }), reviewFinding({ finding_id: "finding:second", severity: "P2", confidence: "low", detail: "two" })] })
   const { result, verbs, payloads } = await terminalReviewEvidence(reviewReport({ review: block }))
   expect(result.outcome).toBe("ok")
   expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
-  expect(payloads[1].review.verdict).toBe("ship")
-  expect(result.review).toEqual({ verdict: "ship", findings: { P0: 0, P1: 0, P2: 2, P3: 0 } })
+  expect(payloads[1].review.disposition).toBe("ready_for_final_proof")
+  expect(result.review).toEqual({ disposition: "ready_for_final_proof", findings: { P0: 0, P1: 0, P2: 2, P3: 0 } })
 })
 
 test("a blockless review completion is a typed invalid report, never a completion", async () => {
@@ -3485,14 +3486,14 @@ test("a multi-byte evidence detail is truncated to the byte bound on a code-poin
 
 test("an over-length review finding detail is truncated at admission, not refused", () => {
   for (const long of ["x".repeat(900), "é".repeat(300)]) {
-    const block = { verdict: "no_ship", findings: [{ ...reviewFinding(), detail: long }, reviewFinding()] }
+    const block = reviewBlock({ findings: [reviewFinding({ detail: long }), reviewFinding({ finding_id: "finding:second" })] })
     const admitted = resolveWorkerReportFromText(JSON.stringify(reviewReport({ review: block })), reviewPacket())
     expect("detail" in admitted ? admitted.detail : "admitted").toBe("admitted")
     const findings = ("report" in admitted ? admitted.report.review?.findings : undefined) ?? []
     expect(Buffer.byteLength(findings[0].detail)).toBeLessThanOrEqual(512)
     expect(findings[0].detail.endsWith(" [truncated]")).toBe(true)
     expect(findings[0].severity).toBe("P1")
-    expect(findings[1]).toEqual(reviewFinding())
+    expect(findings[1]).toEqual(reviewFinding({ finding_id: "finding:second" }))
   }
 })
 

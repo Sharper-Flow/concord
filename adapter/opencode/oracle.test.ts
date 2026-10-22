@@ -220,6 +220,7 @@ test("dispatch refuses an unverifiable oracle before the authorization call", as
 // The typed review block with oracle classification, resolutions, and one
 // evidence entry carrying an executed receipt. The worker echo below must be
 // stripped by admission: the candidate subject is dispatch-owned identity.
+import { reviewBlockFixture, reviewFindingFixture } from "./review-test-fixture"
 const oracleReportText = () => JSON.stringify({
   schema_version: "1.1",
   readback_model: "openai/gpt-5.6-luna",
@@ -238,9 +239,9 @@ const oracleReportText = () => JSON.stringify({
     } },
   ],
   review: {
-    verdict: "no_ship",
+    ...reviewBlockFixture(),
     findings: [
-      { severity: "P1", confidence: "high", detail: "The second entry path still fails its control.", oracle: {
+      { ...reviewFindingFixture(), detail: "The second entry path still fails its control.", oracle: {
         classification: "uncovered_case",
         owner_id: "owner:acceptance-graph",
         failure_family: "owner-variant",

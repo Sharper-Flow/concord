@@ -28015,10 +28015,14 @@
         },
         "commit": {
           "type": "string",
+          "minLength": 40,
+          "maxLength": 64,
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
         },
         "tree": {
           "type": "string",
+          "minLength": 40,
+          "maxLength": 64,
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
         }
       }
@@ -28051,6 +28055,8 @@
               },
               "content_digest": {
                 "type": "string",
+                "minLength": 71,
+                "maxLength": 71,
                 "pattern": "^sha256:[0-9a-f]{64}$"
               }
             }
@@ -28058,6 +28064,8 @@
         },
         "architecture_digest": {
           "type": "string",
+          "minLength": 71,
+          "maxLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$"
         },
         "architecture_not_applicable": {
@@ -28158,6 +28166,8 @@
         },
         "input_digest": {
           "type": "string",
+          "minLength": 71,
+          "maxLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$"
         },
         "needed_proof": {

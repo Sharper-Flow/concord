@@ -66,7 +66,7 @@
     },
     {
       "kind": "adapter_test",
-      "value": "adapter/opencode/lane_completion.test.ts#the attempt readback carries a reported review verdict and per-severity counts"
+      "value": "adapter/opencode/lane_completion.test.ts#the attempt readback carries a reported disposition and per-severity counts"
     },
     {
       "kind": "validator",

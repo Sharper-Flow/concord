@@ -464,7 +464,7 @@ class AgentProjectionTests(unittest.TestCase):
             with self.subTest(lane=lane["id"]):
                 projection = lane_projection(lane)
                 carries = "review" in lane.get("required_report_blocks", [])
-                self.assertEqual("- review.verdict:" in projection, carries)
+                self.assertEqual("- review.disposition:" in projection, carries)
                 self.assertEqual("- review_finding.oracle:" in projection, carries)
                 self.assertIn("- evidence_entry.oracle_receipt:", projection)
 

@@ -249,10 +249,10 @@ Report contract constraints:
 - evidence_entry.oracle_receipt: optional object; type=object, additionalProperties=false, required=["control_ids", "case_ids", "recipe_source", "result", "run_ref", "evidence_refs"]. Report one control execution: `result` is one of `pass`, `fail`, `unavailable`, `not_run`. An executed `pass`/`fail` carries its `exit_code` and a nonempty immutable `run_ref`; `unavailable`/`not_run` carry the empty `run_ref` and name the explanation in `evidence_refs`. A receipt is reported evidence, never native-run authority: when no producing route issued an immutable locator, report `unavailable` and name the missing producer honestly — never invent a run locator. `subject_commit` is the producer-owned raw OID identity: never author it; any echo is stripped and the store resolves the actual subject from the native receipt's `run_ref`, never from the dispatch input.
 - oracle_receipt.control_ids: type=array, minItems=1, maxItems=8, pattern="^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$".
 - oracle_receipt.recipe_source: the exact pinned harness identity the control declared (project_id, path, commit_oid at "#/$defs/oracle_recipe_source"); never the candidate's modified copy of the harness.
-- review: optional top-level object; type=object, additionalProperties=false, required=["verdict", "findings"].
-- review.verdict: enum=["ship", "no_ship"].
+- review: optional top-level object; type=object, additionalProperties=false, required=["disposition", "input_candidate", "output_candidate", "dependencies", "assessments", "findings", "remaining_obligations"].
+- review.disposition: enum=["continue", "correction_required", "revision_required", "ready_for_final_proof"]. Main accepts this exact report; it cannot rewrite the disposition. Report the input/output Project, commit and tree, judged dependency digests, criterion assessments with producer receipt references, explicit finding identities, scope/blocking/status and evidenced closures, and remaining obligations. A repair binds input B and clean output C. Proof on B does not prove C.
 - review.findings: type=array, minItems=0, maxItems=64, items={"$ref": "#/$defs/review_finding"}.
-- review_finding shape: type=object, additionalProperties=false, required=["severity", "confidence", "detail"].
+- review_finding shape: type=object, additionalProperties=false, required=["severity", "confidence", "detail", "finding_id", "in_scope", "blocking", "status", "evidence_refs", "closure_refs"].
 - review_finding.severity: enum=["P0", "P1", "P2", "P3"].
 - review_finding.confidence: enum=["low", "medium", "high"].
 - review_finding.detail: type=string, minLength=1, maxLength=512.

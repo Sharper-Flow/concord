@@ -512,12 +512,26 @@ func TestReleasedVersionsRegisterWithoutDeclaredTables(t *testing.T) {
 	}
 }
 
-func TestLateVerdictAdmissionRequiresDeclaredRecoveryRoute(t *testing.T) {
+func TestCriterionAssociationCannotUseAnUnhealthyVerdictReturn(t *testing.T) {
 	definition := cloneWorkflowDefinition(genericOneOffRecoveryRoutesV14())
-	definition.RecoveryRoutes = definition.RecoveryRoutes[:1]
-	state := admissionModelState{step: "complete", contracts: 1, verdict: "bad"}
-	if admissionLateVerdictRoute(definition, state) {
-		t.Fatal("late verdict admitted without a declared return route at complete")
+	for _, routes := range [][]WorkflowRecoveryRoute{definition.RecoveryRoutes, definition.RecoveryRoutes[:1]} {
+		definition.RecoveryRoutes = routes
+		state := WorkflowAdmissionState{Step: "complete", ActiveContracts: 1}
+		if workflowAdmissionStepAllows(definition, state, "record_verdict") {
+			t.Fatal("criterion association acquired an off-step route from an unhealthy-verdict return")
+		}
+	}
+	declared := false
+	for _, step := range definition.StepGraph.Steps {
+		if stepDeclaresAction(definition, step.ID, "record_verdict") {
+			declared = true
+			if !workflowAdmissionStepAllows(definition, WorkflowAdmissionState{Step: step.ID}, "record_verdict") {
+				t.Fatal("declared criterion association route was removed")
+			}
+		}
+	}
+	if !declared {
+		t.Fatal("fixture has no declared criterion association step")
 	}
 }
 

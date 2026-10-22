@@ -105,9 +105,6 @@ type WorkflowAdmissionState struct {
 	// (workflowReviewSettlesDebt): only a ship, or absent pre-CD-0197,
 	// verdict settles, so a ready no_ship review keeps the debt outstanding.
 	ReadyReviewSettles bool
-	// LateVerdictRoute reports a late record_verdict recovery route the
-	// pinned shape opens at the current step.
-	LateVerdictRoute bool
 	// WorkerFailureRecovery reports an unsettled failed attempt the
 	// record_worker_failure recovery can record.
 	WorkerFailureRecovery bool
@@ -1028,16 +1025,13 @@ func workflowAdmitStepRefused(definition WorkflowDefinition, state WorkflowAdmis
 
 // workflowAdmissionStepAllows decides the structural step legality: the step
 // declares the action, or the folded state owns a recovery route that admits
-// it off-step. The payload-bound halves of the late-verdict and
-// evidence-binding recoveries stay guard checks beside the payloads they
-// read; this answer is the route the state proves.
+// it off-step. Payload-bound evidence-binding recoveries stay beside the
+// payloads they read; this answer is the route the state proves.
 func workflowAdmissionStepAllows(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string) bool {
 	if definitionStepAllows(definition, state.Step, actionID) {
 		return true
 	}
 	switch actionID {
-	case "record_verdict":
-		return state.LateVerdictRoute
 	case "bind_evidence":
 		return state.EvidenceRecoveryRoute
 	case "record_worker_failure":

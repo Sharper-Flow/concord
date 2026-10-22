@@ -349,9 +349,8 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		entry: entry, request: request, currentStep: currentStep, step: step, payload: payload, evidenceRefs: evidenceRefs,
 		eventActor: guards.eventActor, operatorRef: guards.operatorRef,
 		actorRecordPrefix: guards.actorRecordPrefix, operatorNeedsRecord: guards.operatorNeedsRecord,
-		lateVerdictRecovery: guards.lateVerdictRecovery,
-		admission:           guards.admissionState,
-		registry:            registry,
+		admission: guards.admissionState,
+		registry:  registry,
 	}
 	assembly, err := assembleWorkflowActionEventsTx(ctx, tx, assemblyInput)
 	if err != nil {
@@ -504,14 +503,6 @@ func prepareWorkflowActionIntents(guards *workflowActionGuardContext, request *W
 func runWorkflowActionAdmissionGuards(guards *workflowActionGuardContext, request WorkflowActionExecutionRequest, decision WorkflowAdmissionDecision) error {
 	if err := runWorkflowActionGuard(guards, guardPhaseRecovery); err != nil {
 		return err
-	} else if request.ActionID == "record_verdict" && !definitionStepAllows(guards.entry.Definition, guards.currentStep, request.ActionID) {
-		// Recovery admits the late timing only, and the guard's predicate is
-		// payload-bound: it checks the verdict entries the request names. The
-		// staleness boundary already held this action through the folded
-		// admission above.
-		if err := guardLateVerdictRecovery(guards); err != nil {
-			return err
-		}
 	}
 	if err := runWorkflowActionGuard(guards, guardPhaseBoundary); err != nil {
 		return err
@@ -532,9 +523,8 @@ func runWorkflowActionAdmissionGuards(guards *workflowActionGuardContext, reques
 	// The folded admission owns step legality (workflowAdmissionStepAllows),
 	// applied here — the engine's late position, after the payload and guard
 	// checks whose specific refusals precede the generic off-step one. The
-	// payload-bound recoveries refine it first: the late-verdict guard ran
-	// above for an off-step record_verdict, and the evidence-binding recovery
-	// binds the outstanding requirement the request's payload names.
+	// evidence-binding recovery first binds the outstanding requirement the
+	// request's payload names.
 	if request.ActionID == "bind_evidence" {
 		var recoveryErr error
 		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(guards.ctx, guards.tx, request.WorkID, guards.entry.Definition, guards.currentStep, request.Payload, "workflow_action")

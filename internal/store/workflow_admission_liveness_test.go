@@ -292,21 +292,6 @@ func admissionCompleteStepCorrection(definition WorkflowDefinition, state admiss
 		(state.attempt == "" || state.attempt == "failure_recorded") && state.observed
 }
 
-// admissionLateVerdictRoute folds the late record_verdict recovery: a
-// terminal or premise-question step behind a verdict step whose latest
-// verdict is not ok.
-func admissionLateVerdictRoute(definition WorkflowDefinition, state admissionModelState) bool {
-	if stepDeclaresAction(definition, state.step, "record_verdict") || workflowUnhealthyVerdictRouteTarget(definition, state.step) == "" || state.contracts == 0 || (state.verdict == "ok" && !state.artifactStale) {
-		return false
-	}
-	for _, step := range definition.StepGraph.Steps {
-		if step.ID != state.step && slices.Contains(step.Actions, "record_verdict") {
-			return true
-		}
-	}
-	return false
-}
-
 // admissionWorkflowState lifts the abstract model state into the folded
 // WorkflowAdmissionState workflowAdmit decides over, applying the loader's
 // rules to the model's dimensions.
@@ -354,7 +339,6 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		AttemptState:                attemptState,
 		LatestResultDisposition:     disposition,
 		ReviewDebt:                  ReviewDebtNone,
-		LateVerdictRoute:            admissionLateVerdictRoute(definition, state),
 		WorkerFailureRecovery:       admissionWorkerFailureRecovery(definition, state),
 		CorrectionRecovery:          state.attempt == "completed" && stepDeclaresAction(definition, state.step, "dispatch_worker"),
 		UnconsumedUnboundRejection:  workflowStepCarriesRejectionHold(definition, state.step) && state.unboundRejectionStep == state.step,

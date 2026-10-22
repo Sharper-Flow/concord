@@ -268,7 +268,6 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		return RegisteredDefinition{}, workflowPreflightFailure(decision.Failure)
 	}
 	staleRecovery := decision.RecoveryRoute
-	lateVerdictRecovery := false
 	if request.ActionID == "supersede_contract" {
 		fields, fieldsErr := workflowActionObject(request.Payload)
 		if fieldsErr != nil {
@@ -302,12 +301,8 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	// The folded admission owns step legality, applied here — the engine's
 	// late position, after the payload and guard checks whose specific
 	// refusals precede the generic off-step one. The payload-bound recoveries
-	// refine it first: the late-verdict recovery checks the verdict entries
-	// the request names, and the evidence-binding recovery binds the
-	// outstanding requirement the payload names.
-	if request.ActionID == "record_verdict" && !lateVerdictRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
-		return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
-	}
+	// refine it first: the evidence-binding recovery binds the outstanding
+	// requirement the payload names.
 	if request.ActionID == "bind_evidence" {
 		recoveryBind, recoveryErr := guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight")
 		if recoveryErr != nil {

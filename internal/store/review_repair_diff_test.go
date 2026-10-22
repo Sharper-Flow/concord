@@ -12,7 +12,6 @@ import (
 
 func TestReviewRepairDiffKeepsInputBWhileCheckoutChanges(t *testing.T) {
 	j, _ := descendantReviewFixture(t, "repair-diff-input")
-	acceptCurrentReviewForTest(t, j.fixture, j.repo, "continue")
 	const jobID = "job:repair-diff-implementation"
 	if err := recordWorkerJobFieldsForTest(t, j.s, j.workID, j.fixture.owner, map[string]any{
 		"job_id": jobID, "objective": "Produce the bounded diff input.", "stopping_condition": "The committed input can be reviewed.",

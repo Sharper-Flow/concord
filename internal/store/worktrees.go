@@ -5446,6 +5446,15 @@ type WorktreeVerifyResult struct {
 	Output              string              `json:"output"`
 	OutputTruncated     bool                `json:"output_truncated"`
 	TrackedFilesChanged bool                `json:"tracked_files_changed"`
+
+	// LeaseDisposition is observed at release commit or replay, not part of
+	// the immutable verification receipt. Unknown stays nil on partial errors.
+	LeaseDisposition *WorktreeVerifyLeaseDisposition `json:"-"`
+}
+
+type WorktreeVerifyLeaseDisposition struct {
+	State   string `json:"state"`
+	Outcome string `json:"outcome,omitempty"`
 }
 
 // VerifyWorktree acquires the exclusive verify lease, runs the command, and

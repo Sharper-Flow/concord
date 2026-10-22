@@ -719,6 +719,7 @@ func (s *Store) nativeOracleReplay(ctx context.Context, req WorktreeVerifyReques
 			return WorktreeVerifyResult{}, true, err
 		}
 	}
+	r.LeaseDisposition = &WorktreeVerifyLeaseDisposition{State: state, Outcome: outcome}
 	return r, true, nil
 }
 
@@ -860,11 +861,16 @@ func (s *Store) verifyNativeOracle(ctx context.Context, req WorktreeVerifyReques
 	if err != nil {
 		return result, annotateCommittedEffect(err, leaseRef)
 	}
-	result, err = s.releaseNativeOracle(finalCtx, req, entry, after, identity, plan, result, raw, unavailable, unavailableRaw, capture, ctx.Err() != nil)
+	aborted := ctx.Err() != nil
+	result, err = s.releaseNativeOracle(finalCtx, req, entry, after, identity, plan, result, raw, unavailable, unavailableRaw, capture, aborted)
 	if err != nil {
 		return result, annotateCommittedEffect(err, leaseRef)
 	}
 	released = true
+	result.LeaseDisposition = &WorktreeVerifyLeaseDisposition{State: "released", Outcome: "completed"}
+	if aborted {
+		result.LeaseDisposition.Outcome = "aborted"
+	}
 	if effectErr != nil {
 		return result, annotateCommittedEffect(effectErr, leaseRef)
 	}

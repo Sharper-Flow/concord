@@ -1603,16 +1603,16 @@ func admissionStrandedWitnesses(definition WorkflowDefinition) []string {
 	return witnesses
 }
 
-// admissionModelKey is a pointer-free encoding of one model state in one
-// machine word: every string dimension maps to its index in a closed
+// admissionModelKey is a pointer-free encoding of one model state in two
+// machine words: every string dimension maps to its index in a closed
 // vocabulary, every count to a byte, and every flag to a bit, each in its own
 // bit field, so two states share a key exactly when they are equal. A value
 // outside its vocabulary or its field width panics rather than collide. The
-// reachable search keys its maps on it: a word hashes and compares far faster
-// than the state's thirteen strings, and the collector does not scan a
-// pointer-free map. TestAdmissionModelKeyEncodesEveryField fails when the
+// reachable search keys its maps on it rather than the state's strings,
+// and the collector does not scan a pointer-free map.
+// TestAdmissionModelKeyEncodesEveryField fails when the
 // state gains a field the key does not encode.
-type admissionModelKey uint64
+type admissionModelKey [2]uint64
 
 // admissionModelKeyStepBits is the width of each step field: a definition
 // may declare at most 30 steps beside the empty step.
@@ -1625,21 +1625,95 @@ type admissionModelKeyPacker struct {
 }
 
 func (p *admissionModelKeyPacker) put(value uint8, bits uint) {
+	if bits == 0 || bits > 8 {
+		panic(fmt.Sprintf("admission model key field width %d is outside 1..8 bits", bits))
+	}
 	if uint(value) >= 1<<bits {
 		panic(fmt.Sprintf("admission model key field value %d does not fit %d bits", value, bits))
 	}
-	if p.shift+bits > 64 {
-		panic(fmt.Sprintf("admission model key needs more than 64 bits at field offset %d", p.shift))
+	if p.shift+bits > 128 {
+		panic(fmt.Sprintf("admission model key needs more than 128 bits at field offset %d", p.shift))
 	}
-	p.key |= admissionModelKey(value) << p.shift
+	word, shift := p.shift/64, p.shift%64
+	p.key[word] |= uint64(value) << shift
+	if shift+bits > 64 {
+		p.key[word+1] |= uint64(value) >> (64 - shift)
+	}
 	p.shift += bits
 }
 
 // get reads the next bit field in the order put wrote it.
 func (p *admissionModelKeyPacker) get(bits uint) uint8 {
-	value := uint8(p.key >> p.shift & (1<<bits - 1))
+	if bits == 0 || bits > 8 || p.shift+bits > 128 {
+		panic(fmt.Sprintf("admission model key cannot read %d bits at field offset %d", bits, p.shift))
+	}
+	word, shift := p.shift/64, p.shift%64
+	value := p.key[word] >> shift
+	if shift+bits > 64 {
+		value |= p.key[word+1] << (64 - shift)
+	}
 	p.shift += bits
-	return value
+	return uint8(value & (1<<bits - 1))
+}
+
+func TestAdmissionModelKeyPacksAcrossWordBoundary(t *testing.T) {
+	for offset := uint(57); offset <= 64; offset++ {
+		for value := 0; value < 256; value++ {
+			packed := admissionModelKeyPacker{shift: offset}
+			packed.put(uint8(value), 8)
+			packed.put(1, 1)
+			decoded := admissionModelKeyPacker{key: packed.key, shift: offset}
+			if got := decoded.get(8); got != uint8(value) || decoded.get(1) != 1 {
+				t.Fatalf("offset %d: key %#v did not retain byte %d and its following flag", offset, packed.key, value)
+			}
+			changed := admissionModelKeyPacker{shift: offset}
+			changed.put(uint8(value), 8)
+			changed.put(0, 1)
+			if changed.key == packed.key {
+				t.Fatal("keys differing in the second word collided")
+			}
+		}
+	}
+
+	packed := admissionModelKeyPacker{}
+	for range 16 {
+		packed.put(255, 8)
+	}
+	decoded := admissionModelKeyPacker{key: packed.key}
+	for range 16 {
+		if got := decoded.get(8); got != 255 {
+			t.Fatalf("full-width key lost byte %d", got)
+		}
+	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("key capacity overrun did not panic")
+		}
+	}()
+	packed.put(1, 1)
+}
+
+func TestAdmissionModelKeyRejectsInvalidFields(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		run  func()
+	}{
+		{"value overflow", func() { new(admissionModelKeyPacker).put(2, 1) }},
+		{"zero write width", func() { new(admissionModelKeyPacker).put(0, 0) }},
+		{"wide write", func() { new(admissionModelKeyPacker).put(0, 9) }},
+		{"zero read width", func() { new(admissionModelKeyPacker).get(0) }},
+		{"wide read", func() { new(admissionModelKeyPacker).get(9) }},
+		{"read overrun", func() { (&admissionModelKeyPacker{shift: 128}).get(1) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("invalid key field did not panic")
+				}
+			}()
+			test.run()
+		})
+	}
 }
 
 var (

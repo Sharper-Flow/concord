@@ -345,6 +345,9 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		if _, err := workflowVerdictReceiptAssociations(ctx, tx, request.WorkID, actor, fields); err != nil {
 			return RegisteredDefinition{}, err
 		}
+		if err := guardLateCriterionAssociations(ctx, tx, request.WorkID, entry.Definition, currentStep, fields); err != nil {
+			return RegisteredDefinition{}, err
+		}
 	}
 	if request.ActionID == "request_correction" {
 		// The payload check binds against the folded state's one correction

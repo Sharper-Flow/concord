@@ -436,6 +436,11 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 		kept = append(kept, intent)
 	}
 	pin.NextValidIntents = kept
+	if state.LateCriterionAssociation && !workPinContainsAction(pin.NextValidIntents, "record_verdict") {
+		if decision := workflowAdmit(definition, state, "record_verdict"); decision.Admitted {
+			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "record_verdict"), pin.Version, "late_criterion_association"))
+		}
+	}
 	// The evidence-binding recovery advertises only when the pure decision
 	// admits the binding: a staleness or terminal refusal keeps the route
 	// hidden instead of advertising a dead one.
@@ -488,7 +493,7 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 			return questionErr
 		}
 		pin.PendingOperatorDecision, pin.WithheldOperatorDecision = pending, withheld
-		if stepDeclaresAction(definition, pin.Step, "record_verdict") {
+		if stepDeclaresAction(definition, pin.Step, "record_verdict") || state.LateCriterionAssociation {
 			verdictEvidence, evidenceErr := workPinVerdictEvidenceTx(ctx, tx, workID)
 			if evidenceErr != nil {
 				return evidenceErr

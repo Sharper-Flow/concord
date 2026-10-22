@@ -115,15 +115,16 @@ Scenario: The preflight refuses a delivery behind review debt
   When the agent asks the preflight for record_delivery
   Then the preflight refuses with the fresh-review refusal that execution applies
 
-Scenario: A recorded ops runbook records a missing verdict at cleanup
-  Given a version-4 ops runbook item at cleanup with no verdict and an investigation artifact
-  When the agent records the verdict
-  Then the step stays at cleanup
-  And the operator confirmation moves the instance to the complete step
+Scenario: A premise-question step records missing criterion proof late
+  Given an item at a premise-question step without a declared record_verdict action
+  And an earlier step declares record_verdict and the question step declares its own return
+  When Main associates applicable producer receipts with every missing criterion
+  Then the step stays at the premise question
+  And premise confirmation moves the instance to the complete step
 ```
 
 - `go test ./internal/store/ -run 'TestPreflightRefusesConfirmationMissingMandatedDeliverables|TestWorkPinPublishesConfirmPremiseRequiredFields'` proves the first scenario.
 - `go test ./internal/store/ -run TestPreflightRefusesReviewDebtDeliveryTheExecutionRefuses` proves the second scenario.
-- `go test ./internal/store/ -run 'TestFrozenOpsRunbookCleanupRecordsAMissingVerdict|TestReachableAdmissionStateReachesTerminal'` proves the third scenario.
+- `go test ./internal/store/ -run 'TestCriterionAssociationAtPremiseQuestionWithoutDeclaration|TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight|TestIssue933LateVerdictRecoveryHoldsStepAndRefusesHealthyReplacement'` proves the late route holds its step, agrees across preflight and mutation, and closes after the missing criteria have proof.
 - `python3 scripts/check-doc-contract.py --report-only` proves this record carries the current decision outline and passes the writing rules.
 - `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0204 identifier allocates once.

@@ -60,6 +60,13 @@ func reviewDigest(value any) string {
 	return nativeDigest(canonical)
 }
 
+func workflowCriterionDigest(kind string, payload json.RawMessage) string {
+	return reviewDigest(struct {
+		Kind    string          `json:"kind"`
+		Payload json.RawMessage `json:"payload"`
+	}{kind, payload})
+}
+
 func workflowReviewDependencies(ctx context.Context, q queryer, workID string) (WorkerReviewDependencies, error) {
 	result := WorkerReviewDependencies{Criteria: []WorkerReviewCriterion{}}
 	version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_review")
@@ -77,10 +84,7 @@ func workflowReviewDependencies(ctx context.Context, q queryer, workID string) (
 			rows.Close()
 			return result, err
 		}
-		result.Criteria = append(result.Criteria, WorkerReviewCriterion{PredicateID: id, ContentDigest: reviewDigest(struct {
-			Kind    string          `json:"kind"`
-			Payload json.RawMessage `json:"payload"`
-		}{kind, json.RawMessage(payload)})})
+		result.Criteria = append(result.Criteria, WorkerReviewCriterion{PredicateID: id, ContentDigest: workflowCriterionDigest(kind, json.RawMessage(payload))})
 	}
 	err = rows.Err()
 	rows.Close()
@@ -662,4 +666,61 @@ func verifyWorkflowCriterionAssociation(ctx context.Context, q queryer, workID s
 		return nil
 	}
 	return reviewFailure(KindOutcomeMismatch, "proof association names an unapproved criterion", "associate a criterion of the current approved contract")
+}
+
+func workflowMissingCriterionAssociations(ctx context.Context, q queryer, workID string) (map[string]bool, error) {
+	version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_review")
+	if err != nil {
+		return nil, err
+	}
+	criteria, err := readWorkflowContractPredicates(ctx, q, workID, version)
+	if err != nil {
+		return nil, err
+	}
+	missing := make(map[string]bool, len(criteria))
+	for _, criterion := range criteria {
+		missing[criterion.PredicateID] = true
+	}
+	associations, err := latestWorkflowVerdicts(ctx, q, workID, version)
+	if err != nil {
+		return nil, err
+	}
+	for _, association := range associations {
+		if err := verifyWorkflowCriterionAssociation(ctx, q, workID, association); err != nil {
+			var failure *Failure
+			if !failureAs(err, &failure) {
+				return nil, err
+			}
+			switch failure.Kind {
+			case KindMissingEvidence, KindStaleRequiresReview, KindOutcomeMismatch, KindUnauthorized:
+				continue
+			default:
+				return nil, err
+			}
+		}
+		delete(missing, association.PredicateID)
+	}
+	return missing, nil
+}
+
+// Every entry in a late batch must fill a missing association. An unrelated
+// missing criterion cannot authorize replacing already applicable proof.
+func guardLateCriterionAssociations(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, step string, fields map[string]json.RawMessage) error {
+	if !workflowLateCriterionAssociationStep(definition, step) {
+		return nil
+	}
+	entries, err := normalizeWorkflowVerdictEntries(fields)
+	if err != nil {
+		return err
+	}
+	missing, err := workflowMissingCriterionAssociations(ctx, q, workID)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !missing[entry.PredicateID] {
+			return newFailure(KindIllegalLifecycleTransition, "workflow_action", "late criterion association requires missing applicable proof for each entry", false, "associate only approved criteria without passing proof")
+		}
+	}
+	return nil
 }

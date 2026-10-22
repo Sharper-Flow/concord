@@ -1193,6 +1193,11 @@ func workflowContractPredicateHistory(ctx context.Context, q queryer, workID str
 }
 
 func workflowPredicateHistoryCompatible(history workflowContractPredicateHistoryData, from, to int64, predicateID string, verdict workflowVerdictRecordedPayload) bool {
+	if verdict.CriterionDigest != "" {
+		approved, ok := history[to][predicateID]
+		return ok && verdict.PredicateID == predicateID && approved.OutcomeKind != "" &&
+			verdict.CriterionDigest == workflowCriterionDigest(approved.OutcomeKind, json.RawMessage(approved.OutcomePayload))
+	}
 	for version := from; version <= to; version++ {
 		if _, ok := history[version]; !ok {
 			return false

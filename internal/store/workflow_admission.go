@@ -55,6 +55,9 @@ type WorkflowAdmissionState struct {
 	ReviewStep bool
 	// ActiveContracts is the count of active workflow contracts.
 	ActiveContracts int64
+	// LateCriterionAssociation admits missing applicable proof at a terminal
+	// or premise-question step without moving it back to a producer.
+	LateCriterionAssociation bool
 	// LawPinStale reports a staleness the contract recovery admits: a stale
 	// law revision, an unresolved Domain overlap, or the subject's own stale
 	// registry pin.
@@ -359,6 +362,13 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 	}
 	if err := loadWorkflowAcceptanceAdmission(ctx, q, workID, definition, &state); err != nil {
 		return WorkflowAdmissionState{}, nil, nil, err
+	}
+	if state.ActiveContracts == 1 && workflowLateCriterionAssociationStep(definition, currentStep) {
+		missing, err := workflowMissingCriterionAssociations(ctx, q, workID)
+		if err != nil {
+			return WorkflowAdmissionState{}, nil, nil, err
+		}
+		state.LateCriterionAssociation = len(missing) != 0
 	}
 	if atComplete := workflowCompleteStepCorrectionStep(definition, currentStep); atComplete {
 		completeCorrection, completeErr := workflowCompleteStepCorrectionAvailable(ctx, q, workID, definition, currentStep, subject, 0)
@@ -1074,6 +1084,8 @@ func workflowAdmissionStepAllows(definition WorkflowDefinition, state WorkflowAd
 		return true
 	}
 	switch actionID {
+	case "record_verdict":
+		return state.ActiveContracts == 1 && state.LateCriterionAssociation && workflowLateCriterionAssociationStep(definition, state.Step)
 	case "bind_evidence":
 		return state.EvidenceRecoveryRoute
 	case "record_worker_failure":

@@ -139,16 +139,69 @@ func TestRecoveryRouteRegistrationRefusals(t *testing.T) {
 	}
 }
 
-func TestCriterionAssociationCannotUseAnUnhealthyVerdictReturn(t *testing.T) {
-	definition := BuiltinWorkflowDefinitions()[2]
-	for _, routes := range [][]WorkflowRecoveryRoute{definition.RecoveryRoutes, definition.RecoveryRoutes[:1]} {
-		definition.RecoveryRoutes = routes
-		if workflowAdmissionStepAllows(definition, WorkflowAdmissionState{Step: "complete", ActiveContracts: 1}, "record_verdict") {
-			t.Fatal("criterion association acquired an off-step route")
+func TestCriterionAssociationRequiresItsOwnDeclaredLateReturn(t *testing.T) {
+	base := mustBuiltinDefinition(t, "workflow.research").Definition
+	for _, stepID := range []string{"complete", "conclude"} {
+		for _, tc := range []struct {
+			name   string
+			mutate func(*WorkflowDefinition, *WorkflowAdmissionState)
+			want   bool
+		}{
+			{"missing proof", func(*WorkflowDefinition, *WorkflowAdmissionState) {}, true},
+			{"all proved", func(_ *WorkflowDefinition, s *WorkflowAdmissionState) { s.LateCriterionAssociation = false }, false},
+			{"no contract", func(_ *WorkflowDefinition, s *WorkflowAdmissionState) { s.ActiveContracts = 0 }, false},
+			{"duplicate contracts", func(_ *WorkflowDefinition, s *WorkflowAdmissionState) { s.ActiveContracts = 2 }, false},
+			{"no own return", func(d *WorkflowDefinition, _ *WorkflowAdmissionState) {
+				d.RecoveryRoutes = slices.DeleteFunc(d.RecoveryRoutes, func(r WorkflowRecoveryRoute) bool { return r.Step == stepID })
+			}, false},
+			{"no earlier declaration", func(d *WorkflowDefinition, _ *WorkflowAdmissionState) {
+				for i := range d.StepGraph.Steps {
+					d.StepGraph.Steps[i].Actions = slices.DeleteFunc(d.StepGraph.Steps[i].Actions, func(id string) bool { return id == "record_verdict" })
+				}
+			}, false},
+			{"not terminal or premise", func(d *WorkflowDefinition, _ *WorkflowAdmissionState) {
+				d.StepGraph.TerminalSteps = nil
+				for i := range d.StepGraph.Steps {
+					if d.StepGraph.Steps[i].ID == stepID {
+						d.StepGraph.Steps[i].Actions = slices.DeleteFunc(d.StepGraph.Steps[i].Actions, func(id string) bool { return id == "confirm_premise" })
+					}
+				}
+			}, false},
+		} {
+			t.Run(stepID+"/"+tc.name, func(t *testing.T) {
+				d := cloneWorkflowDefinition(base)
+				if stepID == "conclude" {
+					for i := range d.StepGraph.Steps {
+						if d.StepGraph.Steps[i].ID == "conclude" {
+							d.StepGraph.Steps[i].Actions = slices.DeleteFunc(d.StepGraph.Steps[i].Actions, func(id string) bool { return id == "record_verdict" })
+						}
+						if d.StepGraph.Steps[i].ID == "findings" {
+							d.StepGraph.Steps[i].Actions = append(d.StepGraph.Steps[i].Actions, "record_verdict")
+						}
+					}
+					d.RecoveryRoutes = append(d.RecoveryRoutes, WorkflowRecoveryRoute{Step: "findings", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate"})
+				}
+				if err := ValidateWorkflowDefinition(d); err != nil {
+					t.Fatalf("late-route fixture is not a valid definition: %v", err)
+				}
+				s := WorkflowAdmissionState{Step: stepID, ActiveContracts: 1, LateCriterionAssociation: true}
+				tc.mutate(&d, &s)
+				if tc.name == "no own return" {
+					if err := ValidateWorkflowDefinition(d); err == nil {
+						t.Fatal("registration gate accepted an undeclared late return")
+					}
+				}
+				for _, stale := range []bool{false, true} {
+					s.ArtifactStale = stale
+					if got := workflowAdmissionStepAllows(d, s, "record_verdict"); got != tc.want {
+						t.Fatalf("artifactStale=%v: late association=%v want %v", stale, got, tc.want)
+					}
+				}
+			})
 		}
 	}
-	if !workflowAdmissionStepAllows(definition, WorkflowAdmissionState{Step: "conclude"}, "record_verdict") {
-		t.Fatal("declared criterion association route was removed")
+	if !workflowAdmissionStepAllows(base, WorkflowAdmissionState{Step: "conclude"}, "record_verdict") {
+		t.Fatal("declared criterion association was removed")
 	}
 }
 

@@ -129,7 +129,10 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 func workflowRouteActionDefinition(ctx context.Context, s *Store, registry DefinitionRegistry, entry RegisteredDefinition, workID, actionID string) (WorkflowActionDefinition, bool, error) {
 	switch actionID {
 	case "record_verdict":
-		return WorkflowActionDefinition{}, false, nil
+		// Discovery returns the same hold-mode declaration as ordinary
+		// association. Folded admission, not discovery, proves availability.
+		action, err := workflowDeclaredActionDefinition(entry.Definition, actionID)
+		return action, err == nil, err
 	case "supersede_contract":
 		action, err := workflowSupersedeContractDiscovery(ctx, s, registry, entry, workID)
 		return action, err == nil, err
@@ -802,7 +805,14 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
 		return workflowEvidenceBindingEvents(request, actor, fields, eventID, expected)
 	case "record_verdict":
-		return workflowRecordVerdictEvents(ctx, tx, request, actor, fields, eventID, expected)
+		events, err := workflowRecordVerdictEvents(ctx, tx, request, actor, fields, eventID, expected)
+		if err != nil {
+			return nil, err
+		}
+		if err := guardLateCriterionAssociations(ctx, tx, request.WorkID, definition, stepID, fields); err != nil {
+			return nil, err
+		}
+		return events, nil
 	case "confirm_premise":
 		return workflowConfirmPremiseEvents(ctx, tx, definition, request, actor, fields, eventID, expected)
 	case "link_successor":

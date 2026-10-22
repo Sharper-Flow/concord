@@ -108,6 +108,14 @@ func workflowUnhealthyVerdictRouteTarget(definition WorkflowDefinition, stepID s
 	return workflowRecoveryRouteTarget(definition, stepID, WorkflowRecoveryTriggerUnhealthyVerdict)
 }
 
+// The late association uses the current step's declared return but never takes
+// it. An upstream declaration establishes that this workflow judges criteria.
+func workflowLateCriterionAssociationStep(definition WorkflowDefinition, stepID string) bool {
+	return !stepDeclaresAction(definition, stepID, "record_verdict") &&
+		workflowLateVerdictServesVerdictStep(definition, stepID) &&
+		workflowUnhealthyVerdictRouteTarget(definition, stepID) != ""
+}
+
 // workflowDisprovedPremiseAtCompleteRouteTarget resolves the producer step the
 // pinned complete step's CD-0172 contract-correction route returns to. Only a
 // step that declares the complete action may carry the route, so the resolved

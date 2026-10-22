@@ -125,59 +125,28 @@ func contractCorrectionEffectSnapshot(t *testing.T, s *Store, workID string) str
 func TestIssue933LateVerdictRecoveryHoldsStepAndRefusesHealthyReplacement(t *testing.T) {
 	t.Parallel()
 	const workID = "issue933-late-verdict"
-	s, owner, _ := seedItemAtAcceptance(t, workID, false)
-	reviewer := verdictReviewer(t, s, workID)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}`), 0, reviewer); err != nil {
-		t.Fatalf("record mismatch verdict: %v", err)
+	fixture, ref := seedLateCriterionAssociation(t, workID)
+	s, owner := fixture.store, fixture.owner
+	payload := criterionAssociationPayload(ref, "predicate:first")
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", payload, 0, owner); err != nil {
+		t.Fatalf("late criterion association: %v", err)
 	}
-	operator := operatorVerdictActor(t, workID)
-	var verdictEvidence string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.evaluation_evidence[0]') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowVerdictRecorded).Scan(&verdictEvidence); err != nil {
-		t.Fatal(err)
-	}
-	beforeCorrection := contractCorrectionEffectSnapshot(t, s, workID)
-	healthy := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", healthy, 0, reviewer); !hasFailureKind(err, KindStaleRequiresReview) {
-		t.Fatalf("healthy verdict before production = %v, want stale_requires_review", err)
-	}
-	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), owner, operator); !hasFailureKind(err, KindStaleRequiresReview) {
-		t.Fatalf("premise confirmation before production = %v, want stale_requires_review", err)
-	}
-	if got := contractCorrectionEffectSnapshot(t, s, workID); got != beforeCorrection {
-		t.Fatalf("stale refusals changed effects: before %s, after %s", beforeCorrection, got)
-	}
-	correction := json.RawMessage(`{"diagnosis":"the verdict found a stale artifact","strategy":"repeat execution with a fresh worker","predicate_ids":["predicate:primary"],"evidence_refs":["` + verdictEvidence + `"]}`)
-	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, owner, operator); err != nil {
-		t.Fatalf("request verdict correction: %v", err)
-	}
-	produceContractCorrectionWorker(t, s, workID, "fresh", owner)
-	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), owner, operator); err != nil {
-		t.Fatalf("confirm premise: %v", err)
-	}
-	var step string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
-		t.Fatal(err)
-	}
-	if step != "release" {
-		t.Fatalf("step after premise confirmation = %q, want release", step)
-	}
-
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", healthy, 0, reviewer); err != nil {
-		t.Fatalf("late healthy verdict recovery: %v", err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
-		t.Fatal(err)
-	}
-	if step != "release" {
-		t.Fatalf("step after late verdict = %q, want release", step)
+	if step := currentStep(t, s, workID); step != "complete" {
+		t.Fatalf("association moved to %s instead of holding complete", step)
 	}
 	before := contractCorrectionEffectSnapshot(t, s, workID)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", healthy, 0, reviewer); err == nil {
-		t.Fatal("healthy comparable verdict replacement succeeded")
+	// Another criterion is still missing: the off-step route stays open, but
+	// cannot be used to replace an already applicable association in a batch.
+	for _, payload := range []json.RawMessage{payload, criterionAssociationPayload(ref, "predicate:second", "predicate:first")} {
+		for _, err := range []error{issue1013Preflight(t, s, workID, "record_verdict", payload, owner), runVerdictActionAs(t, s, workID, "record_verdict", payload, 0, owner)} {
+			if !hasFailureKind(err, KindIllegalLifecycleTransition) {
+				t.Fatalf("applicable association replacement=%v, want off-step refusal", err)
+			}
+		}
 	}
 	after := contractCorrectionEffectSnapshot(t, s, workID)
 	if after != before {
-		t.Fatalf("refused healthy replacement changed effects: before %s, after %s", before, after)
+		t.Fatalf("refused association replacement changed effects: before %s, after %s", before, after)
 	}
 }
 

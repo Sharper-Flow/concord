@@ -280,6 +280,12 @@ func admissionWorkerFailureRecovery(definition WorkflowDefinition, state admissi
 	return !declared || admissionCheckpointStep(definition, state.step)
 }
 
+func admissionLateCriterionAssociation(definition WorkflowDefinition, state admissionModelState) bool {
+	// This dimension is derivable from the existing criterion state. Artifact
+	// staleness neither opens the route nor prevents supported reassessment.
+	return state.contracts == 1 && state.verdict != "ok" && workflowLateCriterionAssociationStep(definition, state.step)
+}
+
 // admissionContractCorrection folds the ordinary contract correction route.
 func admissionContractCorrection(definition WorkflowDefinition, state admissionModelState) bool {
 	step := workflowStep(definition, state.step)
@@ -350,6 +356,7 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		RefinementWorkflow:          refinement,
 		ReviewStep:                  reviewStep,
 		ActiveContracts:             state.contracts,
+		LateCriterionAssociation:    admissionLateCriterionAssociation(definition, state),
 		LawPinStale:                 staleErr != nil && workflowContractRecoveryStaleness(staleErr, admissionModelWorkID),
 		LawPinStaleError:            staleErr,
 		LawPinSelfError:             admissionModelStaleError(state.stale, true),
@@ -746,6 +753,10 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 			next.mandate = "bound"
 		}
 	case "record_verdict":
+		if workflowLateCriterionAssociationStep(definition, state.step) {
+			next.verdict, next.observed = "ok", false
+			return []admissionModelState{next}
+		}
 		if next.artifactStale {
 			// The artifact-staleness guard: only a non-ok verdict records
 			// while the artifact a declared route's span holds is stale,
@@ -930,8 +941,8 @@ func admissionStepProducesArtifact(definition WorkflowDefinition, stepID, action
 }
 
 // admissionSupersedeSuccessors folds the contract supersession: a successor
-// contract re-pins the law, starts a fresh verdict record, and makes the
-// artifact the evaluator judges stale until it is re-produced (CD-0201 D6);
+// contract re-pins the law. Changed criterion content needs new proof;
+// unchanged content keeps its applicable association (CD-0242 D7).
 // at the pinned complete step it returns the instance to the correction
 // target; without a successor the instance returns to the contract step with
 // no contract. Every route records the supersession event, and a contract
@@ -952,7 +963,7 @@ func admissionSupersedeSuccessors(definition WorkflowDefinition, state admission
 	}
 	if target := workflowDisprovedPremiseAtCompleteRouteTarget(definition, state.step); target != "" {
 		successor = admissionEnterStep(definition, successor, target)
-		return []admissionModelState{successor}
+		return admissionSupersedeCriterionVariants(state, []admissionModelState{successor})
 	}
 	successors := []admissionModelState{successor}
 	if admissionDeclaresAction(definition, "record_design") {
@@ -973,7 +984,42 @@ func admissionSupersedeSuccessors(definition WorkflowDefinition, state admission
 		reset.convergence = "approach"
 		successors = append(successors, reset)
 	}
-	return successors
+	return admissionSupersedeCriterionVariants(state, successors)
+}
+
+func admissionSupersedeCriterionVariants(previous admissionModelState, changed []admissionModelState) []admissionModelState {
+	if previous.contracts != 1 || previous.verdict != "ok" {
+		return changed
+	}
+	for _, successor := range changed {
+		if successor.contracts != 1 {
+			continue
+		}
+		unchanged := successor
+		unchanged.verdict, unchanged.artifactStale = previous.verdict, previous.artifactStale
+		changed = append(changed, unchanged)
+	}
+	return changed
+}
+
+func TestCriterionAssociationModelKeepsUnchangedSupersession(t *testing.T) {
+	d := mustBuiltinDefinition(t, "workflow.research").Definition
+	before := admissionModelState{step: "complete", contracts: 1, verdict: "ok", stale: "law", debt: ReviewDebtNone}
+	changed, unchanged := false, false
+	for _, successor := range admissionSupersedeSuccessors(d, before) {
+		if successor.contracts != 1 {
+			continue
+		}
+		if successor.verdict == "" {
+			changed = true
+		}
+		if successor.verdict == "ok" && !successor.artifactStale {
+			unchanged = true
+		}
+	}
+	if !changed || !unchanged {
+		t.Fatalf("supersession lost a criterion-content class: changed=%v unchanged=%v", changed, unchanged)
+	}
 }
 
 // admissionFindingsSuccessors folds the findings half of the convergence

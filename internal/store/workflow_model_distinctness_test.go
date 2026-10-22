@@ -6,10 +6,8 @@ import (
 	"testing"
 )
 
-// CD-0017 D6 extends CD-0013 D5 by one dimension: where a workflow declares
-// independent evaluation, implementation and review resolving to the same
-// readback model identity is a structural rejection.  These tests pin the unit
-// behaviour and then prove the completion gate enforces it end to end.
+// Replay validation retains its recorded model policy. The live completion
+// boundary authenticates Main rather than requiring another model or actor.
 
 func distinctnessActor(agent, session string, class ActorClass, model string) WorkflowActor {
 	return WorkflowActor{
@@ -131,27 +129,21 @@ func TestWorkflowActorModelIsBoundedAndOutsideTheIdentityTuple(t *testing.T) {
 	}
 }
 
-// Definition selection folds against BuiltinWorkflowRegistry (workflow.go
-// foldWorkflowDefinitionSelected), so a declared-independent definition cannot
-// be pinned onto work today, and making a builtin declare independence would
-// fail-close every existing completion because no run records a model yet.
-// This exercises the function the completion gate actually calls, against real
-// projection state, so the instance-column wiring is covered.
-func TestCompletionActorDistinctReadsExecutionModelFromTheInstance(t *testing.T) {
+func TestCompletionMainAuthorityDoesNotRequireDifferentModels(t *testing.T) {
 	t.Parallel()
 	for _, testCase := range []struct {
 		name           string
 		executionModel string
 		verdictModel   string
 		declared       bool
-		wantKind       FailureKind
-		wantAccepted   bool
+		sameMain       bool
 	}{
-		{name: "distinct models accepted", executionModel: "vendor/model-a", verdictModel: "vendor/model-b", declared: true, wantAccepted: true},
-		{name: "same model rejected", executionModel: "vendor/model-a", verdictModel: "vendor/model-a", declared: true, wantKind: KindUnauthorized},
-		{name: "missing verdict model fails closed", executionModel: "vendor/model-a", verdictModel: "", declared: true, wantKind: KindMissingEvidence},
-		{name: "missing execution model fails closed", executionModel: "", verdictModel: "vendor/model-b", declared: true, wantKind: KindMissingEvidence},
-		{name: "undeclared collision accepted", executionModel: "vendor/model-a", verdictModel: "vendor/model-a", declared: false, wantAccepted: true},
+		{name: "different models", executionModel: "vendor/model-a", verdictModel: "vendor/model-b", declared: true},
+		{name: "same model", executionModel: "vendor/model-a", verdictModel: "vendor/model-a", declared: true},
+		{name: "absent proof-association model", executionModel: "vendor/model-a", verdictModel: "", declared: true},
+		{name: "absent execution model", executionModel: "", verdictModel: "vendor/model-b", declared: true},
+		{name: "no declared separation", executionModel: "vendor/model-a", verdictModel: "vendor/model-a", declared: false},
+		{name: "Main also executed earlier steps", executionModel: "vendor/model-a", verdictModel: "vendor/model-a", declared: true, sameMain: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -184,17 +176,12 @@ func TestCompletionActorDistinctReadsExecutionModelFromTheInstance(t *testing.T)
 				t.Fatal(err)
 			}
 			defer func() { _ = tx.Rollback() }()
-			err = workflowCompletionActorDistinct(ctx, tx, "d6-work", reviewer, testCase.verdictModel, testCase.declared)
-			if testCase.wantAccepted {
-				if err != nil {
-					t.Fatalf("expected acceptance, got %v", err)
-				}
-				return
+			if testCase.sameMain {
+				reviewer = executor
 			}
-			if err == nil {
-				t.Fatal("expected rejection")
+			if err := workflowCompletionActorDistinct(ctx, tx, "d6-work", reviewer, testCase.verdictModel, testCase.declared); err != nil {
+				t.Fatalf("Main was subjected to a retired evaluator/model requirement: %v", err)
 			}
-			assertFailureKind(t, err, testCase.wantKind)
 		})
 	}
 }

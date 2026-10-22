@@ -854,7 +854,7 @@ func TestOwnerOracleFinding(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("out-of-scope P0 follow-up no_ship refused: %v", err)
 	}
-	nonProgress, err := workflowNonProgressAttemptCountForRegistry(context.Background(), s.DatabaseForTesting(), workID, "worker_oracle_findings_test", BuiltinWorkflowRegistry())
+	nonProgress, err := workflowNonProgressAttemptCount(context.Background(), s.DatabaseForTesting(), workID, "worker_oracle_findings_test")
 	if err != nil || nonProgress < 2 {
 		t.Fatalf("non-progress after no_ship reports = (%d, %v), want the two no_ship attempts counted", nonProgress, err)
 	}
@@ -1432,7 +1432,7 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attempt6, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, f.acceptor); err != nil {
 		t.Fatalf("accept the no_ship report: %v", err)
 	}
-	if count, countErr := workflowNonProgressAttemptCountForRegistry(context.Background(), s.DatabaseForTesting(), workID, "worker_oracle_findings_test", BuiltinWorkflowRegistry()); countErr != nil || count < 1 {
+	if count, countErr := workflowNonProgressAttemptCount(context.Background(), s.DatabaseForTesting(), workID, "worker_oracle_findings_test"); countErr != nil || count < 1 {
 		t.Fatalf("non-progress after the accepted no_ship = (%d, %v), want the no_ship attempt counted", count, countErr)
 	}
 	if convergence, err = workflowRetryConvergenceForRegistry(context.Background(), s.DatabaseForTesting(), workID, "repair", BuiltinWorkflowRegistry()); err != nil || (convergence.Basis != "" && convergence.Basis != "approach_changed") {

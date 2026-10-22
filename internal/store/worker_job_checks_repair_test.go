@@ -223,7 +223,7 @@ func TestChecksRepairSatisfiesNamedRevisionsAndFundsOneConfirmingReview(t *testi
 	if anchorErr != nil || anchor == nil || !anchor.Escalated || anchor.AttemptCount != 3 {
 		t.Fatalf("correction anchor after the repairing acceptance = (%#v, %v), want the escalated open window with 3 counted dispatches", anchor, anchorErr)
 	}
-	if nonProgress, err := workflowNonProgressAttemptCountForRegistry(ctx, s.DatabaseForTesting(), workID, "checks-repair", BuiltinWorkflowRegistry()); err != nil || nonProgress != 2 {
+	if nonProgress, err := workflowNonProgressAttemptCount(ctx, s.DatabaseForTesting(), workID, "checks-repair"); err != nil || nonProgress != 2 {
 		t.Fatalf("non-progress attempts after the repairing acceptance = %d, %v, want the 2 failed attempts preserved", nonProgress, err)
 	}
 	// Nothing is dispatch-ready while the unconfirmed repair stands: the
@@ -336,7 +336,7 @@ func TestChecksRepairSatisfiesNamedRevisionsAndFundsOneConfirmingReview(t *testi
 	if pin := issue1013Pin(t, s, workID); pin.Correction != nil {
 		t.Fatalf("correction window after the confirming acceptance = %#v, want it closed", pin.Correction)
 	}
-	if nonProgress, err := workflowNonProgressAttemptCountForRegistry(ctx, s.DatabaseForTesting(), workID, "checks-repair", BuiltinWorkflowRegistry()); err != nil || nonProgress != 0 {
+	if nonProgress, err := workflowNonProgressAttemptCount(ctx, s.DatabaseForTesting(), workID, "checks-repair"); err != nil || nonProgress != 0 {
 		t.Fatalf("non-progress attempts after the confirming acceptance = %d, %v, want the productive reset to 0", nonProgress, err)
 	}
 
@@ -1105,7 +1105,7 @@ func TestChecksRepairConfirmingAcceptanceKeepsUnrelatedJobDebt(t *testing.T) {
 	if count := jobWindowCorrectionCount(t, s, workID); count != 4 {
 		t.Fatalf("correction count after the confirming acceptance = %d, want the 4 dispatches the preserved window holds", count)
 	}
-	if nonProgress, err := workflowNonProgressAttemptCountForRegistry(ctx, s.DatabaseForTesting(), workID, "checks-repair", BuiltinWorkflowRegistry()); err != nil || nonProgress != 2 {
+	if nonProgress, err := workflowNonProgressAttemptCount(ctx, s.DatabaseForTesting(), workID, "checks-repair"); err != nil || nonProgress != 2 {
 		t.Fatalf("non-progress attempts after the confirming acceptance = %d, %v, want the unrelated failure and the repaired job's failure preserved", nonProgress, err)
 	}
 }
@@ -1216,7 +1216,7 @@ func TestChecksRepairAbandonedConfirmingReviewVoidsRepair(t *testing.T) {
 	if anchorErr != nil || anchor == nil {
 		t.Fatalf("correction anchor after the abandonment = (%#v, %v), want the open window", anchor, anchorErr)
 	}
-	if nonProgress, npErr := workflowNonProgressAttemptCountForRegistry(ctx, s.DatabaseForTesting(), workID, "checks-repair", BuiltinWorkflowRegistry()); npErr != nil || nonProgress != 2 {
+	if nonProgress, npErr := workflowNonProgressAttemptCount(ctx, s.DatabaseForTesting(), workID, "checks-repair"); npErr != nil || nonProgress != 2 {
 		t.Fatalf("non-progress attempts after the abandonment = %d, %v, want the original failure and the abandoned review preserved", nonProgress, npErr)
 	}
 }

@@ -8,18 +8,9 @@ import (
 	"testing"
 )
 
-// The progress fold's satisfactions own
-// the nonprogress window alone (CD-0164 D2a): they must never move the
-// worker recovery boundary, the correction counting window, the failed
-// attempt identity, a consumed convergence basis, or the
-// unresolved failed-job and unconfirmed checks-repair debts. These tests run
-// the boundary on the fresh obligation-satisfaction definition heads through
-// real recorded events and real admission reads.
-
 // progressBoundariesSuccessorPayload supersedes the seeded contract with one
 // that repeats the active predicate byte for byte and adds one unbound
-// required evidence kind, so a real bind_evidence of that kind is the
-// successor's first qualified evidence satisfaction. The successor rides the
+// required evidence kind for a real bind_evidence action. The successor rides the
 // ordinary contract-correction route at the worker-dispatch checkpoint.
 func progressBoundariesSuccessorPayload(t *testing.T, s *Store, workID string) json.RawMessage {
 	t.Helper()
@@ -58,9 +49,8 @@ func progressBoundariesSuccessorPayload(t *testing.T, s *Store, workID string) j
 	return raw
 }
 
-// progressBoundariesSeed parks a real break_fix fresh-head instance at the
-// repair step, so the boundary journeys run real recorded events on the
-// obligation-satisfaction head.
+// progressBoundariesSeed parks a current break_fix instance at the repair
+// step, so the boundary journeys run real recorded events.
 func progressBoundariesSeed(t *testing.T, workID, step string) (workflowReturnRouteFixture, WorkflowActor) {
 	t.Helper()
 	fixture := seedChecksRepairFixture(t, workID, step)
@@ -130,17 +120,13 @@ func TestCoordinatorSatisfactionPreservesFailedJobCorrection(t *testing.T) {
 	}
 }
 
-// TestProgressSatisfactionSpendsUnderChecksRepairDebtAndClearsOnlyWithConfirmation
-// proves the debt boundary at the fold: a qualified coordinator satisfaction
-// recorded beside failed-job debt and an accepted, unconfirmed checks repair
-// is spent — it renews nothing, discharges no failed obligation, and neither
-// confirms nor voids the repair — and only the confirming review's accepted
-// ship verdict clears both debts in one move and reopens the window.
-func TestProgressSatisfactionSpendsUnderChecksRepairDebtAndClearsOnlyWithConfirmation(t *testing.T) {
+// Coordinator facts cannot discharge a failed obligation or confirm its
+// checks repair. Only the assigned confirming review's acceptance can.
+func TestCoordinatorFactsPreserveChecksRepairDebtUntilConfirmation(t *testing.T) {
 	t.Parallel()
-	db, appendEvent, read := progressHistory(t, false)
+	db, appendEvent, read := progressHistory(t)
 	coordinator := progressActorRecord(t, db, "coordinator", "agent")
-	bound := progressQualifiedEvidence(t, db, appendEvent, "evidence:qualified")
+	progressQualifiedEvidence(t, db, appendEvent, "evidence:qualified")
 
 	// A failed job-bound attempt creates debt; the checks repair records the
 	// repairing revision naming it; the repairing result's own acceptance
@@ -154,19 +140,15 @@ func TestProgressSatisfactionSpendsUnderChecksRepairDebtAndClearsOnlyWithConfirm
 	appendEvent(WorkerJobRecorded, repair)
 	appendEvent(WorkflowActionCompleted, correctionHistoryAction("accept_worker_result", "attempt:repairing", jobID, 2))
 
-	// The qualified coordinator satisfaction lands beside both debts: spent.
 	confirmAttempt := "attempt:confirming"
 	appendEvent(WorkflowActionCompleted, map[string]any{
 		"action_id": "dispatch_worker", "worker_attempt_id": confirmAttempt,
 		"checks_repair_review": WorkerChecksRepairReviewAdmission{WorkerJob: WorkerJobBinding{JobID: jobID, Revision: 2}, Funded: true},
 	})
-	spentSeq := appendEvent(WorkflowPremiseConfirmed, workflowPremiseConfirmedPayload{ContractVersion: 1, ConfirmingActorRef: coordinator, ConfirmationAuthority: "coordinator"})
+	appendEvent(WorkflowPremiseConfirmed, workflowPremiseConfirmedPayload{ContractVersion: 1, ConfirmingActorRef: coordinator, ConfirmationAuthority: "coordinator"})
 	h := read()
-	if h.nonprogressBoundary != bound || h.boundary != 0 {
-		t.Fatalf("anchors = %d/%d, want %d/0 — the satisfaction under debt renewed or discharged", h.nonprogressBoundary, h.boundary, bound)
-	}
-	if len(h.progress.satisfactions) != 1 {
-		t.Fatalf("satisfactions = %d, want only the pre-debt evidence binding", len(h.progress.satisfactions))
+	if h.boundary != 0 {
+		t.Fatalf("acceptance boundary = %d, want no discharge under repair debt", h.boundary)
 	}
 	if !h.unresolved[workerJobKey(jobID, 1)] {
 		t.Fatalf("unresolved = %v, want the failed revision's obligation intact", h.unresolved)
@@ -176,13 +158,14 @@ func TestProgressSatisfactionSpendsUnderChecksRepairDebtAndClearsOnlyWithConfirm
 		t.Fatalf("checks repair state = %+v, want open unconfirmed and untouched", repairState)
 	}
 	if repairState.confirmAttempt != confirmAttempt {
-		t.Fatalf("confirming attempt = %q, want %q retained beside the spent satisfaction", repairState.confirmAttempt, confirmAttempt)
+		t.Fatalf("confirming attempt = %q, want %q retained beside the coordinator fact", repairState.confirmAttempt, confirmAttempt)
 	}
-	if seq := appendEvent(WorkflowPremiseConfirmed, workflowPremiseConfirmedPayload{ContractVersion: 1, ConfirmingActorRef: coordinator, ConfirmationAuthority: "coordinator"}); read().nonprogressBoundary != bound {
-		t.Fatalf("a repeat confirmation at %d renewed the spent obligation", seq)
+	appendEvent(WorkflowPremiseConfirmed, workflowPremiseConfirmedPayload{ContractVersion: 1, ConfirmingActorRef: coordinator, ConfirmationAuthority: "coordinator"})
+	if repeated := read(); repeated.boundary != 0 || !repeated.unresolved[workerJobKey(jobID, 1)] || !reflect.DeepEqual(repeated.checksRepairs[workerJobKey(jobID, 2)], repairState) {
+		t.Fatalf("a repeated coordinator confirmation changed the repair debt: %+v", repeated)
 	}
 
-	// Only the confirming review's accepted ship verdict confirms the repair,
+	// Only the confirming review's accepted disposition confirms the repair,
 	// discharges the named obligation, and moves the acceptance boundary.
 	appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: confirmAttempt, Review: &WorkerReviewBlock{Disposition: "ready_for_final_proof"}})
 	confirmed := appendEvent(WorkflowActionCompleted, correctionHistoryAction("accept_worker_result", confirmAttempt, "", 0))
@@ -194,24 +177,13 @@ func TestProgressSatisfactionSpendsUnderChecksRepairDebtAndClearsOnlyWithConfirm
 	if len(h.unresolved) != 0 || confirmedRepair == nil || !confirmedRepair.confirmed {
 		t.Fatalf("unresolved = %v confirmed = %+v, want the named obligation discharged with the repair confirmed", h.unresolved, confirmedRepair)
 	}
-	// The productive acceptance renews the nonprogress window the worker way:
-	// the anchor names the acceptance, and the spent premise satisfaction
-	// minted no credit of its own.
-	if h.nonprogressBoundary != confirmed || h.progress.qualification != "satisfying_worker_acceptance" {
-		t.Fatalf("nonprogress renewal = %d/%q, want the confirming acceptance %d as the worker acceptance", h.nonprogressBoundary, h.progress.qualification, confirmed)
-	}
-	if len(h.progress.satisfactions) != 1 {
-		t.Fatalf("satisfactions = %d, want the spent premise to have minted none", len(h.progress.satisfactions))
-	}
-
-	// A genuinely distinct obligation recorded after the debt clears renews.
+	// A new contract and evidence binding are still not worker acceptance.
 	fresh := workflowContractApprovedPayload{ContractVersion: 2, RequiredEvidence: []string{"artifact"}, SpecMandate: []string{"law:fresh"}, OutcomePredicates: []workflowContractPredicatePayload{{PredicateID: "predicate:one", OutcomeKind: "exists", OutcomePayload: mustJSONValue(map[string]any{"kind": "exists", "surface": "source.go", "subjects": []string{"owner"}})}}, DecisionDomains: []string{}}
 	appendEvent(WorkflowContractSuperseded, workflowContractSupersededPayload{NewContractVersion: 2, SuccessorContract: &fresh})
-	renewed := appendEvent(WorkflowEvidenceBound, workflowEvidenceBoundPayload{EvidenceKind: "artifact", ImmutableSubjectRef: "law:fresh", ProducerID: "producer:x", ProducerRunRef: "run:fresh", ProducerWatermark: "request:fresh", ObservedAt: "2026-10-20T00:00:00Z"})
-	if h := workflowCorrectionWalkT(t, db); h.nonprogressBoundary != renewed {
-		t.Fatalf("renewal after the debt cleared = %d, want the fresh mandate binding at %d", h.nonprogressBoundary, renewed)
+	appendEvent(WorkflowEvidenceBound, workflowEvidenceBoundPayload{EvidenceKind: "artifact", ImmutableSubjectRef: "law:fresh", ProducerID: "producer:x", ProducerRunRef: "run:fresh", ProducerWatermark: "request:fresh", ObservedAt: "2026-10-20T00:00:00Z"})
+	if h := read(); h.boundary != confirmed {
+		t.Fatalf("evidence binding moved acceptance boundary to %d, want %d", h.boundary, confirmed)
 	}
-	_ = spentSeq
 }
 
 // TestArmedProgressWallWallsOnlyWorkerDispatch proves the armed wall's reach

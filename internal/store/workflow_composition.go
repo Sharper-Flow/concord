@@ -21,14 +21,8 @@ type WorkflowComposition struct {
 	CompositionRules      WorkflowCompositionRules
 	EvaluatorIndependence WorkflowEvaluatorIndependence
 	ApprovalPolicy        string
-	// ProgressPolicy is the composition-level progress-policy discriminator
-	// (CD-0164 D2a). Absence compiles the released legacy definition shape;
-	// WorkflowProgressPolicyObligationSatisfactionV1 declares the
-	// obligation-satisfaction policy and compiles the canonical satisfaction
-	// taxonomy onto the resolved actions.
-	ProgressPolicy       string
-	ActionCatalogVersion int
-	Parts                []WorkflowPartUse
+	ActionCatalogVersion  int
+	Parts                 []WorkflowPartUse
 }
 
 // CompileWorkflowComposition compiles a composition against the built-in
@@ -102,9 +96,6 @@ func CompileWorkflowComposition(composition WorkflowComposition) (WorkflowDefini
 	if composition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
 		actions = withConsequenceConfirmPremise(actions)
 	}
-	if composition.ProgressPolicy == WorkflowProgressPolicyObligationSatisfactionV1 {
-		actions = withObligationSatisfactionTaxonomy(actions)
-	}
 	changesProductTruth := workKindMayChangeProductTruth(composition.WorkKind)
 	definition := cloneWorkflowDefinition(WorkflowDefinition{
 		Ref: composition.Ref, Version: composition.Version, WorkKind: composition.WorkKind, ChangesProductTruth: &changesProductTruth,
@@ -112,7 +103,7 @@ func CompileWorkflowComposition(composition WorkflowComposition) (WorkflowDefini
 		AvailableActions: available, ActionDefinitions: actions,
 		RequiredEvidenceKinds: composition.RequiredEvidenceKinds, OutcomeSchema: composition.OutcomeSchema, RigorRules: composition.RigorRules,
 		StalenessRules: composition.StalenessRules, CompositionRules: composition.CompositionRules, EvaluatorIndependence: composition.EvaluatorIndependence,
-		RecoveryRoutes: routes, ApprovalPolicy: composition.ApprovalPolicy, ProgressPolicy: composition.ProgressPolicy,
+		RecoveryRoutes: routes, ApprovalPolicy: composition.ApprovalPolicy,
 	})
 	if err := ValidateWorkflowDefinition(definition); err != nil {
 		return WorkflowDefinition{}, err
@@ -166,7 +157,7 @@ func forwardOnlyComposition(successors ...WorkKind) WorkflowCompositionRules {
 func currentImplementationComposition() WorkflowComposition {
 	return WorkflowComposition{
 		Ref: "workflow.implementation", Version: 37, WorkKind: WorkKindImplementation,
-		ApprovalPolicy: WorkflowApprovalPolicyConsequenceV1, ProgressPolicy: WorkflowProgressPolicyObligationSatisfactionV1,
+		ApprovalPolicy:        WorkflowApprovalPolicyConsequenceV1,
 		RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification, EvidenceReview, EvidenceArtifact},
 		OutcomeSchema:         WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}},
 		RigorRules:            workflowPrototypeRigorRules(), StalenessRules: []WorkflowStalenessRule{},
@@ -189,7 +180,7 @@ func currentImplementationComposition() WorkflowComposition {
 func currentBreakFixComposition() WorkflowComposition {
 	return WorkflowComposition{
 		Ref: "workflow.break_fix", Version: 34, WorkKind: WorkKindBreakFix,
-		ApprovalPolicy: WorkflowApprovalPolicyConsequenceV1, ProgressPolicy: WorkflowProgressPolicyObligationSatisfactionV1,
+		ApprovalPolicy:        WorkflowApprovalPolicyConsequenceV1,
 		RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification, EvidenceArtifact},
 		OutcomeSchema:         WorkflowOutcomeSchema{DefaultKind: PredicateAbsent, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}},
 		RigorRules:            workflowPrototypeRigorRules(), StalenessRules: []WorkflowStalenessRule{},
@@ -210,7 +201,7 @@ func currentBreakFixComposition() WorkflowComposition {
 func currentResearchComposition() WorkflowComposition {
 	return WorkflowComposition{
 		Ref: "workflow.research", Version: 22, WorkKind: WorkKindResearch,
-		ApprovalPolicy: WorkflowApprovalPolicyConsequenceV1, ProgressPolicy: WorkflowProgressPolicyObligationSatisfactionV1,
+		ApprovalPolicy:        WorkflowApprovalPolicyConsequenceV1,
 		RequiredEvidenceKinds: []EvidenceKind{EvidenceArtifact},
 		OutcomeSchema:         WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"no_change", "resolved", "report_recorded"}},
 		RigorRules:            workflowPrototypeRigorRules(), StalenessRules: []WorkflowStalenessRule{},
@@ -253,19 +244,6 @@ func withConsequenceConfirmPremise(actions []WorkflowActionDefinition) []Workflo
 			public := optionalDigest(*selected[index].PublicPayload)
 			selected[index].PublicPayload = &public
 		}
-	}
-	return selected
-}
-
-// withObligationSatisfactionTaxonomy declares each compiled action's
-// satisfaction kind from the canonical action mapping (CD-0164 D2a). The
-// copy leaves the shared catalog declarations unmutated; validation binds
-// the compiled result to the same mapping, so a compiled definition and its
-// declared taxonomy cannot disagree.
-func withObligationSatisfactionTaxonomy(actions []WorkflowActionDefinition) []WorkflowActionDefinition {
-	selected := slices.Clone(actions)
-	for index := range selected {
-		selected[index].SatisfactionKind = workflowActionSatisfactionKind(selected[index].ID)
 	}
 	return selected
 }

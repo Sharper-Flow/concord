@@ -390,50 +390,15 @@ func workflowCorrectionWindowBoundary(ctx context.Context, q queryer, workID str
 	return history.boundary, nil
 }
 
-// workflowCorrectionWalkForRegistry folds the same prefix with the caller's
-// authoritative registry: every recorded definition selection verifies
-// through it, fail closed, with no builtin retry or silent legacy fallback.
-func workflowCorrectionWalkForRegistry(ctx context.Context, q queryer, workID string, prefix int64, subject string, registry DefinitionRegistry) (*workflowCorrectionHistory, error) {
-	return workflowCorrectionWalkCore(ctx, q, workID, prefix, subject, registry, true)
-}
-
-// workflowCorrectionWalkWorkerSatisfaction folds the same prefix for the
-// callers that consume only the worker-satisfaction history — the acceptance
-// boundary, the correction records, the job debt, and the dispatch bindings.
-// These walks process no coordinator qualification, so a recorded selection
-// is neither resolved nor refused here: worker semantics never read it.
+// workflowCorrectionWalkWorkerSatisfaction folds the acceptance boundary,
+// correction records, job debt, and dispatch bindings through one prefix.
 func workflowCorrectionWalkWorkerSatisfaction(ctx context.Context, q queryer, workID string, prefix int64, subject string) (*workflowCorrectionHistory, error) {
-	return workflowCorrectionWalkCore(ctx, q, workID, prefix, subject, nil, false)
-}
-
-func workflowCorrectionWalkCore(ctx context.Context, q queryer, workID string, prefix int64, subject string, registry DefinitionRegistry, qualifyProgress bool) (*workflowCorrectionHistory, error) {
 	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.kind, COALESCE(json_extract(e.payload,'$.attempt_id'),''), COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''), COALESCE(json_extract(e.payload,'$.action_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.job_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.revision'),0), COALESCE(json_extract(e.payload,'$.worker_job.digest'),''), e.payload, e.event_id FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? ORDER BY e.seq`, string(SubjectWorkItem), workID, prefix)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot read the correction window history", true, "retry once the workflow event log is readable", err)
 	}
-	// Buffer the prefix before folding. The progress fold qualifies evidence,
-	// verdicts, and premises through the shared semantic guards, which query
-	// the store; on the one pooled connection those queries deadlock behind
-	// this cursor, so the cursor closes first.
-	var events []workflowCorrectionHistoryRow
-	for rows.Next() {
-		var row workflowCorrectionHistoryRow
-		if err := rows.Scan(&row.seq, &row.kind, &row.dispatchAttempt, &row.actionAttempt, &row.actionID, &row.jobID, &row.jobRevision, &row.jobDigest, &row.payload, &row.eventID); err != nil {
-			_ = rows.Close()
-			return nil, wrapFailure(KindUnavailable, subject, "cannot scan the correction window history", true, "retry once the workflow event log is readable", err)
-		}
-		events = append(events, row)
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return nil, wrapFailure(KindUnavailable, subject, "cannot scan the correction window history", true, "retry once the workflow event log is readable", err)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, wrapFailure(KindUnavailable, subject, "cannot close the correction window history", true, "retry once the workflow event log is readable", err)
-	}
 	history := &workflowCorrectionHistory{
 		prefix:          prefix,
-		registry:        registry,
 		unresolved:      make(map[string]bool),
 		dispatchJob:     make(map[string]string),
 		dispatchBinding: make(map[string]WorkerJobBinding),
@@ -442,30 +407,31 @@ func workflowCorrectionWalkCore(ctx context.Context, q queryer, workID string, p
 		nonSettling:     make(map[string]bool),
 		reviewVerdict:   make(map[string]string),
 		checksRepairs:   make(map[string]*workflowChecksRepairState),
-		progress:        newWorkflowProgressHistory(),
 	}
-	for _, row := range events {
+	for rows.Next() {
+		var row workflowCorrectionHistoryRow
+		if err := rows.Scan(&row.seq, &row.kind, &row.dispatchAttempt, &row.actionAttempt, &row.actionID, &row.jobID, &row.jobRevision, &row.jobDigest, &row.payload, &row.eventID); err != nil {
+			_ = rows.Close()
+			return nil, wrapFailure(KindUnavailable, subject, "cannot scan the correction window history", true, "retry once the workflow event log is readable", err)
+		}
 		if err := history.observe(row, subject); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
-		if qualifyProgress {
-			if err := history.observeProgress(ctx, q, workID, row); err != nil {
-				return nil, err
-			}
-		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, wrapFailure(KindUnavailable, subject, "cannot scan the correction window history", true, "retry once the workflow event log is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, wrapFailure(KindUnavailable, subject, "cannot close the correction window history", true, "retry once the workflow event log is readable", err)
 	}
 	return history, nil
 }
 
 type workflowCorrectionHistory struct {
-	prefix              int64
-	boundary            int64
-	nonprogressBoundary int64
-	// registry is the authoritative resolver for the recorded definition
-	// selections this walk qualifies: nil selects the builtin registry. A
-	// worker-satisfaction-only walk resolves no selection at all.
-	registry    DefinitionRegistry
-	progress    workflowProgressHistory
+	prefix      int64
+	boundary    int64
 	unresolved  map[string]bool
 	dispatchJob map[string]string
 	// dispatchBinding retains the full dispatched job binding of each
@@ -808,15 +774,14 @@ func workerJobObligationKey(payload WorkerJobRecordedPayload) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// workflowNonProgressAttemptCountForRegistry counts the same whole-work
-// nonprogress population with the qualification resolved through the
-// caller's authoritative registry: nil selects the builtin registry.
-func workflowNonProgressAttemptCountForRegistry(ctx context.Context, q queryer, workID, subject string, registry DefinitionRegistry) (int64, error) {
-	history, err := workflowCorrectionWalkForRegistry(ctx, q, workID, int64(1)<<62, subject, registry)
+// workflowNonProgressAttemptCount counts failed or rejected attempts since
+// the worker acceptance boundary.
+func workflowNonProgressAttemptCount(ctx context.Context, q queryer, workID, subject string) (int64, error) {
+	history, err := workflowCorrectionWalkWorkerSatisfaction(ctx, q, workID, int64(1)<<62, subject)
 	if err != nil {
 		return 0, err
 	}
-	return workflowNonProgressAttemptCountAfter(ctx, q, workID, subject, history.nonprogressBoundary)
+	return workflowNonProgressAttemptCountAfter(ctx, q, workID, subject, history.boundary)
 }
 
 func workflowNonProgressAttemptCountAfter(ctx context.Context, q queryer, workID, subject string, anchor int64) (int64, error) {

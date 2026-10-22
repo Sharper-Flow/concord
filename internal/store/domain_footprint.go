@@ -277,6 +277,10 @@ func (p preparedDomainFootprint) queryTx(ctx context.Context, q queryer, limit i
 	return queryDomainFootprintTx(ctx, q, p.req, p.home, p.paths, p.behaviorLaws, p.behaviorCommit, limit)
 }
 
+func (p preparedDomainFootprint) completeTx(ctx context.Context, q queryer) (DomainFootprintResult, error) {
+	return footprintCompleteTx(ctx, q, p.req, p.home, p.paths, p.behaviorLaws, p.behaviorCommit)
+}
+
 // footprintBehaviorLaws runs Q9 over the designated home's indexed law kinds
 // and returns the matched law IDs and the watermark they were read at. It
 // takes the store, not a transaction, because Q9 probes git.
@@ -344,6 +348,21 @@ func queryDomainFootprintTx(ctx context.Context, q queryer, req DomainFootprintR
 	}
 	out.Laws = page
 	out.offset = offset
+	return out, nil
+}
+
+// footprintCompleteTx reads the whole footprint in one snapshot: every law
+// the selection reaches, each with its checks. A size record keeps it.
+func footprintCompleteTx(ctx context.Context, q queryer, req DomainFootprintRequest, home KnowledgeHome, paths, behaviorLaws []string, behaviorCommit string) (DomainFootprintResult, error) {
+	selection, err := footprintSelectTx(ctx, q, req, home, paths, behaviorLaws, behaviorCommit)
+	if err != nil {
+		return DomainFootprintResult{}, err
+	}
+	if err := loadFootprintLawChecks(ctx, q, selection.pair, selection.ordered); err != nil {
+		return DomainFootprintResult{}, err
+	}
+	out := selection.result
+	out.Laws = selection.ordered
 	return out, nil
 }
 

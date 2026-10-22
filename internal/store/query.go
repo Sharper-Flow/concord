@@ -198,6 +198,16 @@ type WorkItem struct {
 	// and value statement (the scope read and the full-detail list); bounded
 	// summary reads keep their column-only shape.
 	DefectIntake *DefectClassification `json:"defect_intake,omitempty"`
+	Size         *WorkSizeSummary      `json:"size,omitempty"`
+}
+
+// WorkSizeSummary reports the current model decision and governing operator size.
+type WorkSizeSummary struct {
+	Size         WorkSize  `json:"size"`
+	ModelSize    WorkSize  `json:"model_size"`
+	OperatorSize *WorkSize `json:"operator_size,omitempty"`
+	ModelVersion int       `json:"model_version"`
+	RecordedAt   string    `json:"recorded_at"`
 }
 
 type Q4Result struct {
@@ -850,6 +860,20 @@ func attachRecordedIntent(ctx context.Context, tx *sql.Tx, items []WorkItem) err
 	if err := rows.Close(); err != nil {
 		return wrapFailure(KindUnavailable, "query", "cannot read the recorded work intent", true, "retry once the database is readable", err)
 	}
+	for i := range items {
+		if err := attachWorkSize(ctx, tx, &items[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func attachWorkSize(ctx context.Context, q queryer, item *WorkItem) error {
+	decision, ok, err := readEffectiveWorkSize(ctx, q, item.ID)
+	if err != nil || !ok {
+		return err
+	}
+	item.Size = &WorkSizeSummary{Size: decision.Effective, ModelSize: decision.Model.Size, OperatorSize: decision.OperatorSize, ModelVersion: decision.Model.ModelVersion, RecordedAt: decision.Model.RecordedAt}
 	return nil
 }
 
@@ -1288,6 +1312,9 @@ func readOneWork(ctx context.Context, tx *sql.Tx, id string) (WorkItem, error) {
 	}
 	items[0].Narrative = narrative
 	if err := decodeRecordedIntent(&items[0], intentJSON); err != nil {
+		return WorkItem{}, err
+	}
+	if err := attachWorkSize(ctx, tx, &items[0]); err != nil {
 		return WorkItem{}, err
 	}
 	return items[0], nil

@@ -62,6 +62,11 @@ func setLawChangeApplicability(t *testing.T, s *Store, lawID string, appliesTo .
 	}
 }
 
+func seedLawChangeSize(t *testing.T, s *Store, workID string, size WorkSize) {
+	t.Helper()
+	lawChangeFold(t, s, `INSERT INTO work_size_assessments(event_id,work_id,sequence,model_version,size_class,inputs_json,footprint_json,recorded_at) VALUES(?,?,1,1,?,'{}','{}','2026-10-19T00:00:00Z')`, "size-"+workID, workID, string(size))
+}
+
 func lawChangeTx(t *testing.T, s *Store) *sql.Tx {
 	t.Helper()
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -288,6 +293,15 @@ func TestLawChangeDerivationRecordsReasonAndSeriousness(t *testing.T) {
 		t.Fatalf("a contract that changes no law = %+v, %v; want no fact", change, err)
 	}
 
+	seedLawChangeSize(t, s, workID, WorkSizeCrucial)
+	requireFailureKind(t, func() error {
+		_, err := deriveLawChange(t, s, workID, lawChangeV1, reason, []string{"law-agent"}, nil, []string{})
+		return err
+	}(), KindInvalidPayload, "crucial change without text pins")
+	change, err = deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "the installer moved", workflowLawChangeTextPinsField: lawChangePins("law-agent")}), []string{"law-agent"}, nil, []string{})
+	if err != nil || !change.Crucial || !change.Serious {
+		t.Fatalf("a one-Domain law change at crucial size = %+v, %v; want a serious crucial fact", change, err)
+	}
 }
 
 // TestLawChangeConsentFollowsSeriousness holds the consent half: under
@@ -398,13 +412,54 @@ func TestLawChangeEnactmentRequiresDerivedTierAndOneDomain(t *testing.T) {
 		s := seedLawChangeFixture(t, workID)
 		requireFailureKind(t, enactLawChange(t, s, workID, nonSerious(), []string{"law-missing"}, nil), KindMissingEvidence, "unresolved changed law")
 	})
+	t.Run("crucial size at enactment requires approval", func(t *testing.T) {
+		workID := "law-change-enact-crucial"
+		s := seedLawChangeFixture(t, workID)
+		seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
+		seedLawChangeSize(t, s, workID, WorkSizeCrucial)
+		requireFailureKind(t, enactLawChange(t, s, workID, nonSerious(), []string{"law-agent"}, nil), KindApprovalRequired, "crucial enactment")
+	})
+
 	t.Run("derived tier is admitted", func(t *testing.T) {
 		t.Parallel()
 		workID := "law-change-enact-derived"
 		s := seedLawChangeFixture(t, workID)
 		seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
+		seedLawChangeSize(t, s, workID, WorkSizeSmall)
 		if err := enactLawChange(t, s, workID, nonSerious(), []string{"law-agent"}, nil); err != nil {
 			t.Fatalf("a derived non-serious change refused at completion: %v", err)
+		}
+	})
+	t.Run("operator crucial override requires exact text approval", func(t *testing.T) {
+		workID := "law-change-enact-override"
+		s := seedLawChangeFixture(t, workID)
+		seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
+		seedLawChangeSize(t, s, workID, WorkSizeSmall)
+		insertWorkSizeOverrideApproval(t, s, workID, 1)
+		if err := runWorkSizeOverride(t, s, workSizeOverrideRequest(t, s, workID, "operator-size-"+workID, WorkSizeCrucial)); err != nil {
+			t.Fatal(err)
+		}
+		requireFailureKind(t, enactLawChange(t, s, workID, nonSerious(), []string{"law-agent"}, nil), KindApprovalRequired, "operator crucial enactment")
+		change, err := deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "revise", workflowLawChangeTextPinsField: lawChangePins("law-agent")}), []string{"law-agent"}, nil, []string{})
+		if err != nil || !change.Crucial || !change.Serious {
+			t.Fatalf("effective crucial size did not make law serious: %+v, %v", change, err)
+		}
+	})
+	t.Run("operator small override governs over a crucial model", func(t *testing.T) {
+		workID := "law-change-enact-small-override"
+		s := seedLawChangeFixture(t, workID)
+		seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
+		seedLawChangeSize(t, s, workID, WorkSizeCrucial)
+		insertWorkSizeOverrideApproval(t, s, workID, 1)
+		if err := runWorkSizeOverride(t, s, workSizeOverrideRequest(t, s, workID, "operator-size-"+workID, WorkSizeSmall)); err != nil {
+			t.Fatal(err)
+		}
+		if err := enactLawChange(t, s, workID, nonSerious(), []string{"law-agent"}, nil); err != nil {
+			t.Fatalf("effective small size refused completion: %v", err)
+		}
+		change, err := deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "revise"}), []string{"law-agent"}, nil, []string{})
+		if err != nil || change.Crucial || change.Serious {
+			t.Fatalf("model size overruled the operator: %+v, %v", change, err)
 		}
 	})
 
@@ -640,7 +695,7 @@ func TestLawChangeApprovalRequiresConsumedIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := WorkflowActionExecutionRequest{OperatorApprovalRef: proof.ApprovalRef, ApprovalOperationDigest: proof.OperationDigest, ApprovalScopeJSON: proof.ScopeJSON, ApprovalVersionsJSON: proof.VersionsJSON, ApprovalConsequence: proof.Consequence}
-	change := withLawChangeBaseline(t, s, workID, &WorkflowLawChange{Reason: "revise", LawIDs: []string{"law-agent"}, DomainIDs: []string{"agent-surface"}, Serious: true, TextPins: lawChangePins("law-agent")}, []string{"law-agent"}, nil, true)
+	change := withLawChangeBaseline(t, s, workID, &WorkflowLawChange{Reason: "revise", LawIDs: []string{"law-agent"}, DomainIDs: []string{"agent-surface"}, Crucial: true, Serious: true, TextPins: lawChangePins("law-agent")}, []string{"law-agent"}, nil, true)
 	bind := func(request WorkflowActionExecutionRequest) error {
 		tx := lawChangeTx(t, s)
 		err := bindWorkflowLawChangeApprovalTx(context.Background(), tx, request, change)
@@ -664,6 +719,7 @@ func TestLawChangeApprovalRequiresConsumedIdentity(t *testing.T) {
 	requireFailureKind(t, validateWorkflowLawChangeApproval(change), KindUnauthorized, "agent relabeled as operator")
 	change.Approval = proof
 	change.Approval.Operator.PrincipalRef = "principal/other"
+	seedLawChangeSize(t, s, workID, WorkSizeCrucial)
 	tx := lawChangeTx(t, s)
 	err := validateLiveWorkflowLawChangeTx(context.Background(), tx, workID, workflowContractApprovedPayload{LawChange: change, LawModifies: []string{"law-agent"}}, true)
 	_ = tx.Rollback()

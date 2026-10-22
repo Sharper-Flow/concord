@@ -302,11 +302,12 @@ var migrationTailReversals = map[int][]string{
 		`DROP TABLE law_coverage_anchors`,
 		`DROP TABLE law_evidence_paths`,
 	},
-	// Migrations 131 and 132 create only the tables migration 136's
-	// retirement drops, so the rewind restores nothing and the reapplied
-	// tail recreates them fresh.
-	131: nil,
-	132: nil,
+	131: {
+		`DROP TABLE work_size_assessments`,
+	},
+	132: {
+		`DROP TABLE work_size_overrides`,
+	},
 	133: {
 		`ALTER TABLE workflow_contracts DROP COLUMN decision_domains`,
 	},

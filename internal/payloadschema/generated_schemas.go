@@ -2959,7 +2959,7 @@ const GeneratedPayloadSchemaDocument = `{
       "type": "string"
     },
     "lifecycle_transition_target": {
-      "description": "Agent-requestable lifecycle transition targets. Strictly smaller than 'lifecycle': 'superseded' is excluded because supersession must be atomic with its 'supersedes' relation and is reachable only through the work.superseded event, whose two writers are operator-approved resolve_overlap and the size revision that changes a work item's effective size (CD-0237). The runtime guard in internal/agent/mutations.go that rejects target=='superseded' is genuine defense-in-depth behind this structural control.",
+      "description": "Agent-requestable lifecycle transition targets. Strictly smaller than 'lifecycle': 'superseded' is excluded because supersession must be atomic with its 'supersedes' relation through operator-approved resolve_overlap. Size revisions update the same work item without supersession. The runtime guard in internal/agent/mutations.go that rejects target=='superseded' is defense-in-depth behind this structural control.",
       "enum": [
         "needed",
         "in_progress",
@@ -11867,6 +11867,9 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
+        "size_inputs": {
+          "$ref": "#/$defs/work_size_inputs"
+        },
         "tags": {
           "description": "Bounds: <=32 items inclusive",
           "items": {
@@ -12520,6 +12523,10 @@ const GeneratedPayloadSchemaDocument = `{
         "kind": {
           "$ref": "#/$defs/work_kind"
         },
+        "operator_size": {
+          "$ref": "#/$defs/work_size_class",
+          "description": "The operator's size for the work item (CD-0229 D6). It needs a consumed operator approval; reason explains the override. The effective size changes in place on the same work item."
+        },
         "priority": {
           "description": "Bounds: -100..100 value inclusive",
           "maximum": 100,
@@ -12533,6 +12540,10 @@ const GeneratedPayloadSchemaDocument = `{
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
+        },
+        "size_inputs": {
+          "$ref": "#/$defs/work_size_inputs",
+          "description": "Reruns the model on fresh declared inputs; reason explains why. The core re-derives every other input and updates the size in place without a successor."
         },
         "tags": {
           "description": "Bounds: <=32 items inclusive",
@@ -12602,6 +12613,10 @@ const GeneratedPayloadSchemaDocument = `{
                     "minimum": 1,
                     "type": "integer"
                   },
+                  "model_version": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
                   "outcome": {
                     "maxLength": 4096,
                     "minLength": 1,
@@ -12623,12 +12638,27 @@ const GeneratedPayloadSchemaDocument = `{
                     "pattern": "\\S",
                     "type": "string",
                     "x-maxBytes": 256
+                  },
+                  "size": {
+                    "enum": [
+                      "small",
+                      "larger",
+                      "crucial"
+                    ],
+                    "type": "string"
+                  },
+                  "size_assessment_sequence": {
+                    "minimum": 1,
+                    "type": "integer"
                   }
                 },
                 "required": [
                   "rule_id",
                   "rule_source_hash",
                   "catalog_generation",
+                  "size_assessment_sequence",
+                  "model_version",
+                  "size",
                   "outcome",
                   "settlement_ref"
                 ],
@@ -14207,6 +14237,104 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_size_class": {
+      "enum": [
+        "small",
+        "larger",
+        "crucial"
+      ],
+      "type": "string"
+    },
+    "work_size_inputs": {
+      "additionalProperties": false,
+      "description": "What this change will touch, for the work-item size model (CD-0229 D4). Name the files, a behavior phrase, or both. The tool derives kind, stage, audience, Domains, packages, and repositories; the model decides the size. There is no size field: a proposed size is refused.",
+      "properties": {
+        "behavior": {
+          "description": "A phrase for the behavior the change will alter, when the files are not known yet. Bounds: 1..256 code points inclusive",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "blast_radius": {
+          "description": "The widest thing a defect could break: one function, one package, several packages, or a public surface (CLI, tool, schema, wire format).",
+          "enum": [
+            "contained",
+            "package",
+            "cross_package",
+            "external"
+          ],
+          "type": "string"
+        },
+        "estimated_production_lines": {
+          "description": "Production lines you expect to add or change, tests excluded; a relative-size estimate, not a delivered-code measurement or assignment cap. Bounds: 1..100000 value inclusive",
+          "maximum": 100000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "paths": {
+          "description": "Repository-relative files or directories the change will edit. Bounds: <=64 items inclusive",
+          "items": {
+            "description": "Bounds: 1..512 code points inclusive",
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "security": {
+          "description": "True when the change touches authentication, authorization, secrets, or data safety.",
+          "type": "boolean"
+        },
+        "user_visible": {
+          "description": "True when the change removes or reverses behavior users see, or changes UI or UX.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "security",
+        "user_visible",
+        "blast_radius",
+        "estimated_production_lines"
+      ],
+      "type": "object"
+    },
+    "work_size_summary": {
+      "additionalProperties": false,
+      "description": "The work item's current effective size, model decision, optional operator override, model version, and recording time. Absent when work has never been sized.",
+      "properties": {
+        "model_size": {
+          "$ref": "#/$defs/work_size_class"
+        },
+        "model_version": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "operator_size": {
+          "$ref": "#/$defs/work_size_class"
+        },
+        "recorded_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "size": {
+          "enum": [
+            "small",
+            "larger",
+            "crucial"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "size",
+        "model_version",
+        "recorded_at"
+      ],
+      "type": "object"
+    },
     "work_summary": {
       "additionalProperties": false,
       "properties": {
@@ -14242,6 +14370,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "ready": {
           "type": "boolean"
+        },
+        "size": {
+          "$ref": "#/$defs/work_size_summary"
         },
         "tags": {
           "items": {

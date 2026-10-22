@@ -46,6 +46,7 @@ func init() {
 	boundaryRecordedAt := pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowContextBoundaryCrossed", "time.RFC3339Nano")
 	handoffRecordedAt := pkTimeLayoutWidthBound("internal/store/project_handoffs.go", "recordProjectHandoffCore", "time.RFC3339Nano")
 	observationRecordedAt := pkTimeLayoutWidthBound("internal/store/work_observations.go", "foldWorkObservationRecorded", "time.RFC3339Nano")
+	sizeRecordedAt := pkTimeLayoutWidthBound("internal/store/work_size.go", "foldWorkSized", "time.RFC3339Nano")
 	// last_progress is the max domain_events.occurred_at column value, whose
 	// only two writers each render the same recorded layout.
 	eventOccurredAt := maxBound(
@@ -414,6 +415,9 @@ func init() {
 	registerOutputBound("/$defs/work_pin_evidence/properties/evidence_kind/maxLength",
 		workflowContainsLiteralLongestBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "slices.Contains"))
 	registerOutputBound("/$defs/work_pin_evidence/properties/immutable_subject_ref/maxLength", evidenceRefBound)
+
+	// Work size summary.
+	registerOutputBound("/$defs/work_size_summary/properties/recorded_at/maxLength", sizeRecordedAt)
 
 	// Workflow contract: the projection columns carry the admission CHECKs.
 	registerOutputBound("/$defs/workflow_contract/properties/approved_at/maxLength", contractApprovedAt)

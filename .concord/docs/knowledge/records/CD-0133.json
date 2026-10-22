@@ -19,7 +19,7 @@
     "internal/store/workflow_design.go",
     "internal/store/workflow_design_test.go",
     "internal/store/workflow_review_disposition.go",
-    "internal/store/workflow_review_disposition_test.go"
+    "internal/store/review_current_state_test.go"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0133",

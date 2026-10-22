@@ -1145,33 +1145,31 @@ func TestAcceptWorkerResultAdvancesCurrentNonExternalDispatchStep(t *testing.T) 
 
 func TestWorkerCannotInvokeAcceptWorkerResultAsItsOwnOwner(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	s, worker, _, attemptID := seedCompletedWorkerAtExecution(t, "authority-worker-accept")
-	request := WorkflowActionExecutionRequest{
-		WorkID: "authority-worker-accept", ExpectedVersion: 12, ActionID: "accept_worker_result",
-		Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}), Actor: workflowActorForRef(t, s, worker),
-		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), IdempotencyIdentity: "worker-accept-authority", OperationID: "worker-accept-authority",
-		PrincipalRef: "principal/operator", Tool: "concord_work_transition", IdempotencyKey: "worker-accept-authority", RequestID: "request:worker-accept-authority", ContractDigest: testManifestDigest, Now: time.Unix(3, 0).UTC(),
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	j, _ := descendantReviewFixture(t, "authority-worker-accept")
+	attempt, epoch := completeCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
+	workerRef := crossAttemptDispatchedLaneActor(t, j.s, j.workID, attempt)
+	mainRef, err := WorkflowActorRef(j.fixture.owner)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), request)
-	if err == nil {
-		tx.Rollback()
-		t.Fatal("worker accepted its own result")
+	if workerRef == "" || workerRef == mainRef {
+		t.Fatalf("dispatch did not bind a worker distinct from Main: worker=%q Main=%q", workerRef, mainRef)
 	}
-	_ = tx.Rollback()
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindUnauthorized {
-		t.Fatalf("worker self-accept failure = %v, want %s", err, KindUnauthorized)
+	worker := workflowActorForRef(t, j.s, workerRef)
+	pinBefore, err := ReadWorkPin(t.Context(), j.s, j.workID)
+	if err != nil || pinBefore.Review == nil || pinBefore.Review.Accepted != nil && pinBefore.Review.Accepted.AttemptID == attempt {
+		t.Fatalf("pending Review already has acceptance authority: %+v err=%v", pinBefore.Review, err)
 	}
-	if got := currentStep(t, s, "authority-worker-accept"); got != "execution" {
-		t.Fatalf("rejected worker acceptance advanced current_step=%q", got)
+	before := j.effects(t)
+	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, worker); !hasFailureKind(err, KindUnauthorized) {
+		t.Fatalf("dispatched worker self-acceptance = %v, want unauthorized", err)
 	}
-	if got := readWorkVersion(t, s, "authority-worker-accept"); got != 12 {
-		t.Fatalf("rejected worker acceptance advanced version=%d", got)
+	if after := j.effects(t); after != before {
+		t.Fatal("refused worker acceptance changed durable state")
+	}
+	pin, err := ReadWorkPin(t.Context(), j.s, j.workID)
+	if err != nil || string(mustJSONValue(pin.Review)) != string(mustJSONValue(pinBefore.Review)) {
+		t.Fatalf("worker refusal installed Review authority: %+v err=%v", pin.Review, err)
 	}
 }
 

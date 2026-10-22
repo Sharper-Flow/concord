@@ -2,11 +2,11 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestRefineReviewEvidenceCorrectionClosesOnFencedDispatch"
+      "value": "internal/store.TestReviewCurrentPlanRevisionCannotRestoreFirstEntry"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestRefineReviewEvidenceCorrectionHoldsUndispositionedAuthorization"
+      "value": "internal/store.TestReviewCurrentFirstEntryKeepsSharedAdmissionGuards"
     },
     {
       "kind": "go_test",
@@ -30,11 +30,11 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestRefineReviewEvidenceDispositionOpensContractCorrection"
+      "value": "internal/store.TestBlockingReviewDispositionAcceptsWithoutAdvancing"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestRefineReviewEvidenceDispositionRefusesInvalidAttempts"
+      "value": "internal/store.TestWorkerCannotInvokeAcceptWorkerResultAsItsOwnOwner"
     },
     {
       "kind": "go_test",

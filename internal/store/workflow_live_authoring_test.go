@@ -83,71 +83,85 @@ func TestDefaultWorkflowRefForKindRequiresExplicitFamilyForDecisionAndOther(t *t
 }
 
 func TestArchivedFamilyPublicMutationRefusesBeforeWrite(t *testing.T) {
-	ctx := context.Background()
-	const workID = "archived-mutation"
-	s := openTemp(t)
-	seedWork(t, s, workID)
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
-	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: owner, Now: time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	// Model a stored retired-family instance without registering a historical
-	// definition. The live mutation must refuse before it can append anything.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET definition_ref='workflow.generic_one_off' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
-		t.Fatal(err)
-	}
+	for family := range archivedWorkflowFamilies {
+		t.Run(family, func(t *testing.T) {
+			ctx := context.Background()
+			const workID = "archived-mutation"
+			s := openTemp(t)
+			seedWork(t, s, workID)
+			registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+			operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
+			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: owner, Now: time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
+				_ = tx.Rollback()
+				t.Fatal(err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			// Model a stored retired-family instance without registering a historical
+			// definition. The live mutation must refuse before it can append anything.
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET definition_ref=? WHERE work_id=?; DELETE FROM fold_guard`, family, workID); err != nil {
+				t.Fatal(err)
+			}
 
-	// The pinned retired definition stays readable through its instance.
-	var pinnedRef string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&pinnedRef); err != nil {
-		t.Fatalf("archived instance read: %v", err)
-	}
-	if pinnedRef != "workflow.generic_one_off" {
-		t.Fatalf("pinned definition = %s, want the retired family", pinnedRef)
-	}
+			// The pinned retired definition stays readable through its instance.
+			var pinnedRef string
+			if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&pinnedRef); err != nil {
+				t.Fatalf("archived instance read: %v", err)
+			}
+			if pinnedRef != family {
+				t.Fatalf("pinned definition = %s, want the retired family", pinnedRef)
+			}
 
-	events := func() int64 {
-		var count int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&count); err != nil {
-			t.Fatal(err)
-		}
-		return count
-	}
-	before := events()
+			events := func() int64 {
+				var count int64
+				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&count); err != nil {
+					t.Fatal(err)
+				}
+				return count
+			}
+			before := events()
 
-	// The read-only preflight answers the same refusal the mutation applies.
-	preflightErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-		WorkID: workID, ActionID: "checkpoint_context", Payload: json.RawMessage(`{}`), Actor: owner,
-	})
-	if !hasFailureKind(preflightErr, KindInvariantViolation) {
-		t.Fatalf("archived-family preflight = %v, want %s", preflightErr, KindInvariantViolation)
-	}
-	mutationErr := runIssue933OperatorAction(t, s, workID, "checkpoint_context", json.RawMessage(`{}`), owner, operator)
-	if !hasFailureKind(mutationErr, KindInvariantViolation) {
-		t.Fatalf("archived-family mutation = %v, want %s", mutationErr, KindInvariantViolation)
-	}
-	failure, ok := mutationErr.(*Failure)
-	if ok && !strings.Contains(failure.Detail, "workflow.generic_one_off") {
-		t.Fatalf("mutation refusal %q must name the archived family", failure.Detail)
-	}
-	if got := events(); got != before {
-		t.Fatalf("refused archived-family mutation moved events from %d to %d; the refusal must commit nothing", before, got)
-	}
-	if got := readWorkVersion(t, s, workID); got != 4 {
-		t.Fatalf("refused mutation left the work at version %d, want the untouched 4", got)
+			// Every action refuses at the unavailable-family boundary, not through
+			// the archived graph's payload or step validation.
+			for _, action := range []string{"checkpoint_context", "accept_worker_result", "record_decision"} {
+				t.Run(action, func(t *testing.T) {
+					preflightErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
+						WorkID: workID, ActionID: action, Payload: json.RawMessage(`{}`), Actor: owner,
+					})
+					if !hasFailureKind(preflightErr, KindInvariantViolation) {
+						t.Fatalf("archived-family preflight = %v, want %s", preflightErr, KindInvariantViolation)
+					}
+					mutationErr := runIssue933OperatorAction(t, s, workID, action, json.RawMessage(`{}`), owner, operator)
+					if !hasFailureKind(mutationErr, KindInvariantViolation) {
+						t.Fatalf("archived-family mutation = %v, want %s", mutationErr, KindInvariantViolation)
+					}
+					for _, refusal := range []error{preflightErr, mutationErr} {
+						failure, ok := refusal.(*Failure)
+						if !ok || !strings.Contains(failure.Detail, family) {
+							t.Fatalf("refusal %v must name the archived family %s", refusal, family)
+						}
+					}
+					if got := events(); got != before {
+						t.Fatalf("refused archived-family mutation moved events from %d to %d; the refusal must commit nothing", before, got)
+					}
+					if got := readWorkVersion(t, s, workID); got != 4 {
+						t.Fatalf("refused mutation left the work at version %d, want the untouched 4", got)
+					}
+					if got := currentStep(t, s, workID); got != registered.Definition.StepGraph.StartStep {
+						t.Fatalf("refused mutation moved the step to %s", got)
+					}
+				})
+			}
+		})
 	}
 }
 

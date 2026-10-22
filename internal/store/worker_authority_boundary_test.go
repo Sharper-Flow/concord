@@ -193,9 +193,6 @@ func TestAcceptWorkerResultSucceedsWhenLaneIsExecutingActor(t *testing.T) {
 // as the executing actor, and the owner accepts its result through the public
 // action. The workflow lands on the acceptance checkpoint with the lane still
 // pinned as the executing actor and the accepted attempt disposed behind it.
-// The retired architecture-spike pin this fixture family replaces refuses
-// every public action; TestArchivedSpikeRefusesPublicWorkflowActions holds
-// that refusal.
 func seedAcceptedFixtureLane(t *testing.T, workID string) (*Store, WorkflowActor, string, string, WorkflowActor) {
 	t.Helper()
 	ctx := context.Background()
@@ -435,70 +432,6 @@ func TestIndependenceUnchangedAfterAccept(t *testing.T) {
 	}
 	if got := readWorkVersion(t, s, workID); got != before {
 		t.Fatalf("disposed lane verdict version=%d, want %d", got, before)
-	}
-}
-
-// The architecture-spike topology this file historically exercised through
-// public actions is a retired family now. Its recorded instances still fold
-// for replay, and every public action on a nonterminal archived instance —
-// the lane acceptance and the decision record included — refuses before any
-// write.
-func TestArchivedSpikeRefusesPublicWorkflowActions(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	workID := "authority-archived-spike"
-	s := openTemp(t)
-	seedWork(t, s, workID)
-	seedWorkflowLaw(t, s)
-	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.architecture_spike", 7)
-	if !ok {
-		t.Fatal("workflow.architecture_spike v7 is not registered")
-	}
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{
-		workflowEvent("archived-owner-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEvent("archived-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
-		t.Fatal(err)
-	}
-	setWorkflowStepForOperatorVerdictTest(t, s, workID, "poc_optional")
-	before := readWorkVersion(t, s, workID)
-
-	assertArchivedRefusal := func(label string, err error) {
-		t.Helper()
-		var failure *Failure
-		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "workflow.architecture_spike is archived: new public workflow actions are refused") {
-			t.Fatalf("%s = %v, want the archived-family invalid_operation refusal", label, err)
-		}
-	}
-	acceptErr := func() error {
-		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
-		defer tx.Rollback()
-		_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-			WorkID: workID, ExpectedVersion: before, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": "attempt:" + workID, "attempt_epoch": 1}), Actor: owner,
-			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "archived:accept", OperationID: "archived:accept",
-			PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "archived:accept", RequestID: "request:archived:accept", ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
-		})
-		return err
-	}()
-	assertArchivedRefusal("archived lane acceptance", acceptErr)
-	decision := mustJSONValue(map[string]any{
-		"question": "Which route?", "options_considered": []string{"route-a", "route-b"}, "decision": "accepted_decision",
-		"rationale": "The POC proved route-a.", "consequences": []string{"route-a ships"}, "inputs": []string{"poc-report"}, "poc_findings": "route-a passed every check",
-	})
-	assertArchivedRefusal("archived decision record", runVerdictActionAs(t, s, workID, "record_decision", decision, 0, owner))
-	if got := readWorkVersion(t, s, workID); got != before {
-		t.Fatalf("archived refusals moved the version to %d, want %d", got, before)
-	}
-	if got := currentStep(t, s, workID); got != "poc_optional" {
-		t.Fatalf("archived refusals moved the step to %q, want poc_optional", got)
 	}
 }
 

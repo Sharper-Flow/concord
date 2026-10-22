@@ -271,23 +271,10 @@ func captureEvidenceRows(t *testing.T, db *sql.DB, query string) []string {
 	return captured
 }
 
-// TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence is the living-evidence
-// witness for the cutover (G06): one store carries original domain events with
-// their bytes and actors, a workflow definition pin with its contract and law
-// pins, a recorded Linear issue identity, a research pack with its source and
-// finding plus one required and one optional consumer, a worktree claim with a
-// live session landing, and one completed retained worker report. A separate
-// context consumer on the current research-enabled workflow.break_fix head
-// authors one work-context declaration through the admitted action route,
-// selecting one exact finding of the pack's selected revision beside a newer
-// revision it must never read. A verified backup restores into an independent
-// store, the restored store rebuilds from its own log, and an as-of
-// reconstruction reads history back — every population must keep its full
-// identity through all three routes. After the three routes, terminating every
-// consumer and retiring the pack legally must turn the retained selection
-// typed missing while a further rebuild replays the references without
-// resurrecting the retired corpus.
-func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
+// TestBackupRestorePreservesLivingEvidence checks workflow and law pins,
+// research selections, issue identity, occupancy, and retained reports through
+// snapshot and restore. Retiring research must leave its selection typed missing.
+func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	const workID = "evidence-living-work"
@@ -698,26 +685,9 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 		t.Fatalf("restored view =\n%s\nwant\n%s", gotView, wantViewRaw)
 	}
 
-	// The restored store rebuilds from its own log and keeps every identity.
-	if err := RebuildFromLog(ctx, restored); err != nil {
-		t.Fatalf("RebuildFromLog() error = %v", err)
-	}
-	compareFingerprints("rebuilt", restored.DatabaseForTesting())
-	rebuiltPack, err := restored.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(rebuiltPack, wantPack) {
-		t.Fatalf("rebuilt research pack =\n%+v\nwant\n%+v", rebuiltPack, wantPack)
-	}
-	if gotView := readViewBytes("rebuilt", restored.DatabaseForTesting()); string(gotView) != string(wantViewRaw) {
-		t.Fatalf("rebuilt view =\n%s\nwant\n%s", gotView, wantViewRaw)
-	}
-
 	// The preservation boundary: terminate every consumer legally, retire the
 	// pack through the explicit retirement route, and prove the retained
-	// selection reads typed missing while a further rebuild replays the
-	// declaration references without resurrecting the retired corpus.
+	// selection reads typed missing without resurrecting the retired corpus.
 	terminalizeResearchOwner(t, restored, "evidence-research-owner")
 	terminalizeResearchOwner(t, restored, "evidence-required-consumer")
 	terminalizeResearchOwner(t, restored, "evidence-optional-consumer")
@@ -790,25 +760,11 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 	if !strings.Contains(strings.Join(afterRetire["domain_events"], "\x1e"), `"research_finding_refs"`) {
 		t.Fatalf("post-retirement log lost the retained selection declaration")
 	}
-	if err := RebuildFromLog(ctx, restored); err != nil {
-		t.Fatalf("post-retirement RebuildFromLog() error = %v", err)
-	}
-	for i := range retiredPrints {
-		got := captureEvidenceRows(t, restored.DatabaseForTesting(), retiredPrints[i].query)
-		if strings.Join(got, "\x1e") != strings.Join(afterRetire[retiredPrints[i].name], "\x1e") {
-			t.Fatalf("post-retirement rebuild changed %s:\n%s\nwant\n%s", retiredPrints[i].name, strings.Join(got, "\n"), strings.Join(afterRetire[retiredPrints[i].name], "\n"))
-		}
-	}
-	if gotView := readViewBytes("after post-retirement rebuild", restored.DatabaseForTesting()); string(gotView) != string(missingViewRaw) {
-		t.Fatalf("post-retirement rebuilt view =\n%s\nwant\n%s", gotView, missingViewRaw)
-	}
 }
 
-// TestBackupRefusesUnreplayableLogAndDiscardsSnapshot is the promotion gate
-// witness: a snapshot of a log that no replay can fold never gains a manifest,
-// and a refused backup leaves neither a partial snapshot nor staging residue
-// while the source log keeps its recorded bytes.
-func TestBackupRefusesUnreplayableLogAndDiscardsSnapshot(t *testing.T) {
+// TestBackupRestoreDoesNotInterpretHistoryPayloads checks that snapshot and
+// restore copy retained rows without interpreting historical mutation payloads.
+func TestBackupRestoreDoesNotInterpretHistoryPayloads(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -816,34 +772,42 @@ func TestBackupRefusesUnreplayableLogAndDiscardsSnapshot(t *testing.T) {
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{productCreatedEvent("gate-product", "gate-product-created"), locatorProjectEvent("gate-project"), locatorMembershipEvent("gate-product", "gate-project")}}); err != nil {
 		t.Fatal(err)
 	}
-	// The inserted event carries a field no released schema of its kind ever
-	// accepted, so every preparation route must refuse it on replay.
+	// This payload is deliberately not a valid mutation. Current-state recovery
+	// must not run it or use it to replace the materialized Product rows.
 	invalid := Event{EventID: "gate-invalid", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "gate-product", Actor: "tester", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"id": "gate-product", "display_name": "whatever", "bogus_field": true})}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, invalid.EventID, invalid.Kind, string(invalid.SubjectType), invalid.SubjectID, invalid.Actor, invalid.OccurredAt.Format(time.RFC3339Nano), invalid.PayloadVersion, string(invalid.Payload)); err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
 	destination := filepath.Join(dir, "snapshot.db")
-	_, err := Backup(ctx, s, destination)
-	if err == nil {
-		t.Fatal("Backup() promoted a snapshot of an unreplayable log")
+	if _, err := Backup(ctx, s, destination); err != nil {
+		t.Fatalf("backup interpreted history: %v", err)
 	}
-	assertFailureKind(t, err, KindInvalidPayload)
-	for _, candidate := range []string{destination, destination + "-wal", destination + "-shm", manifestPath(destination)} {
-		if _, err := os.Stat(candidate); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("refused backup left %s: %v", candidate, err)
-		}
+	restoredPath := filepath.Join(t.TempDir(), "restored.db")
+	if _, err := RestoreBackup(ctx, destination, restoredPath); err != nil {
+		t.Fatalf("restore interpreted history: %v", err)
 	}
-	if matches, err := filepath.Glob(filepath.Join(dir, ".concord-backup-verify-*")); err != nil || len(matches) != 0 {
-		t.Fatalf("refused backup left verification staging files = %v (err=%v)", matches, err)
-	}
-	var stored string
-	var storedVersion int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload,payload_version FROM domain_events WHERE event_id=?`, invalid.EventID).Scan(&stored, &storedVersion); err != nil {
+	restored, err := sql.Open(driverName, readOnlyDataSource(restoredPath))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if stored != string(invalid.Payload) || storedVersion != invalid.PayloadVersion {
-		t.Fatalf("recorded event changed: %q v%d, want %q v%d", stored, storedVersion, invalid.Payload, invalid.PayloadVersion)
+	defer restored.Close()
+	query := `SELECT id,display_name,version FROM products ORDER BY id`
+	if got, want := captureEvidenceRows(t, restored, query), captureEvidenceRows(t, s.db, query); !reflect.DeepEqual(got, want) {
+		t.Fatalf("restored Products = %v, want materialized %v", got, want)
+	}
+	if matches, err := filepath.Glob(filepath.Join(dir, ".concord-backup-verify-*")); err != nil || len(matches) != 0 {
+		t.Fatalf("backup left verification staging files = %v (err=%v)", matches, err)
+	}
+	for _, db := range []*sql.DB{s.db, restored} {
+		var stored string
+		var storedVersion int
+		if err := db.QueryRow(`SELECT payload,payload_version FROM domain_events WHERE event_id=?`, invalid.EventID).Scan(&stored, &storedVersion); err != nil {
+			t.Fatal(err)
+		}
+		if stored != string(invalid.Payload) || storedVersion != invalid.PayloadVersion {
+			t.Fatalf("recorded event changed: %q v%d, want %q v%d", stored, storedVersion, invalid.Payload, invalid.PayloadVersion)
+		}
 	}
 }
 
@@ -987,7 +951,7 @@ func TestBackupVerifiesAnOlderSchemaOnlyUnderAStampedBuild(t *testing.T) {
 
 // TestInterruptedBackupVerificationDiscardsSnapshotAndStaging cancels the
 // backup once its verification staging clone holds the snapshot bytes, so the
-// interrupted phase is the replay verification itself. The refusal leaves no
+// interrupted phase is current-state verification. The refusal leaves no
 // partial snapshot, no manifest, and no staging residue.
 func TestInterruptedBackupVerificationDiscardsSnapshotAndStaging(t *testing.T) {
 	t.Parallel()

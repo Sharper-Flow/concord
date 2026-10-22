@@ -130,8 +130,6 @@ func newSpineFixture(t *testing.T) *spineFixture {
 	f := newSpineExecutionFixture(t)
 	f.verify(t)
 	f.recordJob(t)
-	f.review(t, "continue", "")
-	f.recordJob(t)
 	f.completeWorker(t)
 	f.proof = f.verify(t)
 	f.recordJob(t)

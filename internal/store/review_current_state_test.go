@@ -5,9 +5,144 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
+
+func TestReviewCurrentFirstGroupAdmission(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		progressed bool
+		group      string
+		blocker    bool
+		want       bool
+	}{
+		{"first entry needs no baseline Review", false, "group:first", false, true},
+		{"zero-change execution still needs accepted readiness", false, "", false, false},
+		{"missing Review cannot reset execution", true, "group:second", false, false},
+		{"blocker holds even first entry", false, "group:first", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := WorkflowReviewState{ExecutionProgressed: tc.progressed, Findings: []WorkerReviewFinding{}}
+			if tc.blocker {
+				state.Findings = reviewBlockFixture().Findings
+			}
+			if err := workflowAdmitReview(state, tc.group); (err == nil) != tc.want {
+				t.Fatalf("admitted=%v, want %v: %v", err == nil, tc.want, err)
+			}
+		})
+	}
+}
+
+func TestReviewCurrentFirstEntryKeepsSharedAdmissionGuards(t *testing.T) {
+	entry, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := WorkflowAdmissionState{Step: "execution", InstanceState: "running", Lifecycle: "in_progress", ActiveContracts: 1,
+		ReviewLane: "implementation", ReviewGroup: "group:first", Review: &WorkflowReviewState{}}
+	if decision := workflowAdmit(entry.Definition, base, "dispatch_worker"); !decision.Admitted {
+		t.Fatalf("initial dispatch was not admitted: %+v", decision.Failure)
+	}
+	for _, tc := range []struct {
+		name string
+		set  func(*WorkflowAdmissionState)
+		kind FailureKind
+	}{
+		{"stale plan", func(s *WorkflowAdmissionState) { s.DesignStale = true }, KindMissingEvidence},
+		{"stale authority", func(s *WorkflowAdmissionState) {
+			s.LawPinStaleError = newFailure(KindStaleRequiresReview, "test", "bound authority changed", false, "refresh the bound inputs")
+		}, KindStaleRequiresReview},
+		{"unknown launch", func(s *WorkflowAdmissionState) { s.PendingWorkerAuthorization = true }, KindOperationConflict},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := base
+			tc.set(&state)
+			decision := workflowAdmit(entry.Definition, state, "dispatch_worker")
+			if decision.Admitted || decision.Failure == nil || decision.Failure.Kind != tc.kind {
+				t.Fatalf("first entry bypassed %s: %+v", tc.name, decision)
+			}
+		})
+	}
+}
+
+func TestReviewCurrentPlanRevisionCannotRestoreFirstEntry(t *testing.T) {
+	for _, accepted := range []bool{false, true} {
+		name := "missing Review"
+		if accepted {
+			name = "stale Review"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := seedWorkContextFixture(t, "review-plan-revision")
+			t.Cleanup(func() { _ = f.store.Close() })
+			repo, _ := reviewSubjectClaim(t, f.store, f.workID)
+			var branch string
+			if err := f.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(f.workID)).Scan(&branch); err != nil {
+				t.Fatal(err)
+			}
+			gitRunStore(t, repo, "branch", "-m", branch)
+			reviewSubjectImplementComplete(t, f, "member:first", "member:first:completed", true)
+			reviewSubjectAccept(t, f.store, f.workID, "member:first")
+			if accepted {
+				acceptCurrentReviewForTest(t, f, repo, "continue")
+			}
+			before, err := ReadWorkPin(t.Context(), f.store, f.workID)
+			if err != nil || before.Review == nil || !before.Review.ExecutionProgressed {
+				t.Fatalf("completed implementation is absent from current execution state: %+v, %v", before.Review, err)
+			}
+			owner, err := WorkflowActorRef(f.owner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The design owner's normal fold writes a valid replacement. It
+			// changes a depended-on input, not the execution's progress record.
+			event := workflowEventWithActor("design:replacement", WorkflowDesignRecorded, f.workID, owner, map[string]any{
+				"work_id": f.workID, "expected_version": before.Version, "resulting_version": before.Version + 1,
+				"approach":     "Keep the accepted value while changing its implementation plan.",
+				"decisions":    []map[string]any{{"id": "decision:plan", "question": "Which implementation plan applies?", "choice": "Use the revised plan.", "rationale": "The inputs changed.", "rejected": []string{}}},
+				"touched_refs": []string{"seed.txt"},
+			})
+			if err := applyWorkflowTestOperation(t.Context(), f.store, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.workID): before.Version}}); err != nil {
+				t.Fatal(err)
+			}
+			after, err := ReadWorkPin(t.Context(), f.store, f.workID)
+			if err != nil || after.Review == nil || !after.Review.ExecutionProgressed || after.Review.DependenciesCurrent || after.Review.Dependencies.ArchitectureDigest == before.Review.Dependencies.ArchitectureDigest {
+				t.Fatalf("plan replacement reset progress or retained stale authority: %+v, %v", after.Review, err)
+			}
+			if err := workflowAdmitReview(*after.Review, "group:next"); !hasFailureKind(err, KindMissingEvidence) {
+				t.Fatalf("plan replacement reopened first entry: %v", err)
+			}
+		})
+	}
+}
+
+func TestReviewCurrentUnstartedAuthorizationPreservesFirstEntry(t *testing.T) {
+	s := openTemp(t)
+	seed := seedDispatchFixture(t, s, "review-confirmed-no-start")
+	const attempt = "attempt:confirmed-no-start"
+	claimed := dispatchSessionWorktree(t, s, seed.workID)
+	if _, err := invokeWorkflowActionForCD0059(t.Context(), t, s, cd781DispatchRequest(t, s, seed.workID, readWorkVersion(t, s, seed.workID), attempt, seed.ownerActor, claimed, "confirmed-no-start")); err != nil {
+		t.Fatal(err)
+	}
+	before, err := ReadWorkPin(t.Context(), s, seed.workID)
+	if err != nil || before.Review == nil || before.Review.ExecutionProgressed {
+		t.Fatalf("authorization was counted as an actual start: %+v, %v", before.Review, err)
+	}
+	// The existing host terminal boundary refuses abandonment while a worker
+	// still owns the worktree. This fixture has no worker occupancy or start.
+	event := s2WorkerFailedAttributedEvent(seed.workID, attempt, "confirmed-no-start:abandoned", "", WorkerFailureAbandoned, "The host confirmed the task never started.", time.Now().UTC())
+	if err := s2WorkerFailedLive(t, s, event); err != nil {
+		t.Fatal(err)
+	}
+	after, err := ReadWorkPin(t.Context(), s, seed.workID)
+	if err != nil || after.Review == nil || after.Review.ExecutionProgressed {
+		t.Fatalf("confirmed never-started launch consumed first entry: %+v, %v", after.Review, err)
+	}
+	if err := workflowAdmitReview(*after.Review, "group:first"); err != nil {
+		t.Fatalf("the unchanged initial assignment now requires a baseline Review: %v", err)
+	}
+}
 
 func TestReviewCurrentDispositionAdmission(t *testing.T) {
 	for _, disposition := range []string{"continue", "correction_required", "revision_required", "ready_for_final_proof"} {

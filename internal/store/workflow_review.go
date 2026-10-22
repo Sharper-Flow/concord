@@ -22,6 +22,9 @@ type WorkflowAcceptedReview struct {
 // WorkflowReviewState is the current execution view consumed by admission and
 // exposed on resumption. Findings remain open when a later report omits them.
 type WorkflowReviewState struct {
+	// ExecutionProgressed comes from current implementation-attempt state, not
+	// the presence of Review, plan revisions, or a session's lifetime.
+	ExecutionProgressed    bool                      `json:"-"`
 	Dependencies           *WorkerReviewDependencies `json:"dependencies,omitempty"`
 	Candidate              *WorkerReviewCandidate    `json:"candidate"`
 	Accepted               *WorkflowAcceptedReview   `json:"accepted_review"`

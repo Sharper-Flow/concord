@@ -32,8 +32,6 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 	f := newSpineExecutionFixture(t)
 	f.verify(t)
 	f.recordJob(t)
-	f.review(t, "continue", "")
-	f.recordJob(t)
 	lane, job, epoch := f.startWorker(t, "implement", "attempt:spine-broken")
 	if err := os.WriteFile(filepath.Join(f.path, "pkg/value.go"), []byte("package spine\nfunc Value() int { return 8 }\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -77,7 +75,7 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 		RemainingObligations: []store.WorkerReviewObligation{{ObligationID: "obligation:publication", OwnerRef: "owner:main", SubjectRef: "commit:" + c.Commit, InputDigest: dependencies.Criteria[0].ContentDigest, NeededProof: "Publish the canonical closure receipt after delivery."}}}
 	f.finishWorker(t, lane, attempt, job, report)
 	unaccepted := f.read(t).Pinned.Pin
-	if unaccepted.Review.Candidate == nil || *unaccepted.Review.Candidate != b || unaccepted.Review.Accepted.Report.Disposition == "ready_for_final_proof" || unaccepted.Lifecycle != "in_progress" {
+	if unaccepted.Review.Candidate == nil || *unaccepted.Review.Candidate != b || unaccepted.Review.Accepted != nil || unaccepted.Lifecycle != "in_progress" {
 		t.Fatalf("terminal arrival granted readiness: %+v", unaccepted.Review)
 	}
 	held := f.action(t, "record_delivery", map[string]any{"delivery_artifact": "artifact:spine-value", "delivery_state": "asserted"})

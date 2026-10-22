@@ -2,10 +2,68 @@ package store
 
 import (
 	"bytes"
+	"encoding/json"
 	"reflect"
 	"slices"
 	"testing"
 )
+
+func TestRecoveryRouteAbsenceHasOneCanonicalEncoding(t *testing.T) {
+	definition := workflowFixtureBase()
+	judges := func(id string) bool { return id == "record_verdict" || id == "confirm_premise" }
+	for i := range definition.StepGraph.Steps {
+		definition.StepGraph.Steps[i].Actions = slices.DeleteFunc(definition.StepGraph.Steps[i].Actions, judges)
+	}
+	definition.AvailableActions = slices.DeleteFunc(definition.AvailableActions, judges)
+	definition.ActionDefinitions = slices.DeleteFunc(definition.ActionDefinitions, func(action WorkflowActionDefinition) bool { return judges(action.ID) })
+	definition.RecoveryRoutes = nil
+	absent, err := CanonicalWorkflowDefinition(definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition.RecoveryRoutes = []WorkflowRecoveryRoute{}
+	empty, err := CanonicalWorkflowDefinition(definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]json.RawMessage
+	if err := json.Unmarshal(absent, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := manifest["recovery_routes"]; present {
+		t.Fatal("absent recovery routes emitted a manifest field")
+	}
+	if !bytes.Equal(absent, empty) || workflowDefinitionDigest(absent) != workflowDefinitionDigest(empty) {
+		t.Fatal("nil and empty recovery routes have different canonical content or digests")
+	}
+}
+
+func TestCurrentCompleteStepCorrectionRoutesCoverOnlySupportedFamilies(t *testing.T) {
+	for _, definition := range BuiltinWorkflowDefinitions() {
+		t.Run(definition.Ref, func(t *testing.T) {
+			want := ""
+			switch definition.Ref {
+			case "workflow.implementation":
+				want = "execution"
+			case "workflow.break_fix":
+				want = "repair"
+			}
+			count := 0
+			for _, route := range workflowRecoveryRoutes(definition) {
+				if route.Trigger != WorkflowRecoveryTriggerDisprovedPremiseAtComplete {
+					continue
+				}
+				count++
+				if want == "" || route.Target != want || route.Action != "supersede_contract" || !stepDeclaresAction(definition, route.Step, "complete") {
+					t.Fatalf("unsupported complete-step correction route: %+v", route)
+				}
+			}
+			if (want != "" && count != 1) || (want == "" && count != 0) {
+				t.Fatalf("complete-step correction route count = %d for target %q", count, want)
+			}
+		})
+	}
+}
 
 func TestCurrentRecoveryRoutesAreDeclaredAndDefensive(t *testing.T) {
 	for _, definition := range BuiltinWorkflowDefinitions() {

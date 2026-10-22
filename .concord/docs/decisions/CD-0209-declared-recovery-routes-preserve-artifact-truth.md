@@ -547,16 +547,15 @@ verification supplies this evidence, not a fabricated workflow record.
 
 ## Verification
 
-- `internal/store.TestReleasedDigestsIgnoreRecoveryRouteField` proves
-  the canonical bytes and derived digest stay unchanged
-  when the field is absent or empty.
-- `internal/store.TestWorkflowRecoveryRoutesGoldenPerReleasedVersion`
-  proves each resolved route table holds its graph invariants
-  against the definition it resolves for.
-- `internal/store.TestCompleteStepCorrectionRoutesCoverOnlyTheSupportedFamilies`
+- `internal/store.TestRecoveryRouteAbsenceHasOneCanonicalEncoding` proves
+  absent and empty route tables omit the field and produce the same
+  canonical bytes and digest for a definition that needs no return.
+- `internal/store.TestCurrentRecoveryRoutesAreDeclaredAndDefensive`
+  validates each current definition with its declared route table.
+- `internal/store.TestCurrentCompleteStepCorrectionRoutesCoverOnlySupportedFamilies`
   proves the CD-0172 D1 and CD-0186 boundary: only implementation
   and break_fix resolve a `disproved_premise_at_complete` route, the
-  route sits on the complete action step of that version, and the
+  route sits on the current complete action step, and the
   target is the implementation `execution` or break_fix `repair`
   step.
 - `internal/store.TestRecoveryRouteRegistrationRefusals` proves the
@@ -568,23 +567,17 @@ verification supplies this evidence, not a fabricated workflow record.
   target equal to the route step, target terminal, target with
   `approve_contract`, target not upstream, and a second failure
   edge all refuse at registration with a typed failure.
-- `internal/store.TestUnreleasedEvaluatorDefinitionsWithoutATableRefuse`
-  proves the CON-846 gate: a definition whose steps record a
-  verdict, confirm a premise, or host the late-verdict context
-  refuses registration when its declared table is nil or empty.
-- `internal/store.TestAuthoredRecoveryRoutesOverrideTheQuarantine`
-  proves the D3 reader: a declared table is the one owner of its
-  routes, the returned slice is a
-  defensive copy, and the reader does not mutate the definition it
-  read.
-- `internal/store.TestWorkflowRecoveryRoutesDoNotMutateOldCanonicalDefinitions`
-  proves the canonical-bytes read is a pure read: a
-  definition leaves its canonical bytes
-  unchanged across a route read.
-- `internal/store.TestNewAuthoredVersionsDeclareRouteTables` proves
-  every definition declares its D3 table, registers under
-  `ValidateWorkflowDefinition`, and covers the evaluator steps the
-  graph declares.
+- `internal/store.TestRecoveryRouteRegistrationRefusals` proves the
+  undeclared-return gate: removing the required route or its table
+  refuses validation and registration on the current definition.
+- `internal/store.TestCurrentRecoveryRoutesAreDeclaredAndDefensive`
+  proves the D3 reader returns the declared table as a defensive copy.
+- `internal/store.TestCurrentRecoveryRoutesAreDeclaredAndDefensive`
+  proves reading and modifying that copy leaves the current
+  definition's canonical bytes unchanged.
+- `internal/store.TestCurrentRecoveryRoutesAreDeclaredAndDefensive`
+  proves every current definition declares a table and passes
+  `ValidateWorkflowDefinition`, including its required-return coverage.
 - `internal/store.TestRecoveryRouteTargetMustProduceArtifact` proves
   the D4 producer rule: a target that carries no `dispatch_worker`,
   no fenced-start action, and no direct `record_finding`,

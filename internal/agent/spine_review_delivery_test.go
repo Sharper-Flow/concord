@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -78,17 +79,50 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 	if unaccepted.Review.Candidate == nil || *unaccepted.Review.Candidate != b || unaccepted.Review.Accepted != nil || unaccepted.Lifecycle != "in_progress" {
 		t.Fatalf("terminal arrival granted readiness: %+v", unaccepted.Review)
 	}
-	held := f.action(t, "record_delivery", map[string]any{"delivery_artifact": "artifact:spine-value", "delivery_state": "asserted"})
-	if held.Outcome != OutcomeError || held.Error == nil || held.Error.Kind != "missing_evidence" || f.read(t).Pinned.Pin.Version != unaccepted.Version {
+	for _, intent := range unaccepted.NextValidIntents {
+		if intent.ActionID == "record_delivery" {
+			t.Fatal("the current projection offers delivery before Main accepts readiness")
+		}
+	}
+	delivery := map[string]any{"delivery_artifact": "artifact:spine-value", "delivery_state": "asserted"}
+	preflightErr := store.WorkflowActionPreflightWithRegistry(t.Context(), f.s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{
+		WorkID: f.work, ExpectedVersion: unaccepted.Version, ActionID: "record_delivery", Payload: retryJSON(delivery), SessionWorktree: f.path,
+		Actor: store.WorkflowActor{PrincipalRef: f.env.PrincipalRef, ClientRef: f.env.ClientRef, AgentRef: f.env.AgentRef, SessionRef: f.env.SessionRef, ActorClass: store.ActorAgent},
+	})
+	var preflightFailure *store.Failure
+	if !errors.As(preflightErr, &preflightFailure) || preflightFailure.Kind != store.KindMissingEvidence || preflightFailure.RecoveryAction == "" {
+		t.Fatalf("preflight lost the readiness requirement or its recovery: %v", preflightErr)
+	}
+	held := f.action(t, "record_delivery", delivery)
+	afterHeld := f.read(t).Pinned.Pin
+	if held.Outcome != OutcomeError || held.Error == nil || held.Error.Kind != "missing_evidence" || held.Error.Message != preflightFailure.Detail || held.Error.EffectState != EffectNone || afterHeld.Version != unaccepted.Version || afterHeld.Lifecycle != unaccepted.Lifecycle || !reflect.DeepEqual(afterHeld.Review, unaccepted.Review) {
 		t.Fatalf("an unaccepted ready report advanced execution: %+v", held)
 	}
-	spineOK(t, f.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}))
+	acceptInput := map[string]any{"work_id": f.work, "expected_version": unaccepted.Version, "action_id": "accept_worker_result", "idempotency_key": "spine-main-accept-repair", "fields": map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}}
+	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", acceptInput))
 	accepted := f.read(t).Pinned.Pin
 	if accepted.Review.Candidate == nil || *accepted.Review.Candidate != c || accepted.Review.Accepted.Report.Disposition != "ready_for_final_proof" || len(accepted.Review.Findings) != 1 || accepted.Review.Findings[0].Status != "closed" {
 		t.Fatalf("Main did not atomically accept C and its evidenced closure: %+v", accepted.Review)
 	}
+	replayed := spineOK(t, f.call(t, "concord_work_transition", "workflow_action", acceptInput))
+	afterReplay := f.read(t).Pinned.Pin
+	if !replayed.Replayed || afterReplay.Version != accepted.Version || afterReplay.Lifecycle != accepted.Lifecycle || !reflect.DeepEqual(afterReplay.Review, accepted.Review) {
+		t.Fatal("replaying Main's exact acceptance had another effect")
+	}
+	conflict := f.action(t, "reject_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch, "diagnosis": "Conflicting disposition of the accepted repair.", "strategy": "Retain the accepted candidate.", "predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{checked.OperationRef}})
+	afterConflict := f.read(t).Pinned.Pin
+	if conflict.Outcome != OutcomeError || conflict.Error == nil || conflict.Error.EffectState != EffectNone || afterConflict.Version != accepted.Version || afterConflict.Lifecycle != accepted.Lifecycle || !reflect.DeepEqual(afterConflict.Review, accepted.Review) {
+		t.Fatalf("a conflicting rejection changed the accepted repair: %+v", conflict)
+	}
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
 	f.advanceToAcceptance(t)
+	spineOK(t, f.call(t, "concord_work_define", "observation_record", map[string]any{"work_id": f.work, "statement": "The declared value check passes on the repaired candidate; Main accepted its attributed Review and native producer proof.", "refs": []string{f.read(t).Pinned.Contract.ArchitectureBinding.HomeDomainID, checked.OperationRef}, "idempotency_key": "spine-premise-investigation"}))
+	beforeMissingProof := f.read(t).Pinned.Pin
+	missingProof := f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"})
+	afterMissingProof := f.read(t).Pinned.Pin
+	if missingProof.Outcome != OutcomeError || missingProof.Error == nil || missingProof.Error.Kind != "missing_evidence" || missingProof.Error.Message != "premise confirmation requires a recorded workflow verdict" || missingProof.Error.EffectState != EffectNone || afterMissingProof.Version != beforeMissingProof.Version || afterMissingProof.Lifecycle != beforeMissingProof.Lifecycle || !reflect.DeepEqual(afterMissingProof.Review, beforeMissingProof.Review) {
+		t.Fatalf("completion before criterion proof: outcome=%s error=%+v", missingProof.Outcome, missingProof.Error)
+	}
 	unrelatedResponse := spineOK(t, f.call(t, "concord_work_transition", "worktree_verify", map[string]any{"work_id": f.work, "command": []string{"git", "status", "--porcelain"}, "idempotency_key": "spine-unrelated-green"}))
 	var unrelated store.WorktreeVerifyResult
 	if err := json.Unmarshal(unrelatedResponse.Result, &unrelated); err != nil {
@@ -115,7 +149,17 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 	// command in the negative table never receives that coverage.
 	spineOK(t, f.action(t, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{f.proof}}}}))
 	spineOK(t, f.action(t, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{checked.OperationRef}}}}))
-	spineOK(t, f.call(t, "concord_work_define", "observation_record", map[string]any{"work_id": f.work, "statement": "The declared value check passes on the repaired candidate; Main accepted its attributed Review and native producer proof.", "refs": []string{f.read(t).Pinned.Contract.ArchitectureBinding.HomeDomainID, checked.OperationRef}, "idempotency_key": "spine-premise-investigation"}))
+	beforeConfirmation := f.read(t).Pinned.Pin
+	for _, intent := range beforeConfirmation.NextValidIntents {
+		if intent.ActionID == "complete" {
+			t.Fatal("completion was offered before the premise-confirmation exit")
+		}
+	}
+	missingConfirmation := f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"})
+	afterConfirmationRefusal := f.read(t).Pinned.Pin
+	if missingConfirmation.Outcome != OutcomeError || missingConfirmation.Error == nil || missingConfirmation.Error.Kind != "invalid_transition" || missingConfirmation.Error.Message != "workflow action is not declared on the current step" || missingConfirmation.Error.EffectState != EffectNone || afterConfirmationRefusal.Version != beforeConfirmation.Version || afterConfirmationRefusal.Lifecycle != beforeConfirmation.Lifecycle || !reflect.DeepEqual(afterConfirmationRefusal.Review, beforeConfirmation.Review) {
+		t.Fatalf("completion before premise confirmation: outcome=%s error=%+v", missingConfirmation.Outcome, missingConfirmation.Error)
+	}
 	pin := f.read(t).Pinned.Pin
 	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{"work_id": f.work, "expected_version": pin.Version, "action_id": "confirm_premise", "selected_choice": "confirm", "idempotency_key": "spine-confirm"}))
 	spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))

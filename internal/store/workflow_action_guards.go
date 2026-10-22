@@ -1586,8 +1586,7 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 	if err != nil {
 		return err
 	}
-	intent, _ := json.Marshal(map[string]any{"worker_packet": packetRaw})
-	if err := bindWorkflowReviewIntent(&state, "dispatch_worker", intent); err != nil {
+	if err := bindWorkflowReviewRequest(in.ctx, in.tx, &state, in.request.WorkID, "dispatch_worker", in.request.Payload, in.request.Actor); err != nil {
 		return err
 	}
 	if decision := workflowAdmit(in.entry.Definition, state, "dispatch_worker"); !decision.Admitted {

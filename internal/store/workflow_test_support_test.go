@@ -110,10 +110,6 @@ func workflowFixtureShape(definition WorkflowDefinition, version int64) Workflow
 	definition.WorkKind = WorkKindStaticAnalysis
 	changesProductTruth := false
 	definition.ChangesProductTruth = &changesProductTruth
-	// The fixture keeps the implementation step graph, so it must also keep
-	// the recovery-route table that graph owns. A table-less evaluator
-	// definition refuses at registration.
-	definition.RecoveryRoutes = mustCompileWorkflowComposition(currentImplementationComposition()).RecoveryRoutes
 	return definition
 }
 

@@ -307,16 +307,17 @@ func validateWorkflowRecoveryRoutes(definition WorkflowDefinition) error {
 		}
 		declared[key] = true
 		routeStep := steps[route.Step]
+		reviewLoop := routeStep.Kind == WorkflowStepExternalEffect && slices.Contains(routeStep.Actions, "dispatch_worker") && slices.Contains(routeStep.Actions, "accept_worker_result")
 		if route.Trigger == WorkflowRecoveryTriggerUnhealthyVerdict {
-			if !slices.Contains(routeStep.Actions, "record_verdict") && !slices.Contains(routeStep.Actions, "confirm_premise") && !terminals[route.Step] {
-				return definitionFailure(KindInvalidDefinition, "unhealthy_verdict recovery route sits on a step that records neither verdict nor premise and hosts no late-verdict context: "+route.Step)
+			if !slices.Contains(routeStep.Actions, "record_verdict") && !slices.Contains(routeStep.Actions, "confirm_premise") && !terminals[route.Step] && !reviewLoop {
+				return definitionFailure(KindInvalidDefinition, "unhealthy_verdict recovery route sits on a step with no criterion, premise, or execution Review: "+route.Step)
 			}
 			unhealthyRoutes[route.Step] = true
 		}
 		if route.Trigger == WorkflowRecoveryTriggerDisprovedPremiseAtComplete && !slices.Contains(routeStep.Actions, "complete") {
 			return definitionFailure(KindInvalidDefinition, "disproved_premise_at_complete recovery route sits on a step that declares no complete action: "+route.Step)
 		}
-		if route.Target == route.Step {
+		if route.Target == route.Step && !(reviewLoop && route.Trigger == WorkflowRecoveryTriggerUnhealthyVerdict) {
 			return definitionFailure(KindInvalidDefinition, "recovery route target is the route step: "+route.Step)
 		}
 		if terminals[route.Target] {

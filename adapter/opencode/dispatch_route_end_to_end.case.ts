@@ -600,6 +600,9 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
         const prepared = await verify(a, `${key}-producer-prepare`, { oracle: { phase: "prepare", expected_contract_version: 1, control_bundle: { owner: oracle!.owners[0], cases: oracle!.cases, control } } })
         oracle = { ...oracle!, controls: [{ ...control, readiness_evidence_refs: [prepared.oracle.run_ref] }] }
         await action(a, "record_worker_job", `${key}-job`, { job_id: `${key}-producer`, predicate_ids: oracle!.owners[0].predicate_ids, objective: "Apply the corrected marker.", stopping_condition: "The corrected marker is committed.", path_scope: [".concord/docs/dispatch-marker.txt"], checks: ["git status --short"], ready: true, readiness_evidence: ["evidence:corrected-marker-ready"], acceptance_oracle: oracle!,  })
+        const correctionPin = await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID } }, a)
+        expect(correctionPin.outcome, JSON.stringify(correctionPin)).toBe("ok")
+        expect(correctionPin.result.pinned.work_pin.correction?.diagnosis, JSON.stringify(correctionPin)).toBe("The checkpoint review blocks this subject.")
       }
       const producer = await dispatch(a, "implement", `${key}-implement`)
       oracle = producer.packet.inputs.worker_job.acceptance_oracle
@@ -692,7 +695,6 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
       await action(a, "bind_evidence", `${key}-artifact`, { evidence_kind: "artifact" })
       const postReviewRef = (await verify(b, `${key}-post-review`)).operation_ref
       await action(b, "bind_evidence", `${key}-post-review-bind`, { evidence_kind: "verification", evidence_ref: postReviewRef })
-      await action(b, "record_delivery", `${key}-refine-delivery`, { delivery_artifact: `commit:${subject}`, delivery_state: "asserted" })
       if (pass === 0) {
         firstProducer = producer
         const { readiness_evidence_refs: _, ...control } = oracle.controls[0]
@@ -713,9 +715,16 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
         const refused = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: "complete", idempotency_key: "g01-no-ship-complete", fields: { impact_verdict: "non-breaking" } } }, a)
         expect(refused.outcome).toBe("error")
         expect(events()).toBe(before)
-        await action(a, "request_correction", "g01-authorized-correction", { diagnosis: "The checkpoint review blocks this subject.", strategy: "Produce a corrected marker and obtain independent review and verification.", predicate_ids: [predicate.predicate_id], evidence_refs: [postReviewRef] })
+        const correctionState = await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID } }, a)
+        expect(correctionState.outcome, JSON.stringify(correctionState)).toBe("ok")
+        const openFindingIDs = correctionState.result.pinned.work_pin.work_context.findings
+          .filter((finding: JSONRecord) => finding.status === "open" && finding.oracle?.classification === "delivery_blocker")
+          .map((finding: JSONRecord) => finding.finding_id)
+        expect(openFindingIDs.length).toBeGreaterThan(0)
+        await action(a, "request_correction", "g01-authorized-correction", { diagnosis: "The checkpoint review blocks this subject.", strategy: "Produce a corrected marker and obtain independent review and verification.", predicate_ids: [predicate.predicate_id], evidence_refs: [postReviewRef], open_finding_ids: openFindingIDs })
         expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("repair")
       } else {
+        await action(b, "record_delivery", `${key}-refine-delivery`, { delivery_artifact: `commit:${subject}`, delivery_state: "asserted" })
         await action(b, "record_delivery", `${key}-gate-delivery`, { delivery_artifact: `commit:${subject}`, delivery_state: "asserted" })
         await action(c, "record_verdict", `${key}-verdict`, { verdicts: [{ predicate_id: predicate.predicate_id, receipt_refs: [lastProof] }] })
       }

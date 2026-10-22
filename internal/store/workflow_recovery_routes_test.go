@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -32,18 +33,29 @@ func TestCurrentRecoveryRoutesAreDeclaredAndDefensive(t *testing.T) {
 
 func TestRecoveryRouteRegistrationRefusals(t *testing.T) {
 	base := BuiltinWorkflowDefinitions()[0]
+	evaluator := slices.IndexFunc(base.RecoveryRoutes, func(r WorkflowRecoveryRoute) bool {
+		return r.Step == "acceptance" && r.Trigger == WorkflowRecoveryTriggerUnhealthyVerdict
+	})
+	complete := slices.IndexFunc(base.RecoveryRoutes, func(r WorkflowRecoveryRoute) bool {
+		return r.Trigger == WorkflowRecoveryTriggerDisprovedPremiseAtComplete
+	})
+	if evaluator < 0 || complete < 0 {
+		t.Fatal("current definition lacks the evaluator or completion route under test")
+	}
 	for name, mutate := range map[string]func(*WorkflowDefinition){
-		"missing evaluator route":                   func(d *WorkflowDefinition) { d.RecoveryRoutes = d.RecoveryRoutes[1:] },
+		"missing evaluator route": func(d *WorkflowDefinition) {
+			d.RecoveryRoutes = slices.Delete(d.RecoveryRoutes, evaluator, evaluator+1)
+		},
 		"ambiguous step and trigger":                func(d *WorkflowDefinition) { d.RecoveryRoutes = append(d.RecoveryRoutes, d.RecoveryRoutes[0]) },
 		"unknown trigger":                           func(d *WorkflowDefinition) { d.RecoveryRoutes[0].Trigger = "failed_attempt" },
 		"unknown step":                              func(d *WorkflowDefinition) { d.RecoveryRoutes[0].Step = "nonexistent" },
 		"unknown action":                            func(d *WorkflowDefinition) { d.RecoveryRoutes[0].Action = "unknown_action" },
 		"unknown target":                            func(d *WorkflowDefinition) { d.RecoveryRoutes[0].Target = "nonexistent" },
 		"unhealthy trigger pairs wrong action":      func(d *WorkflowDefinition) { d.RecoveryRoutes[0].Action = "supersede_contract" },
-		"complete trigger pairs wrong action":       func(d *WorkflowDefinition) { d.RecoveryRoutes[2].Action = "request_correction" },
-		"complete trigger off the complete step":    func(d *WorkflowDefinition) { d.RecoveryRoutes[2].Step = "acceptance" },
-		"unhealthy trigger on a non-evaluator step": func(d *WorkflowDefinition) { d.RecoveryRoutes[0].Step = "refine" },
-		"target is the route step":                  func(d *WorkflowDefinition) { d.RecoveryRoutes[0].Target = d.RecoveryRoutes[0].Step },
+		"complete trigger pairs wrong action":       func(d *WorkflowDefinition) { d.RecoveryRoutes[complete].Action = "request_correction" },
+		"complete trigger off the complete step":    func(d *WorkflowDefinition) { d.RecoveryRoutes[complete].Step = "acceptance" },
+		"unhealthy trigger on a non-evaluator step": func(d *WorkflowDefinition) { d.RecoveryRoutes[0].Step = "design" },
+		"target is the route step":                  func(d *WorkflowDefinition) { d.RecoveryRoutes[evaluator].Target = d.RecoveryRoutes[evaluator].Step },
 		"target is terminal":                        func(d *WorkflowDefinition) { d.RecoveryRoutes[0].Target = "release" },
 		"target is approval-gated":                  func(d *WorkflowDefinition) { d.RecoveryRoutes[0].Target = "planning" },
 		"target not upstream": func(d *WorkflowDefinition) {

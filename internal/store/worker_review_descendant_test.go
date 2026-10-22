@@ -278,13 +278,12 @@ func TestReviewDescendantLaterCorrectiveAnchor(t *testing.T) {
 				return
 			}
 			reviewSubjectAccept(t, j.s, j.workID, "corrective")
-			anchors, err := readReviewDeliveryAnchors(context.Background(), j.s.db, j.workID)
+			state, err := loadWorkflowReviewState(context.Background(), j.s.db, j.workID, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
-			anchor := selectReviewDeliveryAnchor(anchors, workerWorktreeIdentity(j.repo))
-			if anchor == nil || anchor.attemptID != "corrective" {
-				t.Fatalf("accepted anchor = %+v, want corrective", anchor)
+			if state.Candidate == nil || state.Candidate.Commit != c {
+				t.Fatalf("integrated candidate = %+v, want accepted correction %s", state.Candidate, c)
 			}
 			job = reviewSubjectReadyRevision(t, j.fixture)
 			if err := descendantDispatch(t, j, "review", "corrective-review", job, nil); err != nil {

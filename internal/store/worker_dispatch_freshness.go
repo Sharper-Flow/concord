@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -13,10 +11,9 @@ import (
 // Core-owned dispatch subject freshness. The dispatch admission is the only
 // live subject-freshness owner: when the admitted work-context view pins a
 // qualified subject, the claimed worktree's live clean HEAD must equal that
-// subject before any attempt, window, or start exists, and a review-lane
-// dispatch on implementation work must join the latest accepted
-// implementation-lane completion's clean core-observed delivery to the same
-// subject.
+// subject before any attempt, window, or start exists. Review joins that
+// qualified subject to Main's current integrated candidate, including baseline
+// Review before any implementation result exists.
 //
 // No Git subprocess ever runs under a SQL transaction (CD-0195 D2). The
 // authenticated mutation boundary calls PrepareWorkerDispatchFreshness after
@@ -69,8 +66,6 @@ type workerDispatchProof struct {
 	probePath   string
 
 	observation *WorkerObservedDelivery
-	anchor      *reviewDeliveryAnchor
-	ancestry    reviewSubjectAncestry
 	acceptance  bool
 	pinReceipt  *WorktreeVerifyResult
 
@@ -78,11 +73,6 @@ type workerDispatchProof struct {
 	// the SQL-sampled source identities sampled in the same read snapshot,
 	// plus the Git resolution resolved after that snapshot closed.
 	readings []dispatchReadingWitness
-}
-
-type reviewSubjectAncestry struct {
-	strictDescendant bool
-	failure          error
 }
 
 // WorkerDispatchPreparation is the opaque prepared proof the authenticated
@@ -130,7 +120,7 @@ type PrepareWorkerDispatchRequest struct {
 	// WorkerJob is the dispatched job binding the dispatch payload carried,
 	// resolved by the authenticated mutation boundary before preparation.
 	// When it names a capped job, its recorded base_commit anchors the
-	// correction ancestry probe beside the review delivery anchor.
+	// correction's measured delta.
 	WorkerJob *WorkerJobBinding
 	// WorkerAttemptID is the rejected attempt a combined rejection's derived
 	// retry re-dispatches; its authorization's job binding anchors the same
@@ -153,7 +143,6 @@ type workerDispatchSample struct {
 	// readings holds the SQL-sampled source identities of the view's
 	// declared required readings, from the same snapshot.
 	readings   []dispatchReadingWitness
-	anchors    []reviewDeliveryAnchor
 	pinReceipt *WorktreeVerifyResult
 }
 
@@ -229,10 +218,6 @@ func sampleWorkerDispatchState(ctx context.Context, q queryer, request PrepareWo
 	if err != nil {
 		return sample, err
 	}
-	sample.anchors, err = readReviewDeliveryAnchors(ctx, q, workID)
-	if err != nil {
-		return sample, err
-	}
 	return sample, nil
 }
 
@@ -300,7 +285,6 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 		proof.claimPath, proof.claimBranch, proof.claimOpID, proof.projectID, proof.claimState = entry.Path, entry.Branch, entry.ClaimOpID, entry.ProjectID, entry.State
 		proof.probePath = probePath
 	}
-	proof.anchor = selectReviewDeliveryAnchor(sample.anchors, proof.sessionIdentity)
 	if acceptance && sample.pinReceipt != nil && (!claimFound || entry.Path != sample.pinReceipt.Path || entry.ProjectID != sample.pinReceipt.ProjectID) {
 		return nil, newFailure(KindStaleRequiresReview, workerDispatchFreshnessOp, "terminal acceptance cannot establish the current subject's claimed worktree", false, "claim and verify the subject's worktree")
 	}
@@ -334,18 +318,11 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 		// grants no freshness comparison.
 		return &WorkerDispatchPreparation{proof: proof}, nil
 	}
-	anchorCommit := ""
-	if !acceptance && proof.anchor != nil {
-		// A missing historical delivery observation refuses review, not
-		// preparation for an editing/recovery lane.
-		anchorCommit, _ = proof.anchor.cleanCommit()
-	}
-	observation, ancestry, err := observeDispatchSubject(ctx, runner, probePath, anchorCommit)
+	observation, err := observeDispatchSubject(ctx, runner, probePath)
 	if err != nil {
 		return nil, err
 	}
 	proof.observation = observation
-	proof.ancestry = ancestry
 	return &WorkerDispatchPreparation{proof: proof}, nil
 }
 
@@ -379,43 +356,22 @@ func selectDispatchClaimEntry(entries []WorktreeEntry, sessionWorktree string) (
 // observeDispatchSubject runs the read-only Git observation of one claimed
 // worktree under the single fixed probe deadline. A failed command or the
 // deadline produces a typed refusal before any effect.
-func observeDispatchSubject(ctx context.Context, runner GitRunner, path, anchorCommit string) (*WorkerObservedDelivery, reviewSubjectAncestry, error) {
+func observeDispatchSubject(ctx context.Context, runner GitRunner, path string) (*WorkerObservedDelivery, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, workerDispatchObservationDeadline)
 	defer cancel()
 	status, err := runner.Run(probeCtx, path, "status", "--porcelain=v1", "-z", "--untracked-files=all")
 	if err != nil {
-		return nil, reviewSubjectAncestry{}, dispatchSubjectProbeFailure("clean status", probeCtx, err)
+		return nil, dispatchSubjectProbeFailure("clean status", probeCtx, err)
 	}
 	head, err := runner.Run(probeCtx, path, "rev-parse", "--verify", "HEAD^{commit}")
 	if err != nil {
-		return nil, reviewSubjectAncestry{}, dispatchSubjectProbeFailure("HEAD commit", probeCtx, err)
+		return nil, dispatchSubjectProbeFailure("HEAD commit", probeCtx, err)
 	}
 	commit := strings.TrimSpace(string(head))
 	if !worktreeSHAPattern.MatchString(commit) {
-		return nil, reviewSubjectAncestry{}, newFailure(KindGitUnreachable, workerDispatchFreshnessOp, "the claimed worktree's HEAD is not one raw commit OID", true, "retry once the worktree resolves a commit")
+		return nil, newFailure(KindGitUnreachable, workerDispatchFreshnessOp, "the claimed worktree's HEAD is not one raw commit OID", true, "retry once the worktree resolves a commit")
 	}
-	var ancestry reviewSubjectAncestry
-	if len(status) == 0 {
-		ancestry = observeDispatchAncestry(probeCtx, runner, path, "review subject ancestry", anchorCommit, commit)
-	}
-	return &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}, ancestry, nil
-}
-
-// An ancestry outage stays scoped to the admission that needs this proof;
-// review outages do not prevent an editing lane from producing a new delivery.
-func observeDispatchAncestry(ctx context.Context, runner GitRunner, path, what, ancestor, subject string) reviewSubjectAncestry {
-	if ancestor == "" || ancestor == subject {
-		return reviewSubjectAncestry{}
-	}
-	_, err := runner.Run(ctx, path, "--no-replace-objects", "merge-base", "--is-ancestor", ancestor, subject)
-	if err == nil {
-		return reviewSubjectAncestry{strictDescendant: true}
-	}
-	var exit *exec.ExitError
-	if errors.As(err, &exit) && exit.ExitCode() == 1 && ctx.Err() == nil {
-		return reviewSubjectAncestry{}
-	}
-	return reviewSubjectAncestry{failure: dispatchSubjectProbeFailure(what, ctx, err)}
+	return &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}, nil
 }
 
 // dispatchSubjectProbeFailure classifies one probe failure: the fixed
@@ -431,7 +387,7 @@ func dispatchSubjectProbeFailure(what string, probeCtx context.Context, err erro
 // admitWorkerDispatchSubjectFreshness is the transactional half of the one
 // dispatch freshness owner. It revalidates the sealed preparation's sampled
 // identities with SQL only, refuses when the live clean HEAD does not match
-// the admitted subject, and joins the accepted implementation delivery for
+// the admitted subject, and joins the current integrated candidate for
 // a review dispatch. Missing preparation refuses live assembly.
 func admitWorkerDispatchSubjectFreshness(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, definition WorkflowDefinition, lane LaneDefinition, admittedContext *WorkContextView) error {
 	proof := workerDispatchPreparationFrom(ctx)
@@ -578,11 +534,8 @@ func revalidateDispatchProofAtRejectEntry(ctx context.Context, tx *sql.Tx, workI
 	return proof.revalidateDispatchIdentitiesTx(ctx, tx, workID, true)
 }
 
-// workflowDefinitionProducesDelivery reports whether the pinned workflow
-// family produces an implementation-lane delivery a review must have
-// accepted before it reviews: the implementation family and the break-fix
-// family both dispatch the implementation lane, and the review lane is the
-// severity-rated reviewer of exactly that delivery.
+// workflowDefinitionProducesDelivery reports whether a pinned workflow
+// produces code delivery whose progression requires an accepted Review.
 func workflowDefinitionProducesDelivery(definition WorkflowDefinition) bool {
 	return workflowCapabilities(definition).has(WorkflowCapabilityProducesDelivery)
 }

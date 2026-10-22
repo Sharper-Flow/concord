@@ -10,7 +10,8 @@
     "internal/store/workflow_correction.go",
     "internal/store/workflow_admission.go",
     "internal/store/workflow_action_guards.go",
-    "internal/store/workflow_initial_no_ship_review_test.go",
+    "internal/store/workflow_review.go",
+    "internal/store/review_current_state_test.go",
     "internal/store/workflow_accepted_no_ship_recovery_test.go"
   ],
   "home_domain_id": "workflow-engine",

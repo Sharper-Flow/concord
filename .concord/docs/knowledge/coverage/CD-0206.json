@@ -2,39 +2,19 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestOwnerOracleConvergence"
+      "value": "internal/store.TestReviewCurrentDispositionAdmission"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestOwnerOracleRepairFamily"
+      "value": "internal/store.TestReviewCurrentAdmissionNegativeCases"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestInitialNoShipReviewHoldsDeliveryBehindTheObligation"
+      "value": "internal/store.TestReviewCurrentCandidateChangesOnlyOnMainAcceptance"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestInitialNoShipHistoricalDeliveryKeepsTypedCorrection"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestPendingNoShipReviewDoesNotOutliveAFreshSettlingShip"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestRenewedNoShipObligationCarriesItsOwnEvidence"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestInitialSettlingReviewDoesNotOpenHistoricalDeliveryCorrection"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestAcceptedNonReviewReportDoesNotOpenReviewObligation"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestOutOfOrderCompletionRetiresTheReadyReview"
+      "value": "internal/store.TestReviewCurrentFindingRetainsItsObligationBinding"
     }
   ],
   "id": "CD-0206",

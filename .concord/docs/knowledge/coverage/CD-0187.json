@@ -30,10 +30,6 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkflowDefinitionVersionPinsHold"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/store.TestRefineReviewEvidenceDispositionOpensContractCorrection"
     },
     {
@@ -42,7 +38,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestRefineReviewEvidenceAcceptancePreservesVerdictDebt"
+      "value": "internal/store.TestReviewCurrentDispositionAdmission"
     }
   ],
   "id": "CD-0187",

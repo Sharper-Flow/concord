@@ -10,7 +10,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestDispatchWorkerAppearsOnExternalEffectWorkflows"
+      "value": "internal/store.TestCurrentLiveWorkflowsDeclareWorkerDispatch"
     },
     {
       "kind": "go_test",

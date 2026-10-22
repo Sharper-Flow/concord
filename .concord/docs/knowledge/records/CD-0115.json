@@ -7,9 +7,7 @@
   "date": "2026-09-06T00:00:00Z",
   "doc_contract_profile": "legacy",
   "evidence": [
-    "internal/store/workflow_registry.go",
-    "internal/store/workflow_registry_versions.go",
-    "internal/store/workflow_definition_version_pins_test.go"
+    "scripts/check-knowledge-index.py"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0115",

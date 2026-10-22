@@ -6,10 +6,6 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkflowDefinitionVersionPinsHold"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/store.TestWorkflowReadParksDeliveryAtGate"
     },
     {

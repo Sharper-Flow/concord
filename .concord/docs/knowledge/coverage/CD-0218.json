@@ -34,14 +34,6 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestHistoricalJournalFixturesReplayWithOriginalPins"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestWorkflowDefinitionVersionPinsHold"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/store.TestCutoverRefusesNonterminalArchivedPinAtReadiness"
     },
     {

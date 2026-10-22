@@ -2,11 +2,11 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestReleasedDigestsIgnoreRecoveryRouteField"
+      "value": "internal/store.TestLiveHeadsAreTheirCompiledCompositions"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkflowRecoveryRoutesGoldenPerReleasedVersion"
+      "value": "internal/store.TestCurrentReviewRoutesStayInsideExecution"
     },
     {
       "kind": "go_test",

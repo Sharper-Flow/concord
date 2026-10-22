@@ -118,29 +118,40 @@ func TestReviewCurrentPlanRevisionCannotRestoreFirstEntry(t *testing.T) {
 }
 
 func TestReviewCurrentUnstartedAuthorizationPreservesFirstEntry(t *testing.T) {
-	s := openTemp(t)
-	seed := seedDispatchFixture(t, s, "review-confirmed-no-start")
-	const attempt = "attempt:confirmed-no-start"
-	claimed := dispatchSessionWorktree(t, s, seed.workID)
-	if _, err := invokeWorkflowActionForCD0059(t.Context(), t, s, cd781DispatchRequest(t, s, seed.workID, readWorkVersion(t, s, seed.workID), attempt, seed.ownerActor, claimed, "confirmed-no-start")); err != nil {
+	f := seedWorkContextFixture(t, "review-confirmed-no-start")
+	t.Cleanup(func() { _ = f.store.Close() })
+	s := f.store
+	repo, _ := reviewSubjectClaim(t, s, f.workID)
+	var branch string
+	if err := s.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(f.workID)).Scan(&branch); err != nil {
 		t.Fatal(err)
 	}
-	before, err := ReadWorkPin(t.Context(), s, seed.workID)
-	if err != nil || before.Review == nil || before.Review.ExecutionProgressed {
-		t.Fatalf("authorization was counted as an actual start: %+v, %v", before.Review, err)
+	gitRunStore(t, repo, "branch", "-m", branch)
+	j := &candidateJourney{fixture: f, s: s, workID: f.workID, repo: repo}
+	job := reviewSubjectReadyRevision(t, f)
+	const attempt = "attempt:confirmed-no-start"
+	if err := descendantDispatch(t, j, "implement", attempt, job, nil); err != nil {
+		t.Fatal(err)
+	}
+	before, err := ReadWorkPin(t.Context(), s, f.workID)
+	if err != nil || before.Review == nil || before.Review.Candidate != nil || before.Review.Groups[job.JobID].Permission != "first_entry" {
+		t.Fatalf("authorization lost its first-entry assignment or invented a candidate: %+v, %v", before.Review, err)
 	}
 	// The existing host terminal boundary refuses abandonment while a worker
 	// still owns the worktree. This fixture has no worker occupancy or start.
-	event := s2WorkerFailedAttributedEvent(seed.workID, attempt, "confirmed-no-start:abandoned", "", WorkerFailureAbandoned, "The host confirmed the task never started.", time.Now().UTC())
+	event := s2WorkerFailedAttributedEvent(f.workID, attempt, "confirmed-no-start:abandoned", "", WorkerFailureAbandoned, "The host confirmed the task never started.", time.Now().UTC())
 	if err := s2WorkerFailedLive(t, s, event); err != nil {
 		t.Fatal(err)
 	}
-	after, err := ReadWorkPin(t.Context(), s, seed.workID)
-	if err != nil || after.Review == nil || after.Review.ExecutionProgressed {
-		t.Fatalf("confirmed never-started launch consumed first entry: %+v, %v", after.Review, err)
+	after, err := ReadWorkPin(t.Context(), s, f.workID)
+	if err != nil || after.Review == nil || after.Review.Candidate != nil || after.Review.Groups[job.JobID] != before.Review.Groups[job.JobID] {
+		t.Fatalf("confirmed never-started launch changed its initial assignment: %+v, %v", after.Review, err)
 	}
-	if err := workflowAdmitReview(*after.Review, "group:first"); err != nil {
+	if err := workflowAdmitReview(*after.Review, job.JobID); err != nil {
 		t.Fatalf("the unchanged initial assignment now requires a baseline Review: %v", err)
+	}
+	if err := workflowAdmitReview(*after.Review, "group:unrelated"); !hasFailureKind(err, KindMissingEvidence) {
+		t.Fatalf("an unstarted launch reopened first entry for another assignment: %v", err)
 	}
 }
 
@@ -253,7 +264,11 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	baseline.Disposition = "continue"
 	baseline.Dependencies = dependencies
 	baseline.Findings = []WorkerReviewFinding{}
-	appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: "review:baseline", Review: baseline})
+	appendReview := func(attempt string, report *WorkerReviewBlock) {
+		appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: attempt, WorkerCapabilityClass: "review", WorkerSubjectCommit: report.InputCandidate.Commit})
+		appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: attempt, Review: report})
+	}
+	appendReview("review:baseline", baseline)
 	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "review:baseline"})
 	repair := reviewBlockFixture()
 	repair.Dependencies = dependencies
@@ -262,7 +277,7 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	repair.OutputCandidate.Tree = strings.Repeat("d", 40)
 	repair.Findings[0].Status = "closed"
 	repair.Findings[0].ClosureRefs = []string{"worktree_verify:repair"}
-	appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: "review:repair", Review: repair})
+	appendReview("review:repair", repair)
 	state, err := loadWorkflowReviewState(context.Background(), db, "work-history", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -280,7 +295,7 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	}
 	late := reviewBlockFixture()
 	late.Dependencies = dependencies
-	appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: "review:late-baseline", Review: late})
+	appendReview("review:late-baseline", late)
 	state, err = loadWorkflowReviewState(context.Background(), db, "work-history", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -304,10 +319,10 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 
 	open := reviewBlockFixture()
 	open.InputCandidate, open.OutputCandidate, open.Dependencies = repair.OutputCandidate, repair.OutputCandidate, dependencies
-	appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: "review:current-blocker", Review: open})
+	appendReview("review:current-blocker", open)
 	omitted := *open
 	omitted.Findings = []WorkerReviewFinding{}
-	appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: "review:omitted-blocker", Review: &omitted})
+	appendReview("review:omitted-blocker", &omitted)
 	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "review:omitted-blocker"})
 	state, err = loadWorkflowReviewState(context.Background(), db, "work-history", 0)
 	if err != nil {
@@ -315,6 +330,17 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	}
 	if state.blocker() == "" {
 		t.Fatal("omitting a current blocking finding closed it")
+	}
+	before = string(mustJSONValue(state))
+	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: "member:review-claim", WorkerCapabilityClass: "implementation", WorkerSubjectCommit: repair.OutputCandidate.Commit})
+	appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: "member:review-claim", Review: &omitted})
+	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "member:review-claim"})
+	state, err = loadWorkflowReviewState(context.Background(), db, "work-history", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(mustJSONValue(state)) != before {
+		t.Fatal("an accepted non-Review assignment acquired Review authority")
 	}
 }
 
@@ -355,6 +381,7 @@ func TestReviewCurrentFindingRetainsItsObligationBinding(t *testing.T) {
 				OwnerID:        "owner:original", PredicateIDs: []string{"predicate:primary"},
 				ControlIDs: []string{"control:original"},
 			}
+			appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: "review:original", WorkerCapabilityClass: "review", WorkerSubjectCommit: original.InputCandidate.Commit})
 			appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: "review:original", Review: original})
 			var changed WorkerReviewBlock
 			if err := json.Unmarshal(mustJSONValue(original), &changed); err != nil {
@@ -370,6 +397,7 @@ func TestReviewCurrentFindingRetainsItsObligationBinding(t *testing.T) {
 			case "different control":
 				changed.Findings[0].Oracle.ControlIDs = []string{"control:unrelated"}
 			}
+			appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: "review:changed", WorkerCapabilityClass: "review", WorkerSubjectCommit: changed.InputCandidate.Commit})
 			appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: "review:changed", Review: &changed})
 			state, err := loadWorkflowReviewState(context.Background(), db, "work-history", 0)
 			if err != nil {

@@ -159,7 +159,7 @@ func loadWorkflowReviewState(ctx context.Context, q queryer, workID string, befo
 				return state, err
 			}
 			completions[result.AttemptID] = result
-			if result.Review != nil {
+			if result.Review != nil && dispatches[result.AttemptID].WorkerCapabilityClass == "review" {
 				reports[result.AttemptID] = row
 				if state.Candidate != nil && *state.Candidate != result.Review.InputCandidate {
 					continue
@@ -200,7 +200,7 @@ func loadWorkflowReviewState(ctx context.Context, q queryer, workID string, befo
 		if !found {
 			continue
 		}
-		if result.Review != nil {
+		if result.Review != nil && dispatches[result.AttemptID].WorkerCapabilityClass == "review" {
 			reportRow := reports[action.WorkerAttemptID]
 			state.Accepted = &WorkflowAcceptedReview{AttemptID: result.AttemptID, ReportRef: reportRow.ref, ReportDigest: reviewDigest(result.Review), ActorRef: row.actor, Report: *result.Review}
 			candidate := result.Review.OutputCandidate

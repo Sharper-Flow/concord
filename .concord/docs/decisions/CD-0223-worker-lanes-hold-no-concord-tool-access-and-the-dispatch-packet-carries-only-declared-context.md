@@ -71,6 +71,8 @@ gains `registry_path`, the Domain registry's repository path, when the
 contract binds a Domain. A lane reads Domain structure from that file instead
 of a tool call.
 
+Under [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls), read-only Review keeps exact-subject HEAD/tree checks; repairing Review requires clean input B at entry and clean output C at terminal/verification, with diff reads pinned to B.
+
 The packet carries prior work state as typed members, not as a tool read.
 When `inputs.work_context` is present, the lane reads it first. The lane reads
 each declared source through the host's packet-bound pinned

@@ -723,10 +723,11 @@ export async function executeBoundWorkerControl(request: WorkerControlRequest, c
   const result = await runner.run([concordBinaryPath(), "worker-control"], JSON.stringify({ ...request, assertion: signed }), context.abort, { cwd: directory })
   const refusal = `${result.stderr.slice(-MAX_STDERR).trim() || "native control ingress refused"}; reconcile native lease ${leaseID}`
   if (result.exitCode !== 0 && !result.stdout.trim()) throw new Error(refusal)
-  if (Buffer.byteLength(result.stdout) > maxEnvelopeBytes) throw new Error(`native control response exceeded its transport bound; reconcile native lease ${leaseID}`)
-  const response = singleJSON(result.stdout)
+  if (Buffer.byteLength(result.stdout) > maxEnvelopeBytes) throw new Error(`native control response exceeded its transport bound; ${refusal}`)
+  let response: any
+  try { response = singleJSON(result.stdout) } catch (error) { throw new Error(`${String(error)}; ${refusal}`) }
   if (response.work_id !== request.work_id || response.project_id !== request.project_id || response.lease_id !== leaseID || !record(response.oracle) || response.oracle.phase !== "execute" || response.oracle.attempt_id !== request.attempt_id || response.oracle.control_id !== request.control_id || response.oracle.worker_packet_digest !== packetDigest) {
-    throw new Error(`native control response differs from its bound request; reconcile native lease ${leaseID}`)
+    throw new Error(`native control response differs from its bound request; ${refusal}`)
   }
   if (result.exitCode !== 0) {
     const disposition = response.lease_disposition

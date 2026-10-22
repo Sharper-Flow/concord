@@ -284,6 +284,19 @@ test("worker check refuses forged acceptance or disposition on a nonzero native 
   }
 })
 
+test("worker check preserves recovery context for malformed nonzero producer stdout", async () => {
+  for (const stdout of ["{partial", '{"work_id":"foreign"}']) {
+    const f = workerControlTransportFixture()
+    configureHostLease({ reset: true })
+    adapter.configureConcordAdapter({ credentials: { getPrivateKey: async () => new Uint8Array(32).fill(7) }, runner: { run: async (argv) => argv[1] === "project-resolve" ? { exitCode: 0, stdout: JSON.stringify(f.ambient), stderr: "" } : { exitCode: 1, stdout, stderr: "native producer refused" } } })
+    try {
+      const attempt = adapter.executeBoundWorkerControl(f.request, f.context, f.digest, f.context.directory)
+      await expect(attempt).rejects.toThrow("native producer refused")
+      await expect(attempt).rejects.toThrow("reconcile native lease")
+    } finally { adapter.configureConcordAdapter({ reset: true }) }
+  }
+})
+
 test("exports exactly the generated tool names", () => {
   const names = [...source.matchAll(/export const ([A-Za-z_][A-Za-z0-9_]*) = tool\(/g)].map((match) => match[1]).filter((name) => name !== "work_start")
   expect(names).toEqual(["product_view", "work_browse", "work_trace", "knowledge", "work_define", "domain", "work_transition", "work_relate", "work_compact"])

@@ -428,7 +428,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	if !found {
 		return Envelope{}, false, nil
 	}
-	storedDigest, opID, payload, changed, scopeJSON := record.CanonicalDigest, record.OperationID, record.ResultPayload, record.ChangedRefs, record.AuthorizedScopeSnapshot
+	storedDigest, opID, scopeJSON := record.CanonicalDigest, record.OperationID, record.AuthorizedScopeSnapshot
 	if r.Tool == "concord_work_compact" {
 		accepted, err := r.Store.AcceptedInputsDigest(ctx, opID)
 		if err != nil {
@@ -448,8 +448,8 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	}
 	// The replay acknowledges the original authority, not only its observation
 	// count. The operation's declared replay baseline and the persisted
-	// durability binding select FULL; historical conditional records keep
-	// their legacy fallback below.
+	// durability binding select FULL; records without that binding use FULL
+	// conservatively when they could have consumed conditional approval.
 	declaredDurability, durabilityErr := mutationDurabilityFor(op)
 	if durabilityErr != nil {
 		return coreError(base, "invariant_violation", durabilityErr.Error(), "contact_operator", false), true, nil
@@ -462,8 +462,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		}
 		durable = durable || committedDurably
 	} else if op.Approval == ApprovalClass("conditional") {
-		// Legacy records do not retain whether a conditional approval was
-		// consumed. Preserve a possible authority effect with a FULL replay.
+		// A missing durability binding must not downgrade possible authority.
 		durable = true
 	}
 	// Cross-Product authority requires approval even when the operation's
@@ -479,8 +478,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 			}
 		}
 	}
-	// No transaction is open on this replay path; the admission reads the
-	// receipt's events through the store's deferred read snapshot.
+	// Consent admission reads only the committed response snapshot.
 	if refusal, refused, admissionErr := r.replayRoutineClaimAdmission(ctx, nil, base, raw, record); admissionErr != nil {
 		return Envelope{}, false, admissionErr
 	} else if refused {
@@ -493,7 +491,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		}
 		base.Replayed = true
 		base.ResolvedScope = scopeFromMap(authorizedScope)
-		replay, replayErr := r.replayWorkflowAction(ctx, base, step)
+		replay, replayErr := r.replayWorkflowAction(ctx, base, step, record)
 		if replayErr != nil {
 			return Envelope{}, false, replayErr
 		}
@@ -505,27 +503,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	base.Replayed = true
 	base.ResolvedScope = scopeFromMap(authorizedScope)
 	if r.Tool != "concord_work_compact" {
-		var refs []ChangedRef
-		_ = json.Unmarshal([]byte(changed), &refs)
-		var replayedPayload json.RawMessage
-		var intents []NextIntent
-		var pinless []string
-		var enrichErr error
-		if op.ID == "concord_work_transition.worktree_audit_reclaim" {
-			replayedPayload, intents, pinless, enrichErr = r.replayMutationPayload(ctx, json.RawMessage(payload), refs)
-		} else {
-			var eventIDs []string
-			_ = json.Unmarshal([]byte(record.ResultEventIDs), &eventIDs)
-			replayedPayload, intents, pinless, enrichErr = r.enrichMutationPayloadRead(ctx, json.RawMessage(payload), refs, eventIDs...)
-		}
-		if enrichErr != nil {
-			return Envelope{}, false, enrichErr
-		}
-		if evidence, completed := completionEvidenceRefs(raw); completed {
-			base.EvidenceRefs = append([]EvidenceRef{}, evidence...)
-		}
-		base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
-		response := r.mutationResult(base, replayedPayload, refs, intents, pinless...)
+		response := r.recordedMutationResult(base, record)
 		if response.Outcome == OutcomeError {
 			return response, true, nil
 		}
@@ -577,30 +555,10 @@ const (
 	routineCorrectionClaimRefusal = "a routine delivery correction accepts no approval claim"
 )
 
-// routineReplayClaimSurface names one fresh-forbidden routine surface and its
-// one receipt-linked event kind; any other kind carries no approval fact.
-type routineReplayClaimSurface struct {
-	eventKind      string
-	refusalMessage string
-}
-
-// replayRoutineClaimAdmission refuses a cached replay of one of the two
-// routine surfaces when the replay input carries an approval claim the
-// original call did not consume: the canonical digest excludes the approval
-// block, so a same-key replay can add a claim the fresh planner refuses.
-// Gates exit cheap before any history query: another operation, an absent
-// input claim, a destructive kind, and a cross-Product receipt, read from the
-// receipt's persisted authorized snapshot against the selected Product the
-// digest fixed, never the currently derived work membership; an empty
-// selected Product stays non-cross. The receipt's raw stored event is the
-// only historical consent and only at source version 1; missing, unreadable,
-// or corrupt receipt events refuse closed while read errors keep their typed
-// store failure. The transactional branch reads only through the supplied
-// transaction and never calls a pool method inside it; the early branch reads
-// through the store's deferred read snapshot, never a write transaction. The
-// owner writes nothing and touches no receipt before its decision.
+// replayRoutineClaimAdmission checks the original receipt's consumed-approval
+// fact without reading historical events or consuming approval again.
 func (r runtime) replayRoutineClaimAdmission(ctx context.Context, tx *store.Transaction, base Envelope, raw []byte, prior store.MutationIdempotencyRecord) (Envelope, bool, error) {
-	var surface routineReplayClaimSurface
+	var refusalMessage string
 	var resolutionKind string
 	var claimed bool
 	switch {
@@ -609,7 +567,7 @@ func (r runtime) replayRoutineClaimAdmission(ctx context.Context, tx *store.Tran
 		if err := decodeOperationInput(raw, &in); err != nil {
 			return Envelope{}, false, err
 		}
-		surface = routineReplayClaimSurface{eventKind: store.WorkflowOverlapResolved, refusalMessage: routineOverlapClaimRefusal}
+		refusalMessage = routineOverlapClaimRefusal
 		resolutionKind = in.ResolutionKind
 		claimed = in.Approval != nil
 	case r.Tool == "concord_work_transition" && r.Operation == "correct_delivery":
@@ -617,7 +575,7 @@ func (r runtime) replayRoutineClaimAdmission(ctx context.Context, tx *store.Tran
 		if err := decodeOperationInput(raw, &in); err != nil {
 			return Envelope{}, false, err
 		}
-		surface = routineReplayClaimSurface{eventKind: store.WorkflowDeliveryCorrected, refusalMessage: routineCorrectionClaimRefusal}
+		refusalMessage = routineCorrectionClaimRefusal
 		claimed = in.Approval != nil
 	default:
 		return Envelope{}, false, nil
@@ -648,107 +606,25 @@ func (r runtime) replayRoutineClaimAdmission(ctx context.Context, tx *store.Tran
 	if crossProduct {
 		return Envelope{}, false, nil
 	}
-	readEvent := func(eventID string) (store.Event, bool, error) {
-		if tx != nil {
-			return store.EventByIDTx(ctx, tx, eventID)
-		}
-		return store.EventByID(ctx, r.Store, eventID)
+	snapshot, err := retainedMutationResponse(prior.AuthorizedScopeSnapshot)
+	if err != nil {
+		return incompleteMutationResponse(base, err.Error()), true, nil
 	}
-	return replayRoutineClaimHistory(base, prior, surface, resolutionKind, readEvent)
-}
-
-// replayRoutineClaimHistory refuses closed unless the receipt links exactly
-// one event of the surface's kind whose stored payload proves the original
-// call consumed the approval the replayed input claims; readEvent is the
-// caller's raw-event reader.
-func replayRoutineClaimHistory(base Envelope, prior store.MutationIdempotencyRecord, surface routineReplayClaimSurface, resolutionKind string, readEvent func(string) (store.Event, bool, error)) (Envelope, bool, error) {
-	var eventIDs []string
-	if err := json.Unmarshal([]byte(prior.ResultEventIDs), &eventIDs); err != nil {
-		return Envelope{}, false, newRuntimeFailure("invariant_violation", "cached mutation receipt event references are unreadable", "contact_operator", false)
-	}
-	var linked store.Event
-	matched := 0
-	for _, eventID := range eventIDs {
-		event, found, err := readEvent(eventID)
-		if err != nil {
-			return Envelope{}, false, err
-		}
-		if !found {
-			return Envelope{}, false, newRuntimeFailure("invariant_violation", "cached mutation receipt names event "+eventID+" and the event log does not hold it", "contact_operator", false)
-		}
-		if event.Kind != surface.eventKind {
-			continue
-		}
-		matched++
-		linked = event
-	}
-	if matched != 1 {
-		return Envelope{}, false, newRuntimeFailure("invariant_violation", fmt.Sprintf("cached mutation receipt carries %d %s events, want exactly one", matched, surface.eventKind), "contact_operator", false)
-	}
-	consent, consentErr := historicalRoutineClaimConsent(linked, resolutionKind)
-	if consentErr != nil {
-		return Envelope{}, false, consentErr
-	}
-	if consent {
+	if snapshot.ApprovalConsumed {
 		return Envelope{}, false, nil
 	}
-	return coreError(base, "invalid_input", surface.refusalMessage, "reread_entities", false), true, nil
+	return coreError(base, "invalid_input", refusalMessage, "reread_entities", false), true, nil
 }
 
-// historicalRoutineClaimConsent classifies one receipt-linked stored event by
-// the frozen source rules its writer admitted it under: only source version 1
-// carries approval facts — the overlap fold required a plan-layer reference
-// for every kind except depends_on, the delivery-correction fold the complete
-// binding with its recorded operator; current v2 classes carry no binding.
-// PURE CLASSIFICATION over the raw stored bytes: no approval row is read, no
-// live authorization re-runs, and a current cached dispatch is proven by
-// nothing here.
-func historicalRoutineClaimConsent(event store.Event, resolutionKind string) (bool, error) {
-	if event.PayloadVersion != 1 {
-		return false, nil
-	}
-	switch event.Kind {
-	case store.WorkflowOverlapResolved:
-		var payload struct {
-			ResolutionKind string `json:"resolution_kind"`
-			ApprovalRef    string `json:"approval_ref"`
-		}
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			return false, newRuntimeFailure("invariant_violation", "stored overlap resolution event payload is unreadable", "contact_operator", false)
-		}
-		if payload.ResolutionKind != resolutionKind {
-			return false, newRuntimeFailure("invariant_violation", "stored overlap resolution event disagrees with the receipt's resolution kind", "contact_operator", false)
-		}
-		return resolutionKind != store.ResolutionDependsOn && payload.ApprovalRef != "", nil
-	case store.WorkflowDeliveryCorrected:
-		var payload struct {
-			ApprovalRef             string `json:"approval_ref"`
-			ApprovalOperationDigest string `json:"approval_operation_digest"`
-			ApprovalScopeJSON       string `json:"approval_scope_json"`
-			ApprovalVersionsJSON    string `json:"approval_versions_json"`
-			ApprovalConsequence     string `json:"approval_consequence"`
-		}
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			return false, newRuntimeFailure("invariant_violation", "stored delivery correction event payload is unreadable", "contact_operator", false)
-		}
-		return event.Actor != "" && payload.ApprovalRef != "" && payload.ApprovalOperationDigest != "" && payload.ApprovalScopeJSON != "" && payload.ApprovalVersionsJSON != "" && payload.ApprovalConsequence != "", nil
-	default:
-		return false, nil
-	}
-}
-
-func (r runtime) replayWorkflowAction(ctx context.Context, base Envelope, step store.FenceResult) (Envelope, error) {
+func (r runtime) replayWorkflowAction(ctx context.Context, base Envelope, step store.FenceResult, prior store.MutationIdempotencyRecord) (Envelope, error) {
 	response := workflowActionReplayResult(base, step, r.Authority.now())
 	if response.Outcome != OutcomeOK {
+		if response.Outcome == OutcomeError && response.Error != nil {
+			response.Error.EffectState = EffectPossible
+		}
 		return response, nil
 	}
-	changed := *response.ChangedRefs
-	payload, intents, pinless, err := r.enrichMutationPayloadRead(ctx, response.Result, changed)
-	if err != nil {
-		return Envelope{}, err
-	}
-	response.Omissions = append(response.Omissions, mutationPinOmissions(pinless)...)
-	return r.mutationResult(response, payload, changed, intents, pinless...), nil
+	return r.recordedMutationResult(base, prior), nil
 }
 
 // workflowActionReplayResult classifies the retained operation independently
@@ -1080,17 +956,7 @@ func (r runtime) replayWorkflowActionTx(ctx context.Context, tx *store.Transacti
 	}
 	base.Replayed = true
 	base.ResolvedScope = scopeFromMap(scope)
-	response := workflowActionReplayResult(base, step, r.Authority.now())
-	if response.Outcome != OutcomeOK {
-		return response, nil
-	}
-	changed := *response.ChangedRefs
-	payload, intents, pinless, err := r.enrichMutationPayloadTx(ctx, tx, response.Result, changed)
-	if err != nil {
-		return Envelope{}, err
-	}
-	response.Omissions = append(response.Omissions, mutationPinOmissions(pinless)...)
-	return r.mutationResult(response, payload, changed, intents, pinless...), nil
+	return r.replayWorkflowAction(ctx, base, step, prior)
 }
 
 func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelope, digest string, grant Authority, in actionMutationInput, result *Envelope, resultRejected *bool) func(*store.Transaction) (bool, error) {
@@ -1530,7 +1396,9 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			resultRejected = true
 			return errors.New("mutation result rejected")
 		}
-		return store.UpdateMutationEventRefsTx(ctx, tx, store.MutationEventRefsUpdate{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, ResultEventIDs: marshalEventIDs(execution.EventIDs), ObservedAt: r.Authority.now()})
+		changedJSON, _ := json.Marshal(changed)
+		responseScope, _ := json.Marshal(mutationResponseScope(scope, result, pinless, operatorApprovalRef != ""))
+		return store.CompleteMutationResponseTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, CanonicalDigest: digest, OperationID: operationID, ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(responseScope), ResultEventIDs: marshalEventIDs(execution.EventIDs), ObservedAt: r.Authority.now()})
 	})
 	if err != nil {
 		if resultRejected {
@@ -3301,7 +3169,7 @@ func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []
 		return worktreeVerifyPostLeaseFailure(response, changed), nil
 	}
 	changedJSON, _ := json.Marshal(changed)
-	authorizedScope, _ := json.Marshal(boundedApprovalScope(scope))
+	authorizedScope, _ := json.Marshal(mutationResponseScope(scope, response, nil, false))
 	if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{
 			Key:                     key,
@@ -3455,7 +3323,7 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 		return auditReclaimPostCommitFailure(base, changed, response), nil
 	}
 	changedJSON, _ := json.Marshal(changed)
-	authorizedScope, _ := json.Marshal(boundedApprovalScope(scope))
+	authorizedScope, _ := json.Marshal(mutationResponseScope(scope, response, pinless, false))
 	if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{
 			Key:                     store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: in.IdempotencyKey},
@@ -4048,8 +3916,8 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 			return errors.New("mutation result rejected")
 		}
 		changedJSON, _ := json.Marshal(changed)
-		authorizedScope, _ := json.Marshal(challengeScope)
-		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: marshalEventIDs(result.EventIDs), ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()})
+		responseScope, _ := json.Marshal(mutationResponseScope(challengeScope, response, nil, true))
+		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: marshalEventIDs(result.EventIDs), ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(responseScope), ObservedAt: r.Authority.now()})
 	})
 	if err != nil {
 		if resultRejected {
@@ -4248,8 +4116,8 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 			return errors.New("mutation result rejected")
 		}
 		changedJSON, _ := json.Marshal(changed)
-		authorizedScope, _ := json.Marshal(challengeScope)
-		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: "[]", ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()})
+		responseScope, _ := json.Marshal(mutationResponseScope(challengeScope, response, nil, true))
+		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: "[]", ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(responseScope), ObservedAt: r.Authority.now()})
 	})
 	if err != nil {
 		if resultRejected {
@@ -4984,19 +4852,7 @@ func (r runtime) enrichMutationPayloadTx(ctx context.Context, tx *store.Transact
 	return enriched, intents, pinless, err
 }
 
-func (r runtime) enrichMutationPayloadRead(ctx context.Context, payload json.RawMessage, changed []ChangedRef, ownEventIDs ...string) (json.RawMessage, []NextIntent, []string, error) {
-	var enriched json.RawMessage
-	var intents []NextIntent
-	var pinless []string
-	err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
-		var err error
-		enriched, intents, pinless, err = r.enrichMutationPayloadTx(ctx, tx, payload, changed, ownEventIDs...)
-		return err
-	})
-	return enriched, intents, pinless, err
-}
-
-// Compaction and audit replays retain the original transaction's snapshot.
+// Compaction replays retain the original transaction's snapshot.
 func (r runtime) replayMutationPayload(ctx context.Context, payload json.RawMessage, changed []ChangedRef) (json.RawMessage, []NextIntent, []string, error) {
 	var result struct {
 		Pins []store.WorkPin `json:"work_pins"`
@@ -5006,20 +4862,7 @@ func (r runtime) replayMutationPayload(ctx context.Context, payload json.RawMess
 	}
 	pinless := pinlessMutationWorkIDs(changed, result.Pins)
 	if len(pinless) > 0 {
-		if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
-			for _, id := range pinless {
-				_, available, err := store.ReadMutationWorkPinTxForRegistry(ctx, tx, r.Registry, id, nil)
-				if err != nil {
-					return err
-				}
-				if available {
-					return fmt.Errorf("recorded work pin is missing for changed ref %s", id)
-				}
-			}
-			return nil
-		}); err != nil {
-			return nil, nil, nil, err
-		}
+		return nil, nil, nil, &store.Failure{Kind: store.KindOperationConflict, Op: "mutation_response", Detail: "committed response has no retained work pin or omission fact; reconcile the retained operation", RecoveryAction: "reconcile_operation", EffectPossible: true}
 	}
 	var intents []NextIntent
 	if len(result.Pins) > 0 {
@@ -5219,6 +5062,7 @@ func (r runtime) executeAdmittedMutation(ctx *context.Context, durable *bool, mu
 func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, plannedInitialDurability *bool, intents []NextIntent, effect mutationEffect, nativeCleanup func(ctx context.Context, cause error) error, nativeFinalize func(ctx context.Context) error) (Envelope, error) {
 	var response Envelope
 	var resultRejected bool
+	var cachedReplay bool
 	// A native finalize defers the idempotency record until the committed
 	// event's native work completes, so a failed removal never leaves a
 	// cached success for the same key to replay (CD-0195 D2).
@@ -5285,7 +5129,8 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 					return errors.New("mutation result rejected")
 				}
 				var replayErr error
-				response, resultRejected, replayErr = r.replayCachedMutationTx(ctx, tx, base, prior, intents, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
+				response, resultRejected, replayErr = r.replayCachedMutationTx(ctx, tx, base, prior, grant, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
+				cachedReplay = replayErr == nil
 				return replayErr
 			}
 			// session_vacate and project_handoff_consume replay state-driven:
@@ -5369,13 +5214,12 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
 		}
 		changedJSON, _ := json.Marshal(changed)
-		authorizedSnapshot := boundedApprovalScope(scope)
+		authorizedSnapshot := mutationResponseScope(scope, response, pinless, requiresApproval)
 		authorizedSnapshot["durable_commit"] = durable
 		authorizedScope, _ := json.Marshal(authorizedSnapshot)
 		insert := store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: marshalEventIDs(eventIDs), ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()}
 		if nativeFinalize != nil {
-			// The native removal runs after this commit; the record waits
-			// for it so the same request can converge a failed removal.
+			// A cached success cannot precede the native removal it reports.
 			deferredInsert = &insert
 			return nil
 		}
@@ -5386,7 +5230,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 	if durable {
 		transact = r.Store.TransactDurable
 	}
-	if err == nil && nativeFinalize != nil {
+	if err == nil && nativeFinalize != nil && !cachedReplay {
 		if err := nativeFinalize(ctx); err != nil {
 			// The event is committed; the retryable failure names the native
 			// work still owed, and no idempotency record replays over it.
@@ -5494,22 +5338,16 @@ func (r runtime) approvalChallengeEnvelopeTx(ctx context.Context, tx *store.Tran
 // replayCachedMutationTx answers a same-key, same-digest retry from the
 // recorded result without applying the effect again. The bool reports that the
 // replayed result is an error envelope the caller must return as the response.
-func (r runtime) replayCachedMutationTx(ctx context.Context, tx *store.Transaction, base Envelope, prior store.MutationIdempotencyRecord, intents []NextIntent, key store.MutationIdempotencyKey) (Envelope, bool, error) {
-	var changed []ChangedRef
-	_ = json.Unmarshal([]byte(prior.ChangedRefs), &changed)
-	base.Replayed = true
-	base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
-	var eventIDs []string
-	_ = json.Unmarshal([]byte(prior.ResultEventIDs), &eventIDs)
-	replayedPayload, derivedIntents, pinless, err := r.enrichMutationPayloadTx(ctx, tx, json.RawMessage(prior.ResultPayload), changed, eventIDs...)
+func (r runtime) replayCachedMutationTx(ctx context.Context, tx *store.Transaction, base Envelope, prior store.MutationIdempotencyRecord, grant Authority, key store.MutationIdempotencyKey) (Envelope, bool, error) {
+	scope, err := authorizedScopeFromSnapshot(prior.AuthorizedScopeSnapshot)
 	if err != nil {
 		return Envelope{}, false, err
 	}
-	if derivedIntents != nil {
-		intents = derivedIntents
+	if !scopeWithinAuthority(scope, grant) {
+		return Envelope{}, false, newRuntimeFailure("unauthorized", "original mutation scope is no longer authorized by the current grant", "contact_operator", false)
 	}
-	base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
-	response := r.mutationResult(base, replayedPayload, changed, intents, pinless...)
+	base.ResolvedScope = scopeFromMap(scope)
+	response := r.recordedMutationResult(base, prior)
 	if response.Outcome == OutcomeError {
 		return response, true, errors.New("mutation result rejected")
 	}

@@ -14,11 +14,15 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestWorkflowReplayTransactionUsesDurableOwner"
+      "value": "internal/agent.TestWorkflowReplayTransactionUsesCommittedResponse"
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestWorkflowReplayIndexStoresNoResponseCopy"
+      "value": "internal/agent.TestWorkflowReplayStoresCommittedResponse"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestIdempotentResponseKeepsCommittedSubjectWithoutHistory"
     },
     {
       "kind": "go_test",

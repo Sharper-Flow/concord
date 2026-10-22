@@ -63,7 +63,7 @@ func seedHistoricalWorkflowReturnRouteFixture(t *testing.T, workID, definitionRe
 	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, verdictStep, []string{"verification"}, []string{"verification", "review", "artifact"})
 }
 
-func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, registered RegisteredDefinition, verdictStep string, requiredEvidence, boundKinds []string) workflowReturnRouteFixture {
+func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, registered RegisteredDefinition, verdictStep string, requiredEvidence, boundKinds []string, predicates ...map[string]any) workflowReturnRouteFixture {
 	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -123,10 +123,13 @@ func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, r
 		outcomePredicate["outcome_kind"] = "outcome"
 		outcomePredicate["outcome_payload"] = map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}
 	}
+	if len(predicates) == 0 {
+		predicates = []map[string]any{outcomePredicate}
+	}
 	contractPayload := map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check",
-		"outcome_predicates": []map[string]any{outcomePredicate},
+		"outcome_predicates": predicates,
 		"required_evidence":  requiredEvidence, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1, "rigor_class": "prototype_internal",
 		"consequence_class": "internal_sqlite",

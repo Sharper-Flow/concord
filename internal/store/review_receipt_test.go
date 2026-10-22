@@ -1,6 +1,126 @@
 package store
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
+
+func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
+	entry := func(predicate, ref string) map[string]any {
+		return map[string]any{"predicate_id": predicate, "receipt_refs": []string{ref}}
+	}
+	for _, tc := range []struct {
+		name   string
+		fields func(string) map[string]any
+		kind   FailureKind
+		count  int
+	}{
+		{"two criteria", func(ref string) map[string]any {
+			return map[string]any{"verdicts": []any{entry("predicate:first", ref), entry("predicate:second", ref)}}
+		}, "", 2},
+		{"one criterion", func(ref string) map[string]any {
+			return map[string]any{"verdicts": []any{entry("predicate:first", ref)}}
+		}, "", 1},
+		{"unapproved last criterion", func(ref string) map[string]any {
+			return map[string]any{"verdicts": []any{entry("predicate:first", ref), entry("predicate:foreign", ref)}}
+		}, KindInvalidPayload, 0},
+		{"unproved last criterion", func(ref string) map[string]any {
+			return map[string]any{"verdicts": []any{entry("predicate:first", ref), entry("predicate:second", "research:invented")}}
+		}, KindMissingEvidence, 0},
+		{"duplicate criterion", func(ref string) map[string]any {
+			return map[string]any{"verdicts": []any{entry("predicate:first", ref), entry("predicate:first", ref)}}
+		}, KindInvalidPayload, 0},
+		{"missing receipts", func(string) map[string]any {
+			return map[string]any{"verdicts": []any{map[string]any{"predicate_id": "predicate:first"}}}
+		}, KindInvalidPayload, 0},
+		{"empty receipts", func(string) map[string]any {
+			return map[string]any{"verdicts": []any{map[string]any{"predicate_id": "predicate:first", "receipt_refs": []string{}}}}
+		}, KindInvalidPayload, 0},
+		{"empty batch", func(string) map[string]any { return map[string]any{"verdicts": []any{}} }, KindInvalidPayload, 0},
+		{"scalar verdict", func(ref string) map[string]any {
+			return map[string]any{"predicate_id": "predicate:first", "verdict_kind": "ok", "evaluation_evidence": []string{ref}}
+		}, KindInvalidPayload, 0},
+		{"caller verdict", func(ref string) map[string]any {
+			value := entry("predicate:first", ref)
+			value["verdict_kind"] = "ok"
+			return map[string]any{"verdicts": []any{value}}
+		}, KindInvalidPayload, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			definition, err := BuiltinWorkflowDefinitionForRef("workflow.research")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var predicates []map[string]any
+			for ordinal, id := range []string{"predicate:first", "predicate:second"} {
+				predicates = append(predicates, map[string]any{"predicate_id": id, "ordinal": ordinal, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}})
+			}
+			const workID = "research-receipt-batch"
+			route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "conclude", []string{}, []string{}, predicates...)
+			defer route.store.Close()
+			f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
+			pack := seedResearchContextPack(t, f, "receipt-batch-pack")
+			bindResearchPack(t, f, pack.PackID, 1, true)
+			selection := researchSelectionEntry(pack.PackID, 1, "f2", "root")
+			selection["product_wide_rationale"] = "The selected finding supports the Product-wide research criteria."
+			if err := f.recordWorkContext(t, map[string]any{"research_finding_refs": []map[string]any{selection}}); err != nil {
+				t.Fatal(err)
+			}
+			view, err := readWorkContextView(t.Context(), f.store.db, workID)
+			if err != nil || view == nil || len(view.ResearchFindings) != 1 {
+				t.Fatalf("missing selected research proof: %+v err=%v", view, err)
+			}
+			ref := view.ResearchFindings[0].ViewID
+			payload := mustJSONValue(tc.fields(ref))
+			var evidenceBefore int
+			if err := f.store.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowEvidenceBound).Scan(&evidenceBefore); err != nil {
+				t.Fatal(err)
+			}
+			before := contractCorrectionEffectSnapshot(t, f.store, workID)
+			preflight := WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
+				WorkID: workID, ExpectedVersion: readWorkVersion(t, f.store, workID), ActionID: "record_verdict", Payload: payload, Actor: f.owner,
+			})
+			if after := contractCorrectionEffectSnapshot(t, f.store, workID); after != before {
+				t.Fatal("criterion preflight changed durable state")
+			}
+			err = runVerdictActionAs(t, f.store, workID, "record_verdict", payload, 0, f.owner)
+			if tc.kind != "" {
+				if !hasFailureKind(preflight, tc.kind) || !hasFailureKind(err, tc.kind) {
+					t.Fatalf("preflight=%v mutation=%v, want %s", preflight, err, tc.kind)
+				}
+				if after := contractCorrectionEffectSnapshot(t, f.store, workID); after != before {
+					t.Fatal("refused criterion batch changed durable state")
+				}
+			} else if preflight != nil || err != nil {
+				t.Fatalf("current criterion proof refused: preflight=%v mutation=%v", preflight, err)
+			}
+			var count int
+			if err := f.store.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&count); err != nil || count != tc.count {
+				t.Fatalf("recorded %d criterion associations, want %d: %v", count, tc.count, err)
+			}
+			var evidenceAfter int
+			if err := f.store.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowEvidenceBound).Scan(&evidenceAfter); err != nil || evidenceAfter != evidenceBefore {
+				t.Fatalf("criterion association minted or rebound evidence: before=%d after=%d err=%v", evidenceBefore, evidenceAfter, err)
+			}
+			for index := 0; index < tc.count; index++ {
+				var raw []byte
+				if err := f.store.db.QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq LIMIT 1 OFFSET ?`, workID, WorkflowVerdictRecorded, index).Scan(&raw); err != nil {
+					t.Fatal(err)
+				}
+				var association workflowVerdictRecordedPayload
+				if err := json.Unmarshal(raw, &association); err != nil {
+					t.Fatal(err)
+				}
+				if association.Candidate != nil || association.CriterionDigest == "" || len(association.EvaluationEvidence) != 1 || association.EvaluationEvidence[0] != ref {
+					t.Fatalf("association did not retain exact research proof and current criterion content: %+v", association)
+				}
+				if err := verifyWorkflowCriterionAssociation(t.Context(), f.store.db, workID, association); err != nil {
+					t.Fatalf("recorded criterion association cannot substantiate acceptance: %v", err)
+				}
+			}
+		})
+	}
+}
 
 func TestCriterionReceiptResearchRequiresSelectedSourcedFindingWithoutGit(t *testing.T) {
 	for _, tc := range []struct {

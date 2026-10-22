@@ -516,11 +516,32 @@ func normalizeWorkflowVerdictEntries(fields map[string]json.RawMessage) ([]workf
 }
 
 func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	verdictActor := actor
 	if request.OperatorActor != nil {
 		return nil, reviewFailure(KindUnauthorized, "record_verdict accepts no operator-signing substitute for producer proof", "have Main associate the captured producer receipt under its authenticated identity")
 	}
-	if err := workflowRequireMain(ctx, tx, request.WorkID, verdictActor); err != nil {
+	associations, err := workflowVerdictReceiptAssociations(ctx, tx, request.WorkID, actor, fields)
+	if err != nil {
+		return nil, err
+	}
+	events := make([]Event, 0, len(associations))
+	for index, association := range associations {
+		entryEventID := eventID
+		if len(associations) != 1 {
+			entryEventID = fmt.Sprintf("%s:verdict:%d", eventID, index)
+		}
+		events = append(events, workflowTypedEvent(entryEventID, WorkflowVerdictRecorded, request.WorkID, actor, request.Now, expected+int64(index), map[string]any{
+			"contract_version": association.ContractVersion, "predicate_id": association.PredicateID, "verdict_kind": association.VerdictKind,
+			"verdict_actor_ref": association.VerdictActorRef, "evaluation_evidence": association.EvaluationEvidence,
+			"criterion_digest": association.CriterionDigest, "candidate": association.Candidate,
+		}))
+	}
+	return events, nil
+}
+
+// workflowVerdictReceiptAssociations validates a whole batch against one read
+// snapshot before either preflight admits it or event construction records it.
+func workflowVerdictReceiptAssociations(ctx context.Context, tx queryer, workID, verdictActor string, fields map[string]json.RawMessage) ([]workflowVerdictRecordedPayload, error) {
+	if err := workflowRequireMain(ctx, tx, workID, verdictActor); err != nil {
 		return nil, err
 	}
 	entries, entriesErr := normalizeWorkflowVerdictEntries(fields)
@@ -547,7 +568,7 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, request Workfl
 	// between versions.
 	contractVersion := workflowFieldInt(fields, "contract_version", 0)
 	if contractVersion == 0 {
-		activeVersion, activeErr := activeWorkflowContractVersion(ctx, tx, request.WorkID, "workflow_action")
+		activeVersion, activeErr := activeWorkflowContractVersion(ctx, tx, workID, "workflow_action")
 		if activeErr != nil {
 			if activeErr == sql.ErrNoRows {
 				return nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
@@ -561,13 +582,13 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, request Workfl
 	// The membership rule mirrors the fold's own, including its shape for a
 	// work with no contract rows at all.
 	var contractCount int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=?`, request.WorkID).Scan(&contractCount); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contractCount); err != nil {
 		return nil, workflowProjectionError(err, "cannot inspect workflow contract")
 	}
 	if contractCount != 0 {
 		for _, entry := range entries {
 			var approved int
-			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contract_predicates WHERE work_id=? AND contract_version=? AND predicate_id=?`, request.WorkID, contractVersion, entry.PredicateID).Scan(&approved); err != nil {
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contract_predicates WHERE work_id=? AND contract_version=? AND predicate_id=?`, workID, contractVersion, entry.PredicateID).Scan(&approved); err != nil {
 				return nil, workflowProjectionError(err, "cannot inspect approved workflow predicate")
 			}
 			if approved != 1 {
@@ -575,23 +596,23 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, request Workfl
 			}
 		}
 	}
-	var events []Event
-	state, stateErr := loadWorkflowReviewState(ctx, tx, request.WorkID, 0)
+	var associations []workflowVerdictRecordedPayload
+	state, stateErr := loadWorkflowReviewState(ctx, tx, workID, 0)
 	if stateErr != nil {
 		return nil, stateErr
 	}
-	research, err := workflowResearchCriterionFamily(ctx, tx, request.WorkID)
+	research, err := workflowResearchCriterionFamily(ctx, tx, workID)
 	if err != nil {
 		return nil, err
 	}
 	if state.Candidate == nil && !research {
 		return nil, reviewFailure(KindMissingEvidence, "criterion association requires a current integrated candidate", "accept the observed candidate before associating its proof")
 	}
-	dependencies, err := workflowReviewDependencies(ctx, tx, request.WorkID)
+	dependencies, err := workflowReviewDependencies(ctx, tx, workID)
 	if err != nil {
 		return nil, err
 	}
-	for index, entry := range entries {
+	for _, entry := range entries {
 		evidence := entry.EvaluationEvidence
 		if len(evidence) == 0 {
 			return nil, newFailure(KindMissingEvidence, "workflow_action", "record_verdict requires durably bound evaluation evidence", false, "provide_evidence")
@@ -606,7 +627,7 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, request Workfl
 			if state.Candidate != nil {
 				subject = state.Candidate.Commit
 			}
-			if err := workflowCriterionReceipt(ctx, tx, request.WorkID, entry.PredicateID, ref, subject); err != nil {
+			if err := workflowCriterionReceipt(ctx, tx, workID, entry.PredicateID, ref, subject); err != nil {
 				return nil, err
 			}
 		}
@@ -619,15 +640,9 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, request Workfl
 		if criterionDigest == "" {
 			return nil, reviewFailure(KindMissingEvidence, "criterion is not an accepted current criterion", "associate proof only with a criterion of the current approved contract")
 		}
-		// The single form keeps its current event id so idempotent replays of
-		// prior calls match; batch entries take eventID-derived per-entry ids.
-		entryEventID := eventID
-		if len(entries) != 1 {
-			entryEventID = fmt.Sprintf("%s:verdict:%d", eventID, index)
-		}
-		events = append(events, workflowTypedEvent(entryEventID, WorkflowVerdictRecorded, request.WorkID, actor, request.Now, expected+int64(len(events)), map[string]any{"contract_version": contractVersion, "predicate_id": entry.PredicateID, "verdict_kind": "ok", "verdict_actor_ref": verdictActor, "evaluation_evidence": evidence, "criterion_digest": criterionDigest, "candidate": state.Candidate}))
+		associations = append(associations, workflowVerdictRecordedPayload{ContractVersion: contractVersion, PredicateID: entry.PredicateID, VerdictKind: "ok", VerdictActorRef: verdictActor, EvaluationEvidence: evidence, CriterionDigest: criterionDigest, Candidate: state.Candidate})
 	}
-	return events, nil
+	return associations, nil
 }
 
 // workflowConfirmPremiseEvents consumes the dispatch's verified entry: the

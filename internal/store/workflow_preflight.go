@@ -333,6 +333,19 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 			return RegisteredDefinition{}, err
 		}
 	}
+	if request.ActionID == "record_verdict" {
+		fields, err := workflowActionObject(request.Payload)
+		if err != nil {
+			return RegisteredDefinition{}, err
+		}
+		actor, err := WorkflowActorRef(request.Actor)
+		if err != nil {
+			return RegisteredDefinition{}, err
+		}
+		if _, err := workflowVerdictReceiptAssociations(ctx, tx, request.WorkID, actor, fields); err != nil {
+			return RegisteredDefinition{}, err
+		}
+	}
 	if request.ActionID == "request_correction" {
 		// The payload check binds against the folded state's one correction
 		// request derivation; it never re-enters the loader.

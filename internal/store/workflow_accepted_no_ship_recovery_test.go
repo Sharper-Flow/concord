@@ -212,18 +212,6 @@ func TestAcceptedNoShipReviewCorrectionCounting(t *testing.T) {
 			t.Fatalf("correction %d count/escalation = %#v, error %v", cycle, correction, err)
 		}
 	}
-	// An accepted no_ship review never resets the counting window, so the
-	// fourth correction arms the wall: no retry approval binding exists
-	// there, because only a store-derived convergence basis admits a
-	// dispatch and an operator approval has no effect (CON-885).
-	var binding *WorkflowRetryApprovalBinding
-	if err := s.Transact(ctx, func(tx *Transaction) error {
-		var txErr error
-		binding, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
-		return txErr
-	}); err != nil || binding != nil {
-		t.Fatalf("escalated retry binding = %#v, error %v, want none behind the convergence wall", binding, err)
-	}
 	registered, _ := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 19)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -235,7 +223,7 @@ func TestAcceptedNoShipReviewCorrectionCounting(t *testing.T) {
 		t.Fatal(loadErr)
 	}
 	decision := workflowAdmit(registered.Definition, state, "dispatch_worker")
-	if decision.Admitted || decision.ApprovalRequired || !decision.ConvergenceRequired || decision.Failure == nil || decision.Failure.Kind != KindMissingEvidence {
+	if decision.Admitted || !decision.ConvergenceRequired || decision.Failure == nil || decision.Failure.Kind != KindMissingEvidence {
 		t.Fatalf("escalated dispatch admission = %#v, want the missing-basis convergence refusal", decision)
 	}
 }

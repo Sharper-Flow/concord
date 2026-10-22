@@ -398,9 +398,6 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 			folded.RetryConvergence = WorkflowRetryConvergence{Basis: "findings_shrinking", PreviousRecordSeq: 1, LatestRecordSeq: 2}
 		}
 	}
-	if (state.attempt == "failed" || state.attempt == "failure_recorded") && stepDeclaresAction(definition, state.step, "dispatch_worker") {
-		folded.FailedWorkerRetry = &WorkflowRetryApprovalBinding{FailedAttemptID: "attempt:model", FailedAttemptEpoch: 1}
-	}
 	if folded.Delivery.ProofRequired {
 		folded.Delivery.ProofReady = state.proof
 		if state.started && !state.proof {
@@ -520,7 +517,7 @@ func admissionModelMoves(definition WorkflowDefinition, state admissionModelStat
 			continue
 		}
 		decision := workflowAdmit(definition, folded, actionID)
-		if decision.Admitted || decision.ApprovalRequired || (workflowAdmissionDefersToReviewGate(decision, actionID) && folded.ReadyReviewAttemptID != "") {
+		if decision.Admitted || (workflowAdmissionDefersToReviewGate(decision, actionID) && folded.ReadyReviewAttemptID != "") {
 			moves = append(moves, actionID)
 		}
 	}
@@ -1460,7 +1457,7 @@ func wellFormedAdmissionExitWitnesses(definition WorkflowDefinition) []string {
 func archivedFamilyRefusalHolds(definition WorkflowDefinition, folded WorkflowAdmissionState, actionID string) bool {
 	decision := workflowAdmit(definition, folded, actionID)
 	var failure *Failure
-	return !decision.Admitted && !decision.ApprovalRequired && failureAs(decision.Failure, &failure) &&
+	return !decision.Admitted && failureAs(decision.Failure, &failure) &&
 		failure.Kind == KindInvalidOperation &&
 		strings.Contains(failure.Detail, definition.Ref) && strings.Contains(failure.Detail, "archived")
 }

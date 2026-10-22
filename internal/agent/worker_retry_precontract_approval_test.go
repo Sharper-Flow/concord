@@ -10,14 +10,9 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// A work item with no pinned contract still has to be able to retry a failed
-// lane attempt: the approval challenge binds the failed attempt identity, the
-// attempt epoch, and the work version, and carries no contract key. The
-// contract version zero in the binding is the absence of a contract, not a
-// version, so it never enters the challenge versions.
-func TestPreContractWorkerRetryMintsChallengeAndOpensFreshAttempt(t *testing.T) {
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	version, attemptID, worktree := seedFailedPreContractResearchRetry(t, s, service, grant)
+func TestPreContractWorkerRetryOpensFreshAttemptWithoutConsent(t *testing.T) {
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	version, _, worktree := seedFailedPreContractResearchRetry(t, s, service, grant)
 	grant.Worktree = worktree
 	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
 	if err != nil || pin.Correction == nil {
@@ -38,26 +33,13 @@ func TestPreContractWorkerRetryMintsChallengeAndOpensFreshAttempt(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("pre-contract retry without approval = %+v, want approval_required", challenge.Error)
+	before := verifyWallChallenges(t, s)
+	result := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	if result.Outcome != OutcomeOK {
+		t.Fatalf("pre-contract retry without consent = %+v, want ok", result.Error)
 	}
-	challengeRef, ok := challenge.Error.Details["approval_ref"].(string)
-	if !ok || challengeRef == "" {
-		t.Fatalf("pre-contract retry challenge has no approval reference: %+v", challenge.Error.Details)
-	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 1 {
-		t.Fatalf("challenge created %d worker attempts, want 1", got)
-	}
-
-	approvedInput := cloneWithApproval(t, input, challengeRef)
-	approvedRaw, _ := json.Marshal(approvedInput)
-	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": attemptID, "scope_version": scopeVersion}
-	versions := map[string]any{"work": version, "failed_attempt_epoch": 1}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
-	if approved.Outcome != OutcomeOK {
-		t.Fatalf("approved pre-contract retry = %+v, want ok", approved.Error)
+	if got := verifyWallChallenges(t, s); got != before {
+		t.Fatalf("retry minted a consent challenge: %d -> %d", before, got)
 	}
 	var retryEpoch int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE kind=? AND subject_id='work-1' AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&retryEpoch); err != nil {
@@ -65,6 +47,25 @@ func TestPreContractWorkerRetryMintsChallengeAndOpensFreshAttempt(t *testing.T) 
 	}
 	if retryEpoch != 2 {
 		t.Fatalf("approved pre-contract retry epoch=%d, want 2", retryEpoch)
+	}
+	launches := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`)
+	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	if replay.Outcome != OutcomeOK || !replay.Replayed {
+		t.Fatalf("retry replay did not return its original response: %+v", replay)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != launches {
+		t.Fatalf("replay created another authorization: %d -> %d", launches, got)
+	}
+	input["expected_version"] = workVersion(t, s, "work-1")
+	input["idempotency_key"] = "precontract-unresolved-next"
+	input["fields"] = map[string]any{"attempt_id": "attempt:work-1:unknown-next", "worker_packet": preContractRetryPacket(t, s, "work-1", "investigate", "attempt:work-1:unknown-next", pin.Correction)}
+	pendingRaw, _ := json.Marshal(input)
+	pending := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: pendingRaw}, env)
+	if pending.Error == nil || pending.Error.Kind != "operation_conflict" || !strings.Contains(pending.Error.Message, "unresolved launch outcome") {
+		t.Fatalf("unknown launch effect did not require reconciliation: %+v", pending)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != launches {
+		t.Fatalf("unresolved launch refusal created an authorization: %d -> %d", launches, got)
 	}
 }
 
@@ -104,9 +105,10 @@ func TestApprovalChallengeVersionValidityRefusalNamesVersions(t *testing.T) {
 func seedFailedPreContractResearchRetry(t *testing.T, s *store.Store, service *Service, grant Authority) (int64, string, string) {
 	t.Helper()
 	seedCurrentWorkflowDomainFixture(t, s)
-	// A failed retry asks for the operator's approval only under the legacy
-	// approval policy; consequence_v1 revalidates the binding instead.
-	registered := legacyApprovalPolicyDefinitionForRef(t, "workflow.research")
+	registered, lookupErr := store.BuiltinWorkflowDefinitionForRef("workflow.research")
+	if lookupErr != nil {
+		t.Fatal(lookupErr)
+	}
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: owner, Now: fixedTime()})
@@ -160,17 +162,6 @@ func seedFailedPreContractResearchRetry(t *testing.T, s *store.Store, service *S
 		return err
 	}); err != nil {
 		t.Fatalf("seed pre-contract failure: %v", err)
-	}
-	var binding *store.WorkflowRetryApprovalBinding
-	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		var txErr error
-		binding, txErr = store.WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, "work-1")
-		return txErr
-	}); err != nil || binding == nil {
-		t.Fatalf("pre-contract retry binding=%+v err=%v", binding, err)
-	}
-	if binding.ContractVersion != 0 {
-		t.Fatalf("pre-contract retry binding contract version=%d, want 0", binding.ContractVersion)
 	}
 	var version int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {

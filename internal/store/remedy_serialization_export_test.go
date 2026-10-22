@@ -24,7 +24,7 @@ func RetryWallRefusalFixture(t *testing.T) *Failure {
 		SessionWorktree: dispatchSessionWorktree(t, s, workID), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: workID, OperationID: workID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: workID,
-		RequestID: "request:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(50, 0).UTC(), FailedRetryApproved: true,
+		RequestID: "request:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(50, 0).UTC(),
 	})
 	var failure *Failure
 	if !errors.As(err, &failure) {

@@ -172,8 +172,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 			t.Fatalf("legacy operator-required %s consent = %q, want the executor override to required", controlID, override.Consent)
 		}
 
-		// The v2 pin declares record_worker_failure and dispatch_worker, so
-		// legacy parity and the failed-retry upgrade extend there.
+		// The v2 pin declares record_worker_failure.
 		legacyWorker := workflowFixtureDefinition(t, 2).Definition
 		workerOwner, ok := workflowRecoveryActionDefinition("record_worker_failure")
 		if !ok {
@@ -186,13 +185,6 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		declaredWorker, _ := declared(legacyWorker, "record_worker_failure")
 		if workerResult.Consent != WorkflowApprovalConsent(declaredWorker.Approval) || workerResult.Consent != WorkflowApprovalConsent(workerOwner.Approval) {
 			t.Fatalf("legacy record_worker_failure consent = %q, want the declared %q the engine owner pins as %q", workerResult.Consent, declaredWorker.Approval, workerOwner.Approval)
-		}
-		retry, err := ClassifyWorkflowApproval(legacyWorker, "dispatch_worker", WorkflowApprovalFacts{FailedRetryBelowWall: true})
-		if err != nil {
-			t.Fatalf("legacy failed-retry classification of dispatch_worker refused: %v", err)
-		}
-		if retry.Consent != WorkflowConsentRequired {
-			t.Fatalf("legacy failed-retry dispatch_worker consent = %q, want required", retry.Consent)
 		}
 
 		// An action neither the pin declares nor the engine owns keeps the
@@ -352,15 +344,14 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 			t.Fatalf("absent-fact confirmation = %v, want the typed absence refusal", err)
 		}
 
-		// A genuine failed retry below the wall binds its exact identity, and
-		// the legacy pin upgrades the dispatch consent from it.
+		// A terminal failure does not add an approval requirement.
 		const retryID = "approval-boundary-retry"
 		retryStore, _, _, _ := seedOldDefinitionWorker(t, retryID)
 		defer retryStore.Close()
 		claimRetryWorktree(t, retryStore, retryID)
 		worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + retryID, ActorClass: ActorAgent}
 		attempt := "attempt:" + retryID + ":same:1"
-		if err := dispatchSameStepAttempt(t, retryStore, retryID, "repair", attempt, worker, false, nil); err != nil {
+		if err := dispatchSameStepAttempt(t, retryStore, retryID, "repair", attempt, worker, nil); err != nil {
 			t.Fatalf("failed-retry dispatch: %v", err)
 		}
 		failWorkerAttemptWithKind(t, retryStore, retryID, attempt, "the lane failed before a judgeable result existed")
@@ -368,22 +359,11 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed-retry boundary read refused: %v", err)
 		}
-		var expected *WorkflowRetryApprovalBinding
-		if err := retryStore.Transact(ctx, func(tx *Transaction) error {
-			var txErr error
-			expected, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, retryID)
-			return txErr
-		}); err != nil || expected == nil {
-			t.Fatalf("the exact binding reader returned %+v, %v, want a binding", expected, err)
-		}
-		if retry.RetryBinding == nil || *retry.RetryBinding != *expected || retry.RetryBinding.FailedAttemptID != attempt {
-			t.Fatalf("boundary retry binding = %+v, want the exact reader's %+v for %s", retry.RetryBinding, *expected, attempt)
-		}
 		if retry.EvaluatorAuthority != WorkflowOperatorRequired {
 			t.Fatalf("dispatching worker authority = %q, want operator_required", retry.EvaluatorAuthority)
 		}
-		if retry.Policy.Consent != WorkflowConsentRequired {
-			t.Fatalf("legacy failed-retry consent = %q, want required", retry.Policy.Consent)
+		if retry.Policy.Consent != WorkflowConsentNone {
+			t.Fatalf("failed retry added consent = %q, want none", retry.Policy.Consent)
 		}
 
 		if approvalEventCount(t, s, workID) != eventsBefore || readWorkVersion(t, s, workID) != workVersion {

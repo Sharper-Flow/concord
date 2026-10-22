@@ -235,13 +235,13 @@ func workflowWorkerFailureRecovery(ctx context.Context, q queryer, workID string
 	if step := workflowStep(definition, currentStep); step == nil || step.Kind != WorkflowStepHumanCheckpoint {
 		return false, nil
 	}
-	failedBinding, bindingErr := workflowCurrentFailedWorkerRetryBinding(ctx, q, workID, currentStep)
+	failedAttemptID, bindingErr := workflowLatestFailedWorkerAuthorization(ctx, q, workID, currentStep)
 	if bindingErr != nil {
 		return false, bindingErr
 	}
 	attemptID, lifecycle, found, err := latestDispatchedAttemptAtStep(ctx, q, workID, currentStep, 0)
-	if failedBinding != nil {
-		attemptID, lifecycle, found = failedBinding.FailedAttemptID, "failed", true
+	if failedAttemptID != "" {
+		attemptID, lifecycle, found = failedAttemptID, "failed", true
 	}
 	if err != nil || !found {
 		return false, err
@@ -257,6 +257,24 @@ func workflowWorkerFailureRecovery(ctx context.Context, q queryer, workID string
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect recorded worker failures", true, "retry once the workflow event log is readable", err)
 	}
 	return recorded == 0, nil
+}
+
+// workflowLatestFailedWorkerAuthorization also finds terminal launches without
+// worker dispatch evidence. Only the latest authorization at this step may
+// supply recovery identity; an older failure cannot replace a newer launch.
+func workflowLatestFailedWorkerAuthorization(ctx context.Context, q queryer, workID, stepID string) (string, error) {
+	var attemptID, lifecycle string
+	err := q.QueryRowContext(ctx, `SELECT a.attempt_id,a.lifecycle_state FROM domain_events c JOIN worker_attempts a ON a.work_id=c.subject_id AND a.attempt_id=json_extract(c.payload,'$.worker_attempt_id') WHERE c.subject_type=? AND c.subject_id=? AND c.kind=? AND json_extract(c.payload,'$.action_id')='dispatch_worker' AND json_extract(c.payload,'$.step_id')=? ORDER BY c.seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, stepID).Scan(&attemptID, &lifecycle)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "workflow_failure_recovery", "cannot inspect the latest authorized worker attempt", true, "retry once the worker authorization is readable", err)
+	}
+	if lifecycle != "failed" {
+		return "", nil
+	}
+	return attemptID, nil
 }
 
 // workflowFailedWorkerAttempt reports a failed worker attempt opened after

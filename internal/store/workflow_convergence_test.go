@@ -20,21 +20,13 @@ func TestConvergenceBareApprovalCannotAdmitEscalatedRetry(t *testing.T) {
 		SessionWorktree: dispatchSessionWorktree(t, s, workID), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: workID, OperationID: workID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: workID,
-		RequestID: "request:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(50, 0).UTC(), FailedRetryApproved: true,
+		RequestID: "request:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(50, 0).UTC(),
 	})
 	if !hasFailureKind(err, KindMissingEvidence) {
 		t.Fatalf("bare approval dispatch = %v, want missing_evidence", err)
 	}
 	if after := readWorkVersion(t, s, workID); after != before {
 		t.Fatalf("refused dispatch changed work version: %d -> %d", before, after)
-	}
-	var binding *WorkflowRetryApprovalBinding
-	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		var txErr error
-		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
-		return txErr
-	}); err != nil || binding != nil {
-		t.Fatalf("retry approval binding = %+v, %v, want nil", binding, err)
 	}
 	for _, intent := range issue1013Pin(t, s, workID).NextValidIntents {
 		if intent.ActionID == "dispatch_worker" {
@@ -74,7 +66,7 @@ func TestConvergenceRejectionFindingSets(t *testing.T) {
 				attemptID := first
 				if n > 0 {
 					attemptID = fmt.Sprintf("attempt:%s:%d", workID, n+1)
-					if err := dispatchSameStepAttempt(t, s, workID, "repair", attemptID, worker, false, issue1013Pin(t, s, workID).Correction); err != nil {
+					if err := dispatchSameStepAttempt(t, s, workID, "repair", attemptID, worker, issue1013Pin(t, s, workID).Correction); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -92,7 +84,7 @@ func TestConvergenceRejectionFindingSets(t *testing.T) {
 			}
 			pin := issue1013Pin(t, s, workID)
 			before := pin.Version
-			err := dispatchSameStepAttempt(t, s, workID, "repair", "attempt:"+workID+":4", worker, false, pin.Correction)
+			err := dispatchSameStepAttempt(t, s, workID, "repair", "attempt:"+workID+":4", worker, pin.Correction)
 			if !tc.admit {
 				if !hasFailureKind(err, KindMissingEvidence) {
 					t.Fatalf("dispatch=%v, want missing_evidence", err)
@@ -114,7 +106,7 @@ func TestConvergenceRejectionFindingSets(t *testing.T) {
 				t.Fatalf("recorded basis=%s", raw)
 			}
 			failWorkerAttempt(t, s, workID, "attempt:"+workID+":4")
-			err = dispatchSameStepAttempt(t, s, workID, "repair", "attempt:"+workID+":5", worker, false, nil)
+			err = dispatchSameStepAttempt(t, s, workID, "repair", "attempt:"+workID+":5", worker, nil)
 			if !hasFailureKind(err, KindMissingEvidence) {
 				t.Fatalf("reused findings basis=%v", err)
 			}
@@ -149,7 +141,7 @@ func TestConvergenceWallWithoutBasisResolvesThroughOperatorStop(t *testing.T) {
 	const workID = "convergence-operator-stop"
 	s, owner, pin := seedIssue1013EscalatedCorrection(t, workID)
 	defer s.Close()
-	if err := dispatchSameStepAttempt(t, s, workID, "repair", "attempt:"+workID+":4", owner, true, pin.Correction); !hasFailureKind(err, KindMissingEvidence) {
+	if err := dispatchSameStepAttempt(t, s, workID, "repair", "attempt:"+workID+":4", owner, pin.Correction); !hasFailureKind(err, KindMissingEvidence) {
 		t.Fatalf("wall behind an approval: %v", err)
 	}
 	var lifecycle string

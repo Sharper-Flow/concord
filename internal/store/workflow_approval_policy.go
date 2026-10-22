@@ -61,11 +61,6 @@ type WorkflowApprovalFacts struct {
 	// evaluation. Legacy consent honors it for the operator verdict actions;
 	// consequence_v1 never substitutes an operator for classification.
 	OperatorRequired bool
-	// FailedRetryBelowWall records that this dispatch_worker instance is a
-	// failed retry below the convergence wall. Legacy consent requires an
-	// approval for it; consequence_v1 replaces the approval bit with the
-	// revalidated retry binding, and the wall stays evidence-gated.
-	FailedRetryBelowWall bool
 	// Destructive names a typed irreversible effect. Legacy policy knows no
 	// such fact and refuses one; consequence_v1 gives it precedence.
 	Destructive WorkflowDestructiveConsequence
@@ -137,9 +132,8 @@ func ClassifyWorkflowApproval(definition WorkflowDefinition, actionID string, fa
 }
 
 // classifyLegacyWorkflowApproval answers from the definition's released
-// metadata, byte-faithful to today's behavior: the declared approval stands,
-// the operator verdict actions upgrade on WorkflowOperatorRequired, and a
-// failed retry below the wall upgrades dispatch_worker.
+// metadata: the declared approval stands and the operator verdict actions
+// upgrade on WorkflowOperatorRequired.
 func classifyLegacyWorkflowApproval(definition WorkflowDefinition, declared *WorkflowActionDefinition, actionID string, facts WorkflowApprovalFacts) (WorkflowApprovalPolicyResult, error) {
 	if facts.Destructive != "" || facts.SeriousLawChange {
 		return WorkflowApprovalPolicyResult{}, newFailure(KindInvalidInput, "workflow_approval_policy", "the legacy policy has no destructive consequence or law-change fact", false, "classify legacy actions without consequence facts")
@@ -151,10 +145,6 @@ func classifyLegacyWorkflowApproval(definition WorkflowDefinition, declared *Wor
 		return WorkflowApprovalPolicyResult{}, newFailure(KindInvalidInput, "workflow_approval_policy", fmt.Sprintf("definition %s action %s declares unknown approval %q", definition.Ref, actionID, string(declared.Approval)), false, "declare none, conditional, or required")
 	}
 	reason := fmt.Sprintf("legacy policy: %s v%d declares approval %s for %s", definition.Ref, definition.Version, consent, actionID)
-	if facts.FailedRetryBelowWall && actionID == "dispatch_worker" {
-		consent = WorkflowConsentRequired
-		reason = "legacy policy: failed retry below the convergence wall requires an exact approval"
-	}
 	if facts.OperatorRequired && workflowOperatorVerdictActions[actionID] {
 		consent = WorkflowConsentRequired
 		reason = fmt.Sprintf("legacy policy: WorkflowOperatorRequired on %s requires an operator approval", actionID)
@@ -188,9 +178,6 @@ func classifyConsequenceV1WorkflowApproval(definition WorkflowDefinition, action
 		// The declared legacy metadata is deliberately not consulted: the
 		// new policy replaces it for every routine action.
 		reason := fmt.Sprintf("consequence_v1: %s on %s is routine record-keeping with no consent challenge", actionID, pin)
-		if actionID == "dispatch_worker" && facts.FailedRetryBelowWall {
-			reason = fmt.Sprintf("consequence_v1: failed retry on %s revalidates its binding; the convergence wall stays evidence-gated and no approval opens it", pin)
-		}
 		if facts.OperatorRequired {
 			reason += "; the executor override grants no operator substitution"
 		}

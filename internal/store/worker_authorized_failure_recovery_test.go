@@ -9,9 +9,6 @@ import (
 
 func seedAuthorizedFailedWorker(t *testing.T, workID string) (*Store, WorkflowActor, string) {
 	t.Helper()
-	// The latest implementation head that predates the attribution
-	// requirement: the authorized-abandonment baseline closes an in-flight
-	// authorization with no worker evidence to observe.
 	entry, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 30)
 	if !ok {
 		t.Fatal("workflow.implementation v30 is not registered")
@@ -50,8 +47,8 @@ func seedAuthorizedFailedWorkerWithDefinition(t *testing.T, workID string, entry
 	if err != nil {
 		t.Fatalf("authorize worker: %v", err)
 	}
-	failure := Event{EventID: "abandon:" + workID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, FailureKind: WorkerFailureAbandoned, Detail: "authorized worker never supplied admissible dispatch evidence"})}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{failure}}); err != nil {
+	failure := Event{EventID: "abandon:" + workID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, FailureKind: WorkerFailureAbandoned, Detail: "authorized worker never supplied admissible dispatch evidence", FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: &WorkerFailureObservation{Observer: WorkerFailureObserverHostAdapter, Phase: WorkerFailurePhaseHostExecution, Cause: WorkerFailureCauseUnknown, Basis: WorkerFailureBasisUnknown, Sources: []WorkerFailureSource{workerFailureAbandonmentSourceFixture()}}}})}
+	if err := s2WorkerFailedLive(t, s, failure); err != nil {
 		t.Fatalf("abandon authorized worker: %v", err)
 	}
 	// Failure disposition keeps the existing distinct-coordinator authority.
@@ -228,17 +225,17 @@ func TestAuthorizedWorkerFailureRecoveryNeedsNoDispatchEvidence(t *testing.T) {
 	}
 }
 
-func TestAuthorizedFailedWorkerRetryBindingPrecedesDisposition(t *testing.T) {
+func TestTerminalAuthorizationRecoveryIdentityIsReadOnly(t *testing.T) {
 	const workID = "authorized-failure-retry-binding"
-	s, _, attemptID := seedAuthorizedFailedWorker(t, workID)
+	entry, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _, attemptID := seedAuthorizedFailedWorkerWithDefinition(t, workID, entry)
 	version := readWorkVersion(t, s, workID)
-	var binding *WorkflowRetryApprovalBinding
-	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		var txErr error
-		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
-		return txErr
-	}); err != nil || binding == nil || binding.FailedAttemptID != attemptID || binding.FailedAttemptEpoch != 1 {
-		t.Fatalf("unrecorded failure binding=%#v error=%v, want the exact failed authorization", binding, err)
+	failedID, err := workflowLatestFailedWorkerAuthorization(context.Background(), s.DatabaseForTesting(), workID, "execution")
+	if err != nil || failedID != attemptID {
+		t.Fatalf("terminal recovery identity=%q error=%v, want the exact failed authorization", failedID, err)
 	}
 	if readWorkVersion(t, s, workID) != version {
 		t.Fatal("reading the retry binding changed work state")
@@ -247,12 +244,8 @@ func TestAuthorizedFailedWorkerRetryBindingPrecedesDisposition(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure'`, workID, WorkflowActionCompleted).Scan(&dispositions); err != nil {
 		t.Fatal(err)
 	}
-	if dispositions != 0 {
-		t.Fatal("retry binding fabricated a failure disposition")
-	}
-	entry, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
+	if dispositions != 1 {
+		t.Fatalf("the terminal must derive exactly one disposition, got %d", dispositions)
 	}
 	tx, err := s.db.BeginTx(context.Background(), nil)
 	if err != nil {
@@ -264,11 +257,8 @@ func TestAuthorizedFailedWorkerRetryBindingPrecedesDisposition(t *testing.T) {
 		t.Fatal(err)
 	}
 	decision := workflowAdmit(entry.Definition, state, "dispatch_worker")
-	// consequence_v1 answers a failed retry below the wall as routine and
-	// revalidates the binding instead of asking for operator consent.
-	wantApproval := entry.Definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1
-	if decision.ApprovalRequired != wantApproval || state.FailedWorkerRetry == nil || state.FailedWorkerRetry.FailedAttemptID != attemptID {
-		t.Fatalf("the shared admission owner lost the failed authorization: decision=%#v binding=%#v", decision, state.FailedWorkerRetry)
+	if !decision.Admitted {
+		t.Fatalf("terminal failure refused the dispatch route: %#v", decision)
 	}
 }
 
@@ -390,14 +380,6 @@ func testAuthorizedFailedRetryRegistryStaleness(t *testing.T, recordDisposition 
 	if !hasFailureKind(err, KindStaleRequiresReview) {
 		t.Fatalf("retry preflight error=%v, want the registry staleness refusal", err)
 	}
-	var binding *WorkflowRetryApprovalBinding
-	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		var txErr error
-		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
-		return txErr
-	}); err != nil || binding != nil {
-		t.Fatalf("a refused retry must not request a wasted approval: binding=%#v error=%v", binding, err)
-	}
 }
 
 func TestAuthorizedFailedRetryApprovalNeverOverridesAnotherRefusal(t *testing.T) {
@@ -417,13 +399,12 @@ func TestAuthorizedFailedRetryApprovalNeverOverridesAnotherRefusal(t *testing.T)
 	}
 	for _, step := range []string{"execution", offStep} {
 		t.Run(step, func(t *testing.T) {
-			state := WorkflowAdmissionState{Step: step, Lifecycle: "in_progress", InstanceState: "running", ActiveContracts: 1,
-				FailedWorkerRetry: &WorkflowRetryApprovalBinding{FailedAttemptID: "attempt:failed", FailedAttemptEpoch: 1}}
+			state := WorkflowAdmissionState{Step: step, Lifecycle: "in_progress", InstanceState: "running", ActiveContracts: 1}
 			if step == "execution" {
 				state.LawPinStaleError = newFailure(KindStaleLawRevision, "test", "law revision is stale", false, "reread_entities")
 			}
 			decision := workflowAdmit(entry.Definition, state, "dispatch_worker")
-			if decision.Failure == nil || decision.Admitted || decision.ApprovalRequired {
+			if decision.Failure == nil || decision.Admitted {
 				t.Fatalf("retry approval masked another refusal: %#v", decision)
 			}
 		})

@@ -438,12 +438,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		{name: "requireRecordedInvestigationArtifactSnapshot", run: func() error {
 			return requireRecordedInvestigationArtifactSnapshot(ctx, s, "neighbor-work")
 		}},
-		{name: "readSnapshot workflowFailedWorkerRetryBinding", run: func() error {
-			return s.readSnapshot(ctx, func(q queryer) error {
-				_, err := workflowFailedWorkerRetryBinding(ctx, q, BuiltinWorkflowRegistry(), "neighbor-work")
-				return err
-			})
-		}},
 		{name: "ActiveWorkflowContract", absent: KindProjectionNotFound, run: func() error { _, err := s.ActiveWorkflowContract(ctx, "neighbor-work"); return err }},
 		{name: "readSnapshot latestWorkflowContractVersion", run: func() error {
 			var contractVersion int64

@@ -209,7 +209,7 @@ func TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	if fresh == attemptID {
 		t.Fatal("the fresh attempt identity reuses the dispositioned review attempt")
 	}
-	if err := dispatchSameStepAttempt(t, s, workID, "repair", fresh, fixture.owner, false, pin.Correction); err != nil {
+	if err := dispatchSameStepAttempt(t, s, workID, "repair", fresh, fixture.owner, pin.Correction); err != nil {
 		t.Fatalf("fresh fenced attempt after the checkpoint correction: %v", err)
 	}
 	var freshEpoch int64
@@ -446,7 +446,7 @@ func TestCheckpointFailedReviewCorrectionReturnsImplementationToExecution(t *tes
 	if fresh == attemptID {
 		t.Fatal("the fresh attempt identity reuses the dispositioned review attempt")
 	}
-	if err := dispatchSameStepAttempt(t, s, workID, "execution", fresh, fixture.owner, false, pin.Correction); err != nil {
+	if err := dispatchSameStepAttempt(t, s, workID, "execution", fresh, fixture.owner, pin.Correction); err != nil {
 		t.Fatalf("fresh fenced attempt after the checkpoint correction: %v", err)
 	}
 	var freshEpoch int64
@@ -539,7 +539,7 @@ func TestCheckpointFailedReviewCorrectionSecondCycleCountsPriorRequests(t *testi
 	if cycle2 == attemptID || cycle2 == "attempt:"+workID {
 		t.Fatal("the re-entry attempt identity reuses a prior attempt")
 	}
-	if err := dispatchSameStepAttempt(t, s, workID, "repair", cycle2, fixture.owner, false, returned); err != nil {
+	if err := dispatchSameStepAttempt(t, s, workID, "repair", cycle2, fixture.owner, returned); err != nil {
 		t.Fatalf("re-entry fenced attempt after the second correction: %v", err)
 	}
 	var cycle2Epoch int64

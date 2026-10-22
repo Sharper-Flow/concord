@@ -278,7 +278,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		return RegisteredDefinition{}, err
 	}
 	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
-	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed && !workflowAdmissionDefersToReviewGate(decision, request.ActionID) && !decision.ApprovalRequired {
+	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed && !workflowAdmissionDefersToReviewGate(decision, request.ActionID) {
 		return RegisteredDefinition{}, workflowPreflightFailure(decision.Failure)
 	}
 	staleRecovery := decision.RecoveryRoute

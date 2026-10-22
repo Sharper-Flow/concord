@@ -179,17 +179,10 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 			},
 			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version},
 		})
-		// The loader folds the current failed binding once; the same fold
-		// answers for both policies over the identical seeded history.
+		// Both policies answer over the same seeded terminal failure.
 		newState := foldedApprovalAdmission(t, s, registry, definition, workID)
 		if newState.Step != "execution" {
 			t.Fatalf("the retry seed left the step at %q, want execution", newState.Step)
-		}
-		if newState.FailedWorkerRetry == nil {
-			t.Fatal("the loader folded no current failed-retry binding")
-		}
-		if newState.FailedWorkerRetry.FailedAttemptID != "attempt:approval-retry" || newState.FailedWorkerRetry.FailedAttemptEpoch != 2 || newState.FailedWorkerRetry.ContractVersion != 1 {
-			t.Fatalf("the folded retry binding = %+v, want the authored attempt, epoch 2, and contract 1", newState.FailedWorkerRetry)
 		}
 		if newState.NonProgressAttempts != 1 {
 			t.Fatalf("the folded nonprogress count = %d, want the one failed attempt", newState.NonProgressAttempts)
@@ -201,9 +194,6 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		if !newDecision.Admitted {
 			t.Fatalf("consequence_v1 below-wall retry refused at admission: %v", newDecision.Failure)
 		}
-		if newDecision.ApprovalRequired {
-			t.Fatal("consequence_v1 below-wall retry still sets the approval bit; retry consent must consume the folded policy")
-		}
 		if newDecision.ConvergenceRequired {
 			t.Fatal("a below-wall retry must not fold the convergence wall")
 		}
@@ -214,12 +204,9 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		// binding stays outside this witness's scope.
 		legacy := workflowFixtureDefinition(t, 2).Definition
 		legacyState := foldedApprovalAdmission(t, s, registry, legacy, workID)
-		if legacyState.FailedWorkerRetry == nil || legacyState.FailedWorkerRetry.FailedAttemptID != "attempt:approval-retry" {
-			t.Fatalf("the legacy fold lost the failed binding: %+v", legacyState.FailedWorkerRetry)
-		}
 		legacyDecision := workflowAdmit(legacy, legacyState, "dispatch_worker")
-		if !legacyDecision.ApprovalRequired {
-			t.Fatal("the legacy below-wall retry lost its declared approval route")
+		if !legacyDecision.Admitted {
+			t.Fatalf("terminal failure refused legacy dispatch: %v", legacyDecision.Failure)
 		}
 
 		// At the convergence wall the basis stays the only opener for both
@@ -228,8 +215,8 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		for name, wallDefinition := range map[string]WorkflowDefinition{"consequence_v1": definition, "legacy": legacy} {
 			decision := workflowAdmit(wallDefinition, walled, "dispatch_worker")
 			var failure *Failure
-			if decision.Admitted || decision.ApprovalRequired || !failureAs(decision.Failure, &failure) || !decision.ConvergenceRequired {
-				t.Fatalf("%s wall retry folded %v (admitted %v approval %v), want the convergence refusal", name, decision.Failure, decision.Admitted, decision.ApprovalRequired)
+			if decision.Admitted || !failureAs(decision.Failure, &failure) || !decision.ConvergenceRequired {
+				t.Fatalf("%s wall retry folded %v (admitted %v), want the convergence refusal", name, decision.Failure, decision.Admitted)
 			}
 		}
 	})
@@ -241,12 +228,12 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		available := WorkflowAdmissionState{CorrectionRequestRecovery: true}
 		for name, definition := range map[string]WorkflowDefinition{"consequence_v1": newPolicy, "legacy": legacy} {
 			decision := workflowAdmit(definition, available, "request_correction")
-			if !decision.Admitted || decision.ApprovalRequired {
-				t.Fatalf("%s correction route folded admitted=%v approval=%v, want a routine admitted route", name, decision.Admitted, decision.ApprovalRequired)
+			if !decision.Admitted {
+				t.Fatalf("%s correction route folded admitted=%v, want a routine admitted route", name, decision.Admitted)
 			}
 			unavailable := workflowAdmit(definition, WorkflowAdmissionState{}, "request_correction")
 			var failure *Failure
-			if unavailable.Admitted || unavailable.ApprovalRequired || !failureAs(unavailable.Failure, &failure) {
+			if unavailable.Admitted || !failureAs(unavailable.Failure, &failure) {
 				t.Fatalf("%s unavailable correction folded %v, want the typed availability refusal without an approval route", name, unavailable.Failure)
 			}
 		}
@@ -313,7 +300,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 			t.Fatalf("the legacy twin opened a correction route at the producer step: %+v", legacyState)
 		}
 		legacyDecision := workflowAdmit(legacy, WorkflowAdmissionState{Step: "acceptance", CorrectionRequestRecovery: true}, "request_correction")
-		if !legacyDecision.Admitted || legacyDecision.ApprovalRequired {
+		if !legacyDecision.Admitted {
 			t.Fatalf("the legacy correction route folded %+v, want the unchanged routine route", legacyDecision)
 		}
 	})

@@ -11,7 +11,7 @@ import (
 // Deterministic witnesses of the approved worker-job obligations (CD-0205),
 // each derived from an independent review probe: one bounded objective per
 // dispatch, one disposition per local acceptance, and an unresolved failed
-// job whose window, count, and exact retry approval survive unrelated
+// job whose window, count, and failed-attempt identity survive unrelated
 // success. They stay as repository tests so the obligations they prove
 // cannot regress silently.
 
@@ -155,8 +155,7 @@ func TestReviewRewrittenRevisionResetsFailedJob(t *testing.T) {
 
 // A held local acceptance of an unrelated job resets no same-step wall
 // (CD-0205 D4 refining CD-0164 D2): the failed job's obligation stays
-// unresolved, so the wall the failed dispatch opened keeps its count and its
-// exact retry approval.
+// unresolved, so the wall the failed dispatch opened keeps its count.
 func TestWitnessUnrelatedLocalAcceptHoldsSameStepWall(t *testing.T) {
 	const id = "witness-unrelated-local-accept-wall"
 	f := seedWorkflowReturnRouteFixture(t, id, "workflow.break_fix", "repair")
@@ -225,8 +224,8 @@ func TestWitnessSatisfyingLocalAcceptResetsSameStepWall(t *testing.T) {
 // A rewritten revision of a failed job's identity consumes no correction
 // authority (CD-0205 D4): the acceptance of an unrelated obligation leaves
 // the window open and the correction record bound to the exact failed
-// attempt, so the retry approval stays exact and readable.
-func TestWitnessRewrittenJobKeepsExactRetryBinding(t *testing.T) {
+// attempt.
+func TestWitnessRewrittenJobKeepsFailedAttemptIdentity(t *testing.T) {
 	const id = "witness-rewritten-job-binding"
 	f := seedWorkflowReturnRouteFixture(t, id, "workflow.break_fix", "repair")
 	s := f.store

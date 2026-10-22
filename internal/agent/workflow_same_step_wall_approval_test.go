@@ -32,16 +32,6 @@ func TestSameStepWallWithoutCorrectionRecordStaysConvergenceGated(t *testing.T) 
 	env := mutationEnvelope(grant, scopeVersion)
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 
-	// The armed wall keeps no approval binding: nothing on the boundary
-	// can mint a retry challenge for it.
-	var binding *store.WorkflowRetryApprovalBinding
-	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		var txErr error
-		binding, txErr = store.WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, "work-1")
-		return txErr
-	}); err != nil || binding != nil {
-		t.Fatalf("retry approval binding behind the same-step wall = %+v err=%v, want none", binding, err)
-	}
 	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
 	if err != nil {
 		t.Fatal(err)

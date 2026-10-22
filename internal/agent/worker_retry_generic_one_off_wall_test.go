@@ -528,111 +528,39 @@ func verifyWallPinCorrection(t *testing.T, s *store.Store) *store.WorkflowCorrec
 	return pin.Correction
 }
 
-// TestGenericOneOffBelowWallFailedRetryKeepsTheExactApproval pins the
-// below-limit behavior CD-0148 keeps: one counted failure with a recorded
-// failed disposition makes the next dispatch an exact-approval route. The
-// boundary mints the challenge bound to the failed attempt's identity, epoch,
-// and contract, the signed approval admits exactly one dispatch intent, and
-// the next retry mints a fresh challenge.
-func TestGenericOneOffBelowWallFailedRetryKeepsTheExactApproval(t *testing.T) {
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	worktree := seedGenericOneOffVerifyWorkflow(t, s, grant)
-	grant.Worktree = worktree
+func TestGenericOneOffBelowWallRetryNeedsNoConsent(t *testing.T) {
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	grant.Worktree = seedGenericOneOffVerifyWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-
-	// One failed attempt with its recorded failed disposition: below the
-	// limit, the ordinary retry approval route.
-	first := "attempt:work-1:verify-1"
-	runGenericOneOffStoreAction(t, s, "dispatch_worker", map[string]any{
-		"attempt_id": first, "worker_packet": verifyWallPacket(t, s, first, nil),
-	}, owner, worktree, "dispatch-1")
+	const failedID = "attempt:work-1:verify-1"
+	runGenericOneOffStoreAction(t, s, "dispatch_worker", map[string]any{"attempt_id": failedID, "worker_packet": verifyWallPacket(t, s, failedID, nil)}, owner, grant.Worktree, "dispatch-1")
 	failedEpoch := verifyWallAttemptEpoch(t, s)
-	applyVerifyWallDispatchAndFailure(t, s, grant, first)
-	runGenericOneOffStoreAction(t, s, "record_worker_failure", map[string]any{"attempt_id": first, "attempt_epoch": failedEpoch}, owner, "", "record-1")
+	applyVerifyWallDispatchAndFailure(t, s, grant, failedID)
+	runGenericOneOffStoreAction(t, s, "record_worker_failure", map[string]any{"attempt_id": failedID, "attempt_epoch": failedEpoch}, owner, "", "record-1")
 	correction := verifyWallPinCorrection(t, s)
-	if correction.Escalated || correction.FailedAttemptID != first || correction.FailedAttemptEpoch != failedEpoch {
-		t.Fatalf("below-wall correction = %+v, want the unescalated failed attempt %s at epoch %d", correction, first, failedEpoch)
+	if correction.Escalated || correction.FailedAttemptID != failedID || correction.FailedAttemptEpoch != failedEpoch {
+		t.Fatalf("failed correction=%+v", correction)
 	}
-	if got := verifyWallChallenges(t, s); got != 0 {
-		t.Fatalf("fixture minted %d approval challenges, want 0", got)
+	const retryID = "attempt:work-1:verify-2"
+	_, raw := verifyWallDispatchInput(t, s, retryID, "verify-below-wall-1", correction)
+	result := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	if result.Outcome != OutcomeOK {
+		t.Fatalf("legacy-pin retry without consent=%+v", result.Error)
 	}
-
-	// The boundary mints the operator challenge bound to the failed
-	// attempt, its dispatch completion epoch, and the active contract.
-	version := workVersion(t, s, "work-1")
-	retryID := "attempt:work-1:verify-2"
-	input, raw := verifyWallDispatchInput(t, s, retryID, "verify-below-wall-1", correction)
-	env.RequestID = "request:verify-below-wall-1"
-	challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("below-wall retry without approval = %+v, want approval_required", challenge.Error)
-	}
-	details := challenge.Error.Details
-	challengeRef, _ := details["approval_ref"].(string)
-	if len(challengeRef) != 64 {
-		t.Fatalf("below-wall challenge carries no approval reference: %+v", details)
-	}
-	if got, _ := details["action_id"].(string); got != "dispatch_worker" {
-		t.Fatalf("below-wall challenge action_id = %v", details["action_id"])
-	}
-	if got, _ := details["contract_version"].(string); got != "1" {
-		t.Fatalf("below-wall challenge contract_version = %v", details["contract_version"])
-	}
-	summary := challenge.Error.ConsequenceSummary
-	if summary == nil {
-		t.Fatal("below-wall challenge lacks a consequence summary")
-	}
-	assertBindingContains(t, summary.Scope, "failed_attempt_id:"+first)
-	assertBindingContains(t, summary.Versions, "failed_attempt_epoch:"+strconv.FormatInt(failedEpoch, 10))
-	assertBindingContains(t, summary.Versions, "contract:1")
-	assertBindingContains(t, summary.Versions, "work:"+strconv.FormatInt(version, 10))
-	if got := verifyWallChallenges(t, s); got != 1 {
-		t.Fatalf("below-wall retry minted %d approval challenges, want 1", got)
-	}
-
-	// The signed approval admits exactly one dispatch intent.
-	approvedInput := cloneWithApproval(t, input, challengeRef)
-	approvedRaw, err := json.Marshal(approvedInput)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": first, "scope_version": scopeVersion}
-	versions := map[string]any{"work": version, "contract": int64(1), "failed_attempt_epoch": failedEpoch}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	env.RequestID = "request:verify-below-wall-2"
-	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
-	if approved.Outcome != OutcomeOK {
-		t.Fatalf("approved below-wall retry = %+v", approved.Error)
+	replayed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	if replayed.Outcome != OutcomeOK || !replayed.Replayed {
+		t.Fatalf("legacy-pin retry replay=%+v", replayed)
 	}
 	if got := verifyWallDispatchCompletions(t, s, retryID); got != 1 {
-		t.Fatalf("approved below-wall retry recorded %d dispatch completions, want 1", got)
+		t.Fatalf("retry and replay recorded %d dispatch completions, want 1", got)
 	}
-	// Consumption retires the challenge without deleting it.
-	if got := verifyWallChallenges(t, s); got != 1 {
-		t.Fatalf("approved below-wall retry changed the challenge count to %d, want 1", got)
-	}
-
-	// The next retry needs a fresh exact approval: the consumed challenge
-	// never becomes a standing dispatch right.
-	nextID := "attempt:work-1:verify-3"
-	env.HostApproval = nil
-	_, freshRaw := verifyWallDispatchInput(t, s, nextID, "verify-below-wall-3", correction)
-	env.RequestID = "request:verify-below-wall-3"
-	fresh := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: freshRaw}, env)
-	if fresh.Error == nil || fresh.Error.Kind != "approval_required" {
-		t.Fatalf("retry after one approved intent = %+v, want a fresh approval_required", fresh.Error)
-	}
-	freshRef, _ := fresh.Error.Details["approval_ref"].(string)
-	if len(freshRef) != 64 || freshRef == challengeRef {
-		t.Fatalf("fresh challenge ref = %q, want a distinct approval reference", freshRef)
-	}
-	if got := verifyWallChallenges(t, s); got != 2 {
-		t.Fatalf("second below-wall retry minted %d approval challenges in total, want 2", got)
+	if got := verifyWallChallenges(t, s); got != 0 {
+		t.Fatalf("legacy-pin retry minted %d consent challenges", got)
 	}
 }
 
@@ -692,14 +620,6 @@ func TestGenericOneOffEscalatedWallAdmitsOnlyBehindStoreConvergence(t *testing.T
 	}
 	if after := workVersion(t, s, "work-1"); after != version {
 		t.Fatalf("refused escalation changed the work version %d -> %d", version, after)
-	}
-	var binding *store.WorkflowRetryApprovalBinding
-	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		var txErr error
-		binding, txErr = store.WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, "work-1")
-		return txErr
-	}); err != nil || binding != nil {
-		t.Fatalf("retry approval binding behind the escalated wall = %+v err=%v, want none", binding, err)
 	}
 
 	// A supplied operator approval has no effect: no challenge exists to

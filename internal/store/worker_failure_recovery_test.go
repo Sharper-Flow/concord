@@ -81,32 +81,6 @@ func TestFailedWorkerRecoveryRefusesWithoutTheCurrentFailedAttempt(t *testing.T)
 	}
 }
 
-func TestFailedWorkerRetryBindingPinsFailureAndContract(t *testing.T) {
-	const workID = "worker-failure-retry-binding"
-	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
-	defer s.Close()
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'retry contract','internal_sqlite','[]','[]','now',?,'[]','[]',0,'prototype_internal'); DELETE FROM fold_guard`, workID, ownerRef); err != nil {
-		t.Fatalf("seed retry contract: %v", err)
-	}
-	failWorkerAttempt(t, s, workID, attemptID)
-	applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, 1, 9, "record-retry-binding")
-	var binding *WorkflowRetryApprovalBinding
-	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		var txErr error
-		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
-		return txErr
-	}); err != nil {
-		t.Fatalf("read retry binding: %v", err)
-	}
-	if binding == nil || binding.FailedAttemptID != attemptID || binding.FailedAttemptEpoch != 1 || binding.ContractVersion != 1 {
-		t.Fatalf("retry binding = %#v, want failed attempt and contract version 1", binding)
-	}
-}
-
 func seedOldDefinitionWorker(t *testing.T, workID string) (*Store, WorkflowActor, string, RegisteredDefinition) {
 	t.Helper()
 	s, owner, attemptID, entry := seedOldDefinitionWorkAtRepair(t, workID)

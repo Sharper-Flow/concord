@@ -180,7 +180,6 @@ func TestWorkflowApprovalBoundaryChangedFacts(t *testing.T) {
 		DecisionDomainsPresent: true,
 		DecisionDomains:        []string{"product"},
 		EvaluatorAuthority:     store.WorkflowIndependentEvaluator,
-		RetryBinding:           &store.WorkflowRetryApprovalBinding{FailedAttemptID: "attempt-1", FailedAttemptEpoch: 2, ContractVersion: 2},
 		Policy:                 store.WorkflowApprovalPolicyResult{Policy: store.WorkflowApprovalPolicyConsequenceV1, Class: store.WorkflowApprovalClassRoutine, Consent: store.WorkflowConsentNone, Reason: "routine"},
 	}
 	if workflowApprovalBoundaryChanged(base, base) {
@@ -213,16 +212,6 @@ func TestWorkflowApprovalBoundaryChangedFacts(t *testing.T) {
 		{"decision-domain presence", func(s *store.WorkflowApprovalBoundaryState) { s.DecisionDomainsPresent = false }},
 		{"decision domains", func(s *store.WorkflowApprovalBoundaryState) { s.DecisionDomains = []string{"preference"} }},
 		{"evaluator authority", func(s *store.WorkflowApprovalBoundaryState) { s.EvaluatorAuthority = store.WorkflowOperatorRequired }},
-		{"failed-retry binding presence", func(s *store.WorkflowApprovalBoundaryState) { s.RetryBinding = nil }},
-		{"failed-retry binding attempt", func(s *store.WorkflowApprovalBoundaryState) {
-			s.RetryBinding = &store.WorkflowRetryApprovalBinding{FailedAttemptID: "attempt-2", FailedAttemptEpoch: 2, ContractVersion: 2}
-		}},
-		{"failed-retry binding epoch", func(s *store.WorkflowApprovalBoundaryState) {
-			s.RetryBinding = &store.WorkflowRetryApprovalBinding{FailedAttemptID: "attempt-1", FailedAttemptEpoch: 3, ContractVersion: 2}
-		}},
-		{"failed-retry binding contract", func(s *store.WorkflowApprovalBoundaryState) {
-			s.RetryBinding = &store.WorkflowRetryApprovalBinding{FailedAttemptID: "attempt-1", FailedAttemptEpoch: 2, ContractVersion: 3}
-		}},
 		{"classification", func(s *store.WorkflowApprovalBoundaryState) { s.Policy.Consent = store.WorkflowConsentRequired }},
 	} {
 		t.Run(vector.name, func(t *testing.T) {

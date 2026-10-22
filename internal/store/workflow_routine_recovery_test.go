@@ -365,7 +365,7 @@ func TestRoutineRecovery(t *testing.T) {
 		}
 	})
 
-	t.Run("failed retry binding revalidates the failed attempt identity", func(t *testing.T) {
+	t.Run("correction preserves the failed attempt identity", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-retry-race"
 		ctx := context.Background()
@@ -380,24 +380,6 @@ func TestRoutineRecovery(t *testing.T) {
 		failAbandonedWorkerAttempt(t, s, workID, attemptID)
 		pin := issue1013Pin(t, s, workID)
 		applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, 1, pin.Version, "routine-race-record-1-"+workID)
-		var first *WorkflowRetryApprovalBinding
-		if err := s.Transact(ctx, func(tx *Transaction) error {
-			var txErr error
-			first, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
-			return txErr
-		}); err != nil {
-			t.Fatal(err)
-		}
-		if first == nil || first.FailedAttemptID != attemptID || first.FailedAttemptEpoch != 1 || first.ContractVersion != 1 {
-			t.Fatalf("first binding = %+v, want the exact failed attempt %q epoch 1 contract 1", first, attemptID)
-		}
-		// A fresh attempt opens at a new epoch and fails: the binding the
-		// approval boundary rereads must move to the new failed identity, so
-		// an approval minted against the first attempt cannot authorize this
-		// retry. The contract-version half of the revalidation is witnessed
-		// unchanged by TestIssue933PremiseRevisionUsesTypedContractSupersession,
-		// whose post-supersession binding read re-derives against the
-		// successor contract.
 		worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 		pin = issue1013Pin(t, s, workID)
 		issue1013StartRepair(t, s, workID, worker, pin.Version, 2)
@@ -406,27 +388,9 @@ func TestRoutineRecovery(t *testing.T) {
 		failWorkerAttempt(t, s, workID, nextAttempt)
 		pin = issue1013Pin(t, s, workID)
 		applyRecordWorkerFailureForTest(t, s, workID, owner, nextAttempt, 2, pin.Version, "routine-race-record-2-"+workID)
-		var second *WorkflowRetryApprovalBinding
-		if err := s.Transact(ctx, func(tx *Transaction) error {
-			var txErr error
-			second, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
-			return txErr
-		}); err != nil {
-			t.Fatal(err)
-		}
-		if second == nil || second.FailedAttemptID != nextAttempt || second.FailedAttemptEpoch != 2 {
-			t.Fatalf("revalidated binding = %+v, want the new failed attempt %q epoch 2", second, nextAttempt)
-		}
-		if second.FailedAttemptID == first.FailedAttemptID || second.FailedAttemptEpoch == first.FailedAttemptEpoch {
-			t.Fatalf("binding did not move with the failed identity: first %+v second %+v", first, second)
-		}
-		var reread *WorkflowRetryApprovalBinding
-		if err := s.Transact(ctx, func(tx *Transaction) error {
-			var txErr error
-			reread, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
-			return txErr
-		}); err != nil || reread == nil || *reread != *second {
-			t.Fatalf("reread binding = %+v, %v, want the same exact binding", reread, err)
+		pin = issue1013Pin(t, s, workID)
+		if pin.Correction == nil || pin.Correction.FailedAttemptID != nextAttempt || pin.Correction.FailedAttemptEpoch != 2 {
+			t.Fatalf("correction = %+v, want the latest failed attempt and epoch", pin.Correction)
 		}
 		var step string
 		if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
@@ -441,20 +405,6 @@ func TestRoutineRecovery(t *testing.T) {
 		freshPayload := json.RawMessage(`{"attempt_id":"attempt:routine-retry-fresh","worker_packet":{}}`)
 		if err := validateFailedWorkerRetryIdentity(ctx, s.DatabaseForTesting(), workID, step, freshPayload); err != nil {
 			t.Fatalf("fresh retry identity refused: %v", err)
-		}
-	})
-
-	t.Run("the convergence wall stays evidence-gated", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-convergence-wall"
-		s, _, _ := seedIssue1013EscalatedCorrection(t, workID)
-		var binding *WorkflowRetryApprovalBinding
-		if err := s.Transact(context.Background(), func(tx *Transaction) error {
-			var txErr error
-			binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
-			return txErr
-		}); err != nil || binding != nil {
-			t.Fatalf("escalated wall exposed a retry approval binding = %+v, %v, want none", binding, err)
 		}
 	})
 

@@ -86,13 +86,6 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 				t.Errorf("legacy operator-required override moved undeclared-gate action %s to %q, want its declared metadata", actionID, declared)
 			}
 		}
-		retry, err := ClassifyWorkflowApproval(legacy, "dispatch_worker", WorkflowApprovalFacts{FailedRetryBelowWall: true})
-		if err != nil {
-			t.Fatalf("legacy failed-retry classification refused: %v", err)
-		}
-		if retry.Consent != WorkflowConsentRequired {
-			t.Fatalf("legacy failed-retry-below-wall consent = %q, want required", retry.Consent)
-		}
 		plain, err := ClassifyWorkflowApproval(legacy, "dispatch_worker", WorkflowApprovalFacts{})
 		if err != nil {
 			t.Fatalf("legacy dispatch classification refused: %v", err)
@@ -256,12 +249,12 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 		if engineeringConfirmation.Class != WorkflowApprovalClassDecision || engineeringConfirmation.Consent != WorkflowConsentNone {
 			t.Fatalf("operator-required engineering confirmation classified %s/%s, want decision/none", engineeringConfirmation.Class, engineeringConfirmation.Consent)
 		}
-		retry, err := ClassifyWorkflowApproval(definition, "dispatch_worker", WorkflowApprovalFacts{FailedRetryBelowWall: true})
+		retry, err := ClassifyWorkflowApproval(definition, "dispatch_worker", WorkflowApprovalFacts{})
 		if err != nil {
 			t.Fatalf("new-policy failed-retry classification refused: %v", err)
 		}
 		if retry.Class != WorkflowApprovalClassRoutine || retry.Consent != WorkflowConsentNone {
-			t.Fatalf("new-policy failed retry classified %s/%s, want routine/none with binding revalidation", retry.Class, retry.Consent)
+			t.Fatalf("new-policy dispatch classified %s/%s, want routine/none", retry.Class, retry.Consent)
 		}
 	})
 

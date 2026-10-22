@@ -27,6 +27,15 @@ func TestWorkerEvidenceExactReconciliation(t *testing.T) {
 				seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
 			}
 			request, assertion := workerEvidenceRequest(t, verb, lane, readback, "nonce-reconcile-first-001")
+			if verb == agent.WorkerEvidenceVerbFail {
+				observation := attributionWorkerReportObservation()
+				digest, err := store.WorkerFailureObservationDigest(observation)
+				if err != nil {
+					t.Fatal(err)
+				}
+				request["failure_attribution"] = observation
+				assertion.Version, assertion.ObservationDigest = agent.WorkerEvidenceAssertionVersion2, digest
+			}
 			request["assertion"] = signWorkerEvidence(t, key, assertion)
 			var out, diagnostic bytes.Buffer
 			if code := runWithInput([]string{verb}, strings.NewReader(mustJSON(t, request)), &out, &diagnostic); code != 0 {
@@ -107,7 +116,13 @@ func TestWorkerRecoveryContextOriginalIdentity(t *testing.T) {
 		})
 	}
 	request, assertion := workerEvidenceRequest(t, "worker-fail", lane, preferredLaneModel(lane), "nonce-recovery-terminal-fail001")
-	request["assertion"] = signWorkerEvidence(t, key, assertion)
+	observation := attributionWorkerReportObservation()
+	digest, err := store.WorkerFailureObservationDigest(observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request["failure_attribution"] = observation
+	request["assertion"] = attributionSignedV2Assertion(t, key, assertion.AttemptID, lane, preferredLaneModel(lane), assertion.Nonce, digest, nil)
 	var out, diagnostic bytes.Buffer
 	if code := runWithInput([]string{"worker-fail"}, strings.NewReader(mustJSON(t, request)), &out, &diagnostic); code != 0 {
 		t.Fatalf("record real terminal failure: %s", diagnostic.String())
@@ -238,6 +253,15 @@ func TestWorkerAbandonReplayValidatesAnInFlightBindingWithoutDispatchEvidence(t 
 	delete(request, "failure_kind")
 	assertion.ReadbackModel = ""
 	assertion.FailureKind = string(store.WorkerFailureAbandoned)
+	observation := attributionHostTerminalObservation("the coordinator asked to abandon this attempt")
+	observation.Cause, observation.Basis = store.WorkerFailureCauseUnknown, store.WorkerFailureBasisUnknown
+	observation.Sources[0].Host = &store.WorkerFailureHostObservation{Tag: store.WorkerFailureHostTagAbandonment, EventType: "worker_abandon"}
+	digest, err := store.WorkerFailureObservationDigest(observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request["failure_attribution"] = observation
+	assertion.Version, assertion.ObservationDigest = agent.WorkerEvidenceAssertionVersion2, digest
 	request["assertion"] = signWorkerEvidence(t, key, assertion)
 	var out, diagnostic bytes.Buffer
 	if code := runWithInput([]string{"worker-abandon"}, strings.NewReader(mustJSON(t, request)), &out, &diagnostic); code != 0 {

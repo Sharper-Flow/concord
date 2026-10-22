@@ -185,7 +185,13 @@ func TestWorkerFailCLIRetainsTypedContextFindingsOnWorkerErrorOnly(t *testing.T)
 	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, readback, "nonce-fail-findings001")
 	request["event_id"] = "fail-findings"
 	request["context_findings"] = cliContextFindings()
-	request["assertion"] = signWorkerEvidence(t, key, assertion)
+	observation := attributionWorkerReportObservation()
+	digest, err := store.WorkerFailureObservationDigest(observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request["failure_attribution"] = observation
+	request["assertion"] = attributionSignedV2Assertion(t, key, assertion.AttemptID, lane, readback, assertion.Nonce, digest, nil)
 	code, _, stderr := runWorkerCLI(t, "worker-fail", mustJSON(t, request))
 	if code != 0 {
 		t.Fatalf("worker-fail worker_error with context_findings exit=%d stderr=%q", code, stderr)
@@ -214,6 +220,16 @@ func TestWorkerFailCLIRetainsTypedContextFindingsOnWorkerErrorOnly(t *testing.T)
 	diagnostic["failure_kind"] = string(store.WorkerFailureInvalidReport)
 	diagnosticAssertion.FailureKind = string(store.WorkerFailureInvalidReport)
 	diagnostic["context_findings"] = cliContextFindings()
+	diagnosticObservation := attributionHostTerminalObservation("the host could not parse the worker report")
+	diagnosticObservation.Phase = store.WorkerFailurePhaseReportParse
+	diagnosticObservation.Cause, diagnosticObservation.Basis = store.WorkerFailureCauseUnknown, store.WorkerFailureBasisUnknown
+	diagnosticObservation.Sources = []store.WorkerFailureSource{{Kind: store.WorkerFailureSourceValidator, Message: "invalid worker report JSON"}}
+	diagnosticDigest, err := store.WorkerFailureObservationDigest(diagnosticObservation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostic["failure_attribution"] = diagnosticObservation
+	diagnosticAssertion.Version, diagnosticAssertion.ObservationDigest = agent.WorkerEvidenceAssertionVersion2, diagnosticDigest
 	diagnostic["assertion"] = signWorkerEvidence(t, key, diagnosticAssertion)
 	code, _, stderr = runWorkerCLI(t, "worker-fail", mustJSON(t, diagnostic))
 	if code == 0 || !strings.Contains(stderr, "worker_error") {

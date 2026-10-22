@@ -13,6 +13,7 @@ type workResumeInput struct {
 	ProductID  string `json:"product_id"`
 	ProjectID  string `json:"project_id"`
 	WorkID     string `json:"work_id"`
+	IssueKey   string `json:"issue_key"`
 	SessionRef string `json:"session_ref"`
 }
 
@@ -84,8 +85,16 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
 		return workResumeRefusalExit
 	}
-	if !sessionPrepareID.MatchString(input.ProductID) || !sessionPrepareID.MatchString(input.ProjectID) || !sessionPrepareID.MatchString(input.WorkID) {
-		writeOperatorDiagnostic(errOut, "work-resume", "product_id, project_id, and work_id are required")
+	if !sessionPrepareID.MatchString(input.ProductID) || !sessionPrepareID.MatchString(input.ProjectID) {
+		writeOperatorDiagnostic(errOut, "work-resume", "product_id and project_id are required")
+		return workResumeRefusalExit
+	}
+	if (input.WorkID == "") == (input.IssueKey == "") {
+		writeOperatorDiagnostic(errOut, "work-resume", "exactly one of work_id or issue_key is required")
+		return workResumeRefusalExit
+	}
+	if input.WorkID != "" && !sessionPrepareID.MatchString(input.WorkID) {
+		writeOperatorDiagnostic(errOut, "work-resume", "work_id must be a valid work identity")
 		return workResumeRefusalExit
 	}
 	cwd, err := os.Getwd()
@@ -102,6 +111,14 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	if resolution.ProjectID != input.ProjectID {
 		writeOperatorDiagnostic(errOut, "work-resume", "invocation must resolve to the requested Project")
 		return workResumeRefusalExit
+	}
+	if input.IssueKey != "" {
+		link, err := s.ReadLinearLinkByIssueKey(ctx, input.IssueKey)
+		if err != nil {
+			writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
+			return storeFailureExit(err)
+		}
+		input.WorkID = link.WorkID
 	}
 	entry, err := s.ResumeWorktreeLocation(ctx, input.ProductID, input.ProjectID, input.WorkID)
 	if err != nil {

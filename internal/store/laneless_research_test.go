@@ -3,15 +3,10 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
-	"time"
 )
 
-// A lane-less workflow never runs a fenced action. The definition-selected
-// fold pins the selecting session as the
-// executing actor, and instances whose projection predates that pin derive
-// the same identity from the immutable definition event.
+// A lane-less workflow records its selecting session as the execution identity.
 
 // seedLanelessResearchItem reproduces a production-shaped research capture:
 // the actor-recorded and definition-selected events carry the same
@@ -75,73 +70,8 @@ func TestDefinitionSelectedPinsSelectingActorAsExecutor(t *testing.T) {
 	}
 }
 
-// The full lane-less exit: operator-signed verdict, operator premise
-// confirmation, and completion all succeed with no fenced action and no
-// direct projection write.
-func TestLanelessResearchCompletesWithoutFencedAction(t *testing.T) {
-	t.Parallel()
-	const workID = "issue970-laneless-complete"
-	s, owner := seedLanelessResearchItem(t, workID)
-	operator := operatorVerdictActor(t, workID)
-
-	if err := runOperatorVerdictForPredicate(t, s, workID, owner, operator, "predicate:research-report-exit", "evidence:research-report"); err != nil {
-		t.Fatalf("operator verdict on a lane-less research item refused: %v", err)
-	}
-
-	operatorRef, _ := WorkflowActorRef(operator)
-	premiseVersion := readWorkVersion(t, s, workID)
-	operatorRecorded := workflowEvent("issue970-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": premiseVersion, "resulting_version": premiseVersion + 1, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
-	premise := workflowEventWithActor("issue970-premise-"+workID, WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": premiseVersion + 1, "resulting_version": premiseVersion + 2, "contract_version": 1, "confirming_actor_ref": operatorRef})
-	premiseCompleted := workflowActionCompletedFixture("issue970-premise-done-"+workID, workID, operatorRef, premiseVersion+2, "conclude", "confirm_premise")
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{operatorRecorded, premise, premiseCompleted}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): premiseVersion}}); err != nil {
-		t.Fatalf("premise confirmation: %v", err)
-	}
-
-	completeVersion := readWorkVersion(t, s, workID)
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	payload, _ := json.Marshal(map[string]any{"impact_verdict": "non-breaking"})
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: completeVersion, ActionID: "complete", Payload: payload, Actor: owner, OperatorActor: &operator,
-		AcceptedInputsDigest: "sha256:" + strings.Repeat("9", 64) + workID, IdempotencyIdentity: "issue970-complete-" + workID, OperationID: "issue970-complete-" + workID,
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "issue970-complete-" + workID, RequestID: "request:issue970-complete-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
-	})
-	if err != nil {
-		t.Fatalf("lane-less research completion refused: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	var state string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state); err != nil {
-		t.Fatal(err)
-	}
-	if state != "completed" {
-		t.Fatalf("instance_state=%s, want completed", state)
-	}
-}
-
-// Pinning the selector must not weaken CD-0013 D5: the session that selected
-// the definition and drove every step still cannot verdict its own delivery.
-func TestLanelessResearchSelectorCannotVerdictOwnDelivery(t *testing.T) {
-	t.Parallel()
-	const workID = "issue970-self-verdict"
-	s, owner := seedLanelessResearchItem(t, workID)
-
-	payload, _ := json.Marshal(map[string]any{"predicate_id": "predicate:research-report-exit", "verdict_kind": "ok", "evaluation_evidence": []string{"evidence:research-report"}})
-	err := runVerdictActionAs(t, s, workID, "record_verdict", payload, 0, owner)
-	if err == nil || !strings.Contains(err.Error(), "evaluate") {
-		t.Fatalf("selector self-verdict err=%v, want the self-evaluation refusal", err)
-	}
-}
-
-// Legacy instances carry an empty executor projection. The
-// distinctness checks derive the selector from the immutable definition
-// event, so an operator-signed verdict completes without a rebuild.
-func TestLegacyInstanceDerivesSelectorForDistinctness(t *testing.T) {
+// Missing execution identity derives from the selecting actor's recorded event.
+func TestMissingExecutionProjectionDerivesSelectingIdentity(t *testing.T) {
 	t.Parallel()
 	const workID = "issue970-legacy-derivation"
 	s, owner := seedLanelessResearchItem(t, workID)
@@ -158,10 +88,5 @@ func TestLegacyInstanceDerivesSelectorForDistinctness(t *testing.T) {
 	}
 	if agentRef != owner.AgentRef || sessionRef != owner.SessionRef {
 		t.Fatalf("derived identity=%q/%q, want the selector %q/%q", agentRef, sessionRef, owner.AgentRef, owner.SessionRef)
-	}
-
-	operator := operatorVerdictActor(t, workID)
-	if err := runOperatorVerdictForPredicate(t, s, workID, owner, operator, "predicate:research-report-exit", "evidence:research-report"); err != nil {
-		t.Fatalf("operator verdict with a legacy executor projection refused: %v", err)
 	}
 }

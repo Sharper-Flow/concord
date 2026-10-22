@@ -214,42 +214,6 @@ func TestProgressSatisfactionSpendsUnderChecksRepairDebtAndClearsOnlyWithConfirm
 	_ = spentSeq
 }
 
-// TestProgressSatisfactionKeepsConsumedConvergenceScopeAtTheAcceptanceBoundary
-// proves the consumed-allowance scope: a recorded host_changed basis rides a
-// dispatch completion, and a later coordinator satisfaction moves only the
-// nonprogress anchor. The acceptance boundary — the seq boundary the
-// consumed-basis read scopes its consumed test with — never moves for a
-// satisfaction, so a consumed host_changed allowance cannot be renewed by
-// coordinator progress; only a productive acceptance moves it.
-func TestProgressSatisfactionKeepsConsumedConvergenceScopeAtTheAcceptanceBoundary(t *testing.T) {
-	t.Parallel()
-	db, appendEvent, read := progressHistory(t, false)
-	appendEvent(WorkflowActionCompleted, map[string]any{
-		"action_id": "dispatch_worker", "worker_attempt_id": "attempt:converged",
-		"retry_convergence": WorkflowRetryConvergence{Basis: "host_changed", LatestRecordSeq: 7, HostPID: 4242, HostPIDStart: 99},
-	})
-	bound := progressQualifiedEvidence(t, db, appendEvent, "evidence:qualified")
-	h := read()
-	if h.nonprogressBoundary != bound {
-		t.Fatalf("nonprogress boundary = %d, want the satisfaction at %d", h.nonprogressBoundary, bound)
-	}
-	if h.boundary != 0 {
-		t.Fatalf("acceptance boundary = %d, want 0 — a coordinator satisfaction must never move the consumed-basis scope", h.boundary)
-	}
-	if got, err := workflowCorrectionWindowBoundary(context.Background(), db, "work-history", 1<<62, "progress_test"); err != nil || got != 0 {
-		t.Fatalf("correction window boundary = (%d, %v), want 0 so the recorded consumed basis stays inside the consumed test", got, err)
-	}
-	// The same dispatch completion carrying the consumed basis still sits
-	// above the boundary the host convergence read scans.
-	var consumed int64
-	if err := db.QueryRowContext(context.Background(), `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id='work-history' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.retry_convergence.basis')='host_changed'`, WorkflowActionCompleted).Scan(&consumed); err != nil {
-		t.Fatal(err)
-	}
-	if consumed != 1 {
-		t.Fatalf("recorded host_changed completions = %d, want the consumed basis retained", consumed)
-	}
-}
-
 // TestArmedProgressWallWallsOnlyWorkerDispatch proves the armed wall's reach
 // on a real walled history: the wall refuses the next worker dispatch with
 // the convergence refusal, folds its populations into the readable window,

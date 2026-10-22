@@ -33,8 +33,7 @@ func (s WorkflowAdmissionState) retryEscalated() bool {
 // nonprogress count runs since the applicable nonprogress anchor, which the
 // obligation-satisfaction policy renews from a qualified coordinator
 // satisfaction as well as a satisfying worker acceptance (CD-0164 D2a); the
-// two populations keep their own comparators (D4); and the host_changed
-// allowance stays one per worker-satisfaction window under both policies.
+// two populations keep their own comparators (D4).
 func workflowRetryConvergenceFailure(definition WorkflowDefinition, state WorkflowAdmissionState) *Failure {
 	detail := "worker correction reached the three-attempt limit without a convergence basis"
 	nonprogress := state.NonProgressAttempts >= workflowCorrectionAttemptLimit
@@ -50,9 +49,9 @@ func workflowRetryConvergenceFailure(definition WorkflowDefinition, state Workfl
 	if definition.ProgressPolicy == WorkflowProgressPolicyObligationSatisfactionV1 {
 		renewal = "a satisfying worker acceptance or the first qualified coordinator satisfaction"
 	}
-	detail += ". Dispatched attempts escalate the correction window at three or more; correction requests escalate it past three. A convergence basis or funded confirming review admits exactly one dispatch and renews no window; only " + renewal + " reopens the nonprogress window. Host recovery applies only to an eligible recorded host execution failure and an unused host basis in the current worker-satisfaction window: repair the fault, restart the host more than one minute after the failure, resume the item, then retry once"
+	detail += ". Dispatched attempts escalate the correction window at three or more; correction requests escalate it past three. A convergence basis or funded confirming review admits exactly one dispatch and renews no window; only " + renewal + " reopens the nonprogress window."
 	return newFailure(KindMissingEvidence, "worker_dispatch", detail, false,
-		"record shrinking open_finding_ids, or supersede_contract with a changed approach recorded through audit_evidence and a new contract_version — one fresh fenced attempt that does not renew the three-attempt budget — or stop the work; after a host execution failure, repair and restart the host, resume the item, and dispatch once from the restarted host (one host_changed retry per worker-satisfaction window)")
+		"record shrinking open_finding_ids, or supersede_contract with a changed approach recorded through audit_evidence and a new contract_version — one fresh fenced attempt that does not renew the three-attempt budget — or stop the work")
 }
 
 // workflowRetryConvergenceForRegistry derives a basis rather than trusting a caller's
@@ -78,7 +77,7 @@ func workflowRetryConvergenceForRegistry(ctx context.Context, q queryer, workID,
 		return WorkflowRetryConvergence{}, nil
 	}
 	if latest.fields.ActionID == "record_worker_failure" {
-		return workflowHostRetryConvergence(ctx, q, workID, lastDispatch, history.boundary)
+		return WorkflowRetryConvergence{}, nil
 	}
 	boundary := history.boundary
 	if latest.fields.ActionID == "request_correction" {

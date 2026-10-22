@@ -2,11 +2,9 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 )
 
 // workflowDeliveryAdmission is the comparable classification of the delivery
@@ -21,9 +19,8 @@ type workflowDeliveryAdmission struct {
 	// Jobs facet (CD-0205 D3): on a job-capable pin whose work has recorded
 	// worker jobs, a delivery assertion additionally requires every required
 	// job's latest revision satisfied and qualifying core-owned worktree
-	// verification evidence bound after the required job acceptances and the
-	// phase start, covering every required Project. Local acceptances, their
-	// count, and a binding that merely mentions one acceptance prove no
+	// verification evidence on the current candidate, covering every required
+	// Project. Local acceptances, their count, and a binding that mentions an acceptance prove no
 	// integration and no delivery. JobsUnsatisfiedKeys is the deterministic
 	// "job|revision" join of the unsatisfied latest revisions and
 	// JobsScopeKeys the deterministic join of the required Projects, so the
@@ -62,34 +59,25 @@ func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string
 			}
 		}
 	}
-	startSeq, _, found, err := latestWorkflowActionStart(ctx, q, workID, startStep)
+	_, _, found, err := latestWorkflowActionStart(ctx, q, workID, startStep)
 	if err != nil {
 		return state, nil, nil, err
 	}
 	state.Started = found
-	integrationRuns, err := loadWorkflowDeliveryJobAdmission(ctx, q, workID, definition, startSeq, found, &state)
+	integrationRuns, err := loadWorkflowDeliveryJobAdmission(ctx, q, workID, definition, &state)
 	if err != nil {
 		return state, nil, nil, err
 	}
 	if !state.ProofRequired || !found {
 		return state, nil, integrationRuns, nil
 	}
-	startedAt, err := workflowActionOccurredAt(ctx, q, workID, startSeq)
-	if err != nil {
-		var failure *Failure
-		if !failureAs(err, &failure) || failure.Kind == KindUnavailable {
-			return state, nil, nil, err
-		}
-		state.Failure = failure
-		return state, nil, nil, nil
-	}
-	refs, err := workflowVerificationBindingsAfter(ctx, q, workID, startSeq, "workflow_action")
+	refs, err := workflowVerificationBindingsAfter(ctx, q, workID, 0, "workflow_action")
 	if err != nil {
 		return state, nil, nil, err
 	}
 	var runs []workflowVerificationRun
 	for _, ref := range refs {
-		command, _, why, err := loadWorkflowVerifyRun(ctx, q, workID, ref, startedAt, "workflow_action")
+		command, _, why, err := workflowCandidateVerificationRun(ctx, q, workID, ref)
 		if err != nil {
 			var failure *Failure
 			if !failureAs(err, &failure) || failure.Kind == KindUnavailable {
@@ -137,16 +125,9 @@ func workflowRefineProofFailure(why string) *Failure {
 // loadWorkflowDeliveryJobAdmission loads the CD-0205 job facet of the delivery
 // admission: the required jobs' latest revisions with their dispositions, and
 // whether qualifying core-owned worktree verification evidence integrates the
-// required job result population. Integration derives from verification
-// evidence bindings whose immutable subject names a completed worktree.verify
-// durable operation — successful declared tooling, unchanged tracked tree —
-// whose lease runs under a required Project, bound after every required job's
-// recorded acceptance and after the phase start, in log order. A binding that
-// merely mentions an acceptance, the count of local acceptances, or timestamps
-// alone prove nothing: the binding order and the reference scope are the
-// derivation. On definitions that predate the worker-job lifecycle the facet
-// stays empty and no delivery changes behavior or digest.
-func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, startSeq int64, startFound bool, state *workflowDeliveryAdmission) ([]workflowVerificationRun, error) {
+// required job result population. The producer's actual subject must equal the
+// integrated candidate. Acceptance chronology cannot invalidate unchanged proof.
+func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, state *workflowDeliveryAdmission) ([]workflowVerificationRun, error) {
 	if !workflowWorkerJobsActive(definition) {
 		return nil, nil
 	}
@@ -158,8 +139,6 @@ func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID str
 	var unsatisfied []string
 	scopes := make([]string, 0, 4)
 	requiredScopes := map[string]bool{}
-	acceptRefs := make([]string, 0, 4)
-	requiredRevisions := make([]string, 0, 4)
 	for rows.Next() {
 		var jobID, jobState, resultRef, scope string
 		var revision int64
@@ -167,15 +146,12 @@ func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID str
 			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot scan the worker-job dispositions for delivery", true, "retry once the worker-job projection is readable", err)
 		}
 		state.JobsRecorded = true
-		requiredRevisions = append(requiredRevisions, workerJobKey(jobID, revision))
 		if !requiredScopes[scope] {
 			requiredScopes[scope] = true
 			scopes = append(scopes, scope)
 		}
 		if jobState != "satisfied" {
 			unsatisfied = append(unsatisfied, workerJobKey(jobID, revision))
-		} else if resultRef != "" {
-			acceptRefs = append(acceptRefs, resultRef)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -207,80 +183,14 @@ func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID str
 	}
 	sort.Strings(pendingRepairs)
 	state.ChecksRepairPendingKeys = strings.Join(pendingRepairs, ",")
-	// The integration epoch opens at the latest of the phase start, every
-	// required job's recorded acceptance, and every required job's recorded
-	// result population: the latest worker.completed event of an attempt
-	// dispatched under each required latest revision. The verify run must
-	// have executed and bound after those results, so it observed the
-	// integrated whole — including the pending final job a combined
-	// acceptance counts as satisfied, whose own completion is in the log
-	// before the acceptance that asserts delivery. A satisfied revision
-	// refuses redispatch, so on the standalone route the acceptance of the
-	// result still dominates its own completion and the derivation keeps its
-	// recorded shape. Order is the log's seq, not a timestamp; the
-	// occurred_at clock only bounds the lease's acquire time, as the refine
-	// proof already does.
-	coverageSeq := startSeq
-	anchorAt := time.Time{}
-	if startFound {
-		occurred, err := workflowActionOccurredAt(ctx, q, workID, startSeq)
-		if err != nil {
-			return nil, err
-		}
-		anchorAt = occurred
-	}
-	for _, ref := range acceptRefs {
-		var seq int64
-		var occurred string
-		if err := q.QueryRowContext(ctx, `SELECT seq,occurred_at FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND event_id=?`, workID, ref).Scan(&seq, &occurred); err != nil {
-			if err == sql.ErrNoRows {
-				return nil, newFailure(KindInvariantViolation, "workflow_action", "a satisfied worker job names an acceptance that the event log does not hold", false, "rebuild the worker-job projection from the event log")
-			}
-			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read the required job acceptance for delivery", true, "retry once the event log is readable", err)
-		}
-		if seq > coverageSeq {
-			coverageSeq = seq
-		}
-		if at, err := time.Parse(time.RFC3339Nano, occurred); err == nil && at.After(anchorAt) {
-			anchorAt = at
-		}
-	}
-	completions, err := q.QueryContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_job.job_id'),''),COALESCE(json_extract(payload,'$.worker_job.revision'),0),seq,occurred_at FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>?`, workID, WorkerCompleted, startSeq)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read the required job result population for delivery", true, "retry once the event log is readable", err)
-	}
-	defer func() { _ = completions.Close() }()
-	required := map[string]bool{}
-	for _, key := range requiredRevisions {
-		required[key] = true
-	}
-	for completions.Next() {
-		var jobID, occurred string
-		var revision, seq int64
-		if err := completions.Scan(&jobID, &revision, &seq, &occurred); err != nil {
-			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot scan the required job result population for delivery", true, "retry once the event log is readable", err)
-		}
-		if jobID == "" || !required[workerJobKey(jobID, revision)] {
-			continue
-		}
-		if seq > coverageSeq {
-			coverageSeq = seq
-		}
-		if at, err := time.Parse(time.RFC3339Nano, occurred); err == nil && at.After(anchorAt) {
-			anchorAt = at
-		}
-	}
-	if err := completions.Err(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot enumerate the required job result population for delivery", true, "retry once the event log is readable", err)
-	}
-	refs, err := workflowVerificationBindingsAfter(ctx, q, workID, coverageSeq, "workflow_action")
+	refs, err := workflowVerificationBindingsAfter(ctx, q, workID, 0, "workflow_action")
 	if err != nil {
 		return nil, err
 	}
 	covered := map[string]bool{}
 	runs := make([]workflowVerificationRun, 0, len(refs))
 	for _, ref := range refs {
-		command, project, why, err := loadWorkflowVerifyRun(ctx, q, workID, ref, anchorAt, "workflow_action")
+		command, project, why, err := workflowCandidateVerificationRun(ctx, q, workID, ref)
 		if err != nil {
 			var failure *Failure
 			if !failureAs(err, &failure) || failure.Kind == KindUnavailable {
@@ -296,6 +206,26 @@ func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID str
 	}
 	state.JobsIntegrated = workflowIntegrationCovered(scopes, covered)
 	return runs, nil
+}
+
+// Proof applicability follows the producer's subject, not its position relative
+// to an acceptance or a stage start. An unchanged candidate needs no rerun.
+func workflowCandidateVerificationRun(ctx context.Context, q queryer, workID, ref string) ([]string, string, string, error) {
+	producer, err := readOracleVerifySubjectReceipt(ctx, q, workID, ref)
+	if err != nil {
+		return nil, "", "", err
+	}
+	if producer == nil {
+		return nil, "", "no passing unchanged-tree producer receipt", nil
+	}
+	review, err := loadWorkflowReviewState(ctx, q, workID, 0)
+	if err != nil {
+		return nil, "", "", err
+	}
+	if review.Candidate == nil || producer.SubjectRef != "commit:"+review.Candidate.Commit || producer.ProjectID != review.Candidate.ProjectID {
+		return producer.Command, producer.ProjectID, "verification does not cover the current integrated candidate", nil
+	}
+	return producer.Command, producer.ProjectID, "", nil
 }
 
 // workflowIntegrationCovered decides per-Project coverage: every required
@@ -359,8 +289,8 @@ func workflowDeliveryJobsFailure(state workflowDeliveryAdmission, accepting *Wor
 	}
 	if state.JobsRecorded && !state.JobsIntegrated {
 		return newFailure(KindMissingEvidence, "workflow_action",
-			"the delivery assertion requires qualifying core-owned worktree verification evidence bound after the recorded worker-job acceptances, covering every required Project",
-			false, "run worktree_verify on the integrated work after the accepted job results, bind the run's verification evidence for each required Project, then record delivery")
+			"the delivery assertion requires passing producer verification on the current integrated candidate, covering every required Project",
+			false, "verify the integrated candidate and bind the passing producer receipt for each required Project before recording delivery")
 	}
 	return nil
 }

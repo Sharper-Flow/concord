@@ -286,8 +286,30 @@ func observeWorkerDelivery(ctx context.Context, runner GitRunner, path, subject 
 		return nil, newFailure(KindGitUnreachable, workerTerminalObservationOp, "the worktree's HEAD is not one raw commit OID", true, "retry once the worktree resolves a commit")
 	}
 	observation := &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}
-	if subject == "" || observation.State != "clean" {
+	if observation.State != "clean" {
 		return observation, nil
+	}
+	readTree := func(commit string) (string, error) {
+		raw, err := runner.Run(probeCtx, path, "rev-parse", "--verify", commit+"^{tree}")
+		if err != nil {
+			return "", workerDeliveryProbeFailure("candidate tree", probeCtx, err)
+		}
+		tree := strings.TrimSpace(string(raw))
+		if !worktreeSHAPattern.MatchString(tree) {
+			return "", newFailure(KindGitUnreachable, workerTerminalObservationOp, "the candidate tree is not one raw tree OID", true, "restore the referenced Git tree and retry the completion")
+		}
+		return tree, nil
+	}
+	observation.Tree, err = readTree(commit)
+	if err != nil {
+		return nil, err
+	}
+	if subject == "" {
+		return observation, nil
+	}
+	observation.BaseTree, err = readTree(subject)
+	if err != nil {
+		return nil, err
 	}
 	names, err := runner.Run(probeCtx, path, append(workerDiffSharedDiffArgs(), "--name-only", "-z", subject, commit)...)
 	if err != nil {

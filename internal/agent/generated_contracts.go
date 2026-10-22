@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:cb501ce35532fac13ccedf699f5b016b86a7af7d9342f434d464c3676dfb1ae1"
+const ManifestDigest = "sha256:f74561930179bf893a61b43be45742c9fd6f79b6f931caf54ffa58fdbb2b0635"
 
 type OperationKind string
 
@@ -404,7 +404,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_retained_decision_record":                              {Required: []string{"question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "reviewer_actor_ref", "operator_approval_ref"}, Properties: []string{"question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "unknowns", "required_to_decide", "reviewer_actor_ref", "operator_approval_ref"}},
 	"workflow_retained_outcome":                                      {Required: []string{"kind", "allowed"}, Properties: []string{"kind", "allowed", "decision_record"}},
 	"workflow_retry_window":                                          {Required: []string{"population", "policy", "count", "limit", "prefix", "nonprogress_anchor", "worker_satisfaction_anchor", "verification_baseline", "dispatch_count", "dispatch_limit", "verification_count", "verification_limit", "correction_escalated", "blocking_population", "convergence_basis", "funded_confirming_reviews", "unresolved_obligations", "unresolved_obligation_count", "omitted_unresolved_obligations"}, Properties: []string{"population", "policy", "count", "limit", "prefix", "nonprogress_anchor", "worker_satisfaction_anchor", "verification_baseline", "dispatch_count", "dispatch_limit", "verification_count", "verification_limit", "correction_escalated", "blocking_population", "convergence_basis", "funded_confirming_reviews", "unresolved_obligations", "unresolved_obligation_count", "omitted_unresolved_obligations", "step"}},
-	"workflow_review_state":                                          {Required: []string{"candidate", "accepted_review", "findings", "continue_consumed", "dependencies_current", "publication_outstanding"}, Properties: []string{"candidate", "accepted_review", "findings", "continue_consumed", "group_id", "dependencies_current", "publication_outstanding"}},
+	"workflow_review_state":                                          {Required: []string{"candidate", "accepted_review", "findings", "continue_consumed", "dependencies_current", "publication_outstanding"}, Properties: []string{"candidate", "accepted_review", "findings", "continue_consumed", "group_id", "dependencies_current", "dependencies", "publication_outstanding"}},
 	"workflow_self_repair":                                           {Required: []string{"refusal_kind", "blocked_operation", "evidence_refs"}, Properties: []string{"refusal_kind", "blocked_operation", "evidence_refs"}},
 	"workflow_verdict_batch_entry":                                   {Required: []string{"predicate_id", "receipt_refs"}, Properties: []string{"predicate_id", "receipt_refs"}},
 	"worktree_audit_page":                                            {Required: []string{"root", "drift"}, Properties: []string{"root", "drift"}},

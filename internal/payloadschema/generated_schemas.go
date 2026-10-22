@@ -29233,6 +29233,9 @@ const GeneratedPayloadSchemaDocument = `{
         "continue_consumed": {
           "type": "boolean"
         },
+        "dependencies": {
+          "$ref": "#/$defs/lane_report_review_dependencies"
+        },
         "dependencies_current": {
           "type": "boolean"
         },

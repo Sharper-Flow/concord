@@ -250,7 +250,7 @@ func TestChecksRepairSatisfiesNamedRevisionsAndFundsOneConfirmingReview(t *testi
 		t.Fatal(err)
 	}
 	var delivery workflowDeliveryAdmission
-	if _, err := loadWorkflowDeliveryJobAdmission(ctx, s.db, workID, definition.Definition, 0, false, &delivery); err != nil {
+	if _, err := loadWorkflowDeliveryJobAdmission(ctx, s.db, workID, definition.Definition, &delivery); err != nil {
 		t.Fatal(err)
 	}
 	if !delivery.ChecksRepairReviewDebt {

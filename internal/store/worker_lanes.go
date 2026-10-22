@@ -364,12 +364,8 @@ type WorkerReviewFinding struct {
 	Oracle       *WorkerOracleFinding `json:"oracle,omitempty"`
 }
 
-// WorkerReviewBlock is the typed review block of agent-lane-report.v1: the
-// lane's explicit ship or no_ship verdict, its findings, and the optional
-// evidenced closure claims of ranked findings the lineage holds open. It
-// is report content only (CD-0197): it maps to no workflow field and records
-// no transition, and the coordinator records the workflow verdict through
-// record_verdict.
+// WorkerReviewBlock attributes a disposition and findings to exact candidate
+// and dependency identities. Only Main's acceptance installs its output.
 type WorkerReviewBlock struct {
 	Disposition          string                   `json:"disposition"`
 	InputCandidate       WorkerReviewCandidate    `json:"input_candidate"`
@@ -462,7 +458,7 @@ type WorkerCompletedPayload struct {
 	// itself: one raw commit OID plus the clean or dirty state of
 	// the attempt's authorized worktree at completion, and the changed
 	// paths since the dispatched subject commit. Only a completed
-	// implementation-lane attempt carries one, and only the store's own
+	// editing or reviewing attempt carries one, and only the store's own
 	// read-only Git observation can produce it; a report, request, or
 	// adapter value can neither supply nor alter it.
 	ObservedDelivery *WorkerObservedDelivery `json:"observed_delivery,omitempty"`
@@ -562,7 +558,7 @@ type WorkerObservedDelivery struct {
 	State        string               `json:"state"`
 	Base         string               `json:"base,omitempty"`
 	BaseTree     string               `json:"base_tree,omitempty"`
-	ChangedPaths []string             `json:"changed_paths,omitempty"`
+	ChangedPaths []string             `json:"changed_paths"`
 	Paths        []WorkerObservedPath `json:"paths,omitempty"`
 }
 

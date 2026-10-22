@@ -8,7 +8,19 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
+
+func reviewObservedTree(t *testing.T, repo, commit string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	raw, err := (ExecGitRunner{}).Run(ctx, repo, "rev-parse", commit+"^{tree}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(raw))
+}
 
 func TestReviewRepairUnchangedTerminalRecordsAnEmptyDelta(t *testing.T) {
 	f := newNativeOracleFixture(t)
@@ -20,6 +32,10 @@ func TestReviewRepairUnchangedTerminalRecordsAnEmptyDelta(t *testing.T) {
 	output := prepared.proof.observation
 	if output == nil || output.Commit != f.head || output.Base != f.head || output.State != "clean" || output.ChangedPaths == nil || len(output.ChangedPaths) != 0 {
 		t.Fatalf("unchanged Review must record an observed empty delta: %+v", output)
+	}
+	tree := reviewObservedTree(t, f.repo, f.head)
+	if output.Tree != tree || output.BaseTree != tree {
+		t.Fatalf("unchanged Review must bind its observed tree %s: %+v", tree, output)
 	}
 }
 
@@ -132,7 +148,16 @@ func TestReviewRepairTerminalObservationAndContainment(t *testing.T) {
 			o := f.authorizeLane(t, "review", f.actor, "review", tc.readOnly)
 			nativeFixtureDispatch(t, f, o)
 			c := commitReviewRepair(t, f, tc.path)
+			inputTree, outputTree := reviewObservedTree(t, f.repo, f.head), reviewObservedTree(t, f.repo, c)
 			event := oracleCompletionEvent(t, f.s, f.work, o.AttemptID, "repair-completed", func(p *WorkerCompletedPayload) {
+				dependencies, err := workflowReviewDependencies(t.Context(), f.s.db, f.work)
+				if err != nil {
+					t.Fatal(err)
+				}
+				p.Review = &WorkerReviewBlock{Disposition: "ready_for_final_proof",
+					InputCandidate:  WorkerReviewCandidate{ProjectID: f.bundle.Owner.Mechanism.ProjectID, Commit: f.head, Tree: inputTree},
+					OutputCandidate: WorkerReviewCandidate{ProjectID: f.bundle.Owner.Mechanism.ProjectID, Commit: c, Tree: outputTree}, Dependencies: dependencies,
+					Assessments: []WorkerReviewAssessment{}, Findings: []WorkerReviewFinding{}, RemainingObligations: []WorkerReviewObligation{}}
 				if tc.name == "caller-claim" {
 					p.DirectCallerRepairs = []WorkerDirectCallerRepair{{
 						Owner: WorkerCallerMechanism{Path: "pkg/value.go", EntryPoint: "Value"}, Caller: WorkerCallerMechanism{Path: "pkg/value.go", EntryPoint: "Use"},
@@ -161,6 +186,9 @@ func TestReviewRepairTerminalObservationAndContainment(t *testing.T) {
 			_, output, err := readWorkerCompletedDeliveryTx(ctx, tx, f.work, o.AttemptID)
 			if err != nil || output == nil || output.Commit != c || output.Base != f.head || output.State != "clean" || !slices.Equal(output.ChangedPaths, []string{tc.path}) {
 				t.Fatalf("terminal C=%+v err=%v", output, err)
+			}
+			if output.Tree != outputTree || output.BaseTree != inputTree {
+				t.Fatalf("terminal must retain producer-observed input/output trees: %+v", output)
 			}
 			lane, err := workerAttemptLane(ctx, tx, o.AttemptID)
 			if err != nil || lane.CapabilityClass != "review" {

@@ -783,6 +783,9 @@
         "dependencies_current": {
           "type": "boolean"
         },
+        "dependencies": {
+          "$ref": "#/$defs/lane_report_review_dependencies"
+        },
         "publication_outstanding": {
           "type": "boolean"
         }

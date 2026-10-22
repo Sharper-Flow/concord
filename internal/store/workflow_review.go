@@ -22,13 +22,14 @@ type WorkflowAcceptedReview struct {
 // WorkflowReviewState is the current execution view consumed by admission and
 // exposed on resumption. Findings remain open when a later report omits them.
 type WorkflowReviewState struct {
-	Candidate              *WorkerReviewCandidate  `json:"candidate"`
-	Accepted               *WorkflowAcceptedReview `json:"accepted_review"`
-	Findings               []WorkerReviewFinding   `json:"findings"`
-	ContinueConsumed       bool                    `json:"continue_consumed"`
-	GroupID                string                  `json:"group_id,omitempty"`
-	DependenciesCurrent    bool                    `json:"dependencies_current"`
-	PublicationOutstanding bool                    `json:"publication_outstanding"`
+	Dependencies           *WorkerReviewDependencies `json:"dependencies,omitempty"`
+	Candidate              *WorkerReviewCandidate    `json:"candidate"`
+	Accepted               *WorkflowAcceptedReview   `json:"accepted_review"`
+	Findings               []WorkerReviewFinding     `json:"findings"`
+	ContinueConsumed       bool                      `json:"continue_consumed"`
+	GroupID                string                    `json:"group_id,omitempty"`
+	DependenciesCurrent    bool                      `json:"dependencies_current"`
+	PublicationOutstanding bool                      `json:"publication_outstanding"`
 }
 
 func reviewFailure(kind FailureKind, detail, next string) *Failure {
@@ -236,12 +237,19 @@ func loadWorkflowReviewState(ctx context.Context, q queryer, workID string, befo
 	for _, id := range ids {
 		state.Findings = append(state.Findings, findings[id])
 	}
-	if state.Accepted != nil {
+	var hasContract bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_contracts WHERE work_id=?)`, workID).Scan(&hasContract); err != nil {
+		return state, err
+	}
+	if hasContract {
 		dependencies, err := workflowReviewDependencies(ctx, q, workID)
 		if err != nil {
 			return state, err
 		}
-		state.DependenciesCurrent = sameReviewDependencies(state.Accepted.Report.Dependencies, dependencies)
+		state.Dependencies = &dependencies
+		if state.Accepted != nil {
+			state.DependenciesCurrent = sameReviewDependencies(state.Accepted.Report.Dependencies, dependencies)
+		}
 	}
 	return state, nil
 }
@@ -498,12 +506,47 @@ func readWorkerJobRevisionTx(ctx context.Context, q queryer, workID string, bind
 // Passing producer identity and declared control coverage, not a caller's
 // verdict word or a merely bound evidence kind, discharge a criterion.
 func workflowCriterionReceipt(ctx context.Context, q queryer, workID, predicate, ref, subject string) error {
+	research, err := workflowResearchCriterionFamily(ctx, q, workID)
+	if err != nil {
+		return err
+	}
+	if research {
+		view, err := readWorkContextView(ctx, q, workID)
+		if err != nil {
+			return err
+		}
+		if view != nil {
+			for _, entry := range view.ResearchFindings {
+				if entry.ViewID == ref && entry.State == WorkContextResearchStateResolved && entry.Finding != nil && entry.Sources != nil && len(*entry.Sources) != 0 {
+					return nil
+				}
+			}
+		}
+		return reviewFailure(KindMissingEvidence, "criterion "+predicate+" cites no current evidenced research finding", "select the exact pack, revision and evidenced finding through record_work_context and cite its research view reference")
+	}
 	producer, err := readOracleVerifySubjectReceipt(ctx, q, workID, ref)
 	if err != nil {
 		return err
 	}
-	if producer == nil || producer.ExitCode != 0 || producer.Oracle == nil || producer.Oracle.Phase != "execute" || producer.SubjectRef != "commit:"+subject {
+	if producer == nil || producer.ExitCode != 0 || producer.SubjectRef != "commit:"+subject {
 		return reviewFailure(KindMissingEvidence, "criterion "+predicate+" requires a passing producer receipt on the final candidate; "+ref+" does not qualify", "run the criterion's declared control on the current candidate and reference its captured receipt")
+	}
+	if producer.Oracle == nil {
+		state, err := loadWorkflowReviewState(ctx, q, workID, 0)
+		if err != nil {
+			return err
+		}
+		if state.Candidate != nil && state.Accepted != nil && state.DependenciesCurrent && state.Accepted.Report.OutputCandidate == *state.Candidate && state.Candidate.Commit == subject && state.Candidate.ProjectID == producer.ProjectID {
+			for _, assessment := range state.Accepted.Report.Assessments {
+				if assessment.PredicateID == predicate && assessment.Assessment == "supported" && slices.Contains(assessment.ReceiptRefs, ref) {
+					return nil
+				}
+			}
+		}
+		return reviewFailure(KindMissingEvidence, "command receipt "+ref+" has no accepted Review assessment covering criterion "+predicate, "have Review assess this criterion on the final candidate and cite the captured passing command receipt, then accept that exact report")
+	}
+	if producer.Oracle.Phase != "execute" {
+		return reviewFailure(KindMissingEvidence, "preparation is readiness, not criterion proof", "execute the criterion's declared control and cite its captured result")
 	}
 	if producer.Oracle.WorkerJobBinding == nil {
 		return reviewFailure(KindMissingEvidence, "producer receipt names no recorded assignment", "execute the declared control under its admitted assignment")
@@ -549,6 +592,12 @@ func workflowCriterionReceipt(ctx context.Context, q queryer, workID, predicate,
 	return reviewFailure(KindMissingEvidence, fmt.Sprintf("receipt %s has no declared coverage of criterion %s", ref, predicate), "execute a declared control that covers this criterion; an unrelated green command cannot satisfy it")
 }
 
+func workflowResearchCriterionFamily(ctx context.Context, q queryer, workID string) (bool, error) {
+	var research bool
+	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_instances WHERE work_id=? AND definition_ref='workflow.research')`, workID).Scan(&research)
+	return research, err
+}
+
 // Associations retain the criterion content and candidate captured when Main
 // selected the receipt. Unchanged dependencies survive an administrative resume.
 func verifyWorkflowCriterionAssociation(ctx context.Context, q queryer, workID string, association workflowVerdictRecordedPayload) error {
@@ -559,7 +608,11 @@ func verifyWorkflowCriterionAssociation(ctx context.Context, q queryer, workID s
 	if err != nil {
 		return err
 	}
-	if association.Candidate == nil || state.Candidate == nil || *association.Candidate != *state.Candidate || association.VerdictKind != "ok" || association.IncomparableWithApproved || len(association.EvaluationEvidence) == 0 {
+	research, err := workflowResearchCriterionFamily(ctx, q, workID)
+	if err != nil {
+		return err
+	}
+	if (!research && (association.Candidate == nil || state.Candidate == nil || *association.Candidate != *state.Candidate)) || association.VerdictKind != "ok" || association.IncomparableWithApproved || len(association.EvaluationEvidence) == 0 {
 		return reviewFailure(KindMissingEvidence, "criterion proof does not identify the current integrated candidate", "associate captured passing receipts for the current candidate")
 	}
 	dependencies, err := workflowReviewDependencies(ctx, q, workID)
@@ -574,7 +627,11 @@ func verifyWorkflowCriterionAssociation(ctx context.Context, q queryer, workID s
 			return reviewFailure(KindStaleRequiresReview, "criterion content changed after proof association", "reassess only the changed criterion and associate applicable producer proof")
 		}
 		for _, ref := range association.EvaluationEvidence {
-			if err := workflowCriterionReceipt(ctx, q, workID, criterion.PredicateID, ref, association.Candidate.Commit); err != nil {
+			subject := ""
+			if association.Candidate != nil {
+				subject = association.Candidate.Commit
+			}
+			if err := workflowCriterionReceipt(ctx, q, workID, criterion.PredicateID, ref, subject); err != nil {
 				return err
 			}
 		}

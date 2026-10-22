@@ -63,7 +63,7 @@ func TestSpineAdministrativeRecoveryPreservesValidProof(t *testing.T) {
 	// the implementation. No verification producer runs after recovery.
 	f.env.SessionRef = "session-evaluator"
 	f.env.AgentRef = "agent-evaluator"
-	verdict := map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{f.proof}}}}
+	verdict := map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{f.proof}}}}
 	accepted := f.action(t, "record_verdict", verdict)
 	if accepted.Outcome != OutcomeOK {
 		t.Fatalf("unchanged candidate lost valid proof after administrative recovery: %+v", accepted.Error)

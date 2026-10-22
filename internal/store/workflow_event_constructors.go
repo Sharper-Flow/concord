@@ -580,7 +580,11 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, request Workfl
 	if stateErr != nil {
 		return nil, stateErr
 	}
-	if state.Candidate == nil {
+	research, err := workflowResearchCriterionFamily(ctx, tx, request.WorkID)
+	if err != nil {
+		return nil, err
+	}
+	if state.Candidate == nil && !research {
 		return nil, reviewFailure(KindMissingEvidence, "criterion association requires a current integrated candidate", "accept the observed candidate before associating its proof")
 	}
 	dependencies, err := workflowReviewDependencies(ctx, tx, request.WorkID)
@@ -598,7 +602,11 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, request Workfl
 			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict evaluation_evidence exceeds 32 references", false, "supply a bounded evidence list")
 		}
 		for _, ref := range evidence {
-			if err := workflowCriterionReceipt(ctx, tx, request.WorkID, entry.PredicateID, ref, state.Candidate.Commit); err != nil {
+			subject := ""
+			if state.Candidate != nil {
+				subject = state.Candidate.Commit
+			}
+			if err := workflowCriterionReceipt(ctx, tx, request.WorkID, entry.PredicateID, ref, subject); err != nil {
 				return nil, err
 			}
 		}

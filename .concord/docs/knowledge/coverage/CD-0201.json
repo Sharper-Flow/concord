@@ -18,7 +18,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestNoShipReviewKeepsRefineCurrentAndSettlingReviewAdvances"
+      "value": "internal/store.TestBlockingReviewDispositionAcceptsWithoutAdvancing"
     },
     {
       "kind": "go_test",

@@ -82,6 +82,15 @@ func TestNativeOracleDispatchRecordsAdmittedSubjectOnce(t *testing.T) {
 	if err != nil || view == nil || view.SubjectCommit == "" {
 		t.Fatalf("admitted work context = %+v, error = %v, want a qualified subject", view, err)
 	}
+	tampered := *view
+	tampered.SubjectCommit = strings.Repeat("b", 40)
+	tamperedPacket := workContextDispatchPacket(t, fixture, "attempt-ctx-subject-tampered", job, &tampered)
+	if err := dispatchWorkContextAttempt(t, fixture, tamperedPacket); err == nil || !strings.Contains(err.Error(), "does not consume the current work context") {
+		t.Fatalf("tampered candidate view error = %v, want the typed consumption refusal", err)
+	}
+	if got := dispatchStartedCount(t, s, fixture.workID); got != 0 {
+		t.Fatalf("tampered initial packet started %d dispatches", got)
+	}
 	attemptID := "attempt-ctx-subject-once"
 	packet := workContextDispatchPacket(t, fixture, attemptID, job, view)
 	if err := dispatchWorkContextAttempt(t, fixture, packet); err != nil {
@@ -125,11 +134,8 @@ func TestNativeOracleDispatchRecordsAdmittedSubjectOnce(t *testing.T) {
 	if window.SubjectCommit != view.SubjectCommit || window.PacketDigest != wantDigest {
 		t.Fatalf("dispatch window subject=%s digest=%s, want subject=%s digest=%s", window.SubjectCommit, window.PacketDigest, view.SubjectCommit, wantDigest)
 	}
-	tampered := *view
-	tampered.SubjectCommit = strings.Repeat("b", 40)
-	tamperedPacket := workContextDispatchPacket(t, fixture, "attempt-ctx-subject-tampered", job, &tampered)
-	if err := dispatchWorkContextAttempt(t, fixture, tamperedPacket); err == nil || !strings.Contains(err.Error(), "does not consume the current work context") {
-		t.Fatalf("tampered candidate view error = %v, want the typed consumption refusal", err)
+	if err := dispatchWorkContextAttempt(t, fixture, tamperedPacket); failureKind(err) != KindOperationConflict || !strings.Contains(err.Error(), "unresolved launch outcome") {
+		t.Fatalf("another authorization before launch reconciliation = %v, want operation_conflict", err)
 	}
 	if got := completionsWithSubject(); got != 1 {
 		t.Fatalf("dispatch completions after the tampered attempt = %d, want still the one admitted subject", got)

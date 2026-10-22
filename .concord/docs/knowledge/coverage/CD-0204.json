@@ -10,7 +10,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestPreflightRefusesReviewDebtDeliveryTheExecutionRefuses"
+      "value": "internal/store.TestPreflightAndMutationRequireAcceptedReadyDisposition"
     },
     {
       "kind": "go_test",

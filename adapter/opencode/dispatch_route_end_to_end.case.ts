@@ -899,7 +899,7 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(dbValue(dbPath, `SELECT state FROM worker_job_revisions WHERE work_id='${workID}' AND job_id='${ROUTE_WORKER_JOB_ID}'`).state).toBe("satisfied")
     const reviewInput = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, command: ["git", "rev-parse", "HEAD"], idempotency_key: "e2e-review-input" } }, context)
     expect(reviewInput.outcome, JSON.stringify(reviewInput)).toBe("ok")
-    const reviewInputRef = reviewInput.result.operation_ref as string
+    const reviewInputRef = (reviewInput.result as JSONRecord).operation_ref as string
     const assertDeliveryVerification = async () => {
       const eventsBeforeSkippedVerify = dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n as number
       const skippedVerifyDelivery = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_delivery", "e2e-delivery-without-verify", { delivery_artifact: "https://github.com/synthetic/concord/pull/898", delivery_state: "asserted" })
@@ -935,7 +935,7 @@ routeDeclaration("composes implementation and independent review through one ord
     const { readiness_evidence_refs: previousReadiness, ...reviewControl } = sourceOracle.controls[0]
     const preparedReview = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, idempotency_key: "e2e-review-prepare", oracle: { phase: "prepare", expected_contract_version: 1, control_bundle: { owner: sourceOracle.owners[0], cases: sourceOracle.cases, control: reviewControl } } } }, context)
     expect(preparedReview.outcome, JSON.stringify(preparedReview)).toBe("ok")
-    const reviewOracle = { ...sourceOracle, controls: [{ ...reviewControl, readiness_evidence_refs: [preparedReview.result.operation_ref] }] }
+    const reviewOracle = { ...sourceOracle, controls: [{ ...reviewControl, readiness_evidence_refs: [(preparedReview.result as JSONRecord).operation_ref] }] }
     const refineDeliveryVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineDeliveryVersion, "record_worker_job", "e2e-no-ship-worker-job", {
       job_id: "job:route-e2e-no-ship-review",

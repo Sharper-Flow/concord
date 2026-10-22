@@ -6525,8 +6525,10 @@ DELETE FROM fold_guard;
 `,
 	},
 	{
-		Version: 137,
-		Name:    "worker_job_group_permission",
+		Version:        137,
+		Name:           "worker_job_group_permission",
+		Breaking:       true,
+		FoldMaintained: "advance",
 		SQL: `
 ALTER TABLE worker_job_revisions ADD COLUMN group_permission TEXT NOT NULL DEFAULT '' CHECK(group_permission IN ('','first_entry','continue'));
 ALTER TABLE worker_job_revisions ADD COLUMN group_review_ref TEXT NOT NULL DEFAULT '';

@@ -522,7 +522,7 @@ func (l workflowAdmissionLoad) retryAndHolds(state *WorkflowAdmissionState) erro
 		}
 		state.UnconsumedUnboundRejection = rejectionHold
 	}
-	nonProgress, wallErr := workflowNonProgressAttemptCountForRegistry(l.ctx, l.q, l.workID, l.subject, l.registry)
+	nonProgress, wallErr := workflowNonProgressAttemptCount(l.ctx, l.q, l.workID, l.subject)
 	if wallErr != nil {
 		return wallErr
 	}
@@ -924,7 +924,7 @@ func workflowAdmitDispatchRefused(definition WorkflowDefinition, state WorkflowA
 			return true
 		}
 		if state.retryEscalated() && !state.RetryConvergence.valid() && state.FundedChecksRepairReviews == 0 {
-			decision.Failure = workflowRetryConvergenceFailure(definition, state)
+			decision.Failure = workflowRetryConvergenceFailure(state)
 			decision.ConvergenceRequired = true
 			return true
 		}

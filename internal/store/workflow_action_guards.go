@@ -1672,7 +1672,7 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 		completionValues["retry_convergence"] = in.admission.RetryConvergence
 	}
 	if in.admission != nil && in.admission.retryEscalated() && !in.admission.RetryConvergence.valid() && (repairReview == nil || !repairReview.Funded) {
-		return workflowRetryConvergenceFailure(in.entry.Definition, *in.admission)
+		return workflowRetryConvergenceFailure(*in.admission)
 	}
 	if job != nil {
 		completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}

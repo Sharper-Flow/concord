@@ -30,11 +30,9 @@ func (s WorkflowAdmissionState) retryEscalated() bool {
 // corrections that escalated the window from the active nonprogress
 // population, and the remedy names the supersession prerequisites and the
 // one fresh fenced attempt a basis buys. The
-// nonprogress count runs since the applicable nonprogress anchor, which the
-// obligation-satisfaction policy renews from a qualified coordinator
-// satisfaction as well as a satisfying worker acceptance (CD-0164 D2a); the
-// two populations keep their own comparators (D4).
-func workflowRetryConvergenceFailure(definition WorkflowDefinition, state WorkflowAdmissionState) *Failure {
+// nonprogress count runs since the worker acceptance boundary; the two
+// populations keep their own comparators (D4).
+func workflowRetryConvergenceFailure(state WorkflowAdmissionState) *Failure {
 	detail := "worker correction reached the three-attempt limit without a convergence basis"
 	nonprogress := state.NonProgressAttempts >= workflowCorrectionAttemptLimit
 	switch {
@@ -45,11 +43,7 @@ func workflowRetryConvergenceFailure(definition WorkflowDefinition, state Workfl
 	default:
 		detail += fmt.Sprintf(": %d non-progress attempts since the applicable nonprogress anchor (step %s)", state.NonProgressAttempts, state.Step)
 	}
-	renewal := "a satisfying worker acceptance"
-	if definition.ProgressPolicy == WorkflowProgressPolicyObligationSatisfactionV1 {
-		renewal = "a satisfying worker acceptance or the first qualified coordinator satisfaction"
-	}
-	detail += ". Dispatched attempts escalate the correction window at three or more; correction requests escalate it past three. A convergence basis or funded confirming review admits exactly one dispatch and renews no window; only " + renewal + " reopens the nonprogress window."
+	detail += ". Dispatched attempts escalate the correction window at three or more; correction requests escalate it past three. A convergence basis or funded confirming review admits exactly one dispatch and renews no window; only a satisfying worker acceptance reopens the nonprogress window."
 	return newFailure(KindMissingEvidence, "worker_dispatch", detail, false,
 		"record shrinking open_finding_ids, or supersede_contract with a changed approach recorded through audit_evidence and a new contract_version — one fresh fenced attempt that does not renew the three-attempt budget — or stop the work")
 }

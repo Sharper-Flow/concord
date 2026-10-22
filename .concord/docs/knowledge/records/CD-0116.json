@@ -10,9 +10,9 @@
     "internal/store/workflow_dispatch.go",
     "internal/agent/mutations.go",
     "internal/store/operator_verdict_test.go",
-    "internal/agent/operator_verdict_test.go",
+    "internal/agent/spine_criterion_authority_test.go",
     "adapter/opencode/dispatch_route_end_to_end.test.ts",
-    "internal/agent/verdict_after_acceptance_test.go",
+    "internal/store/review_receipt_test.go",
     "internal/store/workflow_evaluation.go",
     "internal/store/workflow_evaluation_test.go"
   ],

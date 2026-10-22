@@ -24,6 +24,9 @@ func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
 			{"one criterion", func(ref string) map[string]any {
 				return map[string]any{"verdicts": []any{entry("predicate:first", ref)}}
 			}, "", 1, ""},
+			{"resumed Main", func(ref string) map[string]any {
+				return map[string]any{"verdicts": []any{entry("predicate:first", ref)}}
+			}, "", 1, ""},
 			{"unapproved last criterion", func(ref string) map[string]any {
 				return map[string]any{"verdicts": []any{entry("predicate:first", ref), entry("predicate:foreign", ref)}}
 			}, KindInvalidPayload, 0, ""},
@@ -80,13 +83,17 @@ func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
 					t.Fatal(err)
 				}
 				before := contractCorrectionEffectSnapshot(t, f.store, workID)
+				actor := f.owner
+				if tc.name == "resumed Main" {
+					actor.SessionRef += ":resumed"
+				}
 				preflight := WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-					WorkID: workID, ExpectedVersion: readWorkVersion(t, f.store, workID), ActionID: "record_verdict", Payload: payload, Actor: f.owner,
+					WorkID: workID, ExpectedVersion: readWorkVersion(t, f.store, workID), ActionID: "record_verdict", Payload: payload, Actor: actor,
 				})
 				if after := contractCorrectionEffectSnapshot(t, f.store, workID); after != before {
 					t.Fatal("criterion preflight changed durable state")
 				}
-				err = runVerdictActionAs(t, f.store, workID, "record_verdict", payload, 0, f.owner)
+				err = runVerdictActionAs(t, f.store, workID, "record_verdict", payload, 0, actor)
 				if tc.kind != "" {
 					if !hasFailureKind(preflight, tc.kind) || !hasFailureKind(err, tc.kind) {
 						t.Fatalf("preflight=%v mutation=%v, want %s", preflight, err, tc.kind)
@@ -130,6 +137,9 @@ func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
 					}
 					if association.Candidate != nil || association.CriterionDigest == "" || len(association.EvaluationEvidence) != 1 || association.EvaluationEvidence[0] != ref {
 						t.Fatalf("association did not retain exact research proof and current criterion content: %+v", association)
+					}
+					if association.VerdictActorRef != DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef) {
+						t.Fatal("criterion association did not retain the calling Main identity")
 					}
 					if err := verifyWorkflowCriterionAssociation(t.Context(), f.store.db, workID, association); err != nil {
 						t.Fatalf("recorded criterion association cannot substantiate acceptance: %v", err)

@@ -721,7 +721,7 @@ export async function executeBoundWorkerControl(request: WorkerControlRequest, c
   // This route never retries a possibly executed workload or relabels a native
   // failure as no effect. The lease identifies the existing producer's record.
   const result = await runner.run([concordBinaryPath(), "worker-control"], JSON.stringify({ ...request, assertion: signed }), context.abort, { cwd: directory })
-  const refusal = `${result.stderr.slice(-MAX_STDERR).trim() || "native control ingress refused"}; reconcile native lease ${leaseID}`
+  const refusal = `${result.stderr.slice(-MAX_STDERR).trim() || "native control result unavailable"}; reconcile native lease ${leaseID}`
   if (result.exitCode !== 0 && !result.stdout.trim()) throw new Error(refusal)
   if (Buffer.byteLength(result.stdout) > maxEnvelopeBytes) throw new Error(`native control response exceeded its transport bound; ${refusal}`)
   let response: any
@@ -731,7 +731,7 @@ export async function executeBoundWorkerControl(request: WorkerControlRequest, c
   }
   if (result.exitCode !== 0) {
     const disposition = response.lease_disposition
-    const knownDisposition = record(disposition) && (disposition.state === "unknown" && disposition.outcome === undefined || disposition.state === "released" && ["completed", "aborted"].includes(disposition.outcome))
+    const knownDisposition = record(disposition) && (disposition.state === "unknown" && disposition.outcome === undefined || disposition.state === "released" && (disposition.outcome === "completed" || disposition.outcome === "aborted"))
     if (response.outcome !== "refused" || response.oracle.qualification !== "unavailable" || response.operation_ref !== `worktree_verify:${leaseID}` || typeof response.diagnostic !== "string" || !response.diagnostic || !knownDisposition) throw new Error(refusal)
   }
   return response

@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp as createDirectory, rm, symlink } from "node:fs/p
 import { createHash, createPublicKey, verify as verifySignature } from "node:crypto"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { contractOperations, hostToolSchemas, manifestDigest, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
+import { contractOperations, hostToolSchemas, manifestDigest, maxEnvelopeBytes, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { configureCoreBinary, workerFailureObservationDigest } from "./dispatch"
 import { dispatchWindows, staleReleaseDispatchRefusal, TASK_TOOL_ID } from "./dispatch-window"
 import { claimHostLease, configureHostLease, hostLeaseFault, releaseDisplayName, releaseStaleness, resolveInstalledReleaseRoot } from "./host-lease"
@@ -284,8 +284,8 @@ test("worker check refuses forged acceptance or disposition on a nonzero native 
   }
 })
 
-test("worker check preserves recovery context for malformed nonzero producer stdout", async () => {
-  for (const stdout of ["{partial", '{"work_id":"foreign"}']) {
+test("worker check preserves recovery context for malformed or oversized nonzero producer stdout", async () => {
+  for (const stdout of ["{partial", '{"work_id":"foreign"}', "x".repeat(maxEnvelopeBytes + 1)]) {
     const f = workerControlTransportFixture()
     configureHostLease({ reset: true })
     adapter.configureConcordAdapter({ credentials: { getPrivateKey: async () => new Uint8Array(32).fill(7) }, runner: { run: async (argv) => argv[1] === "project-resolve" ? { exitCode: 0, stdout: JSON.stringify(f.ambient), stderr: "" } : { exitCode: 1, stdout, stderr: "native producer refused" } } })
@@ -295,6 +295,16 @@ test("worker check preserves recovery context for malformed nonzero producer std
       await expect(attempt).rejects.toThrow("reconcile native lease")
     } finally { adapter.configureConcordAdapter({ reset: true }) }
   }
+})
+
+test("worker check does not infer an ingress refusal from a zero-exit malformed response", async () => {
+  const f = workerControlTransportFixture()
+  configureHostLease({ reset: true })
+  adapter.configureConcordAdapter({ credentials: { getPrivateKey: async () => new Uint8Array(32).fill(7) }, runner: { run: async (argv) => ({ exitCode: 0, stdout: argv[1] === "project-resolve" ? JSON.stringify(f.ambient) : "{partial", stderr: "" }) } })
+  try {
+    const attempt = adapter.executeBoundWorkerControl(f.request, f.context, f.digest, f.context.directory)
+    await expect(attempt).rejects.toThrow("native control result unavailable; reconcile native lease")
+  } finally { adapter.configureConcordAdapter({ reset: true }) }
 })
 
 test("exports exactly the generated tool names", () => {

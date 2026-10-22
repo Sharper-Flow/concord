@@ -423,7 +423,13 @@ func TestWorkerTerminalObservedDelivery(t *testing.T) {
 		}
 		request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, readback, "nonce-observe-fail001")
 		request["event_id"] = "failed-observe-no-probe"
-		request["assertion"] = signWorkerEvidence(t, key, assertion)
+		observation := attributionWorkerReportObservation()
+		digest, err := store.WorkerFailureObservationDigest(observation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request["failure_attribution"] = observation
+		request["assertion"] = attributionSignedV2Assertion(t, key, assertion.AttemptID, lane, readback, assertion.Nonce, digest, nil)
 		var out, errOut bytes.Buffer
 		if code := runWithInput([]string{"worker-fail"}, strings.NewReader(mustJSON(t, request)), &out, &errOut); code != 0 {
 			t.Fatalf("worker-fail with the worktree gone exit=%d stderr=%s out=%s", code, errOut.String(), out.String())
@@ -833,6 +839,15 @@ func TestWorkerEvidenceRecoveryAfterObservationRefusal(t *testing.T) {
 		assertion.ReadbackModel = ""
 		assertion.FailureKind = string(store.WorkerFailureAbandoned)
 		request["event_id"] = "failed-recover-abandon"
+		observation := attributionHostTerminalObservation("the coordinator asked to abandon this attempt")
+		observation.Cause, observation.Basis = store.WorkerFailureCauseUnknown, store.WorkerFailureBasisUnknown
+		observation.Sources[0].Host = &store.WorkerFailureHostObservation{Tag: store.WorkerFailureHostTagAbandonment, EventType: "worker_abandon"}
+		digest, err := store.WorkerFailureObservationDigest(observation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request["failure_attribution"] = observation
+		assertion.Version, assertion.ObservationDigest = agent.WorkerEvidenceAssertionVersion2, digest
 		request["assertion"] = signWorkerEvidence(t, key, assertion)
 		var out, errOut bytes.Buffer
 		if code := runWithInput([]string{"worker-abandon"}, strings.NewReader(mustJSON(t, request)), &out, &errOut); code != 0 {

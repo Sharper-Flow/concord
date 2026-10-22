@@ -273,8 +273,9 @@ func seedWorkerEvidenceAttempt(t *testing.T, key ed25519.PrivateKey, lane store.
 
 // TestWorkerEvidenceBindsExactlyTheDeclaredFieldSet proves, per verb, that the
 // CLI binding populates exactly the field set the shared vector declares. An
-// assertion claiming that set is accepted, so the CLI binds nothing beyond it;
-// restating any one of those fields is refused, so it binds every one of them.
+// assertion claiming that v1 set authenticates; a failed terminal without a
+// producer observation then refuses at the store's attribution gate. Restating
+// any one of those fields refuses at authentication, so it binds every one.
 // The adapter signs the same declared set (adapter/opencode/worker_evidence.test.ts),
 // which is what keeps the two sides from drifting apart per verb.
 func TestWorkerEvidenceBindsExactlyTheDeclaredFieldSet(t *testing.T) {
@@ -297,8 +298,15 @@ func TestWorkerEvidenceBindsExactlyTheDeclaredFieldSet(t *testing.T) {
 			code := runWithInput([]string{verb}, strings.NewReader(mustJSON(t, request)), &out, &errOut)
 			return code, errOut.String(), dbPath
 		}
-		t.Run(verb+"/accepts the declared field set", func(t *testing.T) {
-			code, stderr, _ := run(t, func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion { return a })
+		t.Run(verb+"/authenticates the declared v1 field set", func(t *testing.T) {
+			code, stderr, dbPath := run(t, func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion { return a })
+			if verb == agent.WorkerEvidenceVerbFail {
+				if code == 0 || !strings.Contains(stderr, "the pinned definition requires recorded failure_attribution") {
+					t.Fatalf("v1 worker-fail exit=%d stderr=%q, want authentication followed by the missing-attribution refusal", code, stderr)
+				}
+				attributionAssertNoEffects(t, dbPath, "nonce-bound-fieldset00001")
+				return
+			}
 			if code != 0 {
 				t.Fatalf("%s with the declared field set exit=%d stderr=%q, want acceptance", verb, code, stderr)
 			}
@@ -308,10 +316,13 @@ func TestWorkerEvidenceBindsExactlyTheDeclaredFieldSet(t *testing.T) {
 				code, stderr, dbPath := run(t, func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion {
 					return mutateWorkerEvidenceField(t, a, field)
 				})
-				if code == 0 {
-					t.Fatalf("%s accepted an assertion restating %s", verb, field)
+				if code == 0 || !strings.Contains(stderr, "does not bind this attempt identity") {
+					t.Fatalf("%s restating %s exit=%d stderr=%q, want the binding refusal", verb, field, code, stderr)
 				}
 				assertNoTerminalWorkerEvent(t, dbPath, stderr)
+				if rows := attributionNonceRows(t, dbPath, "nonce-bound-fieldset00001"); rows != 0 {
+					t.Fatalf("restated %s consumed %d nonce rows, want zero", field, rows)
+				}
 			})
 		}
 	}
@@ -329,18 +340,22 @@ func TestWorkerFailRefusesAnAssertionWithoutLaneIdentity(t *testing.T) {
 	seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
 
 	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, readback, "nonce-fail-nolaneidentity")
-	unbound := assertion
-	unbound.LaneID = ""
-	unbound.LaneVersion = 0
-	unbound.LaneDigest = ""
-	request["assertion"] = signWorkerEvidence(t, key, unbound)
+	observation := attributionWorkerReportObservation()
+	digest, err := store.WorkerFailureObservationDigest(observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request["failure_attribution"] = observation
+	request["assertion"] = attributionSignedV2Assertion(t, key, assertion.AttemptID, lane, readback, assertion.Nonce, digest, func(a *agent.WorkerEvidenceAssertion) {
+		a.LaneID, a.LaneVersion, a.LaneDigest = "", 0, ""
+	})
 	var out, errOut bytes.Buffer
 	if code := runWithInput([]string{"worker-fail"}, strings.NewReader(mustJSON(t, request)), &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "does not bind this attempt identity") {
 		t.Fatalf("worker-fail without lane identity exit=%d stderr=%q, want an attempt-identity refusal", code, errOut.String())
 	}
 	assertNoTerminalWorkerEvent(t, dbPath, errOut.String())
 
-	request["assertion"] = signWorkerEvidence(t, key, assertion)
+	request["assertion"] = attributionSignedV2Assertion(t, key, assertion.AttemptID, lane, readback, assertion.Nonce, digest, nil)
 	out.Reset()
 	errOut.Reset()
 	if code := runWithInput([]string{"worker-fail"}, strings.NewReader(mustJSON(t, request)), &out, &errOut); code != 0 {
@@ -361,11 +376,10 @@ func TestWorkerFailRefusesAnAssertionWithoutLaneIdentity(t *testing.T) {
 }
 
 // TestWorkerAbandonDerivesReadbackAndRequiresAnEmptyObservation proves that
-// the host-only close route carries no caller-supplied model. The core derives
-// the dispatched model from its attempt row. CD-0178 D3 narrows the host
-// observation surface: the abandon path reads worktree_occupancy and process
-// liveness instead of caller-supplied session lists, so an empty observation
-// is the only valid input.
+// the host-only close route carries no caller-supplied model or liveness list.
+// The core derives the dispatched model from its attempt row and reads
+// worktree_occupancy and process liveness. The signed failure attribution
+// records only the abandonment request, not a claim that the child has ended.
 func TestWorkerAbandonDerivesReadbackAndRequiresAnEmptyObservation(t *testing.T) {
 	dbPath := freshMigratedCLIDatabase(t)
 	key := seedWorkerEvidenceClient(t)
@@ -380,6 +394,15 @@ func TestWorkerAbandonDerivesReadbackAndRequiresAnEmptyObservation(t *testing.T)
 	delete(request, "failure_kind")
 	assertion.ReadbackModel = ""
 	assertion.FailureKind = string(store.WorkerFailureAbandoned)
+	observation := attributionHostTerminalObservation("the coordinator asked to abandon this attempt")
+	observation.Cause, observation.Basis = store.WorkerFailureCauseUnknown, store.WorkerFailureBasisUnknown
+	observation.Sources[0].Host = &store.WorkerFailureHostObservation{Tag: store.WorkerFailureHostTagAbandonment, EventType: "worker_abandon"}
+	digest, err := store.WorkerFailureObservationDigest(observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request["failure_attribution"] = observation
+	assertion.Version, assertion.ObservationDigest = agent.WorkerEvidenceAssertionVersion2, digest
 	request["assertion"] = signWorkerEvidence(t, key, assertion)
 
 	var out, errOut bytes.Buffer
@@ -440,6 +463,15 @@ func TestWorkerAbandonRefusesAnObservedLiveSession(t *testing.T) {
 	delete(request, "failure_kind")
 	assertion.ReadbackModel = ""
 	assertion.FailureKind = string(store.WorkerFailureAbandoned)
+	observation := attributionHostTerminalObservation("the coordinator asked to abandon this attempt")
+	observation.Cause, observation.Basis = store.WorkerFailureCauseUnknown, store.WorkerFailureBasisUnknown
+	observation.Sources[0].Host = &store.WorkerFailureHostObservation{Tag: store.WorkerFailureHostTagAbandonment, EventType: "worker_abandon"}
+	digest, err := store.WorkerFailureObservationDigest(observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request["failure_attribution"] = observation
+	assertion.Version, assertion.ObservationDigest = agent.WorkerEvidenceAssertionVersion2, digest
 	request["assertion"] = signWorkerEvidence(t, key, assertion)
 
 	// Seed a live worktree and a live occupancy row whose host pid is the
@@ -497,6 +529,15 @@ func TestWorkerAbandonAppliesTheLegacyRowLeaseProof(t *testing.T) {
 			delete(request, "failure_kind")
 			assertion.ReadbackModel = ""
 			assertion.FailureKind = string(store.WorkerFailureAbandoned)
+			observation := attributionHostTerminalObservation("the coordinator asked to abandon this attempt")
+			observation.Cause, observation.Basis = store.WorkerFailureCauseUnknown, store.WorkerFailureBasisUnknown
+			observation.Sources[0].Host = &store.WorkerFailureHostObservation{Tag: store.WorkerFailureHostTagAbandonment, EventType: "worker_abandon"}
+			digest, err := store.WorkerFailureObservationDigest(observation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request["failure_attribution"] = observation
+			assertion.Version, assertion.ObservationDigest = agent.WorkerEvidenceAssertionVersion2, digest
 			request["assertion"] = signWorkerEvidence(t, key, assertion)
 
 			// The test process holds the only live host lease, and it

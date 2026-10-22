@@ -1936,12 +1936,6 @@ func beginWorkflowLifecycleTx(ctx context.Context, tx *sql.Tx, event Event) erro
 	return nil
 }
 
-// Main may associate captured proof after executing earlier steps. Workers
-// return reports and cannot acquire Main's acceptance authority.
-func workflowStepExecutorRefusal(ctx context.Context, tx queryer, workID, verdictActor, operation string) error {
-	return workflowRequireMain(ctx, tx, workID, verdictActor)
-}
-
 func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
 	var p workflowActionCheckpointedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {

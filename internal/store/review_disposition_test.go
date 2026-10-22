@@ -9,7 +9,7 @@ func TestReviewDispositionMainMayAssociateProofAfterExecution(t *testing.T) {
 	db, appendEvent, _ := progressHistory(t, false)
 	main := progressActorRecord(t, db, "main", "agent")
 	appendEvent(WorkflowActionStarted, workflowActionStartedPayload{StepID: "execution", ActionID: "start_execution", ActorRef: main})
-	if err := workflowStepExecutorRefusal(context.Background(), db, "work-history", main, "workflow_action"); err != nil {
+	if err := workflowRequireMain(context.Background(), db, "work-history", main); err != nil {
 		t.Fatalf("Main cannot associate producer proof after executing: %v", err)
 	}
 }

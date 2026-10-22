@@ -1250,15 +1250,6 @@ func workflowRefinementReviewFailure(ctx context.Context, q queryer, workID stri
 	return seq, raw, nil
 }
 
-// workflowStaleReviewAcceptTx reports whether one accept names a completed
-// review that a newer completed review has superseded. The newest completed
-// review stays acceptable whatever the folded state names; an older one
-// cannot bind, because the newer evidence supersedes its findings
-// (CD-0206 D3).
-func workflowStaleReviewAcceptTx(ctx context.Context, q queryer, workID, attemptID, subject string) (bool, error) {
-	return workflowStaleReviewAcceptBeforeTx(ctx, q, workID, attemptID, subject, 0)
-}
-
 func workflowStaleReviewAcceptBeforeTx(ctx context.Context, q queryer, workID, attemptID, subject string, beforeSeq int64) (bool, error) {
 	var stale int
 	err := q.QueryRowContext(ctx, `SELECT EXISTS(

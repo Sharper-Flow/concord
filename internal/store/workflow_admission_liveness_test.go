@@ -51,6 +51,25 @@ func TestAdmissionWorkflowStateKeepsArtifactStaleBit(t *testing.T) {
 	}
 }
 
+func TestAdmissionConfirmationAuthorityRequiresOneContract(t *testing.T) {
+	definition := mustBuiltinDefinition(t, "workflow.research").Definition
+	for _, contracts := range []int64{0, 1, 2} {
+		for _, engineering := range []bool{false, true} {
+			state := admissionModelState{step: "conclude", contracts: contracts, engineering: engineering}
+			want := WorkflowConfirmationAuthority("")
+			if contracts == 1 {
+				want = WorkflowConfirmationOperator
+				if engineering {
+					want = WorkflowConfirmationCoordinator
+				}
+			}
+			if got := admissionWorkflowState(definition, state).ConfirmationAuthority; got != want {
+				t.Errorf("%d active contracts, engineering=%v: confirmation authority=%q, want %q", contracts, engineering, got, want)
+			}
+		}
+	}
+}
+
 func workflowCapabilityClassProduces(class string) bool {
 	return slices.Contains(workflowProducingCapabilityClasses, class)
 }
@@ -354,7 +373,7 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 	// the question: an engineering contract records the coordinator's own
 	// confirmation, a decision contract keeps the verified operator, and a
 	// legacy pin keeps the empty authority the question machinery owns.
-	if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
+	if state.contracts == 1 && definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
 		folded.ConfirmationAuthority = WorkflowConfirmationOperator
 		if state.engineering {
 			folded.ConfirmationAuthority = WorkflowConfirmationCoordinator

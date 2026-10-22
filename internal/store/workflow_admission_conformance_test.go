@@ -213,8 +213,8 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	acceptor := reviewGateAcceptor(workID)
 	at := int64(100)
 
-	// The fixture parks the item at repair under one approved contract.
-	model := admissionModelState{step: "repair", debt: ReviewDebtNone, contracts: 1}
+	// The fixture approves one contract with an explicit engineering decision fact.
+	model := admissionModelState{step: "repair", debt: ReviewDebtNone, contracts: 1, engineering: true}
 	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "seeded at repair")
 
 	reentryEntry := conformanceStepEntryAction(t, def, "repair", "start_repair")
@@ -446,7 +446,7 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 	}
 	acceptor := reviewGateAcceptor(workID)
 
-	model := admissionModelState{step: "repair", debt: ReviewDebtNone, contracts: 1}
+	model := admissionModelState{step: "repair", debt: ReviewDebtNone, contracts: 1, engineering: true}
 	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "seeded at repair")
 	reentryEntry := conformanceStepEntryAction(t, def, "repair", "start_repair")
 	reentryDerives := conformanceStepDerives(t, s, workID, "repair")

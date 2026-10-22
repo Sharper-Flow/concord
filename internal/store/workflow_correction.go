@@ -121,114 +121,6 @@ type WorkflowCorrectionContext struct {
 	SourceEventSeq int64  `json:"source_event_seq"`
 }
 
-// WorkflowRetryApprovalBinding names the exact failed attempt and contract
-// an approval binds for a failed retry below the convergence wall.
-type WorkflowRetryApprovalBinding struct {
-	FailedAttemptID    string
-	FailedAttemptEpoch int64
-	ContractVersion    int64
-}
-
-// WorkflowFailedWorkerRetryBindingTx is the transaction-scoped form used by
-// the approval and dispatch boundary. It rereads the binding before approval
-// consumption, so a stale approval cannot authorize a different attempt.
-// A nil registry means the builtin registry.
-func WorkflowFailedWorkerRetryBindingTx(ctx context.Context, transaction *Transaction, registry DefinitionRegistry, workID string) (*WorkflowRetryApprovalBinding, error) {
-	q, err := transactionSQL(transaction, "workflow_correction")
-	if err != nil {
-		return nil, err
-	}
-	return workflowFailedWorkerRetryBinding(ctx, q, registry, workID)
-}
-
-func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, registry DefinitionRegistry, workID string) (*WorkflowRetryApprovalBinding, error) {
-	var stepID, pinRef, pinDigest string
-	var pinVersion int64
-	if err := q.QueryRowContext(ctx, `SELECT current_step,COALESCE(definition_ref,''),COALESCE(definition_version,0),COALESCE(definition_digest,'') FROM workflow_instances WHERE work_id=?`, workID).Scan(&stepID, &pinRef, &pinVersion, &pinDigest); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot read the current workflow step", true, "retry once the workflow projection is readable", err)
-	}
-	pin := WorkflowDefinitionPin{Ref: pinRef, Version: pinVersion, Digest: pinDigest}
-	definition, err := workflowPinnedDefinitionForBinding(registry, pin)
-	if err != nil {
-		return nil, err
-	}
-	state, _, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, q, workID, definition, stepID, "workflow_correction", registry)
-	if err != nil {
-		return nil, err
-	}
-	decision := workflowAdmit(definition, state, "dispatch_worker")
-	if state.retryEscalated() {
-		return nil, nil
-	}
-	if !decision.Admitted && !decision.ApprovalRequired {
-		return nil, nil
-	}
-	if decision.ApprovalRequired && state.FailedWorkerRetry != nil {
-		return state.FailedWorkerRetry, nil
-	}
-	correction, err := workflowCorrectionContextForDispatch(ctx, q, workID, stepID, "")
-	if err != nil {
-		return nil, err
-	}
-	if correction == nil || correction.Disposition != "failed" {
-		return nil, nil
-	}
-	contractVersion, err := latestWorkflowContractVersion(ctx, q, workID)
-	if err != nil {
-		return nil, err
-	}
-	binding := &WorkflowRetryApprovalBinding{
-		FailedAttemptID: correction.FailedAttemptID, FailedAttemptEpoch: correction.FailedAttemptEpoch,
-		ContractVersion: contractVersion,
-	}
-	return binding, nil
-}
-
-// A terminal authorization needs exact retry approval even when its worker
-// supplied no admissible dispatch evidence or its failure has no disposition.
-// The latest authorization at this step owns the identity; an older failure
-// cannot replace a newer live or completed attempt. Productive acceptance
-// resets the window through the same anchor the non-progress wall reads.
-func workflowCurrentFailedWorkerRetryBinding(ctx context.Context, q queryer, workID, stepID string) (*WorkflowRetryApprovalBinding, error) {
-	anchor, err := workflowNonProgressWindowAnchor(ctx, q, workID, "workflow_correction", 0)
-	if err != nil {
-		return nil, err
-	}
-	var attemptID, lifecycle string
-	var epoch int64
-	err = q.QueryRowContext(ctx, `SELECT a.attempt_id,a.lifecycle_state,json_extract(c.payload,'$.attempt_epoch') FROM domain_events c JOIN worker_attempts a ON a.work_id=c.subject_id AND a.attempt_id=json_extract(c.payload,'$.worker_attempt_id') WHERE c.subject_type=? AND c.subject_id=? AND c.kind=? AND json_extract(c.payload,'$.action_id')='dispatch_worker' AND json_extract(c.payload,'$.step_id')=? AND c.seq>? ORDER BY c.seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, stepID, anchor).Scan(&attemptID, &lifecycle, &epoch)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot inspect the latest authorized worker attempt", true, "retry once the worker authorization is readable", err)
-	}
-	if lifecycle != "failed" {
-		return nil, nil
-	}
-	contractVersion, err := latestWorkflowContractVersion(ctx, q, workID)
-	if err != nil {
-		return nil, err
-	}
-	return &WorkflowRetryApprovalBinding{FailedAttemptID: attemptID, FailedAttemptEpoch: epoch, ContractVersion: contractVersion}, nil
-}
-
-// workflowPinnedDefinitionForBinding resolves the binding's workflow pin.
-// A nil registry means the builtin registry.
-func workflowPinnedDefinitionForBinding(registry DefinitionRegistry, pin WorkflowDefinitionPin) (WorkflowDefinition, error) {
-	if registry == nil {
-		registry = BuiltinWorkflowRegistry()
-	}
-	entry, err := resolveCurrentWorkflowDefinition(registry, pin.Ref)
-	if err != nil {
-		return WorkflowDefinition{}, err
-	}
-	return entry.Definition, nil
-}
-
 // validateFailedWorkerRetryIdentity refuses a retry that reuses the failed
 // worker identity. The dispatch fold mints the next step epoch separately.
 func validateFailedWorkerRetryIdentity(ctx context.Context, q queryer, workID, currentStep string, payload json.RawMessage) error {
@@ -1633,8 +1525,7 @@ type workflowCorrectionCompletionFields struct {
 // worker.dispatched event for the completion's worker_attempt_id. A dispatch
 // intent folded without its host worker-dispatch call (an interruption between
 // the workflow action and the dispatch) leaves an unbound correction record
-// open, so the retry binding stays readable and the escalation wall keeps its
-// operator-approvable escape.
+// open with its original source and failed-attempt identity.
 //
 // Job-aware consumption (CD-0205 D4): a failure or rejection dispatched under
 // a recorded worker job stays open until an accepted result discharges its
@@ -1642,8 +1533,8 @@ type workflowCorrectionCompletionFields struct {
 // walks. Job identity alone consumes nothing: a newer dispatch under the same
 // job_id with a rewritten obligation, or an unrelated job's dispatch, or an
 // acceptance without a job disposition, leaves the record open with its
-// counted dispatches and the exact retry approval bound to the failed
-// attempt. A failure with no job binding keeps the historical behavior: any
+// original source and failed-attempt identity. A failure with no job binding
+// keeps the historical behavior: any
 // newer materialized dispatch closes it.
 func workflowCorrectionContextForDispatch(ctx context.Context, q queryer, workID, stepID, dispatchAttemptID string) (*WorkflowCorrectionContext, error) {
 	record, err := workflowCorrectionOpenRecord(ctx, q, workID, dispatchAttemptID, "workflow_correction")

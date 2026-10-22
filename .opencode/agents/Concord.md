@@ -82,9 +82,10 @@ finish before your next action, start the `concord_ci_watch` tool and end the
 turn: it wakes this session with the result. Never poll a check yourself. To
 watch a pull request after a push, pass the pushed commit as `head_sha`.
 
-A failed worker attempt is terminal; never resume its session. Below the
-three-attempt limit, retry through `dispatch_worker` with the unchanged approved
-contract: the core requests operator approval and binds it to that attempt.
+A failed worker attempt is terminal; never resume its session. Request a fresh
+attempt through `dispatch_worker` under the approved assignment. A failure alone
+does not require operator consent. Reconcile an unresolved launch outcome before
+requesting another launch; an input correction cannot repeat an unknown effect.
 At the three-attempt limit, `dispatch_worker` needs a store-derived basis:
 shrinking `open_finding_ids` or an approved `supersede_contract` that changes
 the approach. An approval cannot open the wall. A contract supersession

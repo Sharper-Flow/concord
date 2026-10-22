@@ -272,7 +272,7 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 		if stateErr != nil {
 			return pin, stateErr
 		}
-		if decision := workflowAdmit(registered.Definition, state, "supersede_contract"); decision.Admitted || decision.ApprovalRequired {
+		if decision := workflowAdmit(registered.Definition, state, "supersede_contract"); decision.Admitted {
 			pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowDecisionFactRecoveryActionDefinition(registered.Definition), pin.Version, "operator_contract_correction")}
 		}
 		return pin, nil
@@ -424,7 +424,7 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 	kept := pin.NextValidIntents[:0:0]
 	for _, intent := range pin.NextValidIntents {
 		decision := workflowAdmit(definition, state, intent.ActionID)
-		if !decision.Admitted && !decision.ApprovalRequired && !decision.ConvergenceRequired {
+		if !decision.Admitted && !decision.ConvergenceRequired {
 			continue
 		}
 		// A consequence_v1 confirm_premise declares the human digest
@@ -445,7 +445,7 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 	// admits the binding: a staleness or terminal refusal keeps the route
 	// hidden instead of advertising a dead one.
 	if state.EvidenceRecoveryRoute && !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
-		if decision := workflowAdmit(definition, state, "bind_evidence"); decision.Admitted || decision.ApprovalRequired {
+		if decision := workflowAdmit(definition, state, "bind_evidence"); decision.Admitted {
 			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "bind_evidence"), pin.Version, "evidence_binding_recovery"))
 		}
 	}
@@ -546,7 +546,7 @@ func workPinReadAttemptTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, instanceState string, state WorkflowAdmissionState) error {
 	admits := func(actionID string) bool {
 		decision := workflowAdmit(definition, state, actionID)
-		return decision.Admitted || decision.ApprovalRequired
+		return decision.Admitted
 	}
 	if state.WorkerFailureRecovery && admits("record_worker_failure") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workerFailureRecoveryActionDefinition(), pin.Version, "worker_failure_recovery"))
@@ -591,7 +591,7 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 // folded state.
 func workPinCorrectionRequestIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, state WorkflowAdmissionState) error {
 	decision := workflowAdmit(definition, state, "request_correction")
-	admitted := decision.Admitted || decision.ApprovalRequired
+	admitted := decision.Admitted
 	if workflowStepIsDeliveryGate(workflowStep(definition, pin.Step)) {
 		// The gate's corrective return carries one reason code on every
 		// pinned shape, and it is advertised only when the folded admission

@@ -13,9 +13,9 @@ import (
 )
 
 func TestEscalatedHostRetryReadsHostLeaseBeforeAdmission(t *testing.T) {
-	s, service, grant, key := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
 	// The terminal predates the test host independently of the machine clock.
-	version, _, worktree := seedEscalatedFailedWorkerMutation(t, s, service, grant, key, time.Unix(1, 0).UTC())
+	version, _, worktree := seedEscalatedFailedWorkerMutation(t, s, service, grant, time.Unix(1, 0).UTC())
 	grant.Worktree = worktree
 	if _, err := s.RecordWorktreeClaimLanding(context.Background(), store.WorktreeClaimLandingRequest{
 		WorkID: "work-1", SessionRef: grant.SessionRef, LandedDirectory: worktree, HostPID: os.Getpid(),

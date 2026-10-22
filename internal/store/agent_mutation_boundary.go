@@ -412,7 +412,6 @@ type WorkflowApprovalBoundaryState struct {
 	DecisionDomainsPresent bool
 	DecisionDomains        []string
 	EvaluatorAuthority     WorkflowEvaluationAuthority
-	RetryBinding           *WorkflowRetryApprovalBinding
 	Policy                 WorkflowApprovalPolicyResult
 }
 
@@ -487,12 +486,7 @@ func workflowApprovalBoundaryCore(ctx context.Context, q queryer, registry Defin
 	if state.EvaluatorAuthority, err = workflowEvaluationAuthority(ctx, q, request.WorkID, actorRef); err != nil {
 		return state, err
 	}
-	if request.ActionID == "dispatch_worker" {
-		if state.RetryBinding, err = workflowFailedWorkerRetryBinding(ctx, q, registry, request.WorkID); err != nil {
-			return state, err
-		}
-	}
-	facts := WorkflowApprovalFacts{ActiveDecisionDomains: state.DecisionDomains, FailedRetryBelowWall: state.RetryBinding != nil}
+	facts := WorkflowApprovalFacts{ActiveDecisionDomains: state.DecisionDomains}
 	if workflowOperatorVerdictActions[request.ActionID] {
 		// The existing legacy fact: an independent evaluator never becomes consent.
 		facts.OperatorRequired = state.EvaluatorAuthority == WorkflowOperatorRequired

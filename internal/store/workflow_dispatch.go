@@ -38,10 +38,6 @@ type WorkflowActionExecutionRequest struct {
 	// It is never decoded from workflow action payload.
 	OperatorActor       *WorkflowActor
 	OperatorApprovalRef string
-	// FailedRetryApproved is set by the boundary after consuming the exact
-	// approval for a failed retry below the limit. It cannot open the
-	// convergence wall and is never decoded from request input.
-	FailedRetryApproved bool
 	// ApprovedTakeover names the held attempt whose exact approval the
 	// boundary consumed for this fenced start. It is never decoded from
 	// request input.
@@ -293,8 +289,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		}
 	}
 	// One admission derivation for the fold: the tx-scoped loader folds the
-	// instance history into the abstract admission state once, the request's
-	// consumed operator approval fills ordinary failed-retry approval, and the pure
+	// instance history into the abstract admission state once, and the pure
 	// workflowAdmit decides. Every refusal applies here except the review
 	// gate's own fresh-review refusal, whose ready-review carve-out is
 	// payload-bound, the operator-approval walls, and the closed-question
@@ -307,7 +302,6 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if admissionErr != nil {
 		return result, admissionErr
 	}
-	admission.FailedRetryApproved = request.FailedRetryApproved
 	if err := bindWorkflowReviewRequest(ctx, tx, &admission, request.WorkID, request.ActionID, request.Payload, request.Actor); err != nil {
 		return result, err
 	}

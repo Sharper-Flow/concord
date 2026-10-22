@@ -153,7 +153,6 @@ var approvalInventoryAliases = map[string]string{
 	"internal/store/work_size_override.go\x00OverrideWorkSizeTx\x00workflowOperatorFromConsumedApprovalTx":                                                                           "live admission half anchored to revise-intent-operator-size-demand",
 	"internal/store/work_size_override.go\x00foldWorkSizeOverridden\x00authorizeWorkflowOperatorApprovalTx":                                                                          "fold recheck anchored to revise-intent-operator-size-demand",
 	"internal/store/workflow_completion.go\x00workflowPremiseConfirmationAuthority\x00workflow premise confirmation is not operator typed#2":                                         "the consequence_v1 decision-bearing arm of the same operator-typed premise check anchored to completion-premise-not-typed",
-	"internal/store/workflow_approval_policy.go\x00classifyLegacyWorkflowApproval\x00failed-retry-below-wall":                                                                        "classified consent source of the same decision anchored to workflow-action-consent-demand",
 	"internal/store/workflow_approval_policy.go\x00classifyLegacyWorkflowApproval\x00operator-required":                                                                              "classified consent source of the same decision anchored to workflow-action-consent-demand",
 	"internal/store/workflow_approval_policy.go\x00classifyConsequenceV1WorkflowApproval\x00destructive":                                                                             "classified consent source of the same decision anchored to workflow-action-consent-demand",
 	"internal/store/workflow_approval_policy.go\x00classifyConsequenceV1Decision\x00classifyConsequenceV1Decision":                                                                   "classified consent source of the same decision anchored to workflow-action-consent-demand",
@@ -1124,7 +1123,7 @@ func syntheticClassifierConsent(facts WorkflowApprovalFacts) WorkflowApprovalPol
 	switch consent {
 	case WorkflowConsentNone, WorkflowConsentConditional, WorkflowConsentRequired:
 	}
-	if facts.FailedRetryBelowWall {
+	if facts.OperatorRequired {
 		consent = WorkflowConsentRequired
 	}
 	if facts.Destructive != "" {
@@ -1163,7 +1162,7 @@ func syntheticClassifierConsent(facts WorkflowApprovalFacts) WorkflowApprovalPol
 	}
 	// Each consent decision keys on its governing branch; the case-list
 	// validation read and the comparison read stay reads.
-	want := []string{"failed-retry-below-wall", "destructive", "workflow-consent-required", "syntheticClassifierConsent"}
+	want := []string{"operator-required", "destructive", "workflow-consent-required", "syntheticClassifierConsent"}
 	if !slices.Equal(demand, want) || consentReads != 2 {
 		t.Fatalf("census misclassified the synthetic classifier consent: demand=%v consentReads=%d points=%v reads=%v", demand, consentReads, visitor.points, visitor.reads)
 	}

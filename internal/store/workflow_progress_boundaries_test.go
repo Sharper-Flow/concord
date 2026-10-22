@@ -12,8 +12,8 @@ import (
 
 // The progress fold's satisfactions own
 // the nonprogress window alone (CD-0164 D2a): they must never move the
-// worker recovery boundary, the correction counting window, the exact
-// failed-worker retry approval binding, a consumed convergence basis, or the
+// worker recovery boundary, the correction counting window, the failed
+// attempt identity, a consumed convergence basis, or the
 // unresolved failed-job and unconfirmed checks-repair debts. These tests run
 // the boundary on the fresh obligation-satisfaction definition heads through
 // real recorded events and real admission reads.
@@ -60,23 +60,6 @@ func progressBoundariesSuccessorPayload(t *testing.T, s *Store, workID string) j
 	return raw
 }
 
-// progressBoundaryReadRetryBinding reads the folded exact failed-worker retry
-// binding the admission state carries.
-func progressBoundaryReadRetryBinding(t *testing.T, s *Store, workID, step string) *WorkflowRetryApprovalBinding {
-	t.Helper()
-	entry, err := VerifyWorkflowInstanceDefinition(context.Background(), s, BuiltinWorkflowRegistry(), workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var binding *WorkflowRetryApprovalBinding
-	state, _, _, loadErr := loadWorkflowAdmissionStateTxForRegistry(context.Background(), s.DatabaseForTesting(), workID, entry.Definition, step, "progress_boundaries", BuiltinWorkflowRegistry())
-	if loadErr != nil {
-		t.Fatalf("fold the admission state for the retry binding: %v", loadErr)
-	}
-	binding = state.FailedWorkerRetry
-	return binding
-}
-
 // progressBoundariesSeed parks a real break_fix fresh-head instance at the
 // repair step, so the boundary journeys run real recorded events on the
 // obligation-satisfaction head.
@@ -88,7 +71,7 @@ func progressBoundariesSeed(t *testing.T, workID, step string) (workflowReturnRo
 	return fixture, worker
 }
 
-// TestProgressCoordinatorSatisfactionPreservesFailedRetryBindingAndDispatchWindow
+// TestProgressCoordinatorSatisfactionPreservesDispatchWindow
 // splits the boundary the failed attempt and the qualified coordinator
 // satisfaction share. Beside a real failed job-bound attempt the satisfaction
 // is spent: the failed obligation's debt renews nothing, and the exact retry
@@ -96,7 +79,7 @@ func progressBoundariesSeed(t *testing.T, workID, step string) (workflowReturnRo
 // identity. Without debt the same real satisfaction anchors the nonprogress
 // window at its own recorded evidence event, the read surfaces agree, and a
 // projection rebuild reproduces the window.
-func TestProgressCoordinatorSatisfactionPreservesFailedRetryBindingAndDispatchWindow(t *testing.T) {
+func TestProgressCoordinatorSatisfactionPreservesDispatchWindow(t *testing.T) {
 	ctx := context.Background()
 	const step = "repair"
 
@@ -136,12 +119,6 @@ func TestProgressCoordinatorSatisfactionPreservesFailedRetryBindingAndDispatchWi
 			t.Fatalf("derived failure records = %d, want the one record the terminal derived", len(records))
 		}
 
-		// Before any satisfaction the exact binding stands, the failure holds
-		// the counting window, and the window names the fresh policy head.
-		binding := progressBoundaryReadRetryBinding(t, s, workID, step)
-		if binding == nil || binding.FailedAttemptID != attempt || binding.FailedAttemptEpoch <= 0 || binding.ContractVersion != 1 {
-			t.Fatalf("retry binding before the satisfaction = %+v, want the exact failed attempt under contract 1", binding)
-		}
 		before := readRetryWindow(t, s, workID, step)
 		if before.Policy != WorkflowProgressPolicyObligationSatisfactionV1 {
 			t.Fatalf("window policy = %q, want the fresh head's %q", before.Policy, WorkflowProgressPolicyObligationSatisfactionV1)
@@ -168,13 +145,6 @@ func TestProgressCoordinatorSatisfactionPreservesFailedRetryBindingAndDispatchWi
 			t.Fatalf("bind the newly required evidence kind: %v", err)
 		}
 
-		// The worker recovery facts keep their exact identity across the
-		// satisfaction; the correction count and every anchor stay with the
-		// failure era.
-		after := progressBoundaryReadRetryBinding(t, s, workID, step)
-		if after == nil || after.FailedAttemptID != attempt || after.FailedAttemptEpoch != binding.FailedAttemptEpoch || after.ContractVersion != 2 {
-			t.Fatalf("retry binding after the satisfaction = %+v, want the exact failed attempt reread under contract 2", after)
-		}
 		if count := jobWindowCorrectionCount(t, s, workID); count != 1 {
 			t.Fatalf("correction count after the satisfaction = %d, want the one failed dispatch preserved", count)
 		}
@@ -195,9 +165,6 @@ func TestProgressCoordinatorSatisfactionPreservesFailedRetryBindingAndDispatchWi
 		rebuilt := readRetryWindow(t, s, workID, step)
 		if !reflect.DeepEqual(rebuilt, window) {
 			t.Fatalf("rebuilt window = %+v, want the live window %+v", rebuilt, window)
-		}
-		if rebuiltBinding := progressBoundaryReadRetryBinding(t, s, workID, step); rebuiltBinding == nil || *rebuiltBinding != *after {
-			t.Fatalf("rebuilt retry binding = %+v, want %+v", rebuiltBinding, after)
 		}
 	})
 

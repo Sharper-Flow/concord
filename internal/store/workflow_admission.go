@@ -151,14 +151,6 @@ type WorkflowAdmissionState struct {
 	// NonProgressAttempts counts failed, rejected, and no_ship attempts across
 	// the work item since the last productive acceptance.
 	NonProgressAttempts int64
-	// FailedWorkerRetry names the current terminal authorization that requires
-	// exact retry approval, including a failure without dispatch evidence or
-	// a coordinator disposition. Identity fields are carried for the binding;
-	// admission depends only on whether this current failure exists.
-	FailedWorkerRetry *WorkflowRetryApprovalBinding
-	// FailedRetryApproved carries the exact approval for an ordinary failed
-	// retry. An escalated retry instead needs RetryConvergence.
-	FailedRetryApproved bool
 	// OracleOpenFindings is the count of the derived open ranked findings
 	// of an oracle-capable pin: the folded admission state stays
 	// a comparable value, so it carries the bound the dispatch refusal
@@ -222,18 +214,13 @@ type WorkflowAdmissionState struct {
 }
 
 // WorkflowAdmissionDecision is the pure admission answer for one action over
-// one folded state: whether the advance is admitted, whether it stands only
-// behind the operator's exact retry approval, whether a supersede
+// one folded state: whether the advance is admitted, whether a supersede
 // request classifies as contract recovery, whether the refusal is the
 // consequential external-conditions one the owning boundary resolves and
 // rechecks, the ready review the calling guard may bind the request's
 // attempt identity against, and the typed refusal when the advance refuses.
 type WorkflowAdmissionDecision struct {
 	Admitted bool
-	// ApprovalRequired classifies the mutation boundary's exact retry
-	// approval. An ordinary failed retry keeps its declared route while the
-	// boundary obtains that approval; an escalated retry needs convergence.
-	ApprovalRequired bool
 	// ConvergenceRequired keeps the refused retry visible on the work pin.
 	ConvergenceRequired bool
 	RecoveryRoute       bool
@@ -525,7 +512,7 @@ func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) (bo
 
 // retryAndHolds folds the rejection hold, the non-progress wall, oracle
 // admission, correction escalation, retry convergence, the failed-worker
-// retry binding, the dispatch hold, and the evidence-binding recovery.
+// dispatch hold and the evidence-binding recovery.
 func (l workflowAdmissionLoad) retryAndHolds(state *WorkflowAdmissionState) error {
 	// A current-step advance condition from the history's consumption answer.
 	if workflowStepCarriesRejectionHold(l.definition, l.currentStep) {
@@ -570,11 +557,6 @@ func (l workflowAdmissionLoad) retryAndHolds(state *WorkflowAdmissionState) erro
 			state.FundedChecksRepairReviews = len(fundings)
 		}
 	}
-	failedRetry, retryErr := workflowCurrentFailedWorkerRetryBinding(l.ctx, l.q, l.workID, l.currentStep)
-	if retryErr != nil {
-		return retryErr
-	}
-	state.FailedWorkerRetry = failedRetry
 	dispatchHold, holdErr := workflowDispatchHoldsStepAdvance(l.ctx, l.q, l.definition, l.workID, l.currentStep, 0)
 	if holdErr != nil {
 		return holdErr
@@ -880,15 +862,6 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 	}
 	if workflowAdmitStepRefused(definition, state, actionID, &decision) {
 		return decision
-	}
-	if actionID == "dispatch_worker" && state.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 && !state.retryEscalated() && state.FailedWorkerRetry != nil && !state.FailedRetryApproved {
-		// The ordinary retry stays a declared route only after the other
-		// admission gates pass. Its exact approval belongs to the mutation
-		// boundary; an unrelated refusal must never become an approval route.
-		// A consequence_v1 retry consumes the folded policy instead: the
-		// revalidated attempt, epoch, contract, and job binding stay, and the
-		// convergence wall stays evidence-gated.
-		decision.ApprovalRequired = true
 	}
 	decision.Admitted = true
 	return decision

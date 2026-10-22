@@ -172,7 +172,7 @@ func TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses(t
 	}
 	for _, action := range definition.Definition.ActionDefinitions {
 		decision := workflowAdmit(definition.Definition, state, action.ID)
-		if decision.Admitted || decision.ApprovalRequired || decision.Failure == nil || decision.Failure.Kind != KindOutsideRepairActive {
+		if decision.Admitted || decision.Failure == nil || decision.Failure.Kind != KindOutsideRepairActive {
 			t.Fatalf("admission %s = %+v", action.ID, decision)
 		}
 		assertFailureKind(t, WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: work, ActionID: action.ID}), KindOutsideRepairActive)

@@ -10,8 +10,9 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// Agent admission of delivery-gate recovery keeps the current-candidate Review
-// refusal distinct from the corrective return's approval and effect checks.
+// A changed criterion invalidates the accepted Review without replacing its
+// candidate. The authenticated coordinator returns the parked gate to its
+// producer through the evidence-bearing correction route.
 
 // deliveryRecoveryLane returns the builtin lane for one capability class.
 func deliveryRecoveryLane(t *testing.T, capabilityClass string) store.LaneDefinition {
@@ -103,23 +104,25 @@ func deliveryRecoveryCompletion(t *testing.T, s *store.Store, grant Authority, a
 	agentWorkerCompletedThroughSeam(t, s, attemptID, "delivery-recovery-completed-"+attemptID, payload)
 }
 
-func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
 	ctx := context.Background()
 	seedCurrentWorkflowDomainFixture(t, s)
 
 	worktree := t.TempDir()
 	grant.Worktree = worktree
 
-	pinned := legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation")
-	var err error
+	currentDefinition, err := store.LiveWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
 	grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	grantActorRef, err := store.WorkflowActorRef(grantActor)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: pinned, Actor: grantActor, Now: fixedTime()})
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: currentDefinition, Actor: grantActor, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -248,46 +251,49 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 	}
 	recordReadyRetryJob(t, s, service, env, "job:gate-return-review")
 	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "ready_for_final_proof", false)
+	reviewed, err := store.ReadWorkPin(ctx, s, "work-1")
+	if err != nil || reviewed.Review == nil || reviewed.Review.Accepted == nil || reviewed.Review.Candidate == nil || reviewed.Review.Dependencies == nil || !reviewed.Review.DependenciesCurrent || reviewed.Review.Accepted.Report.Disposition != "ready_for_final_proof" || reviewed.Review.Accepted.Report.OutputCandidate != *reviewed.Review.Candidate {
+		t.Fatalf("ready Review does not cover the current candidate: %+v (%v)", reviewed.Review, err)
+	}
 
-	// Exercise the parked gate after Main accepts Review of the repaired
-	// candidate, without inventing a projection-only Review acceptance.
+	// Seed the contract-correction checkpoint for the successor's store-owned
+	// setup, then park its unchanged candidate at the delivery gate below.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1';
+		DELETE FROM fold_guard`); err != nil {
+		t.Fatalf("seed contract-correction checkpoint: %v", err)
+	}
+	runVerificationStoreAction(t, s, "supersede_contract", map[string]any{
+		"contract_version": 2, "premise": "approved gate return objective",
+		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:gate-recovery", "immutable_subject_ref": "commit:gate-recovery", "expected_result": "fail"}}},
+		"required_evidence":  []string{"review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal", "decision_domains": []string{},
+		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
+		"supersede_reason":     "the expected criterion result changed", "audit_evidence": []string{"evidence:gate-review"},
+	}, grantActor, nil, "gate-recovery-successor")
+	stale, err := store.ReadWorkPin(ctx, s, "work-1")
+	if err != nil || stale.Review == nil || stale.Review.Accepted == nil || stale.Review.Candidate == nil || stale.Review.Dependencies == nil || stale.Review.DependenciesCurrent || *stale.Review.Candidate != *reviewed.Review.Candidate || stale.Review.Accepted.ReportRef != reviewed.Review.Accepted.ReportRef {
+		t.Fatalf("successor did not stale the standing Review on the unchanged candidate: %+v (%v)", stale.Review, err)
+	}
+	if len(reviewed.Review.Dependencies.Criteria) != 1 || len(stale.Review.Dependencies.Criteria) != 1 || stale.Review.Dependencies.Criteria[0].PredicateID != "predicate:primary" || stale.Review.Dependencies.Criteria[0].ContentDigest == reviewed.Review.Dependencies.Criteria[0].ContentDigest {
+		t.Fatal("successor did not change the depended-on criterion digest")
+	}
+
+	// Park the unchanged candidate with its now-inapplicable accepted Review.
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
 		UPDATE workflow_instances SET current_step='delivery' WHERE work_id='work-1';
 		DELETE FROM fold_guard`); err != nil {
 		t.Fatalf("seed the parked gate position: %v", err)
 	}
 
-	// The corrective return is admitted up to the approval wall: an
-	// unauthenticated request mints the operator challenge and refuses.
+	// Correction binds the current criterion and durable evidence. Routine
+	// recovery needs the authenticated coordinator, not an operator signature.
 	correctionInput := map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "request_correction", "idempotency_key": "gate-recovery-return", "fields": map[string]any{
-		"diagnosis": "the repaired result has no fresh accepted review", "strategy": "return to the execution step and dispatch a fresh review",
+		"diagnosis": "the accepted Review judged the previous criterion revision", "strategy": "return to the execution step and reassess the candidate against the current criterion",
 		"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:gate-review"},
 	}}
-	challenge := invoke(correctionInput)
-	if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("unauthenticated gate return = %+v, want approval_required", challenge.Error)
-	}
-	details := challenge.Error.Details
-	challengeRef, _ := details["approval_ref"].(string)
-	if len(challengeRef) != 64 {
-		t.Fatalf("gate return challenge carries no approval reference: %+v", details)
-	}
-	if got, _ := details["action_id"].(string); got != "request_correction" {
-		t.Fatalf("gate return challenge action_id = %v", details["action_id"])
-	}
-
-	// One operator approval admits the evidence-bearing return.
-	approvedInput := cloneWithApproval(t, correctionInput, challengeRef)
-	approvedRaw, err := json.Marshal(approvedInput)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": version(), "contract": int64(1)}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	returned := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
+	returned := invoke(correctionInput)
 	if returned.Outcome != OutcomeOK {
-		t.Fatalf("approved gate return = %+v", returned.Error)
+		t.Fatalf("authenticated evidence-bearing gate return = %+v", returned.Error)
 	}
 	if got := stepOf(); got != "execution" {
 		t.Fatalf("step after gate return = %q, want execution", got)
@@ -303,13 +309,13 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 	if deliveries != 1 {
 		t.Fatalf("gate recovery recorded %d delivery assertions, want the one execution-pass assertion", deliveries)
 	}
-	var pinnedVersion int64
-	var pinnedDigest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_version,definition_digest FROM workflow_instances WHERE work_id='work-1'`).Scan(&pinnedVersion, &pinnedDigest); err != nil {
+	var definitionVersion int64
+	var definitionDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_version,definition_digest FROM workflow_instances WHERE work_id='work-1'`).Scan(&definitionVersion, &definitionDigest); err != nil {
 		t.Fatal(err)
 	}
-	if pinnedVersion != pinned.Definition.Version || pinnedDigest != pinned.Digest {
-		t.Fatalf("pin after recovery = v%d %s, want the current definition %s", pinnedVersion, pinnedDigest, pinned.Digest)
+	if definitionVersion != currentDefinition.Definition.Version || definitionDigest != currentDefinition.Digest {
+		t.Fatalf("definition after recovery = v%d %s, want the current definition %s", definitionVersion, definitionDigest, currentDefinition.Digest)
 	}
 }
 

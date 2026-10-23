@@ -137,6 +137,7 @@ changes (CD-0242 D2, D14).
 - `TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn` proves a
   parked gate returns to repair with no delivery assertion and no
   change to recorded facts or the definition source (CD-0242 D2, D14).
-- `TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent` proves the
-  tool-surface admission: the return refuses unauthenticated, then one
-  operator approval admits it.
+- `TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent` proves the
+  tool-surface admission: a successor criterion revision stales the accepted
+  Review, and the authenticated coordinator's evidence-bearing return reaches
+  the producer without an operator approval or another delivery assertion.

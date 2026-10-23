@@ -50,7 +50,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent"
+      "value": "internal/agent.TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent"
     }
   ],
   "id": "CD-0166",

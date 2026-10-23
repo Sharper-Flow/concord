@@ -11,9 +11,9 @@ that is the finding. Something can be present, called, and working, and still
 not be warranted.
 
 Default to subtraction. Remove what a change supersedes in the same change, or
-say why it stays. When accepted law retires behaviour, delete its tests and
-coverage witnesses in that change, citing the retiring clause. Never keep those
-tests failing while waiting for law text. Never hide superseded code behind a
+say why it stays. When a change retires behaviour under accepted law, delete its
+tests and coverage in the same change, citing the retiring clause. Never keep a
+test failing while waiting for law text. Never hide superseded code behind a
 flag, a guard, or a compatibility path, and never copy an implementation instead
 of calling it.
 

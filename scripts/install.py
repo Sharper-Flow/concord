@@ -159,6 +159,14 @@ ADAPTER_FILES = (
     "worker_subject.ts",
     "workflow-status.ts",
 )
+# Adapter files an earlier release shipped and this installer no longer does.
+# A manifest an older installer wrote may still record them. Upgrade and
+# uninstall remove a recorded one from the tools directory; a release tree
+# that still holds one is left to the lease-aware release cleanup. Naming
+# them here keeps every other recorded name refused, so an unknown or
+# traversing key still cannot reach a delete. Append on retirement; never
+# remove an entry while an installation that records it may still exist.
+RETIRED_ADAPTER_FILES = ("native-subtask-refusal.ts",)
 INSTRUCTION_FILES = (
     "asking.md",
     "change.md",
@@ -1643,7 +1651,11 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
     version_files = manifest.get("version_files")
     if not isinstance(version_files, dict) or not version_files:
         raise InstallerError("installer manifest has invalid version file records")
-    allowed_fixed = {"bin/concord", FENCE_PROTOCOL_MARKER_NAME, *(f"adapter/opencode/{name}" for name in ADAPTER_FILES)}
+    allowed_fixed = {
+        "bin/concord",
+        FENCE_PROTOCOL_MARKER_NAME,
+        *(f"adapter/opencode/{name}" for name in ADAPTER_FILES + RETIRED_ADAPTER_FILES),
+    }
     for relative, digest in version_files.items():
         if not isinstance(relative, str) or not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
             raise InstallerError("installer manifest has invalid version file records")
@@ -1662,19 +1674,19 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
     if "bin/concord" not in version_files:
         raise InstallerError("installer manifest omits a required managed version file")
 
-    # The manifest records what a previous install managed, which is a subset of
-    # what this version installs whenever an adapter file has since been added.
-    # Requiring equality would make adding one an upgrade-breaking change. Keys
-    # outside ADAPTER_FILES stay refused, so an unknown or traversing key cannot
-    # reach a delete.
+    # The manifest records what a previous install managed. That differs from
+    # what this version installs whenever an adapter file has since been added
+    # or retired, so requiring equality would make either an upgrade-breaking
+    # change. Keys outside ADAPTER_FILES and RETIRED_ADAPTER_FILES stay
+    # refused, so an unknown or traversing key cannot reach a delete.
     adapter_files = manifest.get("adapter_files")
     if (
         not isinstance(adapter_files, dict)
-        or not set(adapter_files).issubset(ADAPTER_FILES)
+        or not set(adapter_files).issubset(ADAPTER_FILES + RETIRED_ADAPTER_FILES)
         or not all(isinstance(value, str) and SHA256_RE.fullmatch(value) for value in adapter_files.values())
     ):
         raise InstallerError("installer manifest has invalid adapter file records")
-    for name in ADAPTER_FILES:
+    for name in ADAPTER_FILES + RETIRED_ADAPTER_FILES:
         safe_relative_target(paths.tools_dir, name, "adapter")
 
     # Central agent definitions: filenames only (the path inside the version
@@ -2209,6 +2221,12 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
                 ):
                     continue
                 failures.append(f"refusing to overwrite user-authored adapter file {destination}{manifest_note}")
+    for name in retired_adapter_slots(old_manifest):
+        destination = paths.tools_dir / name
+        if (destination.exists() or destination.is_symlink()) and (
+            not destination.is_file() or destination.is_symlink() or sha256(destination) != adapter_records[name]
+        ):
+            failures.append(f"refusing to remove modified managed adapter file {destination}")
     agent_records = managed_agent_records(old_manifest)
     for name in agent_records:
         destination = paths.agents_dir / name
@@ -2407,6 +2425,22 @@ def managed_adapter_records(manifest: dict[str, object] | None) -> dict[str, str
     if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
         raise InstallerError("existing installer manifest has invalid adapter file records")
     return value  # type: ignore[return-value]
+
+
+def retired_adapter_slots(manifest: dict[str, object] | None) -> tuple[str, ...]:
+    """The retired adapter files a transaction over this manifest owns.
+
+    Only a name the manifest records is owned. A file in a retired slot that
+    no manifest recorded is the operator's, and no transaction touches it.
+    """
+    records = managed_adapter_records(manifest)
+    return tuple(name for name in RETIRED_ADAPTER_FILES if name in records)
+
+
+def journal_adapter_slots(journal: dict[str, object]) -> list[str]:
+    """Every adapter slot a validated journal captured: the shipped set plus
+    the retired files its old manifest recorded."""
+    return sorted(journal["old_adapter"])  # type: ignore[arg-type]
 
 
 AGENT_CUSTOMIZATION_GUIDANCE = (
@@ -2635,7 +2669,7 @@ def validate_transaction(journal: dict[str, object], transaction_root: Path, pat
                 raise InstallerError(f"refusing malformed transaction file record {journal_path(transaction_root)}")
             safe_relative_target(record_root, relative, "transaction file")
     old_adapter = journal.get("old_adapter")
-    if not isinstance(old_adapter, dict) or set(old_adapter) != set(ADAPTER_FILES):
+    if not isinstance(old_adapter, dict) or not set(ADAPTER_FILES) <= set(old_adapter) <= set(ADAPTER_FILES + RETIRED_ADAPTER_FILES):
         raise InstallerError(f"refusing malformed transaction adapter records {journal_path(transaction_root)}")
     for name, state in old_adapter.items():
         if not isinstance(state, dict) or not isinstance(state.get("exists"), bool):
@@ -2771,8 +2805,12 @@ def make_transaction(
         durable_copy_tree(activation_root, version_backup)
     elif operation == "uninstall":
         raise InstallerError("cannot uninstall without a managed version directory")
+    # A retired file the old manifest recorded is captured beside the shipped
+    # set: the new adapter targets omit it, so the swap removes it and a
+    # rollback restores it.
+    adapter_slots = sorted(ADAPTER_FILES + retired_adapter_slots(old_manifest))
     old_adapter: dict[str, object] = {}
-    for name in ADAPTER_FILES:
+    for name in adapter_slots:
         old_adapter[name] = capture_file(paths.tools_dir / name, backup / "adapter" / name, f"adapter {name}")
     # Capture only agent paths this transaction owns or will write. A broad
     # concord-*.md snapshot would give uninstall deletion authority over
@@ -2853,7 +2891,7 @@ def make_transaction(
         "live_version_backup": "backup/live-version",
         "targets": {
             "version": str(activation_root.resolve(strict=False)),
-            "adapters": [str((paths.tools_dir / name).resolve(strict=False)) for name in ADAPTER_FILES],
+            "adapters": [str((paths.tools_dir / name).resolve(strict=False)) for name in adapter_slots],
             "agents": [str(paths.agents_dir)],
             "launcher": str(paths.launcher),
             "config": str(paths.config_file.resolve(strict=False)),
@@ -3006,9 +3044,9 @@ def apply_agents(transaction_root: Path, journal: dict[str, object], paths: Path
 
 
 def apply_adapters(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
-    for name in ADAPTER_FILES:
+    for name in journal_adapter_slots(journal):
         target = paths.tools_dir / name
-        if activating(journal["operation"]):
+        if activating(journal["operation"]) and name in ADAPTER_FILES:
             version = journal["new_version"]
             source = paths.data_root / str(version) / "adapter" / "opencode" / name
             write_atomic(target, source.read_bytes())
@@ -3159,7 +3197,7 @@ def verify_states(journal: dict[str, object], paths: Paths, committed: bool) -> 
         config_expected = journal["old_config"]
         manifest_expected = journal["old_manifest"]
         stable_root_expected = journal.get("old_stable_root", {"exists": False})
-    for name in ADAPTER_FILES:
+    for name in journal_adapter_slots(journal):
         if committed:
             digest = adapter_expected.get(name) if isinstance(adapter_expected, dict) else None
             expected = {"exists": True, "kind": "file", "sha256": digest} if digest else {"exists": False}
@@ -3199,7 +3237,7 @@ def ensure_rollback_safe(journal: dict[str, object], paths: Paths) -> None:
     """Allow only states produced by this transaction or its original state."""
     old_adapter = journal["old_adapter"]
     new_adapter = journal["new_adapter"]
-    for name in ADAPTER_FILES:
+    for name in journal_adapter_slots(journal):
         old = old_adapter[name]
         digest = new_adapter.get(name) if isinstance(new_adapter, dict) else None
         new = {"exists": True, "kind": "file", "sha256": digest} if digest else {"exists": False}
@@ -3702,7 +3740,7 @@ def recover_transaction(transaction_root: Path, paths: Paths) -> None:
         return
     ensure_rollback_safe(journal, paths)
     rollback_version(transaction_root, journal, paths)
-    for name in ADAPTER_FILES:
+    for name in journal_adapter_slots(journal):
         state = journal["old_adapter"][name]
         restore_file(paths.tools_dir / name, state, transaction_root, f"adapter/{name}")
     old_agents = journal.get("old_agents") or {}

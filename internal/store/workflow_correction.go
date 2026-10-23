@@ -1116,6 +1116,7 @@ const (
 	workflowCorrectionMissingAcceptedDelivery   = "accepted_delivery"
 	workflowCorrectionMissingFailureDisposition = "failure_disposition"
 	workflowCorrectionMissingGateReview         = "gate_review"
+	workflowCorrectionMissingFreshReview        = "fresh_review"
 )
 
 // workflowCorrectionRequestUnavailableFailure is the one refusal a closed
@@ -1129,6 +1130,8 @@ func workflowCorrectionRequestUnavailableFailure(subject, missing string) *Failu
 		return newFailure(KindInvalidOperation, subject, "request_correction requires the checkpoint failure record that dispositions the failed review attempt", false, "record the failed review attempt at the checkpoint with record_worker_failure")
 	case workflowCorrectionMissingAcceptedDelivery:
 		return newFailure(KindInvalidOperation, subject, "request_correction requires an accepted worker delivery behind the current non-ok verdict", false, "accept the completed worker result or reread the work pin")
+	case workflowCorrectionMissingFreshReview:
+		return newFailure(KindInvalidOperation, subject, "request_correction already consumed the accepted Review; a further correction requires a fresh accepted Review of the current candidate", false, "dispatch Review of the current candidate and accept its disposition")
 	case workflowCorrectionMissingGateReview:
 		return newFailure(KindInvalidOperation, subject, "request_correction at the delivery gate requires an outstanding post-rejection review", false, "reread the current work pin")
 	default:
@@ -1247,6 +1250,14 @@ func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q querye
 			var seq int64
 			if err := q.QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE event_id=? AND subject_id=?`, review.Accepted.ReportRef, workID).Scan(&seq); err != nil {
 				return nil, workflowCorrectionMissingNone, err
+			}
+			// One accepted Review authorizes one correction (CD-0166).
+			var consumed int
+			if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' AND seq>? AND seq<>?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, seq, excludeSeq).Scan(&consumed); err != nil {
+				return nil, workflowCorrectionMissingNone, err
+			}
+			if consumed != 0 {
+				return nil, workflowCorrectionMissingFreshReview, nil
 			}
 			return &WorkflowCorrectionContext{Disposition: "verification", PredicateIDs: predicates, EvidenceRefs: []string{review.Accepted.ReportRef}, SourceEventID: review.Accepted.ReportRef, SourceEventSeq: seq, Diagnosis: "the accepted current Review requires correction", Strategy: "perform the declared corrective work and obtain applicable Review"}, workflowCorrectionMissingNone, nil
 		}

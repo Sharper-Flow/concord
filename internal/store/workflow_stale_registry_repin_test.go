@@ -107,14 +107,15 @@ func seedStaleRegistryWorkerAttempt(t *testing.T, s *Store, workID string, owner
 	return attemptID, latestStepStartEpoch(t, s, workID, "repair")
 }
 
-// registryRepinSuccessorPayload is the fully supplied operator-approved
+// registryRepinSuccessorPayload is the fully supplied engineering
 // successor contract whose architecture binding pins registryHash.
 func registryRepinSuccessorPayload(contractVersion int64, registryHash, workID string, predecessor int64, domainModifies ...string) json.RawMessage {
 	if domainModifies == nil {
 		domainModifies = []string{}
 	}
-	return mustJSONValue(map[string]any{
+	fields := map[string]any{
 		"contract_version":              contractVersion,
+		"decision_domains":              []string{},
 		"predecessor_contract_versions": []int64{predecessor},
 		"premise":                       "re-pin the approved contract to the rescanned Domain registry",
 		"outcome_predicates": []map[string]any{{
@@ -132,7 +133,13 @@ func registryRepinSuccessorPayload(contractVersion int64, registryHash, workID s
 			DomainRegistryContentHash: registryHash, HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
 			DomainModifies: domainModifies, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 		},
-	})
+	}
+	if len(domainModifies) != 0 {
+		fields["law_change_reason"] = "keep the approved Domain authority under the rescanned registry"
+		fields["law_change_removes_user_visible_behavior"] = false
+		fields["law_change_touches_security_or_data_safety"] = false
+	}
+	return mustJSONValue(fields)
 }
 
 func activeStaleRegistryContract(t *testing.T, s *Store, workID string) (int64, int) {

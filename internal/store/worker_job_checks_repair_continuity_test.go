@@ -69,6 +69,15 @@ func checksRepairFindingsCompletion(t *testing.T, s *Store, workID, attemptID, e
 			payload.Evidence[0].OracleReceipt = receipt
 		}
 	})
+	var payload WorkerCompletedPayload
+	if err := json.Unmarshal(completion.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	// The oracle builder uses a synthetic tree. This journey seals a real
+	// checkout, so its Review must report that checkout's candidate instead.
+	candidate := currentReviewBlockForTest(t, s, workID, attemptID, verdict)
+	payload.Review.InputCandidate, payload.Review.OutputCandidate = candidate.InputCandidate, candidate.OutputCandidate
+	completion.Payload = mustJSONValue(payload)
 	prepared, err := PrepareWorkerTerminalDelivery(t.Context(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attemptID, EventID: completion.EventID})
 	if err != nil {
 		t.Fatal(err)

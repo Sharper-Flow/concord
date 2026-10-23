@@ -364,35 +364,24 @@ func TestRoutineRecovery(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-retry-race"
 		ctx := context.Background()
-		s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
-		ownerRef, err := WorkflowActorRef(owner)
-		if err != nil {
-			t.Fatal(err)
+		f, attemptID, epoch := seedCurrentRepairWorker(t, workID)
+		s := f.store
+		// The attributed terminal derives the failure record in the same
+		// commit (CD-0198 D5).
+		lane := laneForID(t)
+		if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, attemptID, "failed-"+workID, preferredModelForLane(lane), WorkerFailureWorkerError, "the repair attempt failed", time.Unix(40, 0).UTC())); err != nil {
+			t.Fatalf("failed repair terminal: %v", err)
 		}
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'failed worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); DELETE FROM fold_guard`, workID, ownerRef); err != nil {
-			t.Fatal(err)
-		}
-		failAbandonedWorkerAttempt(t, s, workID, attemptID)
 		pin := issue1013Pin(t, s, workID)
-		applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, 1, pin.Version, "routine-race-record-1-"+workID)
-		worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-		pin = issue1013Pin(t, s, workID)
-		issue1013StartRepair(t, s, workID, worker, pin.Version, 2)
-		nextAttempt := "attempt:" + workID + ":race2"
-		issue1013RecordWorkerDispatch(t, s, workID, nextAttempt)
-		failWorkerAttempt(t, s, workID, nextAttempt)
-		pin = issue1013Pin(t, s, workID)
-		applyRecordWorkerFailureForTest(t, s, workID, owner, nextAttempt, 2, pin.Version, "routine-race-record-2-"+workID)
-		pin = issue1013Pin(t, s, workID)
-		if pin.Correction == nil || pin.Correction.FailedAttemptID != nextAttempt || pin.Correction.FailedAttemptEpoch != 2 {
-			t.Fatalf("correction = %+v, want the latest failed attempt and epoch", pin.Correction)
+		if pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID || pin.Correction.FailedAttemptEpoch != epoch {
+			t.Fatalf("correction = %+v, want the failed attempt %s at epoch %d", pin.Correction, attemptID, epoch)
 		}
 		var step string
 		if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 			t.Fatal(err)
 		}
-		stalePayload := json.RawMessage(`{"attempt_id":"` + nextAttempt + `","worker_packet":{}}`)
-		err = validateFailedWorkerRetryIdentity(ctx, s.DatabaseForTesting(), workID, step, stalePayload)
+		stalePayload := json.RawMessage(`{"attempt_id":"` + attemptID + `","worker_packet":{}}`)
+		err := validateFailedWorkerRetryIdentity(ctx, s.DatabaseForTesting(), workID, step, stalePayload)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindStaleAttempt {
 			t.Fatalf("retry reusing the failed identity returned %v, want the stale-attempt refusal", err)

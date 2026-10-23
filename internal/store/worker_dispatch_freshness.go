@@ -35,7 +35,7 @@ import (
 // The review lane checks HEAD/tree again for drift after authorization.
 
 // workerDispatchObservationDeadline is the fixed total budget for one
-// dispatch subject probe phase — both git commands together, not per
+// dispatch subject probe phase — status, commit and tree together, not per
 // command. It is a constant of the owning package, not configuration.
 const workerDispatchObservationDeadline = 5 * time.Second
 
@@ -224,7 +224,7 @@ func sampleWorkerDispatchState(ctx context.Context, q queryer, request PrepareWo
 // PrepareWorkerDispatchFreshness samples the dispatch identities with plain
 // SQL reads, closes those reads, and — only when the sampled work-context
 // view pins a qualified subject and an active claim matches the session
-// worktree — observes HEAD and clean status at the claimed worktree under
+// worktree — observes HEAD, its tree and clean status at the claimed worktree under
 // one fixed deadline. Every failure is a typed refusal before any
 // transaction opens, so zero dispatch effects exist by construction. A
 // subject-less view performs no probe.
@@ -371,7 +371,14 @@ func observeDispatchSubject(ctx context.Context, runner GitRunner, path string) 
 	if !worktreeSHAPattern.MatchString(commit) {
 		return nil, newFailure(KindGitUnreachable, workerDispatchFreshnessOp, "the claimed worktree's HEAD is not one raw commit OID", true, "retry once the worktree resolves a commit")
 	}
-	return &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}, nil
+	observation := &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}
+	if observation.State == "clean" {
+		observation.Tree, err = readReviewCandidateTree(probeCtx, runner, path, commit)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return observation, nil
 }
 
 // dispatchSubjectProbeFailure classifies one probe failure: the fixed

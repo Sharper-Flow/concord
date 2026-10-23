@@ -78,6 +78,10 @@
         "worker_job": {
           "$ref": "#/$defs/lane_packet_worker_job"
         },
+        "review_input": {
+          "description": "Dispatch-owned input candidate and exact criterion/architecture revisions judged by Review. Required by core admission for candidate-bound Review, and refused on other lanes.",
+          "$ref": "#/$defs/lane_review_input"
+        },
         "context": {
           "type": "string",
           "minLength": 0,
@@ -206,6 +210,47 @@
     }
   },
   "$defs": {
+    "lane_review_input": {
+      "type": "object", "additionalProperties": false,
+      "required": ["input_candidate", "dependencies"],
+      "properties": {
+        "input_candidate": { "$ref": "#/$defs/review_candidate" },
+        "dependencies": { "$ref": "#/$defs/review_dependencies" }
+      }
+    },
+    "review_candidate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["project_id", "commit", "tree"],
+      "description": "Review's candidate claim. Acceptance derives authority from the admitted input and the host's clean terminal observation, not these claims.",
+      "properties": {
+        "project_id": { "type": "string", "minLength": 2, "maxLength": 128 },
+        "commit": { "type": "string", "minLength": 40, "maxLength": 64, "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+        "tree": { "type": "string", "minLength": 40, "maxLength": 64, "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" }
+      }
+    },
+    "review_dependencies": {
+      "type": "object", "additionalProperties": false,
+      "required": ["criteria", "architecture_not_applicable"],
+      "properties": {
+        "criteria": {
+          "type": "array", "minItems": 1, "maxItems": 8,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["predicate_id", "content_digest"],
+            "properties": {
+              "predicate_id": { "type": "string", "minLength": 11, "maxLength": 128, "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+              "content_digest": { "type": "string", "minLength": 71, "maxLength": 71, "pattern": "^sha256:[0-9a-f]{64}$" }
+            }
+          }
+        },
+        "architecture_digest": { "type": "string", "minLength": 71, "maxLength": 71, "pattern": "^sha256:[0-9a-f]{64}$" },
+        "architecture_not_applicable": { "type": "boolean" }
+      },
+      "oneOf": [
+        { "properties": { "architecture_not_applicable": { "const": true } }, "not": { "required": ["architecture_digest"] } },
+        { "properties": { "architecture_not_applicable": { "const": false } }, "required": ["architecture_digest"] }
+      ]
+    },
     "lane_packet_binding": {
       "type": "object",
       "additionalProperties": false,

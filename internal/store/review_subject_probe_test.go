@@ -31,11 +31,11 @@ func TestReviewDispatchSubjectProbeDoesNotReadDeliveryHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if observation.Commit != strings.Repeat("a", 40) || observation.State != "clean" {
+	if observation.Commit != strings.Repeat("a", 40) || observation.Tree != strings.Repeat("a", 40) || observation.State != "clean" {
 		t.Fatalf("wrong current subject: %+v", observation)
 	}
-	if len(runner.calls) != 2 {
-		t.Fatalf("current candidate probe made %d calls, want status and HEAD only: %v", len(runner.calls), runner.calls)
+	if len(runner.calls) != 3 || !slices.Equal(runner.calls[2], []string{"rev-parse", "--verify", observation.Commit + "^{tree}"}) {
+		t.Fatalf("current candidate probe must read only status, HEAD and its immutable tree: %v", runner.calls)
 	}
 }
 

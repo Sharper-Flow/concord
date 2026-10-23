@@ -626,7 +626,7 @@
           "minItems": 0,
           "maxItems": 32,
           "x-maxArrayBytes": 8192,
-          "description": "Optional evidenced closure claims of previously open ranked findings, reported on any verdict. A claim is a claim: the store checks each identity against this work's earlier ranked findings and the evidence each control requires. x-maxArrayBytes bounds the compact JSON serialization of the whole array in UTF-8 bytes; the adapter enforces that aggregate and refuses the report rather than truncating a claim.",
+          "description": "Optional evidenced closure claims of previously open ranked findings, reported on any disposition. A claim is a claim: the store checks each identity against this work's earlier ranked findings and the evidence each control requires. x-maxArrayBytes bounds the compact JSON serialization of the whole array in UTF-8 bytes; the adapter enforces that aggregate and refuses the report rather than truncating a claim.",
           "items": {
             "$ref": "#/$defs/resolved_finding"
           }

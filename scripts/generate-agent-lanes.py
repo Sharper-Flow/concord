@@ -398,9 +398,11 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"additionalProperties={json.dumps(resolved_finding['additionalProperties'])}, "
         f"required={json.dumps(resolved_finding['required'], ensure_ascii=False)}; "
         f"finding_id pattern={json.dumps(resolved_finding['properties']['finding_id']['pattern'], ensure_ascii=False)}.",
-        "review verdict consistency: "
-        "the adapter and the store refuse a review block with a `ship` verdict and any P0 finding, "
-        "and one with a `no_ship` verdict and zero findings.",
+        "review disposition and progression: "
+        "`continue` permits the next ordinary group; `ready_for_final_proof` requests exit from execution; "
+        "`correction_required` and `revision_required` are blocking but valid reports. "
+        "An open in-scope blocking finding prevents progression, not recording the report. "
+        "Severity alone and an empty findings list do not determine the disposition.",
     ]
     if lane.get("capability_class") == "implementation":
         for name in ("direct_caller_repairs",):
@@ -769,20 +771,24 @@ with a `domain_id` from the packet's Domains. The view carries at most
 
 
 def review_subject_instructions(lane: dict) -> str:
-    # Dispatch owns initial freshness; the host checks subsequent review drift
-    # without granting the reviewer a general shell tool.
     if lane.get("capability_class") != "review":
         return ""
     return """
 ## Dispatch subject
 
-`inputs.work_context.subject_commit`, when present, is the dispatch-owned raw
-OID identity this attempt reviews; never author or replace it. The host checks
-the dispatched worktree's HEAD and tree cleanliness before review tool access
-and fresh report settlement. A mismatch or unavailable observation refuses
-access or records a failed attempt, never a completed review. If a tool reports
-a subject refusal, return one report with `status` `failed` and its diagnostic.
-Do not run shell commands or review a different commit.
+Copy `inputs.review_input.input_candidate` and `inputs.review_input.dependencies`
+exactly into the report: these identify the candidate and criterion/architecture
+revisions judged. Never invent missing identities or digests. If required input
+is unavailable, return `status` `failed` with the exact missing input.
+
+The input commit must equal `inputs.work_context.subject_commit`. Do not review
+a different input commit. The host checks the dispatched worktree's clean subject
+before access and report settlement. A subject refusal requires a failed report.
+When no edit was made, output_candidate equals input_candidate. After scoped
+corrective edits, commit them, keep the worktree clean, and name the actual
+`git rev-parse HEAD` and `git rev-parse HEAD^{tree}` as the output candidate.
+Shell commands for these scoped edits, checks and commit/tree observations are
+allowed by the host permissions; never switch to an unrelated candidate.
 """
 
 
@@ -962,7 +968,7 @@ suggestions using the existing finding detail. For an oracle-governed finding,
 use `review_finding.oracle.classification` and keep the detail consistent with
 it; do not invent report fields. Missing required evidence remains a gap, not a
 reason to invent a defect. Do not turn style preferences into defects or a
-`no_ship` verdict, and do not broaden the review into an unrelated audit.
+blocking disposition, and do not broaden the review into an unrelated audit.
 
 """
 
@@ -1050,10 +1056,10 @@ def agent_projection(lane: dict, report_schema: dict, packet_schema: dict) -> st
         block_rule = (
             f"## Required report blocks\n\n"
             f"This lane's completed report must carry the typed {blocks} block: an explicit "
-            f"`ship` or `no_ship` verdict and every finding with its severity and confidence."
-            f"{discharge_rule} The verdict is report content only: it maps to no workflow "
-            f"field and records no transition, and the coordinator records the workflow "
-            f"verdict through the core.\n\n"
+            f"disposition, input_candidate, output_candidate, dependencies, assessments, "
+            f"findings, and remaining_obligations. Every finding carries its severity and confidence."
+            f"{discharge_rule} The disposition is attributed report content, not a workflow "
+            f"transition. Main accepts the exact report through the core.\n\n"
         )
     else:
         block_rule = ""

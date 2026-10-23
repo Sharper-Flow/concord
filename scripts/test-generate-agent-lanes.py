@@ -204,9 +204,25 @@ class SubagentMethodProjectionTests(unittest.TestCase):
             self.assertIn("proven defects, missing required evidence, and optional suggestions", text)
             self.assertIn("existing finding detail", text)
             self.assertIn("use `review_finding.oracle.classification` and keep the detail consistent with it", text)
-            self.assertIn("Do not turn style preferences into defects or a `no_ship` verdict", text)
+            self.assertIn("Do not turn style preferences into defects or a blocking disposition", text)
             self.assertIn("do not broaden the review into an unrelated audit", text)
         self.assertEqual(carrying, {"review"})
+
+    def test_review_teaching_agrees_with_report_schema(self):
+        manifest, _ = generator.load_manifest()
+        review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")
+        text = lane_projection(review)
+        schema = json.loads((generator.ROOT / "contracts/agent-lane-report.schema.json").read_text())
+        block = schema["$defs"]["review_block"]
+        for field in block["required"]:
+            self.assertIn(field, text)
+        for disposition in block["properties"]["disposition"]["enum"]:
+            self.assertIn(f"`{disposition}`", text)
+        self.assertNotIn("`ship`", text)
+        self.assertNotIn("`no_ship`", text)
+        self.assertNotIn("Do not run shell commands", text)
+        self.assertIn("inputs.review_input.input_candidate", text)
+        self.assertIn("inputs.review_input.dependencies", text)
 
 
 class LaneDigestRetentionTests(unittest.TestCase):

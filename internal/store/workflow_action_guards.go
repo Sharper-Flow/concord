@@ -1685,6 +1685,9 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 	if err := admitWorkerDispatchSubjectFreshness(in.ctx, in.tx, in.request, in.entry.Definition, lane, admittedContext); err != nil {
 		return err
 	}
+	if err := validateWorkerReviewInput(in.ctx, in.tx, in.request.WorkID, lane, in.entry.Definition, packetRaw); err != nil {
+		return err
+	}
 	// The whole context answers to one aggregate bound before dispatch
 	// effects, including a retry derived from a combined rejection.
 	if err := refuseOverBoundDispatchContext(packetRaw); err != nil {

@@ -19,7 +19,7 @@ func acceptCurrentReviewForTest(t *testing.T, f workContextFixture, repo, dispos
 	}
 }
 
-func completeCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disposition string) (string, int64) {
+func completeCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disposition string, mutations ...func(*WorkerReviewBlock)) (string, int64) {
 	t.Helper()
 	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
 	job := reviewSubjectReadyRevision(t, f)
@@ -30,6 +30,9 @@ func completeCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disp
 	j.laneDispatch(t, attempt, "review", &job)
 	window := reviewSubjectWindow(t, f.store, f.workID, attempt)
 	report := currentReviewBlockForTest(t, f.store, f.workID, attempt, disposition)
+	for _, mutate := range mutations {
+		mutate(report)
+	}
 	lane := reviewGateLane(t, "review")
 	evidence := []WorkerReportEvidence{}
 	for _, obligation := range lane.EvidenceObligations {

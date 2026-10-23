@@ -322,8 +322,19 @@ func TestReplayDeduplicationBackupRestoreRebuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	indexBefore := workflowReplayIndex(t, r.Store)
+	var eventSeqBefore int64
+	if err := r.Store.DatabaseForTesting().QueryRow(`SELECT MAX(seq) FROM domain_events`).Scan(&eventSeqBefore); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.RebuildFromLog(ctx, r.Store); err != nil {
 		t.Fatal(err)
+	}
+	var eventSeqAfter int64
+	if err := r.Store.DatabaseForTesting().QueryRow(`SELECT MAX(seq) FROM domain_events`).Scan(&eventSeqAfter); err != nil {
+		t.Fatal(err)
+	}
+	if eventSeqAfter != eventSeqBefore {
+		t.Fatalf("rebuild changed event sequence from %d to %d", eventSeqBefore, eventSeqAfter)
 	}
 	var watermark int64
 	if err := r.Store.DatabaseForTesting().QueryRow(`SELECT revision FROM store_revision WHERE id=1`).Scan(&watermark); err != nil {

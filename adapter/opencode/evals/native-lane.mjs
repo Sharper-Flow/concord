@@ -4,13 +4,25 @@ import { readFileSync } from "node:fs"
 import { networkInterfaces } from "node:os"
 
 const lanes = JSON.parse(readFileSync(new URL("../../../contracts/agent-lanes.v1.json", import.meta.url), "utf8")).lanes
+const modelSchema = JSON.parse(readFileSync(new URL("../../../contracts/agent-lane-report.schema.json", import.meta.url), "utf8")).properties.readback_model
 const eventTypes = { text: "text", tool: "tool_use", "step-start": "step_start", "step-finish": "step_finish", reasoning: "reasoning" }
 
-export function childRunStream(messages, agent) {
+/** @returns {{output: string, metadata: {readback_model: string, readback_agent: string, session_id: string}}} */
+export function childRunStream(messages, agent, child) {
   const answers = messages.filter(message => message.info.role === "assistant")
-  if (!answers.length || answers.some(message => message.info.agent !== agent)) throw new Error("native eval executor identity mismatch")
-  if (answers.at(-1).info.error || answers.at(-1).info.finish !== "stop") throw new Error("native eval child did not complete")
-  return answers.flatMap(message => message.parts.filter(part => eventTypes[part.type]).map(part => JSON.stringify({ type: eventTypes[part.type], sessionID: message.info.sessionID, part }))).join("\n")
+  if (typeof child !== "string" || !child || !answers.length || answers.some(message => message.info.agent !== agent || message.info.sessionID !== child)) throw new Error("native eval executor identity mismatch")
+  if (answers.some(message => message.info.error) || answers.at(-1).info.finish !== "stop") throw new Error("native eval child did not complete")
+  const models = new Set(answers.map(({ info }) => {
+    if (typeof info.providerID !== "string" || info.providerID.includes("/") || typeof info.modelID !== "string") throw new Error("native eval child model readback is missing or invalid")
+    const model = `${info.providerID}/${info.modelID}`
+    if (model.length < modelSchema.minLength || model.length > modelSchema.maxLength || !new RegExp(modelSchema.pattern).test(model)) throw new Error("native eval child model readback is missing or invalid")
+    return model
+  }))
+  if (models.size !== 1) throw new Error("native eval child model readback is ambiguous")
+  return {
+    output: answers.flatMap(message => message.parts.filter(part => eventTypes[part.type]).map(part => JSON.stringify({ type: eventTypes[part.type], sessionID: message.info.sessionID, part }))).join("\n"),
+    metadata: { readback_model: [...models][0], readback_agent: agent, session_id: child },
+  }
 }
 
 export default class NativeLaneProvider {
@@ -95,7 +107,7 @@ export default class NativeLaneProvider {
           }
           if (event.type === "session.error" && [parent.id, child].includes(event.properties.sessionID)) throw new Error(JSON.stringify(event.properties.error))
           if (child && event.type === "session.idle" && event.properties.sessionID === child) {
-            return { output: childRunStream(await call(`/session/${child}/message`), this.agent) }
+            return childRunStream(await call(`/session/${child}/message`), this.agent, child)
           }
         }
       }

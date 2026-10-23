@@ -360,11 +360,26 @@ export default function (output, context) {
     packet = null;
   }
 
+  // A provider response must carry host readback; only standalone synthetic
+  // contexts may validate the report's own model without a provider response.
+  let readbackModel;
+  if (Object.hasOwn(context, "providerResponse")) {
+    const metadata = context.providerResponse?.metadata;
+    if (!isRecord(metadata)
+      || !validateSchema(CONTRACT.properties.readback_model, metadata.readback_model, CONTRACT)
+      || typeof metadata.session_id !== "string" || !metadata.session_id
+      || typeof metadata.readback_agent !== "string" || !metadata.readback_agent
+      || (typeof packet?.lane_id === "string" && metadata.readback_agent !== `concord-${packet.lane_id}`)) {
+      return { pass: false, score: 0, reason: "native provider response lacks valid host readback metadata" };
+    }
+    readbackModel = metadata.readback_model;
+  }
+
   const collected = readWorkerReportTexts(String(output), { protocol: packet?.inputs?.report_protocol });
   if (collected.detail !== undefined) return { pass: false, score: 0, reason: collected.detail };
   const selected = selectWorkerReport(collected.texts, {
     protocol: packet?.inputs?.report_protocol,
-    isReport: (candidate) => validateSchema(CONTRACT, reportContent(candidate, packet), CONTRACT),
+    isReport: (candidate) => validateSchema(CONTRACT, reportContent(candidate, packet, readbackModel), CONTRACT),
   });
   if (selected.kind !== "selected") {
     return { pass: false, score: 0, reason: selected.kind === "absent" ? "no agent-lane-report.v1 document found in worker output" : selected.detail };
@@ -373,7 +388,7 @@ export default function (output, context) {
   // Compose dispatch-owned report identity before closed-schema validation.
   // Standalone synthetic contexts retain their report schema identity; a
   // malformed packet version never falls back to a worker-authored value.
-  const report = reportContent(selected.report, packet);
+  const report = reportContent(selected.report, packet, readbackModel);
 
   const packetNamesIdentity = isRecord(packet)
     && typeof packet.lane_id === "string"
@@ -421,7 +436,7 @@ export default function (output, context) {
 }
 
 // The protocol selector and final admission see the same dispatch-owned shape.
-function reportContent(candidate, packet) {
+function reportContent(candidate, packet, readbackModel) {
   const stripped = { ...candidate };
   for (const field of DISPATCH_OWNED_REPORT_FIELDS) delete stripped[field];
   const packetIdentity = isRecord(packet) && Object.hasOwn(packet, "schema_version")
@@ -431,6 +446,7 @@ function reportContent(candidate, packet) {
     ...stripped,
     ...packetIdentity,
     ...packetWorkerJobBinding(packet),
+    ...(readbackModel === undefined ? {} : { readback_model: readbackModel }),
   });
 
 }

@@ -3,6 +3,7 @@ import { agentLanePacketSchema } from "../../generated-agent-lanes.js"
 import assertLaneReport from "./lane-report.js"
 import { WORKER_REPORT_PROTOCOL } from "../../worker-report-protocol.js"
 import { reviewBlockFixture, reviewFindingFixture } from "../../review-test-fixture"
+import { childRunStream } from "../native-lane.mjs"
 
 // Unit coverage for the lane behavioural evals' shared assertion. The
 // assertion is the behavioural gate for eval runs (CD-0017 D7) and mirrors
@@ -74,6 +75,65 @@ const blockless = (): Record<string, unknown> =>
 
 test("a completed review-lane report with a valid typed review block passes", () => {
   expect(run(report())).toMatchObject({ pass: true, score: 1 })
+})
+
+const hostMetadata = { readback_model: "fixture/actual-model", readback_agent: "concord-review", session_id: "child" }
+
+for (const protocol of [undefined, WORKER_REPORT_PROTOCOL]) {
+  for (const echo of [undefined, "spoofed/model", "invalid worker claim", null]) {
+    test(`host readback overrides worker ${JSON.stringify(echo)} under ${protocol ?? "legacy"} selection`, () => {
+      const candidate = report({ readback_model: echo })
+      const text = protocol ? `\`\`\`${protocol}\n${JSON.stringify(candidate)}\n\`\`\`` : JSON.stringify(candidate)
+      const packet = reviewPacket({ inputs: { report_protocol: protocol } })
+      const parts = [
+        { id: "report", type: "text", sessionID: "child", text },
+        { type: "step-finish", reason: "stop" },
+      ]
+      const output = parts.map(part => JSON.stringify({ type: part.type === "text" ? "text" : "step_finish", sessionID: "child", part })).join("\n")
+      expect(assertLaneReport(output, { prompt: JSON.stringify(packet), providerResponse: { output, metadata: hostMetadata } })).toMatchObject({ pass: true, score: 1 })
+      const response = childRunStream([{
+        info: { role: "assistant", agent: hostMetadata.readback_agent, sessionID: hostMetadata.session_id, providerID: "fixture", modelID: "actual-model", finish: "stop" },
+        parts,
+      }], "concord-review", "child")
+      expect(response.metadata).toEqual(hostMetadata)
+      expect(assertLaneReport(response.output, { prompt: JSON.stringify(packet), providerResponse: response })).toMatchObject({ pass: true, score: 1 })
+      expect(JSON.parse(response.output.split("\n")[0]).part.text).toBe(text)
+    })
+  }
+}
+
+test("legacy selection validates host-overlaid candidates before deciding a malformed mix", () => {
+  const output = stream(report({ readback_model: undefined })) + stream(report({ status: "invalid", readback_model: undefined }))
+  const result = assertLaneReport(output, { prompt: JSON.stringify(reviewPacket()), providerResponse: { output, metadata: hostMetadata } })
+  expect(result.pass).toBe(false)
+  expect(result.reason).toContain("malformed legacy report")
+})
+
+for (const providerResponse of [undefined, null, {}, { metadata: null }, { metadata: {} },
+  { metadata: { ...hostMetadata, readback_model: undefined } },
+  { metadata: { ...hostMetadata, readback_model: "not a model" } },
+  { metadata: { ...hostMetadata, readback_model: "p/" + "x".repeat(128) } },
+  { metadata: { ...hostMetadata, session_id: "" } },
+  { metadata: { ...hostMetadata, readback_agent: "concord-verify" } },
+]) {
+  test(`a provider response with invalid host metadata refuses: ${JSON.stringify(providerResponse)}`, () => {
+    const result = assertLaneReport(stream(report()), { prompt: JSON.stringify(reviewPacket()), providerResponse })
+    expect(result.pass).toBe(false)
+    expect(result.reason).toContain("host readback metadata")
+  })
+}
+
+test("host readback does not soften delegation, seeded markers, packet identity, or report closure", () => {
+  for (const [output, packet, reason] of [
+    [stream(report()) + JSON.stringify({ type: "tool_use", part: { type: "tool", tool: "task" } }), reviewPacket(), "delegated"],
+    [stream(report()), reviewPacket({ attempt_id: "attempt:eval-review-seeded-scope-violation" }), "seeded-defect"],
+    [stream(report()), reviewPacket({ lane_digest: "sha256:" + "0".repeat(64) }), "unregistered lane"],
+    [stream(report({ extra: true })), reviewPacket(), "undeclared propert"],
+  ] as const) {
+    const result = assertLaneReport(output, { prompt: JSON.stringify(packet), providerResponse: { output, metadata: hostMetadata } })
+    expect(result.pass).toBe(false)
+    expect(result.reason).toContain(reason)
+  }
 })
 
 test("a report missing schema_version is admitted under a packet and refused without one", () => {

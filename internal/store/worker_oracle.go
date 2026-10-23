@@ -40,7 +40,7 @@ const (
 // prefixes, so an owner, case, or control identity stays stable within one
 // work item and can never collide with a predicate or job identity.
 var (
-	oracleOwnerIDPattern   = regexp.MustCompile(`^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$`)
+	oracleOwnerIDPattern   = regexp.MustCompile(`^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,121}$`)
 	oracleCaseIDPattern    = regexp.MustCompile(`^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$`)
 	oracleControlIDPattern = regexp.MustCompile(`^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$`)
 )

@@ -28,7 +28,7 @@ func init() {
 	// Case and control references join the dispatched oracle even for a
 	// follow_up (validateWorkerOracleFindingJoins). Its identities entered
 	// through the recorded job's authoring shape. A follow_up owner does not
-	// join: only its store pattern bounds it, which may exceed the output cap.
+	// join: its store pattern supplies the report identity's finite bound.
 	for _, row := range []struct{ member, definition, id, constant string }{
 		{"case_ids", "worker_oracle_case", "case_id", "oracleFindingCaseMax"},
 		{"control_ids", "worker_oracle_control", "control_id", "oracleFindingControlMax"},

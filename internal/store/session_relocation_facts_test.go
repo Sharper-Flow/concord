@@ -221,3 +221,79 @@ func TestSessionClaimLandingReadersIgnoreTheLog(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// relocationFactRows renders the three relocation fact tables in key order.
+func relocationFactRows(t *testing.T, s *Store) []string {
+	t.Helper()
+	var out []string
+	for _, query := range []string{
+		`SELECT 'r|'||work_id||'|'||session_ref||'|'||request_count||'|'||landing_count||'|'||landing_stamp||'|'||claim_landing_count FROM session_relocations ORDER BY work_id, session_ref`,
+		`SELECT 'v|'||work_id||'|'||session_ref||'|'||project_id||'|'||source_directory||'|'||COALESCE(destination_directory,'<null>')||'|'||payload_version||'|'||stamp FROM session_vacate_requests ORDER BY work_id, session_ref, project_id, source_directory`,
+		`SELECT 'c|'||work_id||'|'||session_ref||'|'||project_id||'|'||claim_op_id||'|'||landing_count FROM session_claim_landings ORDER BY work_id, session_ref, project_id, claim_op_id`,
+	} {
+		rows, err := s.DatabaseForTesting().Query(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var row string
+			if err := rows.Scan(&row); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, row)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		rows.Close()
+	}
+	return out
+}
+
+// Migration 138's backfill derives from the log exactly the rows the folds
+// wrote: counts, the latest request per key with its recorded version, and
+// stamps in each session's event order, including a version 1 request, an
+// interleaved second session, and claim landings.
+func TestSessionRelocationBackfillMatchesTheFolds(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	req.SessionRef = "ses-x"
+	if _, err := s.ClaimWorktree(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	source := claimPath(s)
+	if _, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-x", LandedDirectory: source, HostPID: os.Getpid(), Now: time.Unix(45, 0).UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{vacateRequestEvent("backfill-request-1", source)}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordSessionVacateLanding(ctx, SessionVacateLandingRequest{WorkID: "work-w", SessionRef: "ses-x", LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(60, 0).UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+		{
+			EventID: "backfill-v1", Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: "work-w",
+			Actor: "ses-old", OccurredAt: time.Unix(61, 0).UTC(), PayloadVersion: 1,
+			Payload: jsonRaw(`{"work_id":"work-w","project_id":"project-w","session_ref":"ses-old","source_directory":"` + source + `","destination_directory":"/data/repo-main","landed_directory":"/data/repo-main"}`),
+		},
+		vacateRequestEvent("backfill-request-2", source),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	folded := relocationFactRows(t, s)
+	if len(folded) != 5 {
+		t.Fatalf("folded rows=%v, want two relocation rows, two request rows and one claim landing", folded)
+	}
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DROP TABLE session_relocations; DROP TABLE session_vacate_requests; DROP TABLE session_claim_landings; DELETE FROM schema_migrations WHERE version=138`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, s.DatabaseForTesting()); err != nil {
+		t.Fatal(err)
+	}
+	if backfilled := relocationFactRows(t, s); strings.Join(backfilled, "\n") != strings.Join(folded, "\n") {
+		t.Fatalf("backfill rows:\n%s\nfolded rows:\n%s", strings.Join(backfilled, "\n"), strings.Join(folded, "\n"))
+	}
+}

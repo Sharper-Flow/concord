@@ -170,15 +170,13 @@ func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path str
 	if leased {
 		return origin, newFailure(KindResourceBusy, "work_bootstrap", "cannot chain from worktree "+origin.WorkID+" while a verify lease is active", true, "release the origin verify lease and retry")
 	}
-	var dispatched bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND lifecycle_state='dispatched')`, origin.WorkID).Scan(&dispatched); err != nil {
+	// An authorization creates its attempt in_flight before the worker is
+	// dispatched; both states hold the origin.
+	var open bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND lifecycle_state IN ('in_flight','dispatched'))`, origin.WorkID).Scan(&open); err != nil {
 		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot inspect origin worker attempts", true, "retry once the database is readable", err)
 	}
-	openWindow, err := bootstrapOriginHasOpenDispatchWindow(ctx, tx, origin.WorkID)
-	if err != nil {
-		return origin, err
-	}
-	if dispatched || openWindow {
+	if open {
 		return origin, newFailure(KindResourceBusy, "work_bootstrap", "cannot chain from worktree "+origin.WorkID+" while a worker attempt is dispatched or open", true, "complete or close the origin worker attempt and retry")
 	}
 	if err := tx.Commit(); err != nil {
@@ -451,20 +449,6 @@ func (s *Store) resolveFreshCreationBase(ctx context.Context, runner GitRunner, 
 		return WorktreeLocation{}, locateErr
 	}
 	return location, nil
-}
-
-func bootstrapOriginHasOpenDispatchWindow(ctx context.Context, tx *sql.Tx, workID string) (bool, error) {
-	var open bool
-	err := tx.QueryRowContext(ctx, `SELECT EXISTS(
-		SELECT 1 FROM domain_events started
-		JOIN domain_events completed ON completed.subject_type=started.subject_type AND completed.subject_id=started.subject_id AND completed.kind=? AND json_extract(completed.payload,'$.action_id')='dispatch_worker' AND completed.seq>started.seq
-		WHERE started.subject_type=? AND started.subject_id=? AND started.kind=? AND json_extract(started.payload,'$.action_id')='dispatch_worker'
-		AND NOT EXISTS (SELECT 1 FROM domain_events dispatched WHERE dispatched.subject_type=started.subject_type AND dispatched.subject_id=started.subject_id AND dispatched.kind=? AND dispatched.seq>completed.seq AND json_extract(dispatched.payload,'$.attempt_id')=json_extract(completed.payload,'$.worker_attempt_id'))
-	)`, WorkerDispatched, string(SubjectWorkItem), workID, WorkflowActionStarted, WorkerDispatched).Scan(&open)
-	if err != nil {
-		return false, wrapFailure(KindUnavailable, "work_bootstrap", "cannot inspect origin worker attempt windows", true, "retry once the database is readable", err)
-	}
-	return open, nil
 }
 
 func processStartIdentity(pid int64) (string, error) {

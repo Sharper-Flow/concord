@@ -368,16 +368,8 @@ func TestHistoricalBreakFixPinSupportsVerdictCorrection(t *testing.T) {
 
 func prepareVerdictCorrectionFixture(t *testing.T, workID string) workflowReturnRouteFixture {
 	t.Helper()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
-	ownerRef, err := WorkflowActorRef(fixture.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
-	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
-		t.Fatalf("record refusal fixture verdict: %v", err)
-	}
-	return fixture
+	j := pReturnReviewFixture(t, workID, "workflow.implementation", "correction_required")
+	return workflowReturnRouteFixture{store: j.s, owner: j.fixture.owner, operator: j.fixture.operator}
 }
 
 func runCorrectionActionWithoutOperator(s *Store, workID string, owner WorkflowActor, payload json.RawMessage) error {

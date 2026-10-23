@@ -5,31 +5,33 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
-	"strings"
 	"testing"
 	"time"
 )
 
-// seedCheckpointFailedReviewMismatchOn seeds the same issue 1062 shape on the
-// named workflow kind, parked at that kind's verification checkpoint.
-func seedCheckpointFailedReviewMismatchOn(t *testing.T, workID, definitionRef, checkpoint string) (workflowReturnRouteFixture, string, int64) {
+// seedCheckpointFailedReviewCorrection seeds a break_fix item at its verify
+// checkpoint over the accepted repair candidate the return-route precedent
+// produces. One review attempt fails, and
+// its terminal derives the failure record (CD-0198 D5). A later Review
+// completes with correction_required and stays unaccepted. The failure lives in
+// that Review disposition, never in a non-ok verdict (CD-0242 D8). It returns
+// the failed attempt, its epoch, the log position after the failure record,
+// and the completed Review attempt with its epoch.
+func seedCheckpointFailedReviewCorrection(t *testing.T, workID string) (fixture workflowReturnRouteFixture, failedID string, failedEpoch, failedSeq int64, reviewID string, reviewEpoch int64) {
 	t.Helper()
-	return seedCheckpointFailedReviewMismatchWith(t, workID, mustBuiltinDefinition(t, definitionRef), checkpoint)
-}
-
-func seedCheckpointFailedReviewMismatchWith(t *testing.T, workID string, registered RegisteredDefinition, checkpoint string) (workflowReturnRouteFixture, string, int64) {
-	t.Helper()
-	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, checkpoint, []string{"verification"}, []string{"verification", "artifact"})
-	seedCheckpointReviewAcceptedDelivery(t, fixture.store, workID, fixture.owner, checkpointEffectStep(t, fixture.store, workID, checkpoint), checkpoint)
-	attemptID := "attempt:" + workID + ":failed-review"
-	epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, checkpoint, attemptID)
-	failCheckpointReviewAttempt(t, fixture.store, workID, attemptID)
-	reviewer := checkpointReviewReviewer(t, fixture.store, workID)
-	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
-		t.Fatalf("record mismatch verdict after the failed review: %v", err)
+	j := pReturnReviewFixture(t, workID, "workflow.break_fix", "")
+	fixture = workflowReturnRouteFixture{store: j.s, owner: j.fixture.owner, operator: j.fixture.operator}
+	parkWorkflowInstanceAt(t, j.s, workID, "verify")
+	failedID = "attempt:" + workID + ":failed-review"
+	failedEpoch = dispatchCheckpointReviewAttempt(t, fixture, workID, failedID)
+	failCheckpointReviewAttempt(t, fixture.store, workID, failedID)
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT MAX(seq) FROM domain_events WHERE subject_id=?`, workID).Scan(&failedSeq); err != nil {
+		t.Fatal(err)
 	}
-	return fixture, attemptID, epoch
+	reviewID = "attempt:" + workID + ":correction-review"
+	reviewEpoch = dispatchCheckpointReviewAttempt(t, fixture, workID, reviewID)
+	completeCheckpointReviewAttempt(t, fixture.store, workID, reviewID, "correction_required")
+	return fixture, failedID, failedEpoch, failedSeq, reviewID, reviewEpoch
 }
 
 // workerAttemptPopulation counts the work item's materialized worker attempts
@@ -47,8 +49,8 @@ func workerAttemptPopulation(t *testing.T, s *Store, workID string) (attempts, d
 
 // assertFailedReviewCorrectionPreservesPinnedState pins what the checkpoint
 // correction must leave exactly as it found it: the pinned definition digest
-// and version, the single active contract, the failure verdict with its bound
-// evidence, and the failed attempt's failure history.
+// and version, the single active contract, the failed attempt's failure
+// history, and the absence of any authored verdict.
 func assertFailedReviewCorrectionPreservesPinnedState(t *testing.T, s *Store, workID, definitionRef string, definitionVersion int64) {
 	t.Helper()
 	ctx := context.Background()
@@ -87,8 +89,8 @@ func assertFailedReviewCorrectionPreservesPinnedState(t *testing.T, s *Store, wo
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(verdicts) != 1 || verdicts[0].VerdictKind != "outcome_mismatch" || !verdicts[0].IncomparableWithApproved || !slices.Contains(verdicts[0].EvaluationEvidence, "evidence:return-route-verification") {
-		t.Fatalf("latest verdicts after the correction = %+v, want the bound mismatch verdict with its evidence", verdicts)
+	if len(verdicts) != 0 {
+		t.Fatalf("verdicts after the correction = %+v, want none: the failure lives in the Review disposition", verdicts)
 	}
 }
 
@@ -105,46 +107,43 @@ func requestCorrectionRefusalClass(t *testing.T, s *Store, workID string) (Failu
 	return failure.Kind, failure.Detail
 }
 
-// TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair pins the amended
-// CD-0143 D1 and CD-0193 D1 return: after the latest review attempt a worker
-// dispatched at the verify checkpoint failed and the exact hold-mode failure
-// record dispositions it, a current non-ok verdict admits the operator-
-// approved evidence-bearing correction, the pinned graph returns break_fix to
-// repair, the failure disposition never reads as an accepted delivery, and
-// only the fresh execution-step dispatch carries the bounded mismatch context.
+// TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair pins the
+// CD-0143 D1 and CD-0193 D1 return from the verify checkpoint. A failed review
+// attempt derives its own failure record (CD-0198 D5), and that disposition
+// never reads as an accepted delivery. The correction is admitted only by a
+// current accepted correction_required Review (CD-0242 D8). It returns
+// break_fix to repair along the declared route, and only the fresh repair
+// dispatch carries the bounded correction context.
 func TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	const workID = "checkpoint-failed-review-correction"
-	fixture, attemptID, epoch := seedCheckpointFailedReviewMismatchOn(t, workID, "workflow.break_fix", "verify")
+	fixture, attemptID, epoch, failedSeq, reviewID, reviewEpoch := seedCheckpointFailedReviewCorrection(t, workID)
 	s := fixture.store
 	ctx := context.Background()
 
-	kind, detail := requestCorrectionRefusalClass(t, s, workID)
-	if kind != KindInvalidOperation || !strings.Contains(detail, "failure record that dispositions the failed review attempt") {
-		t.Fatalf("refusal before the record = %s %q, want the failure-disposition class", kind, detail)
+	if records := s2DerivedFailureRecords(t, s, workID, attemptID); len(records) != 1 || records[0]["step"] != "verify" || records[0]["epoch"] != epoch {
+		t.Fatalf("checkpoint failure records = %+v, want one derived at verify epoch %d", records, epoch)
 	}
-
-	if err := runVerdictActionAs(t, s, workID, "record_worker_failure", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(epoch)+`}`), 0, fixture.owner); err != nil {
-		t.Fatalf("record_worker_failure at the verify checkpoint refused: %v", err)
-	}
-
-	// The failure disposition is not an accepted success: the primary
-	// accepted-completed-delivery route stays closed behind the same verdict.
-	var verdictSeq int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&verdictSeq); err != nil {
-		t.Fatal(err)
-	}
-	_, accepted, err := workflowAcceptedWorkerDelivery(ctx, s.db, workID, verdictSeq, "checkpoint_correction_test")
+	_, accepted, err := workflowAcceptedWorkerDelivery(ctx, s.db, workID, failedSeq, "checkpoint_correction_test")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if accepted {
 		t.Fatal("the checkpoint failure disposition reads as an accepted worker delivery")
 	}
+	if kind, detail := requestCorrectionRefusalClass(t, s, workID); kind == "" {
+		t.Fatalf("request_correction resolved before Main accepted the correction_required Review (%q)", detail)
+	}
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+reviewID+`","attempt_epoch":`+fmt.Sprint(reviewEpoch)+`}`), 0, fixture.owner); err != nil {
+		t.Fatalf("Main acceptance of the correction_required Review: %v", err)
+	}
+	if pin := issue1013Pin(t, s, workID); pin.Review == nil || pin.Review.Accepted == nil || pin.Review.Accepted.Report.Disposition != "correction_required" || !issue1013HasIntent(pin, "request_correction") {
+		t.Fatalf("accepted correction_required Review opened no correction route: %+v", pin)
+	}
 
 	correction := json.RawMessage(`{"diagnosis":"the review failed while the delivered subject still mismatches","strategy":"rebuild the helper and re-verify with a fresh review","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
 	attemptsBefore, dispatchesBefore := workerAttemptPopulation(t, s, workID)
-	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("request correction after the checkpoint failure record: %v", err)
+	if err := runVerdictActionAs(t, s, workID, "request_correction", correction, 0, fixture.owner); err != nil {
+		t.Fatalf("request correction after the accepted correction_required Review: %v", err)
 	}
 	if got := currentStep(t, s, workID); got != "repair" {
 		t.Fatalf("step after the checkpoint correction = %q, want repair", got)
@@ -165,12 +164,12 @@ func TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	if returned == nil || returned.PredicateIDs[0] != "predicate:return-route" || returned.EvidenceRefs[0] != "evidence:return-route-verification" || returned.Diagnosis != "the review failed while the delivered subject still mismatches" {
 		t.Fatalf("returned correction context = %+v, want the first bounded checkpoint correction", returned)
 	}
-	if attemptErr := runIssue933OperatorAction(t, s, workID, "request_correction", correction, fixture.owner, fixture.operator); attemptErr == nil {
-		t.Fatal("second request_correction admitted before a fresh verdict")
+	if attemptErr := runVerdictActionAs(t, s, workID, "request_correction", correction, 0, fixture.owner); attemptErr == nil {
+		t.Fatal("second request_correction admitted before a fresh Review")
 	}
 	// The return carries no law, contract, history, or evidence edit: the
-	// pinned digest, the one contract, the failure verdict, and the failure
-	// record all survive unchanged.
+	// pinned digest, the one contract, and the failure record survive
+	// unchanged, and no verdict was authored.
 	assertFailedReviewCorrectionPreservesPinnedState(t, s, workID, "workflow.break_fix", mustBuiltinDefinition(t, "workflow.break_fix").Definition.Version)
 
 	// The return reopens the owning execution step's normal dispatch: a fresh
@@ -185,7 +184,11 @@ func TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	if fresh == attemptID {
 		t.Fatal("the fresh attempt identity reuses the dispositioned review attempt")
 	}
-	if err := dispatchSameStepAttempt(t, s, workID, "repair", fresh, fixture.owner, pin.Correction); err != nil {
+	implement := laneForID(t)
+	packet := joinPacketFor(t, s, workID, "repair", fresh, "implement", implement.Version, implement.Digest)
+	packet["inputs"].(map[string]any)["correction"] = pin.Correction
+	attachReadyWorkerJobIfJobCapable(t, s, workID, "repair", fixture.owner, packet)
+	if _, err := dispatchJoinAttempt(ctx, t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("fresh fenced attempt after the checkpoint correction: %v", err)
 	}
 	var freshEpoch int64
@@ -210,7 +213,3 @@ func TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair(t *testing.T) {
 		t.Fatal("late acceptance of the dispositioned attempt admitted after the return")
 	}
 }
-
-// requestCorrectionPreflightRefusalClass classifies the refusal the owning
-// transactional preflight returns for request_correction: the surface behind
-// WorkflowActionPreflightWithRegistry and the boundary coordinator.

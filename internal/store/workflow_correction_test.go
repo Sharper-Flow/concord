@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -334,23 +336,16 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	}
 }
 
+// An accepted correction_required Review opens the correction (CD-0242 D8).
+// Its context binds the next dispatch at the producer step, a dispatch that
+// omits it refuses, and the accepted corrective delivery discharges it, so a
+// later lane dispatches with no correction.
 func TestCorrectionDispatchClearsPinContextForLaterLane(t *testing.T) {
 	const workID = "work-c1b9adae6631673333fc94b8"
 	ctx := context.Background()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s, owner := fixture.store, fixture.owner
-	defer s.Close()
-
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
-		t.Fatalf("record non-ok verdict: %v", err)
-	}
-	correction := json.RawMessage(`{"diagnosis":"the repaired subject still reproduces the defect","strategy":"repeat the repair external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
-	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, owner, fixture.operator); err != nil {
+	j := pReturnReviewFixture(t, workID, "workflow.break_fix", "correction_required")
+	s, owner := j.s, j.fixture.owner
+	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t, j), owner); err != nil {
 		t.Fatalf("request correction: %v", err)
 	}
 
@@ -366,63 +361,34 @@ func TestCorrectionDispatchClearsPinContextForLaterLane(t *testing.T) {
 	if !sameWorkflowCorrection(pin.Correction, validatorCorrection) {
 		t.Fatalf("work pin correction=%#v, validator correction=%#v", pin.Correction, validatorCorrection)
 	}
-	withoutCorrection := dispatchWorkerPacket(t, s, workID, "repair", attemptID)
-	packetPayload, err := json.Marshal(withoutCorrection)
+	job := reviewSubjectReadyRevision(t, j.fixture)
+	version, digest := registeredLaneIdentity(t, "implement")
+	withoutCorrection := joinPacketFor(t, s, workID, "repair", attemptID, "implement", version, digest)
+	withoutCorrection["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, "implement")
+	prepared, err := PrepareWorkerDispatchFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: j.repo})
 	if err != nil {
 		t.Fatal(err)
 	}
-	withoutCorrectionPayload := mustJSONValue(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetPayload)})
-	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: withoutCorrectionPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
-		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "dispatch-without-correction:" + workID, OperationID: "dispatch-without-correction:" + workID,
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "dispatch-without-correction:" + workID, RequestID: "request:dispatch-without-correction:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(40, 0).UTC(),
-	}); !hasFailureKind(err, KindInvalidPayload) {
-		t.Fatalf("dispatch without correction error=%v, want invalid_payload", err)
+	before := j.effects(t)
+	_, err = dispatchJoinAttempt(WithWorkerDispatchPreparation(ctx, prepared), t, s, workID, readWorkVersion(t, s, workID), owner, withoutCorrection)
+	if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "correction") {
+		t.Fatalf("dispatch without correction error=%v, want the correction invalid_payload refusal", err)
+	}
+	if j.effects(t) != before {
+		t.Fatal("refused dispatch changed durable state")
 	}
 
-	validPayload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", attemptID, pin.Correction)
-	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: validPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
-		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), IdempotencyIdentity: "dispatch-corrective:" + workID, OperationID: "dispatch-corrective:" + workID,
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "dispatch-corrective:" + workID, RequestID: "request:dispatch-corrective:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(41, 0).UTC(),
-	}); err != nil {
-		t.Fatalf("corrective dispatch: %v", err)
-	}
-
-	lane := BuiltinLaneDefinitions()[0]
-	issue1013RecordWorkerDispatch(t, s, workID, attemptID)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
-		EventID: "worker-completed-corrective-" + workID,
-		Kind:    WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(41, 1).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)}),
-	}}}); err != nil {
-		t.Fatalf("complete corrective worker attempt: %v", err)
-	}
-	var attemptEpoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&attemptEpoch); err != nil {
-		t.Fatal(err)
-	}
-	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/correction-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": attemptEpoch}), 0, acceptor); err != nil {
-		t.Fatalf("accept corrective worker result: %v", err)
-	}
-
+	pReturnProduce(t, j, "corrective")
 	pin = issue1013Pin(t, s, workID)
 	if pin.Correction != nil {
 		t.Fatalf("work pin retained discharged correction: %#v", pin.Correction)
 	}
-	nextAttemptID := "attempt:" + workID + ":later"
-	nextPacket, err := json.Marshal(dispatchWorkerPacket(t, s, workID, "repair", nextAttemptID))
-	if err != nil {
-		t.Fatal(err)
+	later := "attempt:" + workID + ":later"
+	if correction, err := workflowCorrectionContextForDispatch(ctx, s.db, workID, "repair", later); err != nil || correction != nil {
+		t.Fatalf("later lane correction=%#v err=%v, want none", correction, err)
 	}
-	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: mustJSONValue(map[string]any{"attempt_id": nextAttemptID, "worker_packet": json.RawMessage(nextPacket)}), SessionWorktree: dispatchSessionWorktree(t, s, workID),
-		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "dispatch-later:" + workID, OperationID: "dispatch-later:" + workID,
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "dispatch-later:" + workID, RequestID: "request:dispatch-later:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(42, 0).UTC(),
-	}); err != nil {
-		t.Fatalf("dispatch after discharged correction: %v", err)
+	if err := descendantDispatch(t, j, "review", later, reviewSubjectReadyRevision(t, j.fixture), nil); err != nil {
+		t.Fatalf("later review dispatch after discharged correction: %v", err)
 	}
 }
 
@@ -491,95 +457,33 @@ func TestWorkPinRepeatedCorrectionAdvertisesRetry(t *testing.T) {
 	}
 }
 
+// Every correction consumes the accepted Review that admitted it. Each later
+// correction needs a fresh corrective delivery and a fresh accepted
+// correction_required Review; a consumed Review never admits another.
 func TestRepeatedVerificationCorrectionRequiresFreshVerdict(t *testing.T) {
 	t.Parallel()
 	const workID = "verification-wall-fourth-request"
-	ctx := context.Background()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
-	ownerRef, err := WorkflowActorRef(fixture.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
-	// One declared worker delivery per cycle: the correction request returns
-	// the workflow to execution, and the next verdict needs a fresh accepted
-	// delivery to be recordable at its normal verification step. The loop's
-	// acceptor is distinct from the verdict reviewer, so no actor evaluates
-	// its own delivery.
-	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/return-route-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
-	runCorrectionWorkerLoop := func(cycle int64) {
-		t.Helper()
-		s := fixture.store
-		lane := BuiltinLaneDefinitions()[0]
-		attemptID := fmt.Sprintf("attempt:%s:%d", workID, cycle)
-		if err := runVerdictActionAs(t, s, workID, "start_execution", json.RawMessage(`{}`), 0, fixture.owner); err != nil {
-			t.Fatalf("cycle %d start_execution: %v", cycle, err)
+	j := pReturnReviewFixture(t, workID, "workflow.implementation", "correction_required")
+	for cycle := 1; cycle <= 4; cycle++ {
+		if cycle > 1 {
+			pReturnProduce(t, j, fmt.Sprintf("correction-%d", cycle))
+			acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
 		}
-		recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "execution", ownerRef)
-		var attemptEpoch int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&attemptEpoch); err != nil {
-			t.Fatal(err)
+		if err := j.action(t, "request_correction", pReviewCorrectionPayload(t, j), j.fixture.owner); err != nil {
+			t.Fatalf("cycle %d correction request: %v", cycle, err)
 		}
-		if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
-			EventID: fmt.Sprintf("dispatch-%s-%d", workID, cycle), Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-			Actor: ownerRef, OccurredAt: time.Unix(30+cycle, 0).UTC(), PayloadVersion: 2,
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
-		}}}); err != nil {
-			t.Fatal(err)
-		}
-		if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
-			EventID: fmt.Sprintf("completed-%s-%d", workID, cycle), Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-			Actor: "worker:test", OccurredAt: time.Unix(31+cycle, 0).UTC(), PayloadVersion: 1,
-			Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)}),
-		}}}); err != nil {
-			t.Fatal(err)
-		}
-		if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(attemptEpoch)+`}`), 0, acceptor); err != nil {
-			t.Fatalf("cycle %d accept worker result: %v", cycle, err)
-		}
-		if err := runVerdictActionAs(t, s, workID, refineRecoveryRefineEntry(t, s, workID), json.RawMessage(`{}`), 0, acceptor); err != nil {
-			t.Fatalf("cycle %d start refinement: %v", cycle, err)
-		}
-		// The current definitions gate the refine exit on a green verify run
-		// bound in the epoch (CD-0192); the loop supplies one each cycle.
-		refineProofSeedGreenRun(t, s, workID, fmt.Sprintf("%064x", cycle))
-		for _, deliveryStep := range []string{"refine", "delivery"} {
-			if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:return-route-`+deliveryStep+`-`+fmt.Sprint(cycle)+`","delivery_state":"asserted"}`), 0, acceptor); err != nil {
-				t.Fatalf("cycle %d record %s delivery: %v", cycle, deliveryStep, err)
-			}
+		reviewGateRequireStep(t, j.s, workID, "execution")
+		pin := issue1013Pin(t, j.s, workID)
+		if pin.Correction == nil || len(pin.Correction.PredicateIDs) != 1 || pin.Correction.PredicateIDs[0] != "predicate:return-route" {
+			t.Fatalf("correction after cycle %d = %#v, want the current predicate source", cycle, pin.Correction)
 		}
 	}
-	recordCorrectionCycle := func(count int64) {
-		t.Helper()
-		if count > 1 {
-			// The fixture's first delivery loop already ran, and each
-			// correction request returns the workflow to execution, so every
-			// later verdict needs one fresh declared delivery loop.
-			runCorrectionWorkerLoop(count)
-		}
-		if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
-			t.Fatalf("cycle %d mismatch verdict: %v", count, err)
-		}
-		payload := json.RawMessage(`{"diagnosis":"the delivered subject still fails","strategy":"repeat the external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
-		if err := runIssue933OperatorAction(t, fixture.store, workID, "request_correction", payload, fixture.owner, fixture.operator); err != nil {
-			t.Fatalf("cycle %d correction request: %v", count, err)
-		}
-		pin, pinErr := ReadWorkPin(ctx, fixture.store, workID)
-		if pinErr != nil {
-			t.Fatal(pinErr)
-		}
-		if pin.Correction == nil || pin.Correction.Disposition != "verification" || len(pin.Correction.PredicateIDs) != 1 || pin.Correction.PredicateIDs[0] != "predicate:return-route" {
-			t.Fatalf("verification correction after cycle %d = %#v, want the current predicate source", count, pin.Correction)
-		}
+	before := j.effects(t)
+	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t, j), j.fixture.owner); err == nil {
+		t.Fatal("request_correction reused a consumed Review")
 	}
-	for count := int64(1); count <= 3; count++ {
-		recordCorrectionCycle(count)
-	}
-	recordCorrectionCycle(4)
-	// No fresh verdict exists for a fifth request to correct.
-	payload := json.RawMessage(`{"diagnosis":"the delivered subject still fails","strategy":"repeat the external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
-	if err := runIssue933OperatorAction(t, fixture.store, workID, "request_correction", payload, fixture.owner, fixture.operator); err == nil {
-		t.Fatal("request_correction reused a consumed verdict")
+	if j.effects(t) != before {
+		t.Fatal("refused correction changed durable state")
 	}
 }
 
@@ -1191,7 +1095,11 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		}
 	})
 
-	t.Run("missing operator approval", func(t *testing.T) {
+	// consequence_v1 classifies a complete-step correction that makes no
+	// serious law change as routine record-keeping (CD-0230 D4): it records
+	// without an operator approval. The serious-law-change consent stays
+	// covered by the law-change suite.
+	t.Run("routine authority without operator approval", func(t *testing.T) {
 		t.Parallel()
 		const workID = "complete-correction-no-approval"
 		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
@@ -1208,9 +1116,12 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 			PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
 			ContractDigest: testManifestDigest, Now: time.Unix(30, 0).UTC(),
 		})
-		var failure *Failure
-		if !errors.As(err, &failure) || failure.Kind != KindApprovalRequired {
-			t.Fatalf("unapproved correction = %v, want approval_required", err)
+		if err != nil {
+			t.Fatalf("routine complete-step correction without approval = %v, want admitted", err)
+		}
+		classified, err := ClassifyWorkflowApproval(mustBuiltinDefinition(t, "workflow.break_fix").Definition, "supersede_contract", WorkflowApprovalFacts{})
+		if err != nil || classified.Class != WorkflowApprovalClassRoutine || classified.Consent != WorkflowConsentNone {
+			t.Fatalf("supersede_contract classification = %+v err=%v, want routine without consent", classified, err)
 		}
 	})
 
@@ -1387,7 +1298,32 @@ func TestAcceptedWorkerResultClosesCorrectionSource(t *testing.T) {
 		t.Fatalf("correction after two infrastructure failures = %#v, want the latest failed source", pin.Correction)
 	}
 
-	seedAcceptedImplementationDeliveryAt(t, s, workID, fixture.owner, "repair")
+	// The accepted delivery continues the same job; a new job would open the
+	// next execution group, which needs an accepted Review first.
+	attempt3 := "attempt:" + workID + ":3"
+	if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, attempt3, job)); err != nil {
+		t.Fatal(err)
+	}
+	j := &candidateJourney{fixture: fixture, s: s, workID: workID, repo: workerFixtureDirectory(t, s, workID)}
+	var branch string
+	if err := s.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(workID)).Scan(&branch); err != nil {
+		t.Fatal(err)
+	}
+	gitRunStore(t, j.repo, "branch", "-m", branch)
+	j.laneDispatch(t, attempt3, "implementation", &job)
+	path := filepath.Join(j.repo, "internal", "store", job.JobID, "value.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	j.commit(t, "worker@example.invalid", "produce bounded implementation")
+	j.completeLane(t, attempt3, "implementation", &job, nil)
+	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt3, "attempt_epoch": reviewSubjectWindow(t, s, workID, attempt3).AttemptEpoch}, fixture.owner); err != nil {
+		t.Fatalf("accept the same-job delivery: %v", err)
+	}
+	j.observe(t, "accepted-delivery")
 	pin = issue1013Pin(t, s, workID)
 	if pin.Correction != nil {
 		t.Fatalf("accepted result left correction context: %#v", pin.Correction)
@@ -1396,11 +1332,14 @@ func TestAcceptedWorkerResultClosesCorrectionSource(t *testing.T) {
 		t.Fatalf("local result acceptance advanced the step to %q, want repair", step)
 	}
 
+	// The accepted job is satisfied; a continue Review admits the next job.
+	acceptCurrentReviewForTest(t, fixture, j.repo, "continue")
+	next := reviewSubjectReadyRevision(t, fixture)
 	attempt4 := "attempt:" + workID + ":4"
-	if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, attempt4, job)); err != nil {
+	if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, attempt4, next)); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{implementDispatchEvidenceEvent(workID, attempt4, laneForID(t), job)}}); err != nil {
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{implementDispatchEvidenceEvent(workID, attempt4, laneForID(t), next)}}); err != nil {
 		t.Fatal(err)
 	}
 	s2WorkerFailedAttributedLive(t, s, workID, attempt4, "lane fallback blocked before the model ran")
@@ -1679,7 +1618,9 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 		t.Fatalf("duplicate fixture active contracts = %d, want 2", activeCount)
 	}
 	def := pinnedWorkflowDefinitionForTest(t, s, workID)
-	model := admissionModelState{step: "complete", debt: ReviewDebtNone, contracts: 2, verdict: "ok", artifact: true}
+	// The seeded proof records and satisfies one worker job in the primary
+	// Project, so the delivery facet folds a recorded, satisfied job.
+	model := admissionModelState{step: "complete", debt: ReviewDebtNone, contracts: 2, verdict: "ok", artifact: true, jobs: "satisfied", jobsScope: "project"}
 	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "duplicate at the complete step")
 	if issue1013HasIntent(issue1013Pin(t, s, workID), "supersede_contract") {
 		t.Fatal("duplicate complete-step pin advertises supersession before the contradiction record")
@@ -1700,7 +1641,9 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 	if err := issue1013Preflight(t, s, workID, "supersede_contract", duplicateRecovery, fixture.owner); err != nil {
 		t.Fatalf("preflight refused the duplicate complete-step correction: %v", err)
 	}
-	if err := runDuplicateRecoveryWithApproval(t, s, workID, duplicateRecovery, fixture.owner); err != nil {
+	// consequence_v1 supersedes through attributed supersession, not
+	// verified operator approval (CD-0172).
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", duplicateRecovery, fixture.owner, fixture.operator); err != nil {
 		t.Fatalf("duplicate complete-step correction: %v", err)
 	}
 	if step, state, _, _, _ := completeStepInstancePin(t, s, workID); step != "repair" || state != "running" {
@@ -1728,36 +1671,13 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 		t.Fatalf("active contracts after duplicate correction = %v, want [3]", active)
 	}
 	model = admissionSuccessor(def, model, "supersede_contract")
+	// The single successor restores the seeded journey's facets the
+	// duplicates hid: its started delivery, the accepted current Review of
+	// the delivered candidate, and the engineering successor's coordinator
+	// confirmation.
+	model.started, model.engineering = true, true
+	model.review = admissionModelReview{candidate: true, accepted: "ready_for_final_proof", current: true}
 	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after the duplicate correction")
-}
-
-// runDuplicateRecoveryWithApproval runs a duplicate-contract supersession as
-// the approved operator route records it: the operator actor names the
-// one-use approval, and the request carries the approval binding the fold
-// re-checks for self-consistency.
-func runDuplicateRecoveryWithApproval(t *testing.T, s *Store, workID string, payload json.RawMessage, owner WorkflowActor) error {
-	t.Helper()
-	approvalRef := strings.Repeat("a", 64)
-	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "approval:" + approvalRef, SessionRef: "session/" + workID + "-recovery", ActorClass: ActorOperator}
-	version := readWorkVersion(t, s, workID)
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	operationID := fmt.Sprintf("duplicate-recovery-%s-%d", workID, version)
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: payload, Actor: owner, OperatorActor: &operator,
-		OperatorApprovalRef: approvalRef, ApprovalOperationDigest: "sha256:" + strings.Repeat("c", 64), ApprovalScopeJSON: `{}`,
-		ApprovalVersionsJSON: `{"work_id":"` + workID + `"}`, ApprovalConsequence: "recovery",
-		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
-		ContractDigest: testManifestDigest, Now: time.Unix(20, version).UTC(),
-	})
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
 }
 
 func TestCompleteStepCorrectionAdmissionUsesOnlyPriorHistory(t *testing.T) {

@@ -30,12 +30,7 @@ import (
 // routineRecoveryPolicyDefinition copies a registered definition and declares
 // consequence_v1 on the copy. The registry keeps the legacy version; only the
 // definition-consuming owners under test see the declared policy.
-func routineRecoveryPolicyDefinition(t *testing.T, ref string, version int64) WorkflowDefinition {
-	t.Helper()
-	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
-	if !ok {
-		t.Fatalf("definition %s v%d is not registered", ref, version)
-	}
+func routineRecoveryPolicyDefinition(registered RegisteredDefinition) WorkflowDefinition {
 	definition := registered.Definition
 	definition.ApprovalPolicy = WorkflowApprovalPolicyConsequenceV1
 	return definition
@@ -181,7 +176,7 @@ func TestRoutineRecovery(t *testing.T) {
 		defer tx.Rollback()
 		// consequence_v1 supersedes routinely: the unsigned attributed event
 		// passes the authorization branch the live fold delegates to.
-		if err := requireWorkflowDuplicateRecoveryApprovalTx(ctx, tx, event, payload, routineRecoveryPolicyDefinition(t, workflowFixtureRef, 2)); err != nil {
+		if err := requireWorkflowDuplicateRecoveryApprovalTx(ctx, tx, event, payload, routineRecoveryPolicyDefinition(workflowFixtureDefinition(t, 2))); err != nil {
 			t.Fatalf("unsigned consequence_v1 duplicate recovery authorization refused: %v", err)
 		}
 		// The legacy pin keeps the recorded operator approval requirement on
@@ -263,7 +258,7 @@ func TestRoutineRecovery(t *testing.T) {
 		s := fixture.store
 		registered := mustBuiltinDefinition(t, "workflow.break_fix")
 		definition := registered.Definition
-		policyDefinition := routineRecoveryPolicyDefinition(t, "workflow.break_fix", registered.Definition.Version)
+		policyDefinition := routineRecoveryPolicyDefinition(registered)
 		// Without the contradiction record the route is closed for both
 		// policies: the gate is state, never consent.
 		for name, candidate := range map[string]WorkflowDefinition{"legacy": definition, "consequence_v1": policyDefinition} {
@@ -434,7 +429,7 @@ func TestRoutineRecovery(t *testing.T) {
 		}}}); err != nil {
 			t.Fatal(err)
 		}
-		policyDefinition := routineRecoveryPolicyDefinition(t, workflowFixtureRef, 2)
+		policyDefinition := routineRecoveryPolicyDefinition(workflowFixtureDefinition(t, 2))
 		legacyDefinition := workflowFixtureDefinition(t, 2).Definition
 		classify := func(actorRef string, definition WorkflowDefinition) error {
 			tx, txErr := s.DatabaseForTesting().BeginTx(context.Background(), nil)

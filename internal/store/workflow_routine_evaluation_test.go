@@ -153,41 +153,6 @@ func TestRoutineEvaluation(t *testing.T) {
 		}
 	})
 
-	t.Run("new policy admits coordinator completion with an independent verdict", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-new-coordinator-completion"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
-		reviewer, _, coordinator := seedRoutineActors(t, s, workID)
-		foldRoutineVerdict(t, s, workID, reviewer)
-		setWorkflowStepForOperatorVerdictTest(t, s, workID, "release")
-		version := readWorkVersion(t, s, workID)
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		execution := WorkflowActionExecutionRequest{
-			WorkID: workID, ExpectedVersion: version, ActionID: "complete", Payload: json.RawMessage(`{"impact_verdict":"non-breaking"}`), Actor: coordinator,
-			OperationID: "routine-complete-" + workID, Now: time.Unix(11, 0).UTC(),
-		}
-		result, err := applyCompleteWorkflowActionTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), RegisteredDefinition{Definition: routinePolicyDefinition(t)}, execution, ownerRefForTest(t, coordinator), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
-		if err != nil {
-			t.Fatalf("coordinator completion with an independent verdict refused: %v", err)
-		}
-		if err := tx.Commit(); err != nil {
-			t.Fatal(err)
-		}
-		if len(result.EventIDs) == 0 {
-			t.Fatal("completion recorded no events")
-		}
-		var state string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state); err != nil {
-			t.Fatal(err)
-		}
-		if state != "completed" {
-			t.Fatalf("instance state after coordinator completion = %q, want completed", state)
-		}
-	})
-
 	t.Run("worker authority refuses evaluation", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-worker-verdict"

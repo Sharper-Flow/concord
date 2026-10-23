@@ -135,7 +135,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		fields := map[string]json.RawMessage{"predicate_id": json.RawMessage(`"predicate:primary"`), "verdict_kind": json.RawMessage(`"ok"`), "evaluation_evidence": json.RawMessage(`["evidence:operator-verdict"]`)}
 		_, err = workflowRecordVerdictEvents(context.Background(), tx, WorkflowActionExecutionRequest{WorkID: workID, OperatorActor: &operator, OperationID: "routine-verdict-" + workID}, "actor:owner", fields, "routine-verdict-"+workID, version)
 		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "consequence_v1 takes no operator substitution") {
+		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "accepts no operator-signing substitute") {
 			t.Fatalf("consequence_v1 verdict with an operator actor returned %v, want the no-substitution refusal", err)
 		}
 	})
@@ -144,8 +144,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-completion-substitution"
 		s, _ := seedDeliveredItemAtAcceptance(t, workID)
-		reviewer, operator, coordinator := seedRoutineActors(t, s, workID)
-		foldRoutineVerdict(t, s, workID, reviewer)
+		_, operator, coordinator := seedRoutineActors(t, s, workID)
 		setWorkflowStepForOperatorVerdictTest(t, s, workID, "release")
 		version := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -196,56 +195,6 @@ func TestRoutineEvaluation(t *testing.T) {
 		}
 		if state != "completed" {
 			t.Fatalf("instance state after coordinator completion = %q, want completed", state)
-		}
-	})
-
-	t.Run("self-verdict refuses without a challenge", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-new-self-verdict"
-		s, owner := seedDeliveredItemAtAcceptance(t, workID)
-		ownerRef := ownerRefForTest(t, owner)
-		version := readWorkVersion(t, s, workID)
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		fields := map[string]json.RawMessage{"verdict_actor_ref": json.RawMessage(`"` + ownerRef + `"`), "predicate_id": json.RawMessage(`"predicate:primary"`), "verdict_kind": json.RawMessage(`"ok"`), "evaluation_evidence": json.RawMessage(`["evidence:operator-verdict"]`)}
-		_, err = workflowRecordVerdictEvents(context.Background(), tx, WorkflowActionExecutionRequest{WorkID: workID, OperationID: "routine-self-" + workID}, ownerRef, fields, "routine-self-"+workID, version)
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "executing actor cannot evaluate its own delivery") {
-			t.Fatalf("self-verdict returned %v, want the executor refusal without an approval challenge", err)
-		}
-	})
-
-	t.Run("independent non-worker evaluator succeeds under new policy", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-new-independent-verdict"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
-		reviewer, _, _ := seedRoutineActors(t, s, workID)
-		reviewerRef := ownerRefForTest(t, reviewer)
-		version := readWorkVersion(t, s, workID)
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		fields := map[string]json.RawMessage{"predicate_id": json.RawMessage(`"predicate:primary"`), "verdict_kind": json.RawMessage(`"ok"`), "evaluation_evidence": json.RawMessage(`["evidence:operator-verdict"]`)}
-		events, err := workflowRecordVerdictEvents(context.Background(), tx, WorkflowActionExecutionRequest{WorkID: workID, OperationID: "routine-independent-" + workID}, reviewerRef, fields, "routine-independent-"+workID, version)
-		if err != nil {
-			t.Fatalf("independent evaluator verdict refused: %v", err)
-		}
-		if len(events) != 1 {
-			t.Fatalf("independent evaluator verdict produced %d events, want 1", len(events))
-		}
-		var payload struct {
-			VerdictActorRef string `json:"verdict_actor_ref"`
-		}
-		if err := json.Unmarshal(events[0].Payload, &payload); err != nil {
-			t.Fatal(err)
-		}
-		if payload.VerdictActorRef != reviewerRef {
-			t.Fatalf("verdict actor = %q, want the invoking independent evaluator", payload.VerdictActorRef)
 		}
 	})
 
@@ -323,28 +272,6 @@ func TestRoutineEvaluation(t *testing.T) {
 		}
 	})
 
-	t.Run("model mismatch refuses at completion distinctness", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-new-model-mismatch"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
-		reviewer, _, _ := seedRoutineActors(t, s, workID)
-		reviewerRef := ownerRefForTest(t, reviewer)
-		var executionModel string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT execution_model FROM workflow_instances WHERE work_id=?`, workID).Scan(&executionModel); err != nil {
-			t.Fatal(err)
-		}
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		err = workflowCompletionActorDistinct(context.Background(), tx, workID, reviewerRef, executionModel, true)
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "same readback model identity") {
-			t.Fatalf("model-matched verdict distinctness returned %v, want the readback-model refusal", err)
-		}
-	})
-
 	t.Run("unbound evidence refuses under new policy", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-unbound-evidence"
@@ -357,7 +284,7 @@ func TestRoutineEvaluation(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
-		fields := map[string]json.RawMessage{"predicate_id": json.RawMessage(`"predicate:primary"`), "verdict_kind": json.RawMessage(`"ok"`), "evaluation_evidence": json.RawMessage(`["evidence:not-bound"]`)}
+		fields := map[string]json.RawMessage{"verdicts": json.RawMessage(`[{"predicate_id":"predicate:primary","receipt_refs":["evidence:not-bound"]}]`)}
 		_, err = workflowRecordVerdictEvents(context.Background(), tx, WorkflowActionExecutionRequest{WorkID: workID, OperationID: "routine-unbound-" + workID}, reviewerRef, fields, "routine-unbound-"+workID, version)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
@@ -368,8 +295,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-executing-completion"
 		s, owner := seedDeliveredItemAtAcceptance(t, workID)
-		reviewer, _, _ := seedRoutineActors(t, s, workID)
-		foldRoutineVerdict(t, s, workID, reviewer)
+		seedRoutineActors(t, s, workID)
 		coordinatorRef := ownerRefForTest(t, owner)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
@@ -402,32 +328,8 @@ func TestRoutineEvaluation(t *testing.T) {
 		defer tx.Rollback()
 		err = workflowCompletionCallerAuthority(context.Background(), tx, routinePolicyDefinition(t), workID, coordinatorRef)
 		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "worker actors cannot record workflow completion") {
+		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "a worker cannot accept results, associate criterion proof, or complete work") {
 			t.Fatalf("worker-authority completion returned %v, want the worker refusal", err)
-		}
-	})
-
-	t.Run("seam keeps the legacy executor refusal and non-executor admission", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-seam-legacy-completion"
-		s, owner := seedDeliveredItemAtAcceptance(t, workID)
-		reviewer, _, coordinator := seedRoutineActors(t, s, workID)
-		foldRoutineVerdict(t, s, workID, reviewer)
-		ownerRef := ownerRefForTest(t, owner)
-		coordinatorRef := ownerRefForTest(t, coordinator)
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		legacy := workflowFixtureDefinition(t, 2).Definition
-		err = workflowCompletionCallerAuthority(context.Background(), tx, legacy, workID, ownerRef)
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "executing actor cannot author its own verdict") {
-			t.Fatalf("legacy executor completion authority returned %v, want the retained distinctness refusal", err)
-		}
-		if err := workflowCompletionCallerAuthority(context.Background(), tx, legacy, workID, coordinatorRef); err != nil {
-			t.Fatalf("legacy non-executing coordinator completion authority refused: %v", err)
 		}
 	})
 

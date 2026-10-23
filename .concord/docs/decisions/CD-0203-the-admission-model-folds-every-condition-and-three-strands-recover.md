@@ -141,6 +141,6 @@ Scenario: Every registered definition stays live under the full model
 - `go test ./internal/store/ -run TestContractStepAdvancesOnlyThroughItsApproval` proves the first scenario.
 - `go test ./internal/store/ -run TestCompleteStepCorrectionRecoversDuplicateProjection` proves the second scenario.
 - `go test ./internal/store/ -run 'TestFrozenOpsRunbookCleanupOpensThePremiseQuestion|TestRegisteredStepsAdmitTheirApprovalRequiredActions|TestRegisteredNonTerminalStepsCanAdvance'` proves the third scenario.
-- `go test ./internal/store/ -run 'TestWellFormedAdmissionStateHasNonContinuityExit|TestReachableAdmissionStateReachesTerminal|TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept'` proves the fourth scenario.
+- `go test ./internal/store/ -run 'TestWellFormedAdmissionStateHasNonContinuityExit|TestReachableAdmissionStateReachesTerminal|TestAdmissionConformanceLocalJobAcceptHolds|TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition'` proves the fourth scenario over current definitions and Review admission.
 - `python3 scripts/check-doc-contract.py --report-only` proves this record carries the current decision outline and passes the writing rules.
 - `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0203 identifier allocates once.

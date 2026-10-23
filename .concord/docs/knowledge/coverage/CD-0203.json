@@ -30,7 +30,11 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept"
+      "value": "internal/store.TestAdmissionConformanceLocalJobAcceptHolds"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition"
     }
   ],
   "id": "CD-0203",

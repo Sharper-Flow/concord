@@ -73,7 +73,8 @@ func workflowStepJudgesStaleArtifact(definition WorkflowDefinition, stepID strin
 
 // admissionModelState is one node of the abstract admission state space.
 type admissionModelState struct {
-	step string
+	step   string
+	review admissionModelReview
 	// debt and ready are the post-rejection review debt and the typed
 	// verdict of the ready review: "", "ship", "absent", or "no_ship".
 	debt  WorkflowReviewDebt
@@ -156,8 +157,8 @@ type admissionModelState struct {
 }
 
 func (s admissionModelState) String() string {
-	return fmt.Sprintf("(step %q debt %q ready %q attempt %q dispatched %v producer %v freshOrigin %v jobDebt %v unboundRejectAt %q contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q jobs %q unsatisfied %q scope %q integration %v sizeStop %v engineering %v done %v)",
-		s.step, s.debt, s.ready, s.attempt, s.dispatched, s.attemptProduces, s.attemptFresh, s.jobDebt, s.unboundRejectionStep, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.jobs, s.jobsUnsatisfied, s.jobsScope, s.integration, s.sizeStop, s.engineering, s.done)
+	return fmt.Sprintf("(step %q debt %q ready %q attempt %q dispatched %v producer %v freshOrigin %v jobDebt %v unboundRejectAt %q contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q jobs %q unsatisfied %q scope %q integration %v sizeStop %v engineering %v done %v review %+v)",
+		s.step, s.debt, s.ready, s.attempt, s.dispatched, s.attemptProduces, s.attemptFresh, s.jobDebt, s.unboundRejectionStep, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.jobs, s.jobsUnsatisfied, s.jobsScope, s.integration, s.sizeStop, s.engineering, s.done, s.review)
 }
 
 func admissionModelStart(definition WorkflowDefinition) admissionModelState {
@@ -347,6 +348,7 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		CompleteStepCorrection:      admissionCompleteStepCorrection(definition, state),
 		ContractCorrectionAvailable: admissionContractCorrection(definition, state),
 		Delivery:                    delivery,
+		Review:                      admissionReviewState(state),
 	}
 	// The classification dimension folds the confirmation authority beside
 	// the question: an engineering contract records the coordinator's own
@@ -402,7 +404,13 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 	}
 	gate := workflowStepIsDeliveryGate(workflowStep(definition, state.step))
 	if gate {
-		folded.CorrectionRequestRecovery = folded.ReviewDebt == ReviewDebtOutstanding
+		// The gate's corrective return carries the post-rejection debt and
+		// the accepted-but-inapplicable Review: a successor contract changed
+		// the candidate or its depended-on revisions, the delivery
+		// assertion refuses, and the declared route obtains a fresh
+		// accepted Review at the producer step.
+		folded.CorrectionRequestRecovery = folded.ReviewDebt == ReviewDebtOutstanding ||
+			state.review.accepted != "" && state.review.candidate && (!state.review.current || state.review.changed)
 		if !folded.CorrectionRequestRecovery {
 			folded.CorrectionRequestMissing = workflowCorrectionMissingGateReview
 		}
@@ -421,6 +429,10 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		if !folded.CorrectionRequestRecovery && state.contracts == 1 {
 			folded.CorrectionRequestMissing = workflowCorrectionMissingVerdict
 		}
+	}
+	if workflowCorrectionReturnTarget(definition, state.step) != "" && state.contracts == 1 && state.review.accepted == "correction_required" && state.review.candidate && !state.review.changed && state.review.current {
+		folded.CorrectionRequestRecovery = true
+		folded.CorrectionRequestMissing = workflowCorrectionMissingNone
 	}
 	return folded
 }
@@ -550,6 +562,7 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 	advance := true
 	switch actionID {
 	case "dispatch_worker":
+		next.review.report = ""
 		next.started, next.proof, next.integration = true, false, false
 		next.dispatched = true
 		// The materialized dispatch is the one consumption of a standing
@@ -575,8 +588,13 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 				for _, produces := range admissionDispatchProductionClasses(definition, state.step) {
 					candidate := completed
 					candidate.attemptProduces = produces
-					successors = append(successors, candidate)
+					if produces {
+						successors = append(successors, admissionProducingDispatch(definition, state, candidate)...)
+					} else {
+						successors = append(successors, candidate)
+					}
 				}
+				successors = append(successors, admissionReviewCompletions(definition, state, completed)...)
 				return append(successors, failureSuccessors...)
 			}
 			ship, noShip := completed, completed
@@ -589,8 +607,13 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 			for _, produces := range admissionDispatchProductionClasses(definition, state.step) {
 				candidate := completed
 				candidate.attemptProduces = produces
-				successors = append(successors, candidate)
+				if produces {
+					successors = append(successors, admissionProducingDispatch(definition, state, candidate)...)
+				} else {
+					successors = append(successors, candidate)
+				}
 			}
+			successors = append(successors, admissionReviewCompletions(definition, state, completed)...)
 			return append(successors, failed)
 		}
 		// A fresh review dispatch supersedes any ready review: the loader
@@ -615,6 +638,21 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		return []admissionModelState{next}
 	case "accept_worker_result":
 		next.attempt = ""
+		if state.review.report != "" {
+			next.review.accepted, next.review.report = state.review.report, ""
+			next.review.candidate, next.review.current, next.review.changed = true, true, false
+			if state.review.report == "ready_for_final_proof" {
+				next.review.blocked = false
+			}
+			next.attemptProduces, next.attemptFresh = false, false
+			return admissionAcceptedJobVariants(next)
+		}
+		if state.attemptProduces {
+			next.review.candidate = true
+			if next.review.accepted != "" {
+				next.review.changed = true
+			}
+		}
 		if state.attempt == "completed" && state.attemptProduces && state.attemptFresh && admissionProducesAtRouteTarget(definition, state.step, "accept_worker_result") {
 			// Dispatch admission includes evaluator capabilities. Acceptance
 			// therefore needs the producing class and fresh causal origin,
@@ -637,11 +675,25 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		if next.ready != "" {
 			next.debt, next.ready = ReviewDebtNone, ""
 		}
+		// Main's local intake is not the delivery assertion. Only the
+		// separately admitted record_delivery edge leaves execution.
+		if workflowDefinitionProducesDelivery(definition) {
+			variants := admissionAcceptedJobVariants(next)
+			if state.attemptProduces && state.review.accepted != "" {
+				for _, changed := range variants {
+					unchanged := changed
+					unchanged.review.changed = state.review.changed
+					variants = append(variants, unchanged)
+				}
+			}
+			return variants
+		}
 	case "accept_worker_evidence":
 		next.attempt = ""
 		next.attemptProduces, next.attemptFresh = false, false
 	case "reject_worker_result":
 		next.attempt = "rejected"
+		next.review.report = ""
 		// The model's rejection is the unbound one — no job debt opens — so
 		// the record stands at this step until a materialized dispatch
 		// consumes it.
@@ -694,6 +746,9 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		}
 		return []admissionModelState{admissionEnterStep(definition, next, target)}
 	case "request_correction":
+		if state.review.accepted == "correction_required" && state.review.current {
+			next.review.group = "corrective"
+		}
 		return []admissionModelState{admissionEnterStep(definition, next, workflowCorrectionReturnTarget(definition, state.step))}
 	case "complete":
 		next.done = true
@@ -867,7 +922,10 @@ func admissionSupersedeSuccessors(definition WorkflowDefinition, state admission
 }
 
 func admissionSupersedeCriterionVariants(previous admissionModelState, changed []admissionModelState) []admissionModelState {
-	if previous.contracts != 1 || previous.verdict != "ok" {
+	for i := range changed {
+		changed[i].review.current = false
+	}
+	if previous.contracts != 1 || previous.verdict != "ok" && previous.review.accepted == "" {
 		return changed
 	}
 	for _, successor := range changed {
@@ -876,6 +934,9 @@ func admissionSupersedeCriterionVariants(previous admissionModelState, changed [
 		}
 		unchanged := successor
 		unchanged.verdict, unchanged.artifactStale = previous.verdict, previous.artifactStale
+		if !successor.designStale {
+			unchanged.review.current = previous.review.current
+		}
 		changed = append(changed, unchanged)
 	}
 	return changed
@@ -1038,15 +1099,23 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 		// Each base state expands in place into its evidence, size-stop, and
 		// attempt-origin variants, in that nesting order, so a walk never
 		// holds the whole state space in memory.
+		withReview := func(state admissionModelState) bool {
+			for _, variant := range admissionReviewVariants(definition, state) {
+				if !yield(variant) {
+					return false
+				}
+			}
+			return true
+		}
 		withOrigins := func(state admissionModelState) bool {
 			if state.attempt != "completed" {
-				return yield(state)
+				return withReview(state)
 			}
 			for _, produces := range admissionDispatchProductionClasses(definition, state.step) {
 				for _, fresh := range []bool{false, true} {
 					next := state
 					next.attemptProduces, next.attemptFresh = produces, fresh
-					if !yield(next) {
+					if !withReview(next) {
 						return false
 					}
 				}
@@ -1263,18 +1332,21 @@ func archivedFamilyRefusalHolds(definition WorkflowDefinition, folded WorkflowAd
 // candidate action refuses with KindInvalidOperation naming the family, and
 // a state or action that admits — or mis-classifies its refusal — is the
 // witness the seeded detector test proves this walk can name.
-func archivedRefusalWitnesses(definition WorkflowDefinition) []string {
-	var witnesses []string
-	for state := range wellFormedAdmissionStates(definition) {
-		folded := admissionWorkflowState(definition, state)
-		for _, actionID := range admissionStateActions(definition, state) {
-			if archivedFamilyRefusalHolds(definition, folded, actionID) {
-				continue
+func archivedRefusalWitnesses(definition WorkflowDefinition) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for state := range wellFormedAdmissionStates(definition) {
+			folded := admissionWorkflowState(definition, state)
+			for _, actionID := range admissionStateActions(definition, state) {
+				if archivedFamilyRefusalHolds(definition, folded, actionID) {
+					continue
+				}
+				witness := fmt.Sprintf("archived nonterminal state %s admits or mis-classifies %q", state, actionID)
+				if !yield(witness) {
+					return
+				}
 			}
-			witnesses = append(witnesses, fmt.Sprintf("archived nonterminal state %s admits or mis-classifies %q", state, actionID))
 		}
 	}
-	return witnesses
 }
 
 // admissionSeededArchivedProbe returns the first well-formed state and
@@ -1306,7 +1378,7 @@ func TestWellFormedAdmissionStateHasNonContinuityExit(t *testing.T) {
 		t.Run(fmt.Sprintf("%s/v%d", definition.Ref, definition.Version), func(t *testing.T) {
 			t.Parallel()
 			if workflowFamilyArchived(definition.Ref) {
-				for _, witness := range archivedRefusalWitnesses(definition) {
+				for witness := range archivedRefusalWitnesses(definition) {
 					t.Error(witness)
 				}
 				return
@@ -1329,7 +1401,7 @@ func TestArchivedRefusalCheckNamesSeededAdmission(t *testing.T) {
 	if !admitted {
 		t.Fatalf("the non-archived clone admits no candidate action; the detector has nothing to detect: %s", probeState)
 	}
-	for _, witness := range archivedRefusalWitnesses(seeded) {
+	for witness := range archivedRefusalWitnesses(seeded) {
 		if strings.Contains(witness, fmt.Sprintf("%q", probeAction)) {
 			return
 		}
@@ -1379,7 +1451,7 @@ func TestReachableAdmissionStateReachesTerminal(t *testing.T) {
 		t.Run(fmt.Sprintf("%s/v%d", definition.Ref, definition.Version), func(t *testing.T) {
 			t.Parallel()
 			if workflowFamilyArchived(definition.Ref) {
-				for _, witness := range archivedRefusalWitnesses(definition) {
+				for witness := range archivedRefusalWitnesses(definition) {
 					t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
 				}
 				return
@@ -1608,6 +1680,7 @@ func admissionModelKeyOf(steps []string, state admissionModelState) admissionMod
 		}
 		p.put(bit, 1)
 	}
+	admissionPackReview(&p, state.review)
 	return p.key
 }
 
@@ -1632,12 +1705,13 @@ func admissionModelStateOf(steps []string, key admissionModelKey) admissionModel
 		&state.artifactStale, &state.artifact, &state.observed, &state.started, &state.proof, &state.integration, &state.sizeStop, &state.done, &state.engineering} {
 		*flag = p.get(1) == 1
 	}
+	state.review = admissionUnpackReview(&p)
 	return state
 }
 
 // admissionModelKeyFields is the number of admissionModelState fields
 // admissionModelKeyOf encodes.
-const admissionModelKeyFields = 26
+const admissionModelKeyFields = 27
 
 func TestAdmissionModelKeyEncodesEveryField(t *testing.T) {
 	if got := reflect.TypeOf(admissionModelState{}).NumField(); got != admissionModelKeyFields {
@@ -1661,9 +1735,16 @@ func TestAdmissionModelKeyRoundTrips(t *testing.T) {
 		for _, step := range definition.StepGraph.Steps {
 			steps = append(steps, step.ID)
 		}
-		states := slices.Collect(wellFormedAdmissionStates(definition))
+		check := func(state admissionModelState) {
+			if decoded := admissionModelStateOf(steps, admissionModelKeyOf(steps, state)); decoded != state {
+				t.Fatalf("%s: key round trip changed %#v into %#v", ref, state, decoded)
+			}
+		}
+		for state := range wellFormedAdmissionStates(definition) {
+			check(state)
+		}
 		for range 2000 {
-			states = append(states, admissionModelState{
+			check(admissionModelState{
 				step: pick(steps), unboundRejectionStep: pick(steps),
 				debt: WorkflowReviewDebt(pick(admissionKeyDebts)), ready: pick(admissionKeyReadies), attempt: pick(admissionKeyAttempts),
 				stale: pick(admissionKeyStales), verdict: pick(admissionKeyVerdicts),
@@ -1671,12 +1752,8 @@ func TestAdmissionModelKeyRoundTrips(t *testing.T) {
 				jobsScope: pick(admissionKeyJobScopes), contracts: random.Int64N(256),
 				dispatched: flip(), attemptProduces: flip(), attemptFresh: flip(), jobDebt: flip(), designStale: flip(), artifactStale: flip(),
 				artifact: flip(), observed: flip(), started: flip(), proof: flip(), integration: flip(), sizeStop: flip(), done: flip(), engineering: flip(),
+				review: admissionModelReview{report: pick(admissionReviewDispositions), accepted: pick(admissionReviewDispositions), group: pick(admissionReviewGroups), candidate: flip(), changed: flip(), current: flip(), progressed: flip(), blocked: flip()},
 			})
-		}
-		for _, state := range states {
-			if decoded := admissionModelStateOf(steps, admissionModelKeyOf(steps, state)); decoded != state {
-				t.Fatalf("%s: key round trip changed %#v into %#v", ref, state, decoded)
-			}
 		}
 	}
 }

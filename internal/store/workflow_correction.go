@@ -1019,7 +1019,7 @@ func workflowDeliveryGateCorrectionContextForRegistry(ctx context.Context, q que
 // of re-entering the loader.
 func workflowDeliveryGateCorrectionContextFolded(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, state WorkflowAdmissionState) (*WorkflowCorrectionContext, error) {
 	if state.ReviewDebt != ReviewDebtOutstanding {
-		return nil, nil
+		return workflowDeliveryGateInapplicableReviewContext(ctx, q, workID, definition, currentStep, subject, state)
 	}
 	rejectSeq, raw, err := workflowRefinementReviewFailure(ctx, q, workID, definition, subject)
 	if err != nil || rejectSeq == 0 {
@@ -1066,6 +1066,43 @@ func workflowDeliveryGateCorrectionContextFolded(ctx context.Context, q queryer,
 		PredicateIDs: nonNilStrings(predicates), EvidenceRefs: nonNilStrings(evidence),
 		Diagnosis: diagnosis, Strategy: fmt.Sprintf("return to step %q and dispatch a fresh review of the repaired result", target),
 		FailedAttemptID: "", FailedAttemptEpoch: 0,
+	}, nil
+}
+
+// workflowDeliveryGateInapplicableReviewContext is the gate's corrective
+// return when the standing accepted Review no longer covers the work: a
+// successor contract changed the candidate or its depended-on revisions, so
+// the delivery assertion refuses and no dispatch lives at the gate. The
+// declared route returns the instance to the producer step to obtain a fresh
+// accepted Review of the current candidate, exactly as the post-rejection
+// return does. An absent or still-applicable Review opens no return.
+func workflowDeliveryGateInapplicableReviewContext(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, state WorkflowAdmissionState) (*WorkflowCorrectionContext, error) {
+	if state.Review == nil || state.Review.Accepted == nil || state.Review.Candidate == nil {
+		return nil, nil
+	}
+	if state.Review.Accepted.Report.OutputCandidate == *state.Review.Candidate && state.Review.DependenciesCurrent {
+		return nil, nil
+	}
+	predicates, err := workflowActiveContractPredicateIDs(ctx, q, workID, subject)
+	if err != nil {
+		return nil, err
+	}
+	if len(predicates) == 0 {
+		return nil, nil
+	}
+	target := workflowCorrectionReturnTarget(definition, currentStep)
+	if target == "" {
+		return nil, nil
+	}
+	var seq int64
+	if err := q.QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE event_id=? AND subject_id=?`, state.Review.Accepted.ReportRef, workID).Scan(&seq); err != nil {
+		return nil, err
+	}
+	return &WorkflowCorrectionContext{
+		Disposition: "verification", PredicateIDs: predicates, EvidenceRefs: []string{state.Review.Accepted.ReportRef},
+		SourceEventID: state.Review.Accepted.ReportRef, SourceEventSeq: seq,
+		Diagnosis: "the accepted current Review no longer covers the current candidate or depended-on revisions",
+		Strategy:  fmt.Sprintf("return to step %q and obtain a fresh accepted review of the current candidate", target),
 	}, nil
 }
 

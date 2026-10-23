@@ -215,7 +215,7 @@ Scenario: A parked gate keeps the corrective return behind a no_ship review
 
 - `go test ./internal/store/ -run 'TestWellFormedAdmissionStateHasNonContinuityExit|TestWellFormedExitCheckNamesSeededStrandedState'` proves the first and third scenarios.
 - `go test ./internal/store/ -run TestReachableAdmissionStateReachesTerminal` proves the second scenario.
-- `go test ./internal/store/ -run TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept` proves the fourth scenario.
+- `go test ./internal/store/ -run 'TestAdmissionConformanceLocalJobAcceptHolds|TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition'` proves the fourth scenario through current Main intake and all four Review dispositions.
 - `go test ./internal/store/ -run 'TestNoShipReviewKeepsRefineCurrentAndSettlingReviewAdvances|TestReleasedPinKeepsNoShipAcceptRefineCurrent|TestNoShipReviewLeavesParkedGateCorrectionAdmitted'` proves the fifth and sixth scenarios.
 - `go test ./internal/store/ -run TestWorkflowAdmitDecisionTable` proves the pure function's total decision table and the settlement verdict rule.
 - `python3 scripts/check-doc-contract.py --report-only` proves this record carries the current decision outline and passes the writing rules.

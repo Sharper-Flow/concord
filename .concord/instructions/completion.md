@@ -27,6 +27,12 @@ Inspect failures rather than routing around them. Establish the cause before
 compensating for it. A retry, a fallback, a suppressed error, or a second
 validation added beside a broken one hides the defect instead of removing it.
 
+When many tests break, classify the failures together against the accepted
+retiring clauses before repairing any of them. Separate tests of retired
+behaviour from tests of current behaviour. Apply the deletion rule to the former
+and repair the latter. Delegate only classified batches, not unclassified
+failures one by one.
+
 Report what you did not do. Unfinished work, skipped verification, and known
 gaps belong in the summary. An accurate partial result is worth more than a
 confident complete-sounding one, and the operator cannot correct what you do

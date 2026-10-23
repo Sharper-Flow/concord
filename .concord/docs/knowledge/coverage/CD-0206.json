@@ -2,6 +2,10 @@
   "evidence": [
     {
       "kind": "go_test",
+      "value": "internal/store.TestBlockingReviewDispositionAcceptsWithoutAdvancing"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/store.TestReviewCurrentDispositionAdmission"
     },
     {

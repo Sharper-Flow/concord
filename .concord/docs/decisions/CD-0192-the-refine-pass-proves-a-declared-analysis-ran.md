@@ -117,9 +117,7 @@ succeeds.
 - `go test ./internal/store/ -run TestRefineToolingResolution` proves the
   resolution reads the default ref only and reads an absent manifest as no
   declaration.
-- `go test ./internal/store/ -run TestWorkflowDefinitionVersionPinsHold`
-  proves every earlier definition digest is unchanged, and the new versions
-  hold their own pins.
+- [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) retires retained-definition digest-pin witnesses in favor of one canonical source; `TestCurrentDefinitionsHaveOneSourcePerLiveFamily` checks that source without retained versions.
 - `python3 scripts/test-project-tooling.py` proves the checker and the schema
   refuse shell quoting and shell operators in an invocation.
 - The workflow corpus carries `WF57-refine-exit-needs-green-verify-run`, whose

@@ -168,12 +168,6 @@ Scenario: Evidence acceptance preserves review debt semantics
   first three scenarios as one route.
 - `go test ./internal/store/ -run TestJoinRefusesLaneAtUnadmittedStepKind`
   proves the closed class set.
-- `go test ./internal/store/ -run TestRepinReachesTheCheckpointReviewDefinition`
-  and `go test ./internal/store/ -run TestWorkflowDefinitionVersionPinsHold`
-  prove the current repin and digest-pin checks. The CD-0242 D14 anchor —
-  derived definitions from the one canonical source, with no version pins —
-  binds when the implementing runtime change lands; until then,
-  `python3 scripts/check-knowledge-index.py` is the executable anchor for this
-  record's law registration.
+- [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) retires old-definition repin and digest-pin witnesses in favor of one canonical source; `TestCurrentDefinitionsHaveOneSourcePerLiveFamily` checks that source without retained versions.
 - `python3 scripts/generate-lane-step-dispatch.py --check` proves the
   generated projections match the amended contract.

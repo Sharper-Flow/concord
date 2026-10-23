@@ -607,8 +607,10 @@ verification supplies this evidence, not a fabricated workflow record.
   and all three postdate the stale cause,
   and the capability class is `implementation`, `design`, or
   `research`.
-- `internal/store.TestResearchAndSpikeProducersClearStaleness` proves
-  direct production without a worker acceptance.
+- `internal/store.TestResearchProducerClearsStaleness` proves direct
+  production without a worker acceptance. The architecture spike is not a
+  live family ([CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)),
+  so no spike producer witness remains.
 - `internal/store.TestUnfencedCheckpointEpochUsesCausalPrefix` proves
   repeated direct checkpoints keep distinct identities, each derived
   from the causal prefix that precedes it.

@@ -1731,13 +1731,23 @@
       "additionalProperties": false,
       "required": [
         "fixture_refs",
-        "event_history",
-        "projection",
         "faults"
+      ],
+      "oneOf": [
+        {"required": ["current_state"], "not": {"required": ["event_history"]}},
+        {"required": ["event_history", "projection"], "not": {"required": ["current_state"]}}
       ],
       "properties": {
         "fixture_refs": {
           "$ref": "#/$defs/fixtureRefs"
+        },
+        "current_state": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["step"],
+          "properties": {
+            "step": {"$ref": "#/$defs/id"}
+          }
         },
         "event_history": {
           "type": "array",
@@ -2231,14 +2241,16 @@
       "additionalProperties": false,
       "required": [
         "actor_ref",
-        "definition_pin",
-        "expected_version",
         "action_id",
         "fields",
         "idempotency",
         "grant",
         "approval",
         "operation"
+      ],
+      "oneOf": [
+        {"required": ["definition_ref"], "not": {"required": ["definition_pin"]}},
+        {"required": ["definition_pin", "expected_version"], "not": {"required": ["definition_ref"]}}
       ],
       "properties": {
         "actor_ref": {
@@ -2249,6 +2261,9 @@
         },
         "definition_pin": {
           "$ref": "#/$defs/definitionPinInput"
+        },
+        "definition_ref": {
+          "$ref": "#/$defs/id"
         },
         "expected_version": {
           "type": "integer",

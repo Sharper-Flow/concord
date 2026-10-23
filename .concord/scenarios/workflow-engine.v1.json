@@ -235,37 +235,12 @@
           ],
           "relations": []
         },
-        "event_history": [
-          {
-            "event_id": "wf01-capture-late-outcome-created",
-            "kind": "work.created",
-            "work_id": "new",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 2,
-            "payload": {
-              "work_kind": "task",
-              "title": "WF01-capture-late-outcome fixture",
-              "priority": 1
-            }
-          }
-        ],
-        "projection": {
-          "version": 1,
-          "state": "planned",
-          "current_step": "complete",
-          "lifecycle": "planned"
-        },
+        "current_state": {"step": "proposal"},
         "faults": []
       },
       "request": {
         "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-        "definition_pin": {
-          "ref": "workflow.implementation",
-          "version": 2,
-          "digest": "sha256:e16dfed665a50ece82f33040d2cb0e4a6abfd72dbc5b4743098eab22f0faab89"
-        },
-        "expected_version": 1,
+        "definition_ref": "workflow.implementation",
         "action_id": "capture",
         "fields": {
           "payload": {
@@ -275,7 +250,7 @@
           "title": "WF01-capture-late-outcome title",
           "value_statement": "fixture value statement",
           "project_ids": [
-            "project-1"
+            "project"
           ]
         },
         "idempotency": {
@@ -290,7 +265,7 @@
           "agent_ref": "agent-engineer",
           "session_ref": "session-executor",
           "capability": "workflow_action",
-          "scope": "project-1"
+          "scope": "project"
         },
         "approval": {
           "required": false,
@@ -299,7 +274,7 @@
         "operation": {
           "op_id": "wf01-capture-late-outcome-operation",
           "attempt_epoch": 1,
-          "step_id": "complete",
+          "step_id": "proposal",
           "step_kind": "internal_sqlite",
           "state": "pending"
         }
@@ -311,6 +286,12 @@
             "path": "work.lifecycle",
             "op": "eq",
             "value": "needed"
+          },
+          {
+            "target": "state",
+            "path": "new.current_step",
+            "op": "eq",
+            "value": "proposal"
           }
         ]
       }

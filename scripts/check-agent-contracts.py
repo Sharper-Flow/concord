@@ -307,8 +307,13 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
             findings.append(f"{item.get('id')}: mandatory structured request field(s) missing: {sorted(missing)}")
         if request.get("actor_ref") not in actor_refs:
             findings.append(f"{item.get('id')}: dangling fixture reference actor {request.get('actor_ref')}")
-        if (request.get("definition_pin") or {}).get("ref") not in definition_refs:
+        definition_ref = request.get("definition_ref") or (request.get("definition_pin") or {}).get("ref")
+        if definition_ref not in definition_refs:
             findings.append(f"{item.get('id')}: dangling fixture reference definition pin")
+        if "current_state" in setup and "definition_ref" not in request:
+            findings.append(f"{item.get('id')}: current setup requires a current family selector")
+        if "definition_ref" in request and "current_state" not in setup:
+            findings.append(f"{item.get('id')}: current family selector requires current-state setup")
         approval_evidence = set((request.get("approval") or {}).get("evidence_refs", []))
         operation_evidence = set((request.get("operation") or {}).get("evidence_refs", []))
         if not approval_evidence <= evidence_ids or not operation_evidence <= evidence_ids:
@@ -458,6 +463,22 @@ def check_workflow_contracts() -> list[str]:
         if corpus_error:
             findings.append(f".concord/scenarios/workflow-engine.v1.json: schema validation failed: {corpus_error}")
         findings.extend(_structured_scenario_check(corpus))
+        current = next((item for item in corpus["scenarios"] if "current_state" in item.get("setup", {})), None)
+        if current is not None:
+            held = next(item for item in corpus["scenarios"] if item["id"] == "WF28-recorded-conditions-rebuild")
+            for mutation in ("history", "pin", "missing_step", "unknown_current_field"):
+                malformed = copy.deepcopy(corpus)
+                item = next(item for item in malformed["scenarios"] if item["id"] == current["id"])
+                if mutation == "history":
+                    item["setup"]["event_history"] = held["setup"]["event_history"]
+                elif mutation == "pin":
+                    item["request"]["definition_pin"] = held["request"]["definition_pin"]
+                elif mutation == "missing_step":
+                    del item["setup"]["current_state"]["step"]
+                else:
+                    item["setup"]["current_state"]["unknown_field"] = True
+                if _validate_instance(scenario_schema, malformed) is None:
+                    findings.append(f"current-scenario-{mutation}: schema accepted malformed current fixture")
         fixtures = _load_json(fixture_path)
         fixture_by_id = {case["id"]: case for case in fixtures["cases"]}
         for case in fixtures["cases"]:

@@ -6,6 +6,13 @@ import { networkInterfaces } from "node:os"
 const lanes = JSON.parse(readFileSync(new URL("../../../contracts/agent-lanes.v1.json", import.meta.url), "utf8")).lanes
 const modelSchema = JSON.parse(readFileSync(new URL("../../../contracts/agent-lane-report.schema.json", import.meta.url), "utf8")).properties.readback_model
 const eventTypes = { text: "text", tool: "tool_use", "step-start": "step_start", "step-finish": "step_finish", reasoning: "reasoning" }
+// Promptfoo records only the outer message, so name the cause chain by type,
+// code, and HTTP status; host-supplied message text stays in error.cause.
+const causeChain = error => {
+  const links = []
+  for (let current = error; current instanceof Error && links.length < 4; current = current.cause) links.push([current.name, current.code, current.status].filter(value => value !== undefined).join(" "))
+  return links.join(" <- ")
+}
 
 /** @returns {{output: string, metadata: {readback_model: string, readback_agent: string, session_id: string}}} */
 export function childRunStream(messages, agent, child) {
@@ -29,6 +36,9 @@ export default class NativeLaneProvider {
   constructor(options) {
     if (!lanes.some(lane => lane.id === options.config?.lane)) throw new Error("native eval requires a registered lane")
     this.agent = `concord-${options.config.lane}`
+    // Promptfoo's scheduler otherwise reruns the whole host and model run on
+    // errors whose text looks transient; each eval is one observed execution.
+    this.config = { ...options.config, maxRetries: 0 }
   }
 
   id() { return `native-${this.agent}` }
@@ -76,10 +86,10 @@ export default class NativeLaneProvider {
         const method = body === undefined ? "GET" : "POST"
         try {
           const response = await fetch(url + route, { method, headers: stream ? undefined : { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal })
-          if (!response.ok) throw new Error(`${route}: ${response.status} ${await response.text()}`)
+          if (!response.ok) throw Object.assign(new Error(`${route}: ${response.status} ${await response.text()}`), { status: response.status })
           return stream ? response : response.status === 204 ? undefined : await response.json()
         } catch (cause) {
-          throw new Error(`native eval ${method} ${route} failed`, { cause })
+          throw new Error(`native eval ${method} ${route} failed: ${causeChain(cause)}`, { cause })
         }
       }
       const configured = await call("/agent")
@@ -100,7 +110,7 @@ export default class NativeLaneProvider {
         try {
           next = await reader.read()
         } catch (cause) {
-          throw new Error("native eval GET /event stream read failed", { cause })
+          throw new Error(`native eval GET /event stream read failed: ${causeChain(cause)}`, { cause })
         }
         if (next.done) throw new Error("native eval GET /event stream ended before the child completed")
         buffer += decoder.decode(next.value, { stream: true })

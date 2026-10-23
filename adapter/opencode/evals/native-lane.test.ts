@@ -79,8 +79,12 @@ test("native eval asks its parent to invoke Task instead of injecting an executa
   expect(JSON.parse(part.text.split("\n")[1])).toEqual({ subagent_type: agent, description: `Advisory ${agent} eval`, prompt: "Evaluate the synthetic report." })
 })
 
+test("native eval disables Promptfoo whole-call retries", () => {
+  expect(new NativeLaneProvider({ config: { lane: "review", maxRetries: 3 } }).config).toEqual({ lane: "review", maxRetries: 0 })
+})
+
 async function syntheticHost(options: {
-  chunks?: string[], exitBeforeReady?: boolean, failRoute?: string,
+  chunks?: string[], exitBeforeReady?: boolean, failRoute?: string, statusRoute?: string,
   bodyFailure?: boolean, readFailure?: boolean, cancelFailure?: boolean, holdClose?: boolean,
 } = {}) {
   const cause = Object.assign(new Error("synthetic private transport detail"), { code: "ECONNRESET" })
@@ -112,6 +116,7 @@ async function syntheticHost(options: {
     const route = new URL(url).pathname
     requests.push({ method: init?.method ?? "GET", url })
     if (route === options.failRoute) throw failure
+    if (route === options.statusRoute) return { ok: false, status: 503, text: async () => "synthetic private body" }
     if (route === "/event") return { ok: true, body: { getReader: () => reader } }
     return {
       ok: true, status: route.endsWith("/prompt_async") ? 204 : 200,
@@ -180,6 +185,7 @@ for (const [method, route, hasReader] of [
   test(`native eval preserves ${method} ${route} transport cause and cleans up without retry`, async () => {
     const run = await syntheticHost({ failRoute: route })
     expect(run.error?.message).toContain(`${method} ${route}`)
+    expect(run.error?.message).toContain("failed: TypeError <- Error ECONNRESET")
     expect(run.error?.cause).toBe(run.failure)
     expect(run.error?.cause.cause.code).toBe("ECONNRESET")
     expect(run.error?.message).not.toContain("private")
@@ -189,6 +195,14 @@ for (const [method, route, hasReader] of [
     expect(run.closed).toBe(true)
   })
 }
+
+test("native eval records an HTTP refusal's status without its body", async () => {
+  const run = await syntheticHost({ statusRoute: "/agent" })
+  expect(run.error?.message).toBe("native eval GET /agent failed: Error 503")
+  expect(run.requests).toHaveLength(1)
+  expect(run.server.kill).toHaveBeenCalledTimes(1)
+  expect(run.closed).toBe(true)
+})
 
 test("native eval preserves response-body transport failures at the readback route", async () => {
   const run = await syntheticHost({ bodyFailure: true })

@@ -176,7 +176,9 @@ type acceptDeliveryCandidate struct {
 func acceptDeliveryCandidateAt(t *testing.T, workID, ref, step string, pending bool) acceptDeliveryCandidate {
 	t.Helper()
 	definition := mustBuiltinDefinition(t, ref)
-	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, step, []string{"verification"}, []string{"verification", "review", "artifact"})
+	// No verification binding is seeded: each case binds its own runs, so a
+	// refusal names that run's disqualifier.
+	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, step, []string{"verification"}, []string{"review", "artifact"})
 	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
 	repo, _ := reviewSubjectClaim(t, f.store, workID)
 	var branch string
@@ -354,7 +356,7 @@ func TestDeliveryAdmissionRefusalsMatchAcrossEntryRoutes(t *testing.T) {
 				wantDetail string
 			}{
 				{name: "no-verification-run", seed: func(*testing.T, acceptDeliveryCandidate) *ProjectToolingManifest { return nil },
-					wantKind: KindMissingEvidence, wantDetail: "no passing unchanged-tree producer receipt"},
+					wantKind: KindMissingEvidence, wantDetail: "no verification evidence is bound in the current refine epoch"},
 				{name: "stale-run", seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
 					c.j.bindVerification(t, c.early)
 					return nil
@@ -362,15 +364,15 @@ func TestDeliveryAdmissionRefusalsMatchAcrossEntryRoutes(t *testing.T) {
 				{name: "failed-run", seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
 					acceptDeliveryUnbindableRun(t, c, "failed", []string{"false"})
 					return nil
-				}, wantKind: KindMissingEvidence, wantDetail: "no passing unchanged-tree producer receipt"},
+				}, wantKind: KindMissingEvidence, wantDetail: "no verification evidence is bound in the current refine epoch"},
 				{name: "dirty-run", seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
 					acceptDeliveryUnbindableRun(t, c, "dirty", []string{"sh", "-c", "echo dirty >> seed.txt"})
 					return nil
-				}, wantKind: KindMissingEvidence, wantDetail: "no passing unchanged-tree producer receipt"},
+				}, wantKind: KindMissingEvidence, wantDetail: "no verification evidence is bound in the current refine epoch"},
 				{name: "undeclared-run", seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
 					acceptDeliveryBindFresh(t, c, "undeclared")
 					return refineProofTooling(ProjectDeclaredTool{ID: "go-test-race", Invocation: "go test -race ./..."})
-				}, wantKind: KindMissingEvidence, wantDetail: "declared checks: go-test-race"},
+				}, wantKind: KindMissingEvidence, wantDetail: "not a tool the Project declares"},
 				{name: "missing-step-start", routes: []string{"record_delivery"}, step: "work", seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
 					parkWorkflowInstanceAt(t, c.f.store, c.f.workID, "refine")
 					acceptDeliveryBindFresh(t, c, "unstarted")

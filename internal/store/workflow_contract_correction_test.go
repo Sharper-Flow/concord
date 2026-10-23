@@ -17,6 +17,10 @@ func runIssue933OperatorAction(t *testing.T, s *Store, workID, action string, pa
 		return err
 	}
 	version := readWorkVersion(t, s, workID)
+	operatorActor := &operator
+	if action == "supersede_contract" && workflowApprovalPolicyRequiresDecisionFact(pinnedWorkflowDefinitionForTest(t, s, workID)) {
+		operatorActor = nil
+	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -24,7 +28,7 @@ func runIssue933OperatorAction(t *testing.T, s *Store, workID, action string, pa
 	defer tx.Rollback()
 	operationID := fmt.Sprintf("issue933-%s-%s-%d", action, workID, version)
 	_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner, OperatorActor: &operator,
+		WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner, OperatorActor: operatorActor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
 		ContractDigest: testManifestDigest, Now: time.Unix(20, version).UTC(),
@@ -33,6 +37,19 @@ func runIssue933OperatorAction(t *testing.T, s *Store, workID, action string, pa
 		return err
 	}
 	return tx.Commit()
+}
+
+func TestIssue933OperatorActionSupersedesAsCurrentCoordinator(t *testing.T) {
+	const workID = "issue933-current-coordinator"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	defer fixture.store.Close()
+	successor := registryRepinSuccessorPayload(2, registryFixtureHash(), workID, 1)
+	if err := runIssue933OperatorAction(t, fixture.store, workID, "supersede_contract", successor, fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("current-policy coordinator supersession: %v", err)
+	}
+	if version, active := activeStaleRegistryContract(t, fixture.store, workID); version != 2 || active != 1 {
+		t.Fatalf("active contract version=%d count=%d, want 2/1", version, active)
+	}
 }
 
 // produceContractCorrectionWorker drives the fixture's execution producer

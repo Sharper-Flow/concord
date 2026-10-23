@@ -61,11 +61,12 @@ type acceptanceRecoveryFixture struct {
 	owner    WorkflowActor
 	operator WorkflowActor
 	repo     string
+	receipt  string
 }
 
 // newAcceptanceRecoveryFixture parks a current, proved candidate at acceptance
 // with only the named additional evidence kinds outstanding.
-func newAcceptanceRecoveryFixture(ctx context.Context, t *testing.T, extraRequiredKinds ...string) acceptanceRecoveryFixture {
+func newAcceptanceRecoveryFixture(_ context.Context, t *testing.T, extraRequiredKinds ...string) acceptanceRecoveryFixture {
 	t.Helper()
 	return qCurrentAcceptance(t, "work-alpha", extraRequiredKinds...)
 }

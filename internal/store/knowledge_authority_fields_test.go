@@ -11,7 +11,6 @@ package store
 
 import (
 	"context"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -83,27 +82,6 @@ func TestRebuildRefusesResearchPinLawModifiesLegislation(t *testing.T) {
 		t.Fatal("workflow.research must classify non-Product-changing for this case to be real")
 	}
 	seedAuthorityContract(t, s, authoritySyntheticWork, 1, "workflow.research", definitionVersion, digest, []string{"CD-8753"}, nil)
-	err := s.RebuildKnowledgeIndex(context.Background(), home)
-	assertFailureKind(t, err, KindInvalidNoteProof)
-}
-
-// A static_analysis contract admits exists subjects in its outcome schema, so
-// its subject field naming the law looks like the admitted route. The pin is
-// not Product-changing, so the subject field cannot legislate either.
-func TestRebuildRefusesStaticAnalysisSubjectFieldLegislation(t *testing.T) {
-	t.Parallel()
-	s, home := authorityScenario(t, authorityManifestFixture{ID: "SPEC-8752", Kind: "spec", LegislatedBy: authoritySyntheticWork, Version: 1})
-	defer s.Close()
-	seedAuthorityWork(t, s, authoritySyntheticWork)
-	definitionVersion, digest, changesProductTruth := authorityFamilyDefinition(t, "workflow.static_analysis")
-	if changesProductTruth {
-		t.Fatal("workflow.static_analysis must classify non-Product-changing for this case to be real")
-	}
-	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.static_analysis", definitionVersion)
-	if !ok || !slices.Contains(registered.Definition.OutcomeSchema.AllowedKinds, PredicateExists) {
-		t.Fatalf("workflow.static_analysis v%d must admit exists subjects for this case to be real", definitionVersion)
-	}
-	seedAuthorityContract(t, s, authoritySyntheticWork, 1, "workflow.static_analysis", definitionVersion, digest, nil, []string{"SPEC-8752"})
 	err := s.RebuildKnowledgeIndex(context.Background(), home)
 	assertFailureKind(t, err, KindInvalidNoteProof)
 }

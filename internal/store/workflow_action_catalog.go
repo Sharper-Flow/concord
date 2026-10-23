@@ -155,7 +155,7 @@ func workflowActionCatalogV1() workflowActionCatalog {
 		"record_report":          nil,
 		"record_verdict":         {canonicalVerdictPayload},
 		"record_work_context":    {researchContextSelection},
-		"record_worker_job":      {workTransitionAction, acceptanceOracleRevision},
+		"record_worker_job":      {workTransitionAction, acceptanceOracleRevision, checksRepairAuthoringRevision, withAppendedPayloadFields(workerJobCallerScopeActionFields)},
 		"request_correction":     {workTransitionAction, openFindingsCorrection, failureAttributionCorrection},
 		"revise_candidates":      nil,
 		"start_execution":        nil,
@@ -163,7 +163,7 @@ func workflowActionCatalogV1() workflowActionCatalog {
 }
 
 // workerJobCallerScopeActionFields declares the optional direct-caller
-// allowance the v3 catalog appends to record_worker_job (CD-0227 D1 as
+// allowance the shared catalog declares on record_worker_job (CD-0227 D1 as
 // amended by CD-0242 D6). Whether one job carries it or not is the
 // authoring rule the store guard enforces; the declared action contract
 // admits both shapes.
@@ -173,15 +173,14 @@ func workerJobCallerScopeActionFields() []WorkflowPayloadField {
 	}
 }
 
-// workflowActionCatalogV3 supplies implementation and break-fix contracts,
-// including checks repair and the conditional direct-caller allowance.
+// workflowActionCatalogV3 supplies implementation and break-fix contracts
+// with their dispatch packet. Every other action reuses the common catalog.
 func workflowActionCatalogV3() workflowActionCatalog {
 	base := workflowActionCatalogV1()
 	revisions := make(map[string][]workflowActionRevision, len(base.revisions))
 	for actionID, actionRevisions := range base.revisions {
 		revisions[actionID] = actionRevisions
 	}
-	revisions["record_worker_job"] = []workflowActionRevision{workTransitionAction, acceptanceOracleRevision, checksRepairAuthoringRevision, withAppendedPayloadFields(workerJobCallerScopeActionFields)}
 	revisions["dispatch_worker"] = []workflowActionRevision{workerDispatchAction, withWorkerPacketRef(workerPacket5Schema)}
 	return workflowActionCatalog{Version: 3, revisions: revisions}
 }

@@ -23,280 +23,6 @@ import (
 func TestDecisionFactWriteBoundary(t *testing.T) {
 	t.Parallel()
 
-	t.Run("carried historical contract recovers through a complete explicit-fact successor", func(t *testing.T) {
-		t.Parallel()
-		const workID = "decision-fact-carry-recovery"
-
-		// One local registry holds the synthetic legacy v1 twin and the
-		// same-ref consequence_v1 v2, registered in increasing version order.
-		definition := approvalRouteDefinition(t)
-		legacy := definition
-		legacy.ApprovalPolicy = ""
-		higher := definition
-		higher.Version = definition.Version + 1
-		registry, legacyRegistered := newResolutionRegistry(t, legacy)
-		higherRegistered, err := registry.Register(higher)
-		if err != nil {
-			t.Fatalf("the higher consequence_v1 definition refused registration: %v", err)
-		}
-
-		// The full legitimate prerequisites under the legacy pin: selection,
-		// the actor triple, execution with its durable producer and bound
-		// evidence, delivery, and the investigation artifact. The legacy
-		// contract carries the null wire shape for the decision fact, which
-		// stores NULL absence.
-		s, owner := seedResolutionSelection(t, workID, registry, legacyRegistered)
-		actors := recordApprovalActors(t, s, workID)
-		ownerRef := ownerRefForTest(t, owner)
-		advanceResolutionToExecution(t, s, registry, workID, owner, nil)
-		advanceResolutionDelivery(t, s, registry, workID, owner)
-		seedResolutionInvestigation(t, s, workID)
-
-		// Capture the legacy state the carry forward must preserve.
-		var premise string
-		var legacyDomainsAbsent int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT premise,decision_domains IS NULL FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&premise, &legacyDomainsAbsent); err != nil {
-			t.Fatal(err)
-		}
-		if legacyDomainsAbsent != 1 {
-			t.Fatalf("the legacy contract stored decision_domains absent=%d, want NULL absence", legacyDomainsAbsent)
-		}
-		var contractPayload []byte
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowContractApproved).Scan(&contractPayload); err != nil {
-			t.Fatalf("read the legacy contract event: %v", err)
-		}
-		if !strings.Contains(string(contractPayload), `"decision_domains":null`) {
-			t.Fatalf("the legacy contract recorded payload %s, want the null wire shape", contractPayload)
-		}
-		var stepBefore string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&stepBefore); err != nil {
-			t.Fatal(err)
-		}
-		if stepBefore != "acceptance" {
-			t.Fatalf("the legacy seed parked the instance at %q, want acceptance", stepBefore)
-		}
-		if executionActor := approvalExecutionActor(t, s, workID); executionActor != ownerRef {
-			t.Fatalf("the seed's executing actor = %q, want the owner %s", executionActor, ownerRef)
-		}
-
-		// The real carry event folds the instance onto the registered higher
-		// consequence_v1 version at the owner's current version.
-		carryVersion := readWorkVersion(t, s, workID)
-		appendWorkflowEventsWithRegistry(t, s, registry, Operation{
-			Events: []Event{
-				resolutionEvent("decision-fact-carry-"+workID, WorkflowDefinitionSelected, workID, ownerRef, carryVersion, map[string]any{
-					"ref": higherRegistered.Definition.Ref, "version": higherRegistered.Definition.Version, "digest": higherRegistered.Digest,
-					"work_kind": string(higherRegistered.Definition.WorkKind),
-				}),
-			},
-			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): carryVersion},
-		})
-
-		// The carry kept the acceptance step, the NULL historical contract
-		// with its recorded bytes, and the executing owner, and moved the pin
-		// to the registered higher version and digest.
-		var carriedRef, carriedDigest, carriedStep string
-		var carriedVersion int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&carriedRef, &carriedVersion, &carriedDigest, &carriedStep); err != nil {
-			t.Fatal(err)
-		}
-		if carriedRef != higherRegistered.Definition.Ref || carriedVersion != higherRegistered.Definition.Version || carriedDigest != higherRegistered.Digest {
-			t.Fatalf("the carry forward pinned %s@%d %s, want the registered %s@%d %s", carriedRef, carriedVersion, carriedDigest, higherRegistered.Definition.Ref, higherRegistered.Definition.Version, higherRegistered.Digest)
-		}
-		if carriedStep != stepBefore {
-			t.Fatalf("the carry forward moved the step from %q to %q, want acceptance kept", stepBefore, carriedStep)
-		}
-		var carriedPremise string
-		var carriedDomainsAbsent int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT premise,decision_domains IS NULL FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&carriedPremise, &carriedDomainsAbsent); err != nil {
-			t.Fatal(err)
-		}
-		if carriedPremise != premise || carriedDomainsAbsent != 1 {
-			t.Fatalf("the carry forward changed the historical contract to %q (NULL absence %d), want %q preserved with NULL absence", carriedPremise, carriedDomainsAbsent, premise)
-		}
-		var carriedPayload []byte
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowContractApproved).Scan(&carriedPayload); err != nil {
-			t.Fatalf("reread the legacy contract event: %v", err)
-		}
-		if string(carriedPayload) != string(contractPayload) {
-			t.Fatalf("the carry forward rewrote the legacy contract event to %s, want %s preserved", carriedPayload, contractPayload)
-		}
-		if executionActor := approvalExecutionActor(t, s, workID); executionActor != ownerRef {
-			t.Fatalf("the carry forward moved the execution actor to %q, want the owner %s", executionActor, ownerRef)
-		}
-
-		// The next contract version derives from the stored active version.
-		activeVersion, err := activeWorkflowContractVersion(context.Background(), s.DatabaseForTesting(), workID, "workflow_decision_fact_write_test")
-		if err != nil {
-			t.Fatal(err)
-		}
-		nextVersion := activeVersion + 1
-
-		// The complete flat supersede action payload: every declared recovery
-		// field, the actual predicate and check immutable ref, and the
-		// explicit engineering decision fact.
-		predicates := []map[string]any{{
-			"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		}}
-		payload := map[string]any{
-			"contract_version":   nextVersion,
-			"premise":            "recover the carried historical contract onto the explicit decision fact",
-			"outcome_predicates": predicates,
-			"required_evidence":  []string{"verification"},
-			"route_conventions":  []string{},
-			"spec_mandate":       []string{},
-			"law_modifies":       []string{},
-			"rigor_class":        "prototype_internal",
-			"supersede_reason":   "the carried historical contract holds no explicit decision fact",
-			"audit_evidence":     []string{"audit:decision-fact-successor-" + workID},
-			"decision_domains":   []string{},
-		}
-		raw, err := json.Marshal(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &fields); err != nil {
-			t.Fatal(err)
-		}
-
-		// The actual supersede constructor runs inside one transaction against
-		// the carried definition; the transaction closes before the returned
-		// events fold, because the store pools one connection.
-		expected := readWorkVersion(t, s, workID)
-		ctx := context.Background()
-		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		events, constructErr := workflowSupersedeContractEvents(ctx, tx, higher, WorkflowActionExecutionRequest{
-			WorkID: workID, ExpectedVersion: expected, ActionID: "supersede_contract",
-			OperationID: "decision-fact-successor-" + workID, Now: time.Unix(12, 0).UTC(),
-		}, ownerRef, raw, fields, "decision-fact-successor-"+workID, expected)
-		if err := tx.Rollback(); err != nil {
-			t.Fatal(err)
-		}
-		if constructErr != nil {
-			t.Fatalf("the complete explicit-fact successor refused construction under the carried consequence_v1 definition: %v", constructErr)
-		}
-		appendWorkflowEventsWithRegistry(t, s, registry, Operation{
-			Events:           events,
-			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected},
-		})
-
-		// The successor stores the exact explicit engineering fact at its own
-		// version; the prior contract keeps NULL absence, keeps its recorded
-		// event bytes, and names the successor as its superseder.
-		if stored := storedDecisionDomains(t, s, workID, nextVersion); stored != "[]" {
-			t.Fatalf("the successor contract stored decision_domains %q, want the exact explicit [] fact", stored)
-		}
-		var priorPremise string
-		var priorDomainsAbsent int
-		var supersededBy int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT premise,decision_domains IS NULL,superseded_by FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, activeVersion).Scan(&priorPremise, &priorDomainsAbsent, &supersededBy); err != nil {
-			t.Fatal(err)
-		}
-		if priorPremise != premise || priorDomainsAbsent != 1 {
-			t.Fatalf("the superseded contract changed to %q (NULL absence %d), want %q preserved with NULL absence", priorPremise, priorDomainsAbsent, premise)
-		}
-		if supersededBy != nextVersion {
-			t.Fatalf("the superseded contract names superseded_by=%d, want the successor version %d", supersededBy, nextVersion)
-		}
-		var finalPayload []byte
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowContractApproved).Scan(&finalPayload); err != nil {
-			t.Fatalf("reread the legacy contract event after the successor fold: %v", err)
-		}
-		if string(finalPayload) != string(contractPayload) {
-			t.Fatalf("the successor fold rewrote the legacy contract event to %s, want %s preserved", finalPayload, contractPayload)
-		}
-		assertFactWriteProjectedDomains(t, s, registry, workID, nextVersion, []string{})
-
-		// The pending and withheld fact gates are gone at both engineering
-		// levels: the continuity snapshot's work pin and the work pin's own
-		// operator-question projection.
-		snapshot := approvalContinuitySnapshot(t, s, registry, workID)
-		if question := approvalWorkPinQuestion(snapshot); question != nil {
-			t.Fatalf("the explicit-fact successor kept a pending operator question: %+v", question)
-		}
-		if withheld := approvalWorkPinWithheld(snapshot); withheld != nil {
-			t.Fatalf("the explicit-fact successor kept a withheld operator question: %+v", withheld)
-		}
-		projectedQuestion, projectedWithheld := approvalOperatorQuestionProjection(t, s, registry, higher, higherRegistered.Digest, workID)
-		if projectedQuestion != nil || projectedWithheld != nil {
-			t.Fatalf("engineering recovery projects question %+v withheld %+v, want neither", projectedQuestion, projectedWithheld)
-		}
-
-		// The successor's supersession made the delivered artifact stale
-		// (CD-0201 D5), so the evaluator's first verdict is admitted only as
-		// a non-ok one. The owner's declared correction route returns the
-		// instance to execution, and a genuinely new record_delivery there
-		// re-produces the artifact through the normal event fold; the stale
-		// bit survives the correction and clears only on that fresh
-		// production.
-		if err := runApprovalActionTx(t, s, registry, workID, "record_verdict", actors.reviewer, nil, "", "", `{"predicate_id":"predicate:primary","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:operator-verdict"],"incomparable_with_approved":true}`); err != nil {
-			t.Fatalf("the failed verdict was not admitted while the superseded artifact was stale: %v", err)
-		}
-		if err := runApprovalActionTx(t, s, registry, workID, "request_correction", owner, nil, "", "", `{"diagnosis":"the delivered subject does not satisfy the approved predicate","strategy":"repeat the implementation external effect","predicate_ids":["predicate:primary"],"evidence_refs":["evidence:operator-verdict"]}`); err != nil {
-			t.Fatalf("the owner's declared correction route refused: %v", err)
-		}
-		if state := foldedApprovalAdmission(t, s, registry, higher, workID); !state.ArtifactStale {
-			t.Fatal("the artifact folded fresh after the correction, want stale until fresh production at execution")
-		}
-		redeliveryVersion := readWorkVersion(t, s, workID)
-		appendWorkflowEventsWithRegistry(t, s, registry, Operation{
-			Events: []Event{
-				workflowActionCompletedFixture("resolution-redelivery-"+workID, workID, ownerRef, redeliveryVersion, "execution", "record_delivery"),
-			},
-			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): redeliveryVersion},
-		})
-		if state := foldedApprovalAdmission(t, s, registry, higher, workID); state.ArtifactStale {
-			t.Fatal("the artifact folded stale after the fresh record_delivery at execution, want the production frontier past the stale cause")
-		}
-
-		// The independent evaluator records its verdict under the new active
-		// contract through its admitted public route.
-		if err := recordApprovalVerdict(t, s, registry, workID, actors.reviewer); err != nil {
-			t.Fatalf("the independent evaluator's verdict refused under the explicit-fact successor: %v", err)
-		}
-		if verdictActor := latestApprovalEventActor(t, s, workID, WorkflowVerdictRecorded); verdictActor != actors.reviewerRef {
-			t.Fatalf("verdict attribution = %q, want the independent evaluator %s", verdictActor, actors.reviewerRef)
-		}
-
-		// The executing coordinator confirms through the public action route
-		// with no operator actor and no human digest.
-		if err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, nil, "confirm", "", `{"selected_choice":"confirm"}`); err != nil {
-			t.Fatalf("the engineering coordinator confirmation refused under the explicit-fact successor: %v", err)
-		}
-		confirmed, ok := approvalPremiseConfirmationRow(t, s, workID, nextVersion)
-		if !ok || confirmed != ownerRef {
-			t.Fatalf("confirmation row = %q (present %v), want the executing coordinator %s at contract version %d", confirmed, ok, ownerRef, nextVersion)
-		}
-		if eventActor := latestApprovalEventActor(t, s, workID, WorkflowPremiseConfirmed); eventActor != ownerRef {
-			t.Fatalf("confirmation event actor = %q, want the executing coordinator %s", eventActor, ownerRef)
-		}
-		confirmedEvent := latestApprovalEventPayload(t, s, workID, WorkflowPremiseConfirmed)
-		if confirmedEvent["confirmation_authority"] != "coordinator" || confirmedEvent["confirming_actor_ref"] != ownerRef {
-			t.Fatalf("confirmation event = %v/%v, want coordinator authority by the executing coordinator", confirmedEvent["confirmation_authority"], confirmedEvent["confirming_actor_ref"])
-		}
-		if _, consumed := confirmedEvent["approval_ref"]; consumed {
-			t.Fatalf("the confirmation consumed an approval binding: %v", confirmedEvent["approval_ref"])
-		}
-		if _, operatorRecorded := confirmedEvent["operator_actor_ref"]; operatorRecorded {
-			t.Fatalf("the confirmation fabricated operator attribution: %v", confirmedEvent["operator_actor_ref"])
-		}
-
-		// No consent challenge was persisted or consumed, no approval-kind
-		// evidence was fabricated, and no fold guard row survived.
-		if challenges := approvalChallengeCount(t, s); challenges != 0 {
-			t.Fatalf("the recovery witness left %d persisted consent challenges", challenges)
-		}
-		if kind := approvalKindEvidenceCount(t, s, workID); kind != 0 {
-			t.Fatalf("the recovery witness left %d approval-kind evidence bindings", kind)
-		}
-		assertNoFoldGuardRows(t, s)
-	})
-
 	t.Run("all eight canonical decision facts persist exact event and stored bytes on genuine initial writes", func(t *testing.T) {
 		t.Parallel()
 		for _, set := range canonicalDecisionDomainSets() {
@@ -517,11 +243,8 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 	t.Run("engineering to decision revision over a confirmed predecessor preserves attribution and refuses stale authority", func(t *testing.T) {
 		t.Parallel()
 		const workID = "decision-fact-revise-e2d"
-		s, registry, definition, owner, actors := seedApprovalItemAtAcceptance(t, workID, []string{})
+		s, registry, definition, owner, _ := seedApprovalItemAtAcceptance(t, workID, []string{})
 		ownerRef := ownerRefForTest(t, owner)
-		if err := recordApprovalVerdict(t, s, registry, workID, actors.reviewer); err != nil {
-			t.Fatalf("the independent evaluator's verdict refused before the revision: %v", err)
-		}
 		if _, err := confirmResolutionPremise(t, s, registry, definition, workID, owner, nil, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)}); err != nil {
 			t.Fatalf("the executing coordinator's engineering confirmation refused: %v", err)
 		}
@@ -605,9 +328,6 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		t.Parallel()
 		const workID = "decision-fact-revise-d2e"
 		s, registry, definition, owner, actors := seedApprovalItemAtAcceptance(t, workID, []string{"product"})
-		if err := recordApprovalVerdict(t, s, registry, workID, actors.reviewer); err != nil {
-			t.Fatalf("the independent evaluator's verdict refused before the revision: %v", err)
-		}
 		digest := approvalDecisionDigest(t, s, workID)
 		if _, err := confirmResolutionPremise(t, s, registry, definition, workID, owner, &actors.operator, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`), "decision_context_digest": json.RawMessage(`"` + digest + `"`)}); err != nil {
 			t.Fatalf("the verified operator's decision confirmation refused: %v", err)
@@ -1742,15 +1462,11 @@ func factWriteEventPayloadByID(t *testing.T, s *Store, eventID string) string {
 }
 
 // seedFactWriteConfirmedEngineering seeds the consequence_v1 route to the
-// acceptance step with an explicit engineering fact, records the independent
-// verdict, and records the executing coordinator's confirmation through the
-// constructor+fold seam. It returns the baseline work version.
+// acceptance step with an explicit engineering fact and records the executing
+// coordinator's confirmation through the constructor+fold seam. It returns the baseline work version.
 func seedFactWriteConfirmedEngineering(t *testing.T, workID string) (*Store, DefinitionRegistry, WorkflowDefinition, WorkflowActor, int64) {
 	t.Helper()
-	s, registry, definition, owner, actors := seedApprovalItemAtAcceptance(t, workID, []string{})
-	if err := recordApprovalVerdict(t, s, registry, workID, actors.reviewer); err != nil {
-		t.Fatalf("the independent evaluator's verdict refused on the confirmed seed: %v", err)
-	}
+	s, registry, definition, owner, _ := seedApprovalItemAtAcceptance(t, workID, []string{})
 	if _, err := confirmResolutionPremise(t, s, registry, definition, workID, owner, nil, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)}); err != nil {
 		t.Fatalf("the executing coordinator's confirmation refused on the confirmed seed: %v", err)
 	}

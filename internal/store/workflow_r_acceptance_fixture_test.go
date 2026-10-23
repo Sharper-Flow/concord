@@ -11,10 +11,11 @@ import (
 // current owners: a current integrated candidate, a captured receipt, Main's
 // accepted Review, Main's criterion association when associate is set, and the
 // recorded investigation. domains is the active contract's decision fact; a
+// investigation false leaves the investigation unrecorded. A
 // non-empty fact supersedes the seeded engineering contract through the
 // registered fold before the candidate is reviewed, so every proof binds the
 // decision-bearing successor.
-func rAcceptance(t *testing.T, workID string, domains []string, associate bool) acceptanceRecoveryFixture {
+func rAcceptance(t *testing.T, workID string, domains []string, associate, investigation bool) acceptanceRecoveryFixture {
 	t.Helper()
 	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.implementation"), "execution", []string{"verification"}, []string{"verification", "review", "artifact"})
 	t.Cleanup(func() { _ = route.store.Close() })
@@ -22,7 +23,7 @@ func rAcceptance(t *testing.T, workID string, domains []string, associate bool) 
 	if len(domains) > 0 {
 		rReclassifyContract(t, f, domains)
 	}
-	return qAssociateCurrentProof(t, f, "", associate)
+	return qAssociateCurrentProof(t, f, "", associate, investigation)
 }
 
 // rReclassifyContract supersedes contract 1 with a successor that keeps its
@@ -74,4 +75,16 @@ func rConfirmPremise(t *testing.T, f acceptanceRecoveryFixture, actor WorkflowAc
 func rComplete(t *testing.T, f acceptanceRecoveryFixture) error {
 	t.Helper()
 	return runApprovalActionTx(t, f.store, BuiltinWorkflowRegistry(), f.workID, "complete", f.owner, nil, "", "", `{"impact_verdict":"non-breaking"}`)
+}
+
+// rAcceptanceModel is the abstract admission state of an rAcceptance item:
+// one active contract, the satisfied worker job in the Project, Main's
+// accepted Review of the current candidate with its criterion association
+// (the model's ok verdict), and the recorded investigation.
+func rAcceptanceModel(engineering bool) admissionModelState {
+	return admissionModelState{
+		step: "acceptance", debt: ReviewDebtNone, contracts: 1, verdict: "ok", artifact: true, engineering: engineering,
+		jobs: "satisfied", jobsScope: "project",
+		review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
+	}
 }

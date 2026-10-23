@@ -52,7 +52,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		}
 		// The work pin projects no operator question and no withheld reason
 		// for engineering work.
-		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry), workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry, definition), workID)
 		if question != nil || withheld != nil {
 			t.Fatalf("engineering work projects question %+v withheld %+v, want neither", question, withheld)
 		}
@@ -119,7 +119,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		// The work pin projects the real question, and its digest is the
 		// exact verified one.
 		digest := approvalDecisionDigest(t, s, workID)
-		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry), workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry, definition), workID)
 		if question == nil || withheld != nil {
 			t.Fatalf("decision work projects question %+v withheld %+v, want the open question without a withheld reason", question, withheld)
 		}
@@ -328,7 +328,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		if successorDigest == predecessorDigest {
 			t.Fatal("the successor's decision digest equals the predecessor's; a stale digest could answer the successor")
 		}
-		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry), workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry, definition), workID)
 		if question == nil || withheld != nil {
 			t.Fatalf("the decision successor projects question %+v withheld %+v, want the open question without a withheld reason", question, withheld)
 		}
@@ -370,7 +370,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		conformanceCheckpoint(t, s, registry, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true, artifactStale: true, engineering: true}, "engineering successor after the revision")
 		// The work pin projects no operator question for the engineering
 		// successor.
-		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry), workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry, definition), workID)
 		if question != nil || withheld != nil {
 			t.Fatalf("the engineering successor projects question %+v withheld %+v, want neither", question, withheld)
 		}

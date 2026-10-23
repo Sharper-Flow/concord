@@ -214,32 +214,8 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 		if resolved.Definition.Version != registered.Definition.Version || resolved.Digest != registered.Digest {
 			t.Fatalf("resolver for %s = v%d %s, want v%d %s", latest.Ref, resolved.Definition.Version, resolved.Digest, registered.Definition.Version, registered.Digest)
 		}
-		// The lane-step dispatch join (#892) composes the worker pair onto
-		// every non-terminal step whose kind a binding admits, except
-		// approval-gated steps, whose only advancing exit is the operator
-		// action. The CD-0156 alignment step is also exempt: record_alignment
-		// must be its only advance exit, so no dispatched attempt can accept
-		// its way past the search.
-		for _, step := range latest.StepGraph.Steps {
-			admitted := slices.Contains(step.Actions, "accept_worker_result")
-			terminalStep := slices.Contains(latest.StepGraph.TerminalSteps, step.ID)
-			gated := false
-			for _, actionID := range step.Actions {
-				for _, action := range latest.ActionDefinitions {
-					if action.ID == actionID && action.Approval == ActionApprovalRequired {
-						gated = true
-					}
-				}
-			}
-			kindAdmits := step.Kind == WorkflowStepInternalSQLite || step.Kind == WorkflowStepCrossAuthority || step.Kind == WorkflowStepExternalEffect
-			// The merged break_fix diagnosis step joins the alignment
-			// exemption: its only advance exit is record_diagnosis, so a
-			// dispatched attempt cannot accept its way past the sections
-			// (CD-0198 D2).
-			if admitted != (kindAdmits && !terminalStep && !gated && step.ID != "alignment" && step.ID != "delivery" && step.ID != "diagnosis") {
-				t.Fatalf("%s step %s acceptance declaration=%t for kind %s", latest.Ref, step.ID, admitted, step.Kind)
-			}
-		}
+		// TestCurrentJoinComposesTheWorkerFailureRecordWithTheDispatchPair
+		// owns which steps compose the worker pair (CD-0242 D5).
 		for _, action := range latest.ActionDefinitions {
 			if action.ID != "accept_worker_result" {
 				continue

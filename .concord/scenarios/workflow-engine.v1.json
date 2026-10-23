@@ -8583,11 +8583,11 @@
     {
       "id": "WF26-condition-actions-refused",
       "scenario_number": 26,
-      "mechanism": "the archived family refuses every condition action before any write",
+      "mechanism": "the current public action boundary refuses undeclared condition actions without changing durable state",
       "initial_state": {
-        "work": "work-ops",
-        "family": "workflow.ops_runbook",
-        "family_state": "archived",
+        "work": "work-alpha",
+        "family": "workflow.implementation",
+        "step": "proposal",
         "actions": [
           "add_condition",
           "resolve_condition",
@@ -8598,422 +8598,29 @@
       "cases": [
         {
           "id": "WF26-add-condition-refused",
-          "initial_state": {
-            "work": "work-ops",
-            "family": "workflow.ops_runbook",
-            "family_state": "archived",
-            "action": "add_condition"
-          },
+          "initial_state": {"work": "work-alpha", "family": "workflow.implementation", "step": "proposal", "action": "add_condition"},
           "action": "add_condition",
           "expected": {
             "assertions": [
-              {
-                "target": "communication",
-                "path": "error.kind",
-                "op": "eq",
-                "value": "invalid_input"
-              },
-              {
-                "target": "communication",
-                "path": "error.detail",
-                "op": "eq",
-                "value": "workflow family workflow.ops_runbook is archived: new public workflow actions are refused"
-              },
-              {
-                "target": "effects",
-                "path": "workflow.condition_added",
-                "op": "absent"
-              },
-              {
-                "target": "state",
-                "path": "work.version",
-                "op": "eq",
-                "value": 17
-              },
-              {
-                "target": "state",
-                "path": "condition.pr-1.state",
-                "op": "eq",
-                "value": "open"
-              },
-              {
-                "target": "state",
-                "path": "condition.ci-1.state",
-                "op": "eq",
-                "value": "open"
-              },
-              {
-                "target": "state",
-                "path": "condition.timer-2.state",
-                "op": "eq",
-                "value": "open"
-              },
-              {
-                "target": "state",
-                "path": "condition.approval-1.state",
-                "op": "eq",
-                "value": "open"
-              },
-              {
-                "target": "state",
-                "path": "condition.remote-1.state",
-                "op": "eq",
-                "value": "open"
-              }
+              {"target": "communication", "path": "error.kind", "op": "eq", "value": "invalid_transition"},
+              {"target": "communication", "path": "error.detail", "op": "eq", "value": "workflow action is not declared on the current step"},
+              {"target": "effects", "path": "workflow.condition_added", "op": "absent"},
+              {"target": "effects", "path": "events.order", "op": "eq", "value": []},
+              {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
+              {"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "proposal"},
+              {"target": "state", "path": "condition", "op": "eq", "value": {}}
             ]
           },
           "setup": {
-            "fixture_refs": {
-              "work_item": "work-ops",
-              "actors": [
-                "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
-              ],
-              "definitions": [
-                "workflow.ops_runbook"
-              ],
-              "evidence": [
-                "evidence-verification",
-                "evidence-review"
-              ],
-              "relations": []
-            },
-            "event_history": [
-              {
-                "event_id": "work-ops-created",
-                "kind": "work.created",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 2,
-                "payload": {
-                  "work_kind": "task",
-                  "title": "work-ops fixture",
-                  "priority": 1,
-                  "work_id": "work-ops"
-                }
-              },
-              {
-                "event_id": "work-ops-actor",
-                "kind": "workflow.actor_recorded",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "principal_ref": "principal:operator",
-                  "client_ref": "client:concord-1",
-                  "agent_ref": "agent-engineer",
-                  "session_ref": "session-executor",
-                  "actor_class": "agent",
-                  "work_id": "work-ops",
-                  "expected_version": 2,
-                  "resulting_version": 3
-                }
-              },
-              {
-                "event_id": "work-ops-definition",
-                "kind": "workflow.definition_selected",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "ref": "workflow.ops_runbook",
-                  "version": 1,
-                  "digest": "sha256:2e681414f079418a9aa2c7260832837d7ecde0e3974fdd602749d8125072dba6",
-                  "work_kind": "ops_runbook",
-                  "work_id": "work-ops",
-                  "expected_version": 3,
-                  "resulting_version": 4
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-plan",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "plan",
-                  "action_id": "approve_contract",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 4,
-                  "resulting_version": 5
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-approval",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "approval",
-                  "action_id": "approve_operation",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 5,
-                  "resulting_version": 6
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-execute",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "execute",
-                  "action_id": "record_delivery",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 6,
-                  "resulting_version": 7
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-health",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "health",
-                  "action_id": "record_health",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 7,
-                  "resulting_version": 8
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-rollback_optional",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "rollback_optional",
-                  "action_id": "record_delivery",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 8,
-                  "resulting_version": 9
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-cleanup",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "cleanup",
-                  "action_id": "confirm_premise",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 9,
-                  "resulting_version": 10
-                }
-              },
-              {
-                "event_id": "work-ops-started",
-                "kind": "workflow.action_started",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "complete",
-                  "action_id": "complete",
-                  "attempt_epoch": 1,
-                  "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-                  "idempotency_identity": "work-ops-setup",
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 10,
-                  "resulting_version": 11
-                }
-              },
-              {
-                "event_id": "work-ops-pr-1",
-                "kind": "workflow.condition_added",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "condition_id": "pr-1",
-                  "await_type": "pr_merge",
-                  "await_ref": "await:pr-1",
-                  "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:pr-1",
-                  "work_id": "work-ops",
-                  "expected_version": 11,
-                  "resulting_version": 12
-                }
-              },
-              {
-                "event_id": "work-ops-ci-1",
-                "kind": "workflow.condition_added",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "condition_id": "ci-1",
-                  "await_type": "ci_result",
-                  "await_ref": "await:ci-1",
-                  "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:ci-1",
-                  "work_id": "work-ops",
-                  "expected_version": 12,
-                  "resulting_version": 13
-                }
-              },
-              {
-                "event_id": "work-ops-timer-2",
-                "kind": "workflow.condition_added",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "condition_id": "timer-2",
-                  "await_type": "timer",
-                  "await_ref": "await:timer-2",
-                  "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:timer-2",
-                  "work_id": "work-ops",
-                  "expected_version": 13,
-                  "resulting_version": 14
-                }
-              },
-              {
-                "event_id": "work-ops-approval-1",
-                "kind": "workflow.condition_added",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "condition_id": "approval-1",
-                  "await_type": "human_approval",
-                  "await_ref": "await:approval-1",
-                  "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:approval-1",
-                  "work_id": "work-ops",
-                  "expected_version": 14,
-                  "resulting_version": 15
-                }
-              },
-              {
-                "event_id": "work-ops-remote-1",
-                "kind": "workflow.condition_added",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "condition_id": "remote-1",
-                  "await_type": "remote_work_state",
-                  "await_ref": "await:remote-1",
-                  "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:remote-1",
-                  "work_id": "work-ops",
-                  "expected_version": 15,
-                  "resulting_version": 16
-                }
-              },
-              {
-                "event_id": "work-ops-operator",
-                "kind": "workflow.actor_recorded",
-                "work_id": "work-ops",
-                "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
-                  "principal_ref": "principal:operator",
-                  "client_ref": "client:concord-1",
-                  "agent_ref": "agent-reviewer",
-                  "session_ref": "session-reviewer",
-                  "actor_class": "operator",
-                  "work_id": "work-ops",
-                  "expected_version": 16,
-                  "resulting_version": 17
-                }
-              }
-            ],
-            "projection": {
-              "version": 17,
-              "state": "awaiting_condition",
-              "current_step": "complete",
-              "lifecycle": "awaiting_condition",
-              "condition_ids": [
-                "pr-1",
-                "ci-1",
-                "timer-2",
-                "approval-1",
-                "remote-1"
-              ]
-            },
+            "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
+            "current_state": {"step": "proposal"},
             "faults": []
           },
           "request": {
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "definition_pin": {
-              "ref": "workflow.ops_runbook",
-              "version": 1,
-              "digest": "sha256:2e681414f079418a9aa2c7260832837d7ecde0e3974fdd602749d8125072dba6"
-            },
-            "expected_version": 17,
+            "definition_ref": "workflow.implementation",
             "action_id": "add_condition",
-            "fields": {
-              "payload": {
-                "work": "work-ops",
-                "condition_id": "timer-3"
-              },
-              "title": "WF26-condition-actions-refused title",
-              "value_statement": "fixture value statement",
-              "project_ids": [
-                "project-1"
-              ]
-            },
+            "fields": {"payload": {"work": "work-alpha", "condition_id": "condition:probe"}},
             "idempotency": {
               "key": "wf26-add-condition-key",
               "request_id": "wf26-add-condition-request",
@@ -9026,7 +8633,7 @@
               "agent_ref": "agent-engineer",
               "session_ref": "session-executor",
               "capability": "workflow_action",
-              "scope": "project-1"
+              "scope": "project"
             },
             "approval": {
               "required": false,
@@ -9035,7 +8642,7 @@
             "operation": {
               "op_id": "wf26-add-condition-operation",
               "attempt_epoch": 1,
-              "step_id": "complete",
+              "step_id": "proposal",
               "step_kind": "internal_sqlite",
               "state": "pending"
             }
@@ -9046,432 +8653,36 @@
                 "target": "communication",
                 "path": "error.kind",
                 "op": "eq",
-                "value": "invalid_input"
+                "value": "invalid_transition"
               }
             ]
           }
         },
         {
           "id": "WF26-resolve-condition-refused",
-          "initial_state": {
-            "work": "work-ops",
-            "family": "workflow.ops_runbook",
-            "family_state": "archived",
-            "action": "resolve_condition"
-          },
+          "initial_state": {"work": "work-alpha", "family": "workflow.implementation", "step": "proposal", "action": "resolve_condition"},
           "action": "resolve_condition",
           "expected": {
             "assertions": [
-              {
-                "target": "communication",
-                "path": "error.kind",
-                "op": "eq",
-                "value": "invalid_input"
-              },
-              {
-                "target": "communication",
-                "path": "error.detail",
-                "op": "eq",
-                "value": "workflow family workflow.ops_runbook is archived: new public workflow actions are refused"
-              },
-              {
-                "target": "effects",
-                "path": "workflow.condition_resolved",
-                "op": "absent"
-              },
-              {
-                "target": "state",
-                "path": "work.version",
-                "op": "eq",
-                "value": 17
-              },
-              {
-                "target": "state",
-                "path": "condition.pr-1.state",
-                "op": "eq",
-                "value": "open"
-              },
-              {
-                "target": "state",
-                "path": "condition.ci-1.state",
-                "op": "eq",
-                "value": "open"
-              },
-              {
-                "target": "state",
-                "path": "condition.timer-2.state",
-                "op": "eq",
-                "value": "open"
-              },
-              {
-                "target": "state",
-                "path": "condition.approval-1.state",
-                "op": "eq",
-                "value": "open"
-              },
-              {
-                "target": "state",
-                "path": "condition.remote-1.state",
-                "op": "eq",
-                "value": "open"
-              }
+              {"target": "communication", "path": "error.kind", "op": "eq", "value": "invalid_transition"},
+              {"target": "communication", "path": "error.detail", "op": "eq", "value": "workflow action is not declared on the current step"},
+              {"target": "effects", "path": "workflow.condition_resolved", "op": "absent"},
+              {"target": "effects", "path": "events.order", "op": "eq", "value": []},
+              {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
+              {"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "proposal"},
+              {"target": "state", "path": "condition", "op": "eq", "value": {}}
             ]
           },
           "setup": {
-            "fixture_refs": {
-              "work_item": "work-ops",
-              "actors": [
-                "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
-              ],
-              "definitions": [
-                "workflow.ops_runbook"
-              ],
-              "evidence": [
-                "evidence-verification",
-                "evidence-review"
-              ],
-              "relations": []
-            },
-            "event_history": [
-              {
-                "event_id": "work-ops-created",
-                "kind": "work.created",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 2,
-                "payload": {
-                  "work_kind": "task",
-                  "title": "work-ops fixture",
-                  "priority": 1,
-                  "work_id": "work-ops"
-                }
-              },
-              {
-                "event_id": "work-ops-actor",
-                "kind": "workflow.actor_recorded",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "principal_ref": "principal:operator",
-                  "client_ref": "client:concord-1",
-                  "agent_ref": "agent-engineer",
-                  "session_ref": "session-executor",
-                  "actor_class": "agent",
-                  "work_id": "work-ops",
-                  "expected_version": 2,
-                  "resulting_version": 3
-                }
-              },
-              {
-                "event_id": "work-ops-definition",
-                "kind": "workflow.definition_selected",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "ref": "workflow.ops_runbook",
-                  "version": 1,
-                  "digest": "sha256:2e681414f079418a9aa2c7260832837d7ecde0e3974fdd602749d8125072dba6",
-                  "work_kind": "ops_runbook",
-                  "work_id": "work-ops",
-                  "expected_version": 3,
-                  "resulting_version": 4
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-plan",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "plan",
-                  "action_id": "approve_contract",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 4,
-                  "resulting_version": 5
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-approval",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "approval",
-                  "action_id": "approve_operation",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 5,
-                  "resulting_version": 6
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-execute",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "execute",
-                  "action_id": "record_delivery",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 6,
-                  "resulting_version": 7
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-health",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "health",
-                  "action_id": "record_health",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 7,
-                  "resulting_version": 8
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-rollback_optional",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "rollback_optional",
-                  "action_id": "record_delivery",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 8,
-                  "resulting_version": 9
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-cleanup",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "cleanup",
-                  "action_id": "confirm_premise",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 9,
-                  "resulting_version": 10
-                }
-              },
-              {
-                "event_id": "work-ops-started",
-                "kind": "workflow.action_started",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "complete",
-                  "action_id": "complete",
-                  "attempt_epoch": 1,
-                  "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-                  "idempotency_identity": "work-ops-setup",
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 10,
-                  "resulting_version": 11
-                }
-              },
-              {
-                "event_id": "work-ops-pr-1",
-                "kind": "workflow.condition_added",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "condition_id": "pr-1",
-                  "await_type": "pr_merge",
-                  "await_ref": "await:pr-1",
-                  "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:pr-1",
-                  "work_id": "work-ops",
-                  "expected_version": 11,
-                  "resulting_version": 12
-                }
-              },
-              {
-                "event_id": "work-ops-ci-1",
-                "kind": "workflow.condition_added",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "condition_id": "ci-1",
-                  "await_type": "ci_result",
-                  "await_ref": "await:ci-1",
-                  "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:ci-1",
-                  "work_id": "work-ops",
-                  "expected_version": 12,
-                  "resulting_version": 13
-                }
-              },
-              {
-                "event_id": "work-ops-timer-2",
-                "kind": "workflow.condition_added",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "condition_id": "timer-2",
-                  "await_type": "timer",
-                  "await_ref": "await:timer-2",
-                  "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:timer-2",
-                  "work_id": "work-ops",
-                  "expected_version": 13,
-                  "resulting_version": 14
-                }
-              },
-              {
-                "event_id": "work-ops-approval-1",
-                "kind": "workflow.condition_added",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "condition_id": "approval-1",
-                  "await_type": "human_approval",
-                  "await_ref": "await:approval-1",
-                  "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:approval-1",
-                  "work_id": "work-ops",
-                  "expected_version": 14,
-                  "resulting_version": 15
-                }
-              },
-              {
-                "event_id": "work-ops-remote-1",
-                "kind": "workflow.condition_added",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "condition_id": "remote-1",
-                  "await_type": "remote_work_state",
-                  "await_ref": "await:remote-1",
-                  "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:remote-1",
-                  "work_id": "work-ops",
-                  "expected_version": 15,
-                  "resulting_version": 16
-                }
-              },
-              {
-                "event_id": "work-ops-operator",
-                "kind": "workflow.actor_recorded",
-                "work_id": "work-ops",
-                "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
-                  "principal_ref": "principal:operator",
-                  "client_ref": "client:concord-1",
-                  "agent_ref": "agent-reviewer",
-                  "session_ref": "session-reviewer",
-                  "actor_class": "operator",
-                  "work_id": "work-ops",
-                  "expected_version": 16,
-                  "resulting_version": 17
-                }
-              }
-            ],
-            "projection": {
-              "version": 17,
-              "state": "awaiting_condition",
-              "current_step": "complete",
-              "lifecycle": "awaiting_condition",
-              "condition_ids": [
-                "pr-1",
-                "ci-1",
-                "timer-2",
-                "approval-1",
-                "remote-1"
-              ]
-            },
+            "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
+            "current_state": {"step": "proposal"},
             "faults": []
           },
           "request": {
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "definition_pin": {
-              "ref": "workflow.ops_runbook",
-              "version": 1,
-              "digest": "sha256:2e681414f079418a9aa2c7260832837d7ecde0e3974fdd602749d8125072dba6"
-            },
-            "expected_version": 17,
+            "definition_ref": "workflow.implementation",
             "action_id": "resolve_condition",
-            "fields": {
-              "payload": {
-                "work": "work-ops",
-                "condition_id": "pr-1",
-                "resolution_evidence": [
-                  "evidence-verification"
-                ]
-              },
-              "title": "WF26-condition-actions-refused title",
-              "value_statement": "fixture value statement",
-              "project_ids": [
-                "project-1"
-              ]
-            },
+            "fields": {"payload": {"work": "work-alpha", "condition_id": "condition:probe"}},
             "idempotency": {
               "key": "wf26-resolve-condition-key",
               "request_id": "wf26-resolve-condition-request",
@@ -9484,7 +8695,7 @@
               "agent_ref": "agent-engineer",
               "session_ref": "session-executor",
               "capability": "workflow_action",
-              "scope": "project-1"
+              "scope": "project"
             },
             "approval": {
               "required": false,
@@ -9493,7 +8704,7 @@
             "operation": {
               "op_id": "wf26-resolve-condition-operation",
               "attempt_epoch": 1,
-              "step_id": "complete",
+              "step_id": "proposal",
               "step_kind": "internal_sqlite",
               "state": "pending"
             }
@@ -9504,430 +8715,36 @@
                 "target": "communication",
                 "path": "error.kind",
                 "op": "eq",
-                "value": "invalid_input"
+                "value": "invalid_transition"
               }
             ]
           }
         },
         {
           "id": "WF26-cancel-condition-refused",
-          "initial_state": {
-            "work": "work-ops",
-            "family": "workflow.ops_runbook",
-            "family_state": "archived",
-            "action": "cancel_condition"
-          },
+          "initial_state": {"work": "work-alpha", "family": "workflow.implementation", "step": "proposal", "action": "cancel_condition"},
           "action": "cancel_condition",
           "expected": {
             "assertions": [
-              {
-                "target": "communication",
-                "path": "error.kind",
-                "op": "eq",
-                "value": "invalid_input"
-              },
-              {
-                "target": "communication",
-                "path": "error.detail",
-                "op": "eq",
-                "value": "workflow family workflow.ops_runbook is archived: new public workflow actions are refused"
-              },
-              {
-                "target": "effects",
-                "path": "workflow.condition_cancelled",
-                "op": "absent"
-              },
-              {
-                "target": "state",
-                "path": "work.version",
-                "op": "eq",
-                "value": 17
-              },
-              {
-                "target": "state",
-                "path": "condition.pr-1.state",
-                "op": "eq",
-                "value": "open"
-              },
-              {
-                "target": "state",
-                "path": "condition.ci-1.state",
-                "op": "eq",
-                "value": "open"
-              },
-              {
-                "target": "state",
-                "path": "condition.timer-2.state",
-                "op": "eq",
-                "value": "open"
-              },
-              {
-                "target": "state",
-                "path": "condition.approval-1.state",
-                "op": "eq",
-                "value": "open"
-              },
-              {
-                "target": "state",
-                "path": "condition.remote-1.state",
-                "op": "eq",
-                "value": "open"
-              }
+              {"target": "communication", "path": "error.kind", "op": "eq", "value": "invalid_transition"},
+              {"target": "communication", "path": "error.detail", "op": "eq", "value": "workflow action is not declared on the current step"},
+              {"target": "effects", "path": "workflow.condition_cancelled", "op": "absent"},
+              {"target": "effects", "path": "events.order", "op": "eq", "value": []},
+              {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
+              {"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "proposal"},
+              {"target": "state", "path": "condition", "op": "eq", "value": {}}
             ]
           },
           "setup": {
-            "fixture_refs": {
-              "work_item": "work-ops",
-              "actors": [
-                "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
-              ],
-              "definitions": [
-                "workflow.ops_runbook"
-              ],
-              "evidence": [
-                "evidence-verification",
-                "evidence-review"
-              ],
-              "relations": []
-            },
-            "event_history": [
-              {
-                "event_id": "work-ops-created",
-                "kind": "work.created",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 2,
-                "payload": {
-                  "work_kind": "task",
-                  "title": "work-ops fixture",
-                  "priority": 1,
-                  "work_id": "work-ops"
-                }
-              },
-              {
-                "event_id": "work-ops-actor",
-                "kind": "workflow.actor_recorded",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "principal_ref": "principal:operator",
-                  "client_ref": "client:concord-1",
-                  "agent_ref": "agent-engineer",
-                  "session_ref": "session-executor",
-                  "actor_class": "agent",
-                  "work_id": "work-ops",
-                  "expected_version": 2,
-                  "resulting_version": 3
-                }
-              },
-              {
-                "event_id": "work-ops-definition",
-                "kind": "workflow.definition_selected",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "ref": "workflow.ops_runbook",
-                  "version": 1,
-                  "digest": "sha256:2e681414f079418a9aa2c7260832837d7ecde0e3974fdd602749d8125072dba6",
-                  "work_kind": "ops_runbook",
-                  "work_id": "work-ops",
-                  "expected_version": 3,
-                  "resulting_version": 4
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-plan",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "plan",
-                  "action_id": "approve_contract",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 4,
-                  "resulting_version": 5
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-approval",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "approval",
-                  "action_id": "approve_operation",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 5,
-                  "resulting_version": 6
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-execute",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "execute",
-                  "action_id": "record_delivery",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 6,
-                  "resulting_version": 7
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-health",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "health",
-                  "action_id": "record_health",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 7,
-                  "resulting_version": 8
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-rollback_optional",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "rollback_optional",
-                  "action_id": "record_delivery",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 8,
-                  "resulting_version": 9
-                }
-              },
-              {
-                "event_id": "WF26-condition-actions-refused-work-ops-walk-cleanup",
-                "kind": "workflow.action_completed",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "cleanup",
-                  "action_id": "confirm_premise",
-                  "attempt_epoch": 1,
-                  "result_evidence_refs": [],
-                  "changed_refs": [
-                    "work-ops"
-                  ],
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 9,
-                  "resulting_version": 10
-                }
-              },
-              {
-                "event_id": "work-ops-started",
-                "kind": "workflow.action_started",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "step_id": "complete",
-                  "action_id": "complete",
-                  "attempt_epoch": 1,
-                  "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-                  "idempotency_identity": "work-ops-setup",
-                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                  "work_id": "work-ops",
-                  "expected_version": 10,
-                  "resulting_version": 11
-                }
-              },
-              {
-                "event_id": "work-ops-pr-1",
-                "kind": "workflow.condition_added",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "condition_id": "pr-1",
-                  "await_type": "pr_merge",
-                  "await_ref": "await:pr-1",
-                  "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:pr-1",
-                  "work_id": "work-ops",
-                  "expected_version": 11,
-                  "resulting_version": 12
-                }
-              },
-              {
-                "event_id": "work-ops-ci-1",
-                "kind": "workflow.condition_added",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "condition_id": "ci-1",
-                  "await_type": "ci_result",
-                  "await_ref": "await:ci-1",
-                  "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:ci-1",
-                  "work_id": "work-ops",
-                  "expected_version": 12,
-                  "resulting_version": 13
-                }
-              },
-              {
-                "event_id": "work-ops-timer-2",
-                "kind": "workflow.condition_added",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "condition_id": "timer-2",
-                  "await_type": "timer",
-                  "await_ref": "await:timer-2",
-                  "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:timer-2",
-                  "work_id": "work-ops",
-                  "expected_version": 13,
-                  "resulting_version": 14
-                }
-              },
-              {
-                "event_id": "work-ops-approval-1",
-                "kind": "workflow.condition_added",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "condition_id": "approval-1",
-                  "await_type": "human_approval",
-                  "await_ref": "await:approval-1",
-                  "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:approval-1",
-                  "work_id": "work-ops",
-                  "expected_version": 14,
-                  "resulting_version": 15
-                }
-              },
-              {
-                "event_id": "work-ops-remote-1",
-                "kind": "workflow.condition_added",
-                "work_id": "work-ops",
-                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "condition_id": "remote-1",
-                  "await_type": "remote_work_state",
-                  "await_ref": "await:remote-1",
-                  "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:remote-1",
-                  "work_id": "work-ops",
-                  "expected_version": 15,
-                  "resulting_version": 16
-                }
-              },
-              {
-                "event_id": "work-ops-operator",
-                "kind": "workflow.actor_recorded",
-                "work_id": "work-ops",
-                "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
-                "occurred_at": "2026-08-09T00:00:00Z",
-                "payload_version": 1,
-                "payload": {
-                  "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
-                  "principal_ref": "principal:operator",
-                  "client_ref": "client:concord-1",
-                  "agent_ref": "agent-reviewer",
-                  "session_ref": "session-reviewer",
-                  "actor_class": "operator",
-                  "work_id": "work-ops",
-                  "expected_version": 16,
-                  "resulting_version": 17
-                }
-              }
-            ],
-            "projection": {
-              "version": 17,
-              "state": "awaiting_condition",
-              "current_step": "complete",
-              "lifecycle": "awaiting_condition",
-              "condition_ids": [
-                "pr-1",
-                "ci-1",
-                "timer-2",
-                "approval-1",
-                "remote-1"
-              ]
-            },
+            "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
+            "current_state": {"step": "proposal"},
             "faults": []
           },
           "request": {
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "definition_pin": {
-              "ref": "workflow.ops_runbook",
-              "version": 1,
-              "digest": "sha256:2e681414f079418a9aa2c7260832837d7ecde0e3974fdd602749d8125072dba6"
-            },
-            "expected_version": 17,
+            "definition_ref": "workflow.implementation",
             "action_id": "cancel_condition",
-            "fields": {
-              "payload": {
-                "work": "work-ops",
-                "condition_id": "timer-2",
-                "cancellation_authority": "operator"
-              },
-              "title": "WF26-condition-actions-refused title",
-              "value_statement": "fixture value statement",
-              "project_ids": [
-                "project-1"
-              ]
-            },
+            "fields": {"payload": {"work": "work-alpha", "condition_id": "condition:probe"}},
             "idempotency": {
               "key": "wf26-cancel-condition-key",
               "request_id": "wf26-cancel-condition-request",
@@ -9940,7 +8757,7 @@
               "agent_ref": "agent-engineer",
               "session_ref": "session-executor",
               "capability": "workflow_action",
-              "scope": "project-1"
+              "scope": "project"
             },
             "approval": {
               "required": false,
@@ -9949,7 +8766,7 @@
             "operation": {
               "op_id": "wf26-cancel-condition-operation",
               "attempt_epoch": 1,
-              "step_id": "complete",
+              "step_id": "proposal",
               "step_kind": "internal_sqlite",
               "state": "pending"
             }
@@ -9960,358 +8777,30 @@
                 "target": "communication",
                 "path": "error.kind",
                 "op": "eq",
-                "value": "invalid_input"
+                "value": "invalid_transition"
               }
             ]
           }
         }
       ],
       "setup": {
-        "fixture_refs": {
-          "work_item": "work-ops",
-          "actors": [
-            "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
-          ],
-          "definitions": [
-            "workflow.ops_runbook"
-          ],
-          "evidence": [
-            "evidence-verification",
-            "evidence-review"
-          ],
-          "relations": []
-        },
-        "event_history": [
-          {
-            "event_id": "work-ops-created",
-            "kind": "work.created",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 2,
-            "payload": {
-              "work_kind": "task",
-              "title": "work-ops fixture",
-              "priority": 1,
-              "work_id": "work-ops"
-            }
-          },
-          {
-            "event_id": "work-ops-actor",
-            "kind": "workflow.actor_recorded",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "principal_ref": "principal:operator",
-              "client_ref": "client:concord-1",
-              "agent_ref": "agent-engineer",
-              "session_ref": "session-executor",
-              "actor_class": "agent",
-              "work_id": "work-ops",
-              "expected_version": 2,
-              "resulting_version": 3
-            }
-          },
-          {
-            "event_id": "work-ops-definition",
-            "kind": "workflow.definition_selected",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "ref": "workflow.ops_runbook",
-              "version": 1,
-              "digest": "sha256:2e681414f079418a9aa2c7260832837d7ecde0e3974fdd602749d8125072dba6",
-              "work_kind": "ops_runbook",
-              "work_id": "work-ops",
-              "expected_version": 3,
-              "resulting_version": 4
-            }
-          },
-          {
-            "event_id": "WF26-condition-actions-refused-work-ops-walk-plan",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "plan",
-              "action_id": "approve_contract",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 4,
-              "resulting_version": 5
-            }
-          },
-          {
-            "event_id": "WF26-condition-actions-refused-work-ops-walk-approval",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "approval",
-              "action_id": "approve_operation",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 5,
-              "resulting_version": 6
-            }
-          },
-          {
-            "event_id": "WF26-condition-actions-refused-work-ops-walk-execute",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "execute",
-              "action_id": "record_delivery",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 6,
-              "resulting_version": 7
-            }
-          },
-          {
-            "event_id": "WF26-condition-actions-refused-work-ops-walk-health",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "health",
-              "action_id": "record_health",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 7,
-              "resulting_version": 8
-            }
-          },
-          {
-            "event_id": "WF26-condition-actions-refused-work-ops-walk-rollback_optional",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "rollback_optional",
-              "action_id": "record_delivery",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 8,
-              "resulting_version": 9
-            }
-          },
-          {
-            "event_id": "WF26-condition-actions-refused-work-ops-walk-cleanup",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "cleanup",
-              "action_id": "confirm_premise",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 9,
-              "resulting_version": 10
-            }
-          },
-          {
-            "event_id": "work-ops-started",
-            "kind": "workflow.action_started",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "complete",
-              "action_id": "complete",
-              "attempt_epoch": 1,
-              "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-              "idempotency_identity": "work-ops-setup",
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 10,
-              "resulting_version": 11
-            }
-          },
-          {
-            "event_id": "work-ops-pr-1",
-            "kind": "workflow.condition_added",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "condition_id": "pr-1",
-              "await_type": "pr_merge",
-              "await_ref": "await:pr-1",
-              "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:pr-1",
-              "work_id": "work-ops",
-              "expected_version": 11,
-              "resulting_version": 12
-            }
-          },
-          {
-            "event_id": "work-ops-ci-1",
-            "kind": "workflow.condition_added",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "condition_id": "ci-1",
-              "await_type": "ci_result",
-              "await_ref": "await:ci-1",
-              "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:ci-1",
-              "work_id": "work-ops",
-              "expected_version": 12,
-              "resulting_version": 13
-            }
-          },
-          {
-            "event_id": "work-ops-timer-2",
-            "kind": "workflow.condition_added",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "condition_id": "timer-2",
-              "await_type": "timer",
-              "await_ref": "await:timer-2",
-              "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:timer-2",
-              "work_id": "work-ops",
-              "expected_version": 13,
-              "resulting_version": 14
-            }
-          },
-          {
-            "event_id": "work-ops-approval-1",
-            "kind": "workflow.condition_added",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "condition_id": "approval-1",
-              "await_type": "human_approval",
-              "await_ref": "await:approval-1",
-              "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:approval-1",
-              "work_id": "work-ops",
-              "expected_version": 14,
-              "resulting_version": 15
-            }
-          },
-          {
-            "event_id": "work-ops-remote-1",
-            "kind": "workflow.condition_added",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "condition_id": "remote-1",
-              "await_type": "remote_work_state",
-              "await_ref": "await:remote-1",
-              "resolution_authority": "durable_operation:wf26-condition-actions-refused-operation:remote-1",
-              "work_id": "work-ops",
-              "expected_version": 15,
-              "resulting_version": 16
-            }
-          },
-          {
-            "event_id": "work-ops-operator",
-            "kind": "workflow.actor_recorded",
-            "work_id": "work-ops",
-            "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
-              "principal_ref": "principal:operator",
-              "client_ref": "client:concord-1",
-              "agent_ref": "agent-reviewer",
-              "session_ref": "session-reviewer",
-              "actor_class": "operator",
-              "work_id": "work-ops",
-              "expected_version": 16,
-              "resulting_version": 17
-            }
-          }
-        ],
-        "projection": {
-          "version": 17,
-          "state": "awaiting_condition",
-          "current_step": "complete",
-          "lifecycle": "awaiting_condition",
-          "condition_ids": [
-            "timer-2"
-          ]
-        },
+        "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
+        "current_state": {"step": "proposal"},
         "faults": []
       },
       "request": {
         "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-        "definition_pin": {
-          "ref": "workflow.ops_runbook",
-          "version": 1,
-          "digest": "sha256:2e681414f079418a9aa2c7260832837d7ecde0e3974fdd602749d8125072dba6"
-        },
-        "expected_version": 17,
+        "definition_ref": "workflow.implementation",
         "action_id": "add_condition",
         "fields": {
           "payload": {
-            "work": "work-ops",
-            "condition_id": "timer-3"
+            "work": "work-alpha",
+            "condition_id": "condition:probe"
           },
           "title": "WF26-condition-actions-refused title",
           "value_statement": "fixture value statement",
           "project_ids": [
-            "project-1"
+            "project"
           ]
         },
         "idempotency": {
@@ -10326,7 +8815,7 @@
           "agent_ref": "agent-engineer",
           "session_ref": "session-executor",
           "capability": "workflow_action",
-          "scope": "project-1"
+          "scope": "project"
         },
         "approval": {
           "required": false,
@@ -10335,7 +8824,7 @@
         "operation": {
           "op_id": "wf26-add-condition-operation",
           "attempt_epoch": 1,
-          "step_id": "complete",
+          "step_id": "proposal",
           "step_kind": "internal_sqlite",
           "state": "pending"
         }
@@ -10346,7 +8835,7 @@
             "target": "communication",
             "path": "error.kind",
             "op": "eq",
-            "value": "invalid_input"
+            "value": "invalid_transition"
           }
         ]
       }

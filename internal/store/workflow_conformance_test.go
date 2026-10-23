@@ -654,6 +654,34 @@ func TestCorpusCurrentSetupRefusesHistoricalInputs(t *testing.T) {
 	}
 }
 
+func TestCorpusCurrentStateChangeObservationUsesDurableRows(t *testing.T) {
+	corpus := readWorkflowScenarioCorpus(t)
+	current := corpus.Scenarios[0]
+	for _, tc := range []struct {
+		action    string
+		fields    map[string]any
+		unchanged bool
+	}{
+		{"add_condition", map[string]any{"payload": map[string]any{"condition_id": "condition:probe"}}, true},
+		{"record_proposal", map[string]any{"problem": "The bounded problem.", "affected": []string{"The fixture."}, "stakes": "The bounded stakes.", "user_outcomes": []string{"The checked result."}}, false},
+	} {
+		t.Run(tc.action, func(t *testing.T) {
+			request := current.Request
+			request.ActionID, request.Fields = tc.action, tc.fields
+			observation, err := executeStructuredWorkflowAction(t, "durable-state/"+tc.action, current.InitialState, tc.action, current.Setup, request, corpus.Fixtures)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, present := observation.Result["state_unchanged"]; !present || got != tc.unchanged {
+				t.Fatalf("durable no-effect observation=%v present=%v, want %v; communication=%+v", got, present, tc.unchanged, observation.Communication)
+			}
+			if !tc.unchanged && observation.Communication["outcome"] != "ok" {
+				t.Fatalf("the changing control must execute: %+v", observation.Communication)
+			}
+		})
+	}
+}
+
 func TestWorkflowScenarioCorpusMutationsRerunAgainstAuthoritativeState(t *testing.T) {
 	t.Parallel()
 	corpus := readWorkflowScenarioCorpus(t)
@@ -1380,6 +1408,10 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 		return executeCorpusCompletionFault(ctx, s, workID, beforeSeq, request, actor)
 	}
 
+	var beforeState string
+	if setup.CurrentState != nil {
+		beforeState = contractCorrectionEffectSnapshot(t, s, workID)
+	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return workflowObservation{}, err
@@ -1399,6 +1431,9 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	if actionErr != nil {
 		_ = tx.Rollback()
 		resultObservation := map[string]any{}
+		if setup.CurrentState != nil {
+			resultObservation["state_unchanged"] = contractCorrectionEffectSnapshot(t, s, workID) == beforeState
+		}
 		if hasCorpusFault(setup, "missing_registry") {
 			available, availabilityErr := WorkflowActionAvailableWithRegistry(ctx, s, actionRegistry, workID)
 			if availabilityErr != nil {
@@ -1416,6 +1451,9 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	}
 	actionResult := map[string]any{}
 	actionResult["operation_id"] = result.OperationID
+	if setup.CurrentState != nil {
+		actionResult["state_unchanged"] = contractCorrectionEffectSnapshot(t, s, workID) == beforeState
+	}
 	return observeWorkflowStore(ctx, s, workID, beforeSeq, nil, actionResult)
 }
 

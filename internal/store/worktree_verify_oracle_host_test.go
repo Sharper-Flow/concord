@@ -1104,7 +1104,7 @@ func TestNativeTargetAxisControlledEnvScrub(t *testing.T) {
 			t.Fatalf("controlled environment leaked %s", forbidden)
 		}
 	}
-	for _, required := range []string{"PATH=", "HOME=/scratch/home", "TMPDIR=/scratch/tmp", "UV_CACHE_DIR=/plan-cache", "UV_OFFLINE=1", "UV_PYTHON=3.13.7", "PYTHONDONTWRITEBYTECODE=1", "PYTHONNOUSERSITE=1"} {
+	for _, required := range []string{"PATH=", "HOME=/scratch/home", "TMPDIR=/scratch/tmp", "UV_CACHE_DIR=/plan-cache", "UV_OFFLINE=1", "UV_NO_SYNC=1", "UV_PYTHON=3.13.7", "PYTHONDONTWRITEBYTECODE=1", "PYTHONNOUSERSITE=1"} {
 		if !strings.Contains(joined, required) {
 			t.Fatalf("controlled environment lost %s", required)
 		}

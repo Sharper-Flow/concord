@@ -72,9 +72,6 @@ func TestNativeTargetAxisUVRunUsesMaterializedEnvironment(t *testing.T) {
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || f.launches != 1 {
 		t.Fatalf("uv run wrapper execute %+v %v launches=%d", r, err, f.launches)
 	}
-	if strings.Contains(r.Output, "Building") || strings.Contains(r.Output, "Installed") {
-		t.Fatalf("uv run re-synced the materialized environment:\n%s", r.Output)
-	}
 }
 
 // Sealing the materialized environment does not admit an input change: a

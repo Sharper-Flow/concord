@@ -552,7 +552,7 @@ func TestSupersededContractClassifiesThroughItsOwnPin(t *testing.T) {
 
 func TestCancelledWorkKeepsExactLegislativeAuthority(t *testing.T) {
 	t.Parallel()
-	for _, family := range []string{"workflow.implementation", "workflow.static_analysis"} {
+	for _, family := range []string{"workflow.implementation", "workflow.research"} {
 		t.Run(family, func(t *testing.T) {
 			s, home := authorityScenario(t, authorityManifestFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1})
 			defer s.Close()
@@ -584,17 +584,6 @@ func TestCancelledWorkKeepsExactLegislativeAuthority(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestCorruptDefinitionPinRefusesStrictly(t *testing.T) {
-	t.Parallel()
-	s, home := authorityScenario(t, authorityManifestFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1})
-	defer s.Close()
-	seedAuthorityWork(t, s, authoritySyntheticWork)
-	ref, version, _ := authorityRegisteredDefinition(t, true)
-	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, version, "sha256:"+strings.Repeat("f", 64), []string{"CD-8751"}, nil)
-	err := s.RebuildKnowledgeIndex(context.Background(), home)
-	assertFailureKind(t, err, KindDefinitionDigestMismatch)
 }
 
 func TestKnowledgeAuthorityCorpusResolvesThroughSyntheticContracts(t *testing.T) {

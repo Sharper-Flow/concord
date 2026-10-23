@@ -41,6 +41,20 @@ func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) (*Store, 
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
 	}
+	if workID == "d7-accept_worker_result" {
+		// Acceptance now joins the requested terminal result before the
+		// consequential-boundary check. Give that boundary an actual result
+		// to consume, before introducing the overlapping contracts.
+		attempt := "attempt:" + workID
+		recordWorkerFixtureDispatchAuthorization(t, s, workID, attempt, "execution", actorRef)
+		lane := reviewGateLane(t, "implementation")
+		dispatch := Event{EventID: attempt + ":dispatched", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+		completed := Event{EventID: attempt + ":completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attempt, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+		completed = workerCompletionAtClaim(t, s, completed)
+		if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch, completed}}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	hash := "sha256:" + strings.Repeat("d", 64)
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
@@ -192,6 +206,9 @@ func assertD7TypedRefusal(t *testing.T, err error, workID, otherID string) {
 // owning-transaction coordinator the agent mutation surface uses.
 func attemptD7BoundaryAction(ctx context.Context, s *Store, workID, actionID string, actor WorkflowActor, version int64) error {
 	payload := mustJSONValue(map[string]any{})
+	if actionID == "accept_worker_result" {
+		payload = mustJSONValue(map[string]any{"attempt_id": "attempt:" + workID, "attempt_epoch": 1})
+	}
 	preflight := WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor}
 	execution := WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor,

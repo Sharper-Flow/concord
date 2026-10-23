@@ -256,8 +256,10 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if !state.DecisionDomainsPresent || state.DecisionDomains == nil || len(state.DecisionDomains) != 0 {
 			t.Fatalf("engineering decision fact = present %v domains %v, want [] present", state.DecisionDomainsPresent, state.DecisionDomains)
 		}
-		if state.EvaluatorAuthority != WorkflowOperatorRequired {
-			t.Fatalf("executing coordinator authority = %q, want operator_required", state.EvaluatorAuthority)
+		// Executing the work requires no operator evaluation: no executing
+		// actor distinctness exists beyond the worker's own result (CD-0242 D5).
+		if state.EvaluatorAuthority != WorkflowIndependentEvaluator {
+			t.Fatalf("executing coordinator authority = %q, want independent", state.EvaluatorAuthority)
 		}
 		if state.Policy.Policy != WorkflowApprovalPolicyConsequenceV1 || state.Policy.Class != WorkflowApprovalClassDecision || state.Policy.Consent != WorkflowConsentNone {
 			t.Fatalf("engineering confirmation classified %s/%s/%s, want consequence_v1 decision/none", state.Policy.Policy, state.Policy.Class, state.Policy.Consent)
@@ -346,21 +348,20 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 
 		// A terminal failure does not add an approval requirement.
 		const retryID = "approval-boundary-retry"
-		retryStore, _, _, _ := seedOldDefinitionWorker(t, retryID)
+		retryFixture, attempt, _ := seedCurrentRepairWorker(t, retryID)
+		retryStore := retryFixture.store
 		defer retryStore.Close()
-		claimRetryWorktree(t, retryStore, retryID)
-		worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + retryID, ActorClass: ActorAgent}
-		attempt := "attempt:" + retryID + ":same:1"
-		if err := dispatchSameStepAttempt(t, retryStore, retryID, "repair", attempt, worker, nil); err != nil {
-			t.Fatalf("failed-retry dispatch: %v", err)
+		worker := retryFixture.owner
+		failed := s2WorkerFailedAttributedEvent(retryID, attempt, "failed-"+retryID, preferredModelForLane(laneForID(t)), WorkerFailureWorkerError, "the lane failed before a judgeable result existed", time.Unix(30, 0).UTC())
+		if err := s2WorkerFailedLive(t, retryStore, failed); err != nil {
+			t.Fatalf("failed-retry terminal: %v", err)
 		}
-		failWorkerAttemptWithKind(t, retryStore, retryID, attempt, "the lane failed before a judgeable result existed")
 		retry, err := ReadWorkflowApprovalBoundary(ctx, retryStore, nil, WorkflowActionPreflightRequest{WorkID: retryID, ActionID: "dispatch_worker", Actor: worker})
 		if err != nil {
 			t.Fatalf("failed-retry boundary read refused: %v", err)
 		}
-		if retry.EvaluatorAuthority != WorkflowOperatorRequired {
-			t.Fatalf("dispatching worker authority = %q, want operator_required", retry.EvaluatorAuthority)
+		if retry.EvaluatorAuthority != WorkflowIndependentEvaluator {
+			t.Fatalf("dispatching coordinator authority = %q, want independent", retry.EvaluatorAuthority)
 		}
 		if retry.Policy.Consent != WorkflowConsentNone {
 			t.Fatalf("failed retry added consent = %q, want none", retry.Policy.Consent)
@@ -386,13 +387,12 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		ctx := context.Background()
 
 		definition := approvalRouteDefinition(t)
+		// A family has one current definition (CD-0242 D14): the probe
+		// initializes on the lower version while it is current, and the
+		// higher version registers just before the repin onto it.
 		registry, registered := newResolutionRegistry(t, definition)
 		higher := definition
 		higher.Version = definition.Version + 1
-		higherRegistered, err := registry.Register(higher)
-		if err != nil {
-			t.Fatalf("the higher local definition refused registration: %v", err)
-		}
 
 		foldGuardRows := func(t *testing.T, s *Store) int {
 			t.Helper()
@@ -456,6 +456,11 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 			t.Fatalf("caller-registry initialization left %d fold_guard rows", rows)
 		}
 
+		higherRegistered, err := registry.Register(higher)
+		if err != nil {
+			t.Fatalf("the higher local definition refused registration: %v", err)
+		}
+
 		// Repin carries the instance forward onto the higher same-ref
 		// version through the same registry, keeping the current step; the
 		// builtin (missing) registry refuses the same repin closed.
@@ -495,7 +500,10 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		// The route item drives the local pin to the acceptance step through
 		// the genuine registry-threaded folds, then the selection facade and
 		// the opaque-Tx mutation pin answer through the caller registry.
+		// The route item runs on its own registry, where the lower version is
+		// the family's one current definition.
 		const route = "approval-registry-route"
+		registry, registered = newResolutionRegistry(t, definition)
 		seedWork(t, s, route)
 		if err := initialize(t, s, route, registered, registry); err != nil {
 			t.Fatalf("route initialization refused: %v", err)
@@ -556,7 +564,9 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 			_, _, err := ReadMutationWorkPinTxForRegistry(ctx, tx, nil, route, nil)
 			return err
 		})
-		if builtinConventionErr == nil || !failureAs(builtinConventionErr, &builtinConvention) || builtinConvention.Kind != KindDefinitionDigestMismatch {
+		// The builtin registry holds no current definition of the local
+		// family, so the pin refuses as unregistered (CD-0242 D14).
+		if builtinConventionErr == nil || !failureAs(builtinConventionErr, &builtinConvention) || builtinConvention.Kind != KindInvariantViolation || !strings.Contains(builtinConvention.Detail, "current workflow definition is unavailable") {
 			t.Fatalf("builtin-convenience mutation pin = %v, want the typed unregistered refusal", builtinConventionErr)
 		}
 

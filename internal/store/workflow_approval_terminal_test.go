@@ -174,15 +174,6 @@ func approvalOperatorQuestionProjection(t *testing.T, s *Store, registry Definit
 	return pin.PendingOperatorDecision, pin.WithheldOperatorDecision
 }
 
-// recordApprovalVerdict records the independent evaluator's ok verdict through
-// the public action route, so the evaluator's admitted route is exercised, not
-// assumed.
-func recordApprovalVerdict(t *testing.T, s *Store, registry DefinitionRegistry, workID string, reviewer WorkflowActor) error {
-	t.Helper()
-	payload := `{"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["evidence:operator-verdict"]}`
-	return runApprovalActionTx(t, s, registry, workID, "record_verdict", reviewer, nil, "", "", payload)
-}
-
 // latestApprovalEventPayload reads the latest event of one kind for one work
 // item and decodes its payload into a generic map for attribution assertions.
 func latestApprovalEventPayload(t *testing.T, s *Store, workID, kind string) map[string]any {

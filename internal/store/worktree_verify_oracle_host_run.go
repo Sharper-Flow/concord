@@ -293,7 +293,13 @@ func nativeTargetControlledEnv(t *nativeTargetOraclePlan, root string) []string 
 		)
 	}
 	if t.Environment.Materializer == nativeTargetMaterializerUV {
+		// UV_NO_SYNC seals the materialized environment: a harness's own
+		// `uv run` uses it as the metadata stage left it, instead of
+		// re-syncing, which would build and install the project inside the
+		// candidate snapshot past the materializer's --no-install-project
+		// and --no-build policy. `uv sync` itself ignores the variable.
 		env = append(env,
+			"UV_NO_SYNC=1",
 			"PYTHONDONTWRITEBYTECODE=1",
 			"PYTHONNOUSERSITE=1",
 			"UV_CACHE_DIR="+t.Environment.UVCacheDir,

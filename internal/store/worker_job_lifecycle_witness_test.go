@@ -42,7 +42,7 @@ func TestReviewRejectedJobWindow(t *testing.T) {
 	unrelated := &WorkerJobBinding{JobID: "job:unrelated-success", Revision: 1}
 	issue1013StartRepair(t, s, id, f.owner, pin.Version, epoch+1)
 	pin = issue1013Pin(t, s, id)
-	oDispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":2", pin.Correction, f.owner, pin.Version, "review-reject-2", unrelated)
+	oDispatchJobBoundAttempt(t, s, id, "attempt:"+id+":2", pin.Correction, f.owner, pin.Version, "review-reject-2", unrelated)
 	completeAndAcceptAttempt(t, s, id, "attempt:"+id+":2", lane, acceptor)
 	if boundary := jobWindowAcceptanceBoundary(t, s, id); boundary != 0 {
 		t.Fatalf("unrelated acceptance closed rejected job obligation at %d", boundary)
@@ -169,7 +169,7 @@ func TestWitnessUnrelatedLocalAcceptKeepsObligation(t *testing.T) {
 	issue1013StartRepair(t, s, id, f.owner, pin.Version, latestStepStartEpoch(t, s, id, "repair")+1)
 	pin = issue1013Pin(t, s, id)
 	unrelated := &WorkerJobBinding{JobID: "job:witness-unrelated", Revision: 1}
-	oDispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":2", pin.Correction, f.owner, pin.Version, "witness-wall-2", unrelated)
+	oDispatchJobBoundAttempt(t, s, id, "attempt:"+id+":2", pin.Correction, f.owner, pin.Version, "witness-wall-2", unrelated)
 	completeAndAcceptAttempt(t, s, id, "attempt:"+id+":2", BuiltinLaneDefinitions()[0], reviewGateAcceptor(id))
 	after := jobWindowAcceptanceBoundary(t, s, id)
 	if after != before {

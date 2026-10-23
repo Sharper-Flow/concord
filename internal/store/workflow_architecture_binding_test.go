@@ -722,7 +722,7 @@ func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
 		t.Fatal(err)
 	}
 	j := &candidateJourney{fixture: f, s: s, workID: workID, repo: repo}
-	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner, nil); err == nil {
+	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner); err == nil {
 		t.Fatal("completion accepted unsatisfied verification obligation")
 	} else {
 		var failure *Failure

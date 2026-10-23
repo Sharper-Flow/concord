@@ -73,18 +73,18 @@ func appendWorkflowDesignCorrection(ctx context.Context, tx *sql.Tx, definition 
 
 // The latest recorded design owns architecture content. Contract counters do
 // not invalidate unchanged architecture; Review compares its content digest.
-func readCurrentWorkflowDesign(ctx context.Context, q queryer, workID string) (*WorkflowDesignRecord, bool, error) {
+func readCurrentWorkflowDesign(ctx context.Context, q queryer, workID string) (*WorkflowDesignRecord, error) {
 	var design WorkflowDesignRecord
 	var decisions, touched string
 	err := q.QueryRowContext(ctx, `SELECT work_version,approach,decisions,touched_refs,recorded_at FROM workflow_design_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, workID).Scan(&design.WorkVersion, &design.Approach, &decisions, &touched, &design.RecordedAt)
 	if err == sql.ErrNoRows {
-		return nil, false, nil
+		return nil, nil
 	}
 	if err != nil {
-		return nil, false, workflowProjectionError(err, "cannot read workflow design")
+		return nil, workflowProjectionError(err, "cannot read workflow design")
 	}
 	if json.Unmarshal([]byte(decisions), &design.Decisions) != nil || json.Unmarshal([]byte(touched), &design.TouchedRefs) != nil {
-		return nil, false, newFailure(KindInvariantViolation, "workflow_design", "design projection contains malformed arrays", false, "rebuild projections from the event log")
+		return nil, newFailure(KindInvariantViolation, "workflow_design", "design projection contains malformed arrays", false, "rebuild projections from the event log")
 	}
-	return &design, false, nil
+	return &design, nil
 }

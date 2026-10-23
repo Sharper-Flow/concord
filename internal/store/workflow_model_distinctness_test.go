@@ -179,7 +179,7 @@ func TestCompletionMainAuthorityDoesNotRequireDifferentModels(t *testing.T) {
 			if testCase.sameMain {
 				reviewer = executor
 			}
-			if err := workflowCompletionActorDistinct(ctx, tx, "d6-work", reviewer, testCase.verdictModel, testCase.declared); err != nil {
+			if err := workflowCompletionActorDistinct(ctx, tx, "d6-work", reviewer); err != nil {
 				t.Fatalf("Main was subjected to a retired evaluator/model requirement: %v", err)
 			}
 		})

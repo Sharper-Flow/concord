@@ -19,7 +19,7 @@ func descendantReviewFixture(t *testing.T, id string) (*candidateJourney, string
 		t.Fatal(err)
 	}
 	gitRunStore(t, dir, "branch", "-m", branch)
-	reviewSubjectImplementComplete(t, f, "anchor-a", "anchor-a-completed", true)
+	reviewSubjectImplementComplete(t, f, "anchor-a", "anchor-a-completed")
 	reviewSubjectAccept(t, f.store, id, "anchor-a")
 	acceptCurrentReviewForTest(t, f, dir, "continue")
 	j := &candidateJourney{fixture: f, s: f.store, workID: id, repo: dir}
@@ -180,7 +180,7 @@ func TestReviewDescendantNonDescendantRefuses(t *testing.T) {
 			if shape == "older_rejected" {
 				// The rejected result predates a later genuinely produced and
 				// accepted anchor. Resetting HEAD cannot revive the rejected result.
-				reviewSubjectImplementComplete(t, j.fixture, "old-rejected", "old-rejected-completed", true)
+				reviewSubjectImplementComplete(t, j.fixture, "old-rejected", "old-rejected-completed")
 				rejector := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/old-rejector", SessionRef: "session/old-rejector", ActorClass: ActorAgent}
 				if err := j.action(t, "reject_worker_result", map[string]any{
 					"attempt_id": "old-rejected", "attempt_epoch": j.dispatchEpoch(t, "old-rejected"), "diagnosis": "the old result is insufficient", "strategy": "produce the approved change", "predicate_ids": []string{"predicate:work-context"}, "evidence_refs": []string{"old-rejected-completed"},
@@ -259,7 +259,7 @@ func TestReviewDescendantPostObservationMovementKeepsObservedSubject(t *testing.
 		}
 	}
 	before := j.effects(t)
-	err = j.terminalAction(t, "record_verdict", criterionAssociationPayload(runB.OperationRef, "predicate:work-context"), j.fixture.owner, nil)
+	err = j.terminalAction(t, "record_verdict", criterionAssociationPayload(runB.OperationRef, "predicate:work-context"), j.fixture.owner)
 	if failureKind(err) != KindStaleRequiresReview {
 		t.Fatalf("next re-observing gate = %v, want stale_requires_review", err)
 	}

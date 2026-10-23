@@ -170,7 +170,7 @@ func TestPReviewCorrectionAdmitsAdvertisedEvidence(t *testing.T) {
 	if len(correction.PredicateIDs) != 1 || correction.PredicateIDs[0] != "predicate:return-route" {
 		t.Fatalf("advertised predicates=%v, want the approved predicate", correction.PredicateIDs)
 	}
-	payload := pReviewCorrectionPayload(t, j)
+	payload := pReviewCorrectionPayload(t)
 	if err := issue1013Preflight(t, j.s, j.workID, "request_correction", payload, j.fixture.owner); err != nil {
 		t.Fatalf("correction with durably bound evidence refused: %v", err)
 	}
@@ -212,7 +212,7 @@ func testWorkflowReturnRoute(t *testing.T, id, family, verdictStep, effect strin
 		if !hasFailureKind(err, KindMissingEvidence) || !strings.Contains(err.Error(), "ready_for_final_proof") || j.effects(t) != before {
 			t.Fatalf("blocking Review completion=%v", err)
 		}
-		if err := j.action(t, "request_correction", pReviewCorrectionPayload(t, j), j.fixture.owner); err != nil {
+		if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 			t.Fatal(err)
 		}
 		reviewGateRequireStep(t, j.s, id, effect)
@@ -247,7 +247,7 @@ func testPReviewCorrection(t *testing.T, id, family, effect string) {
 		t.Fatalf("accepted Review has no correction route: %+v", pin)
 	}
 	before := j.effects(t)
-	payload := pReviewCorrectionPayload(t, j)
+	payload := pReviewCorrectionPayload(t)
 	if err := issue1013Preflight(t, j.s, id, "request_correction", payload, j.fixture.owner); err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestVerdictCorrectionRequiresAcceptedWorkerDelivery(t *testing.T) {
 	j := pReturnReviewFixture(t, "return-route-requires-accepted-delivery", "workflow.implementation", "")
 	attempt, epoch := completeCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
 	before := j.effects(t)
-	if err := issue1013Preflight(t, j.s, j.workID, "request_correction", pReviewCorrectionPayload(t, j), j.fixture.owner); err == nil {
+	if err := issue1013Preflight(t, j.s, j.workID, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err == nil {
 		t.Fatal("an unaccepted Review authorized correction")
 	}
 	if j.effects(t) != before {
@@ -295,7 +295,7 @@ func TestVerdictCorrectionRequiresAcceptedWorkerDelivery(t *testing.T) {
 	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, j.fixture.owner); err != nil {
 		t.Fatal(err)
 	}
-	if err := issue1013Preflight(t, j.s, j.workID, "request_correction", pReviewCorrectionPayload(t, j), j.fixture.owner); err != nil {
+	if err := issue1013Preflight(t, j.s, j.workID, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 		t.Fatalf("accepted current Review did not authorize correction: %v", err)
 	}
 }
@@ -408,17 +408,17 @@ func TestNonOKVerdictCorrectionReturnsTerminalImplementationToExecution(t *testi
 	if err := advanceWorkflowTestInstanceToStep(t.Context(), j.s, j.workID, "release", owner); err != nil {
 		t.Fatal(err)
 	}
-	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t, j), j.fixture.owner); err != nil {
+	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 		t.Fatalf("terminal correction from accepted Review: %v", err)
 	}
 	reviewGateRequireStep(t, j.s, j.workID, "execution")
 }
 
-func acceptReturnRouteWorker(t *testing.T, f workflowReturnRouteFixture, id, ownerRef string) WorkflowActor {
-	return acceptReturnRouteWorkerLabeled(t, f, id, ownerRef, "")
+func acceptReturnRouteWorker(t *testing.T, f workflowReturnRouteFixture, id string) WorkflowActor {
+	return acceptReturnRouteWorkerLabeled(t, f, id, "")
 }
 
-func acceptReturnRouteWorkerLabeled(t *testing.T, f workflowReturnRouteFixture, id, ownerRef, label string) WorkflowActor {
+func acceptReturnRouteWorkerLabeled(t *testing.T, f workflowReturnRouteFixture, id, label string) WorkflowActor {
 	t.Helper()
 	j := pReturnClaim(t, f, id)
 	pReturnProduce(t, j, "producer"+label)
@@ -471,7 +471,7 @@ func TestVerdictCorrectionAdmitsReviewEvidenceAccept(t *testing.T) {
 	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, j.fixture.owner); err != nil {
 		t.Fatal(err)
 	}
-	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t, j), j.fixture.owner); err != nil {
+	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 		t.Fatalf("correction after exact Review acceptance: %v", err)
 	}
 	reviewGateRequireStep(t, j.s, j.workID, "repair")
@@ -486,7 +486,7 @@ func TestVerdictCorrectionRefusesUnacceptedReviewDelivery(t *testing.T) {
 	if err != nil || available {
 		t.Fatalf("unaccepted Review correction available=%t err=%v", available, err)
 	}
-	err = issue1013Preflight(t, j.s, j.workID, "request_correction", pReviewCorrectionPayload(t, j), j.fixture.owner)
+	err = issue1013Preflight(t, j.s, j.workID, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner)
 	if err == nil || j.effects(t) != before {
 		t.Fatalf("unaccepted Review correction=%v", err)
 	}

@@ -70,7 +70,7 @@ func validateWorkerPacketRecords(ctx context.Context, tx *sql.Tx, workID string,
 	if err := compareWorkerPacketRecord[WorkflowLawContext]("law_context", packet.Inputs.LawContext, lawContext); err != nil {
 		return err
 	}
-	design, _, err := readCurrentWorkflowDesign(ctx, tx, workID)
+	design, err := readCurrentWorkflowDesign(ctx, tx, workID)
 	if err != nil {
 		return err
 	}

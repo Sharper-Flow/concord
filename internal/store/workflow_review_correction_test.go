@@ -49,7 +49,7 @@ func reviewGateRunAttempt(t *testing.T, s *Store, workID, attemptID, stepID stri
 	return epoch
 }
 
-func reviewGateStartStep(t *testing.T, s *Store, workID, stepID, startAction string, actor WorkflowActor) int64 {
+func reviewGateStartStep(t *testing.T, s *Store, workID, stepID, startAction string, actor WorkflowActor) {
 	t.Helper()
 	// CD-0198 D3: current-head fixtures derive the step start from the
 	// step's qualifying checkpoint; released pins keep the callable start
@@ -73,7 +73,7 @@ func reviewGateStartStep(t *testing.T, s *Store, workID, stepID, startAction str
 	if err := runVerdictActionAs(t, s, workID, action, json.RawMessage(`{}`), 0, actor); err != nil {
 		t.Fatalf("start %s at %s: %v", action, stepID, err)
 	}
-	return reviewGateStartedEpoch(t, s, workID, action)
+	reviewGateStartedEpoch(t, s, workID, action)
 }
 
 func reviewGateStartedEpoch(t *testing.T, s *Store, workID, action string) int64 {
@@ -431,7 +431,7 @@ func TestCurrentDeliveryGateReturnsWhenSuccessorStalesAcceptedReview(t *testing.
 			if err := advanceWorkflowTestInstanceToStep(t.Context(), j.s, j.workID, "delivery", owner); err != nil {
 				t.Fatal(err)
 			}
-			successor := pContractSuccessor(t, j.s, j.workID, 2, "changed criterion")
+			successor := pContractSuccessor(t, j.s, j.workID, "changed criterion")
 			delete(successor, "audit_evidence")
 			delete(successor, "supersede_reason")
 			successor["outcome_kind"] = "check"
@@ -461,7 +461,7 @@ func TestCurrentDeliveryGateReturnsWhenSuccessorStalesAcceptedReview(t *testing.
 			if reason != "delivery_gate_correction" {
 				t.Fatalf("gate correction intent=%q, want delivery_gate_correction", reason)
 			}
-			payload := pReviewCorrectionPayload(t, j)
+			payload := pReviewCorrectionPayload(t)
 			deliveries := reviewGateCountDeliveries(t, j.s, j.workID)
 			if err := j.action(t, "request_correction", payload, j.fixture.owner); err != nil {
 				t.Fatalf("evidence-bearing current gate return: %v", err)

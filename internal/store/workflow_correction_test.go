@@ -345,7 +345,7 @@ func TestCorrectionDispatchClearsPinContextForLaterLane(t *testing.T) {
 	ctx := context.Background()
 	j := pReturnReviewFixture(t, workID, "workflow.break_fix", "correction_required")
 	s, owner := j.s, j.fixture.owner
-	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t, j), owner); err != nil {
+	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), owner); err != nil {
 		t.Fatalf("request correction: %v", err)
 	}
 
@@ -469,7 +469,7 @@ func TestRepeatedVerificationCorrectionRequiresFreshVerdict(t *testing.T) {
 			pReturnProduce(t, j, fmt.Sprintf("correction-%d", cycle))
 			acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
 		}
-		if err := j.action(t, "request_correction", pReviewCorrectionPayload(t, j), j.fixture.owner); err != nil {
+		if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 			t.Fatalf("cycle %d correction request: %v", cycle, err)
 		}
 		reviewGateRequireStep(t, j.s, workID, "execution")
@@ -479,7 +479,7 @@ func TestRepeatedVerificationCorrectionRequiresFreshVerdict(t *testing.T) {
 		}
 	}
 	before := j.effects(t)
-	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t, j), j.fixture.owner); err == nil {
+	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err == nil {
 		t.Fatal("request_correction reused a consumed Review")
 	}
 	if j.effects(t) != before {

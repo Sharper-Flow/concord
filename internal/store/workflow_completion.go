@@ -116,7 +116,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err := requireActor(ctx, tx, event.Actor); err != nil {
 		return err
 	}
-	if err := workflowCompletionCallerAuthority(ctx, tx, definition, event.SubjectID, event.Actor); err != nil {
+	if err := workflowCompletionCallerAuthority(ctx, tx, event.SubjectID, event.Actor); err != nil {
 		return err
 	}
 	if workflowDefinitionProducesDelivery(definition) && !isWorkflowReplay(ctx) {
@@ -192,7 +192,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		if verdict == nil {
 			return workflowClauseFailure(KindMissingEvidence, 4, "workflow verdict is missing for approved predicate "+predicate.PredicateID, "provide_evidence")
 		}
-		if err := workflowCompletionActorDistinct(ctx, tx, event.SubjectID, verdict.VerdictActorRef, verdict.VerdictModel, definition.EvaluatorIndependence.ModelDistinct); err != nil {
+		if err := workflowCompletionActorDistinct(ctx, tx, event.SubjectID, verdict.VerdictActorRef); err != nil {
 			return workflowClauseError(err, 4)
 		}
 		if err := verifyWorkflowCriterionAssociation(ctx, tx, event.SubjectID, *verdict); err != nil {
@@ -524,12 +524,12 @@ func VerifyWorkflowInstanceDefinitionTx(ctx context.Context, tx queryer, registr
 		}
 		return RegisteredDefinition{}, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow definition pin", true, "retry once the database is readable", err)
 	}
-	return verifyWorkflowDefinitionPinForFold(ctx, registry, pin)
+	return verifyWorkflowDefinitionPinForFold(registry, pin)
 }
 
 // verifyWorkflowDefinitionPinForFold resolves the current family definition;
 // recorded instance versions and digests never select another definition.
-func verifyWorkflowDefinitionPinForFold(ctx context.Context, registry DefinitionRegistry, pin WorkflowDefinitionPin) (RegisteredDefinition, error) {
+func verifyWorkflowDefinitionPinForFold(registry DefinitionRegistry, pin WorkflowDefinitionPin) (RegisteredDefinition, error) {
 	return resolveCurrentWorkflowDefinition(registry, pin.Ref)
 }
 
@@ -805,18 +805,14 @@ func verifyCompletionScopeAndMandates(ctx context.Context, tx *sql.Tx, workID st
 	return nil
 }
 
-// workflowCompletionActorDistinct enforces CD-0013 D5 actor distinctness and,
-// where the definition declares it, the CD-0017 D6 readback-model dimension.
-// The executing model is read from the instance because it is a property of the
-// run, not of the actor identity; the verdict model travels on the verdict
-// event for the same reason.
-func workflowCompletionActorDistinct(ctx context.Context, tx queryer, workID, verdictActor, verdictModel string, requireModelDistinct bool) error {
+// workflowCompletionActorDistinct requires Main to record the verdict.
+func workflowCompletionActorDistinct(ctx context.Context, tx queryer, workID, verdictActor string) error {
 	return workflowRequireMain(ctx, tx, workID, verdictActor)
 }
 
-// workflowActorsDistinctForExecutor evaluates distinctness against a supplied
-// executorRef, which must resolve, and otherwise against the instance's current lookup.
-func workflowActorsDistinctForExecutor(ctx context.Context, tx queryer, workID, executorRef, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
+// workflowActorsDistinctForExecutor rejects a worker accepting its own result
+// and requires Main to accept it.
+func workflowActorsDistinctForExecutor(ctx context.Context, tx queryer, workID, executorRef, verdictActor string) error {
 	if executorRef != "" && executorRef == verdictActor {
 		return reviewFailure(KindUnauthorized, "a worker cannot accept its own result", "return the terminal result to Main")
 	}
@@ -1253,12 +1249,7 @@ func WorkflowChangedRefsDigest(refs []string) string {
 	return "sha256:" + hex.EncodeToString(h[:])
 }
 
-// workflowCompletionCallerAuthority holds the completing caller's authority.
-// consequence_v1 separates evaluation from completion recording: any
-// authorized non-worker coordinator may record completion, including the
-// initiating one — the stored evaluator's distinctness from execution is
-// clause 4's check, not the terminal requester's. The legacy policy keeps the
-// completing caller distinct from execution.
-func workflowCompletionCallerAuthority(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID, completingActor string) error {
+// workflowCompletionCallerAuthority requires Main to complete the work.
+func workflowCompletionCallerAuthority(ctx context.Context, tx *sql.Tx, workID, completingActor string) error {
 	return workflowRequireMain(ctx, tx, workID, completingActor)
 }

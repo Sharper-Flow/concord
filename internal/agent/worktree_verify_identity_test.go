@@ -27,7 +27,7 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 			service.Now = func() time.Time { return now }
 			// Current accepted Review admits delivery; Review-directed
 			// correction obtains a fresh refine epoch on the second leg.
-			pinned := legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation")
+			pinned := legacyApprovalPolicyDefinitionForRef(t)
 			grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 			ownerRef, ownerRefErr := store.WorkflowActorRef(grantActor)
 			if ownerRefErr != nil {

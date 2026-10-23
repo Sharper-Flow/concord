@@ -111,7 +111,7 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 				}
 			}
 			const attempt = "attempt:caller"
-			if out := invoke("dispatch_worker", "caller-dispatch", map[string]any{"attempt_id": attempt, "worker_packet": deliveryRecoveryPacket(t, s, "work-1", "execution", attempt, "implementation")}, env); out.Outcome != OutcomeOK {
+			if out := invoke("dispatch_worker", "caller-dispatch", map[string]any{"attempt_id": attempt, "worker_packet": deliveryRecoveryPacket(t, s, "execution", attempt, "implementation")}, env); out.Outcome != OutcomeOK {
 				t.Fatalf("dispatch_worker: %+v", out.Error)
 			}
 			job := authorizedWorkerJob(t, s, attempt)

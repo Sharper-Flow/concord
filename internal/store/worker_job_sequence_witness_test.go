@@ -171,7 +171,7 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *test
 	// plain local acceptance satisfies its revision, keeps the effect step
 	// held, and writes no delivery assertion and no correction disposition.
 	attemptB := "attempt:" + workID + ":second"
-	oDispatchJobBoundAttempt(t, s, workID, "repair", attemptB, nil, fixture.owner, 0, "sequence-b-"+workID, jobB)
+	oDispatchJobBoundAttempt(t, s, workID, attemptB, nil, fixture.owner, 0, "sequence-b-"+workID, jobB)
 	completeAndAcceptAttempt(t, s, workID, attemptB, lane, acceptor)
 	views, err = readWorkerJobRevisions(ctx, s.db, workID)
 	if err != nil {

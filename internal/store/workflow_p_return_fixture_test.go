@@ -61,7 +61,7 @@ func pReturnProduce(t *testing.T, j *candidateJourney, label string) {
 	j.observe(t, "accepted-"+label)
 }
 
-func pReviewCorrectionPayload(t *testing.T, j *candidateJourney) json.RawMessage {
+func pReviewCorrectionPayload(t *testing.T) json.RawMessage {
 	t.Helper()
 	return mustJSONValue(map[string]any{"diagnosis": "the accepted current Review requires correction", "strategy": "perform the declared corrective work and obtain applicable Review", "predicate_ids": []string{"predicate:return-route"}, "evidence_refs": []string{"evidence:return-route-verification"}})
 }

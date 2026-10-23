@@ -479,7 +479,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		}
 	}
 	// Consent admission reads only the committed response snapshot.
-	if refusal, refused, admissionErr := r.replayRoutineClaimAdmission(ctx, nil, base, raw, record); admissionErr != nil {
+	if refusal, refused, admissionErr := r.replayRoutineClaimAdmission(base, raw, record); admissionErr != nil {
 		return Envelope{}, false, admissionErr
 	} else if refused {
 		return refusal, true, nil
@@ -491,7 +491,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		}
 		base.Replayed = true
 		base.ResolvedScope = scopeFromMap(authorizedScope)
-		replay, replayErr := r.replayWorkflowAction(ctx, base, step, record)
+		replay, replayErr := r.replayWorkflowAction(base, step, record)
 		if replayErr != nil {
 			return Envelope{}, false, replayErr
 		}
@@ -515,7 +515,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	}
 	if step.ResultKind == store.ResultCompleted {
 		refs := decodeChangedRefs(step.ChangedRefs)
-		replayedPayload, intents, pinless, enrichErr := r.replayMutationPayload(ctx, json.RawMessage(step.ResultPayload), refs)
+		replayedPayload, intents, pinless, enrichErr := r.replayMutationPayload(json.RawMessage(step.ResultPayload), refs)
 		if enrichErr != nil {
 			return Envelope{}, false, enrichErr
 		}
@@ -557,7 +557,7 @@ const (
 
 // replayRoutineClaimAdmission checks the original receipt's consumed-approval
 // fact without reading historical events or consuming approval again.
-func (r runtime) replayRoutineClaimAdmission(ctx context.Context, tx *store.Transaction, base Envelope, raw []byte, prior store.MutationIdempotencyRecord) (Envelope, bool, error) {
+func (r runtime) replayRoutineClaimAdmission(base Envelope, raw []byte, prior store.MutationIdempotencyRecord) (Envelope, bool, error) {
 	var refusalMessage string
 	var resolutionKind string
 	var claimed bool
@@ -616,7 +616,7 @@ func (r runtime) replayRoutineClaimAdmission(ctx context.Context, tx *store.Tran
 	return coreError(base, "invalid_input", refusalMessage, "reread_entities", false), true, nil
 }
 
-func (r runtime) replayWorkflowAction(ctx context.Context, base Envelope, step store.FenceResult, prior store.MutationIdempotencyRecord) (Envelope, error) {
+func (r runtime) replayWorkflowAction(base Envelope, step store.FenceResult, prior store.MutationIdempotencyRecord) (Envelope, error) {
 	response := workflowActionReplayResult(base, step, r.Authority.now())
 	if response.Outcome != OutcomeOK {
 		if response.Outcome == OutcomeError && response.Error != nil {
@@ -945,7 +945,7 @@ func (r runtime) replayWorkflowActionTx(ctx context.Context, tx *store.Transacti
 	}
 	base.Replayed = true
 	base.ResolvedScope = scopeFromMap(scope)
-	return r.replayWorkflowAction(ctx, base, step, prior)
+	return r.replayWorkflowAction(base, step, prior)
 }
 
 func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelope, digest string, grant Authority, in actionMutationInput, result *Envelope, resultRejected *bool) func(*store.Transaction) (bool, error) {
@@ -4468,7 +4468,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			changed := decodeChangedRefs(claim.ChangedRefs)
 			base.Replayed = claim.Replayed
 			base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{workID}, ScopeVersion: r.Envelope.ScopeVersion}
-			resultPayload, derivedIntents, pinless, enrichErr := r.replayMutationPayload(ctx, json.RawMessage(claim.ResultPayload), changed)
+			resultPayload, derivedIntents, pinless, enrichErr := r.replayMutationPayload(json.RawMessage(claim.ResultPayload), changed)
 			if enrichErr != nil {
 				return failureEnvelope(base, enrichErr), nil
 			}
@@ -4540,7 +4540,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 				changed = append(changed, ref)
 			}
 		}
-		resultPayload, derivedIntents, pinless, enrichErr := r.replayMutationPayload(ctx, json.RawMessage(step.ResultPayload), changed)
+		resultPayload, derivedIntents, pinless, enrichErr := r.replayMutationPayload(json.RawMessage(step.ResultPayload), changed)
 		if enrichErr != nil {
 			return failureEnvelope(base, enrichErr), nil
 		}
@@ -4817,7 +4817,7 @@ func retainCompactionPinless(payload json.RawMessage, pinless []string) json.Raw
 // Compaction replays retain the original transaction's snapshot: its pins and
 // its recorded pin omissions. A missing pin with no retained omission is never
 // invented.
-func (r runtime) replayMutationPayload(ctx context.Context, payload json.RawMessage, changed []ChangedRef) (json.RawMessage, []NextIntent, []string, error) {
+func (r runtime) replayMutationPayload(payload json.RawMessage, changed []ChangedRef) (json.RawMessage, []NextIntent, []string, error) {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &object); err != nil {
 		return nil, nil, nil, err
@@ -5103,7 +5103,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			if r.Operation != "session_vacate" && r.Operation != "project_handoff_consume" {
 				// A refusal reuses the replay result-rejection path below:
 				// the open transaction rolls back with no receipt touch.
-				if refusal, refused, admissionErr := r.replayRoutineClaimAdmission(ctx, tx, base, raw, prior); admissionErr != nil {
+				if refusal, refused, admissionErr := r.replayRoutineClaimAdmission(base, raw, prior); admissionErr != nil {
 					return admissionErr
 				} else if refused {
 					response = refusal

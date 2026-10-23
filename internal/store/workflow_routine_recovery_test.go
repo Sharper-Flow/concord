@@ -157,7 +157,7 @@ func TestRoutineRecovery(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-recovery-duplicate-policy"
 		ctx := context.Background()
-		s, owner, _ := seedItemAtAcceptance(t, workID, false)
+		s, owner, _ := seedItemAtAcceptance(t, workID)
 		ownerRef, err := WorkflowActorRef(owner)
 		if err != nil {
 			t.Fatal(err)
@@ -191,7 +191,7 @@ func TestRoutineRecovery(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-recovery-duplicate-legacy"
 		ctx := context.Background()
-		s, owner, _ := seedItemAtAcceptance(t, workID, false)
+		s, owner, _ := seedItemAtAcceptance(t, workID)
 		ownerRef, err := WorkflowActorRef(owner)
 		if err != nil {
 			t.Fatal(err)
@@ -314,7 +314,7 @@ func TestRoutineRecovery(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-recovery-walls-new"
 		ctx := context.Background()
-		s, owner, _ := seedItemAtAcceptance(t, workID, false)
+		s, owner, _ := seedItemAtAcceptance(t, workID)
 		ownerRef, err := WorkflowActorRef(owner)
 		if err != nil {
 			t.Fatal(err)
@@ -557,7 +557,7 @@ func TestRoutineRecovery(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-recovery-binding-exact"
 		ctx := context.Background()
-		s, owner, _ := seedItemAtAcceptance(t, workID, false)
+		s, owner, _ := seedItemAtAcceptance(t, workID)
 		ownerRef, err := WorkflowActorRef(owner)
 		if err != nil {
 			t.Fatal(err)

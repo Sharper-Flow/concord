@@ -162,7 +162,7 @@ func oAgentReview(t *testing.T, f *oAgentFixtureState, disposition string, prove
 	if err != nil || pin.Review == nil || pin.Review.Dependencies == nil {
 		t.Fatalf("O Review dependencies: %v", err)
 	}
-	inputs := map[string]any{"worker_job": json.RawMessage(retryJSON(selected))}
+	inputs := map[string]any{"worker_job": retryJSON(selected)}
 	if pin.Correction != nil {
 		inputs["correction"] = pin.Correction
 	}

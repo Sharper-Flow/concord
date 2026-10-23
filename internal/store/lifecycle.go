@@ -538,7 +538,7 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *f
 		}
 		var definition WorkflowDefinition
 		if definitionErr == nil {
-			registered, err := verifyWorkflowDefinitionPinForFold(ctx, scopeDefinitionRegistry(scope), pin)
+			registered, err := verifyWorkflowDefinitionPinForFold(scopeDefinitionRegistry(scope), pin)
 			if err != nil {
 				return err
 			}
@@ -610,7 +610,7 @@ func refuseUnreconciledDelivery(ctx context.Context, tx *sql.Tx, registry Defini
 		}
 		return workflowProjectionError(err, "cannot read workflow delivery state")
 	}
-	registered, err := verifyWorkflowDefinitionPinForFold(ctx, registry, pin)
+	registered, err := verifyWorkflowDefinitionPinForFold(registry, pin)
 	if err != nil {
 		return err
 	}

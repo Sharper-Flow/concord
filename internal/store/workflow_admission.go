@@ -409,11 +409,11 @@ func (l workflowAdmissionLoad) staleness(state *WorkflowAdmissionState) error {
 	if openErr := l.q.QueryRowContext(l.ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, l.workID).Scan(&state.ExternalConditionsOpen); openErr != nil {
 		return wrapFailure(KindUnavailable, l.subject, "cannot inspect consequential workflow conditions", true, "retry once the database is readable", openErr)
 	}
-	_, designStale, designErr := readCurrentWorkflowDesign(l.ctx, l.q, l.workID)
+	_, designErr := readCurrentWorkflowDesign(l.ctx, l.q, l.workID)
 	if designErr != nil {
 		return designErr
 	}
-	state.DesignStale = designStale
+	state.DesignStale = false
 	artifactStale, staleFoldErr := workflowArtifactStale(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject)
 	if staleFoldErr != nil {
 		return staleFoldErr
@@ -738,7 +738,7 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.Failure = state.ReviewAcceptanceError
 		return decision
 	}
-	if workflowAdmitDispatchRefused(definition, state, actionID, &decision) {
+	if workflowAdmitDispatchRefused(state, actionID, &decision) {
 		return decision
 	}
 	if state.Review != nil && workflowDefinitionProducesDelivery(definition) {
@@ -818,7 +818,7 @@ func workflowAdmitInstanceRefused(definition WorkflowDefinition, state WorkflowA
 
 // workflowAdmitDispatchRefused answers dispatch_worker's own bounds: a stale
 // design and the open oracle blocker bound.
-func workflowAdmitDispatchRefused(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
+func workflowAdmitDispatchRefused(state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
 	if actionID == "dispatch_worker" {
 		if state.PendingWorkerAuthorization {
 			decision.Failure = newFailure(KindOperationConflict, "worker_dispatch", "a prior worker authorization has an unresolved launch outcome", false, "reconcile the current assignment's launch outcome before authorizing another attempt")

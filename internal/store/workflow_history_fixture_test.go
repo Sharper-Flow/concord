@@ -74,10 +74,10 @@ func progressCompletedOperation(t *testing.T, db *sql.DB, opID, producerID, requ
 
 // progressQualifiedEvidence binds the required artifact kind with a completed
 // durable producer operation behind it.
-func progressQualifiedEvidence(t *testing.T, db *sql.DB, appendEvent func(string, any) int64, ref string) int64 {
+func progressQualifiedEvidence(t *testing.T, db *sql.DB, appendEvent func(string, any) int64, ref string) {
 	t.Helper()
 	progressCompletedOperation(t, db, "run:qualified", "producer:independent", "request:qualified", ref)
-	return appendEvent(WorkflowEvidenceBound, progressEvidence("artifact", ref))
+	appendEvent(WorkflowEvidenceBound, progressEvidence("artifact", ref))
 }
 
 func progressEvidence(kind, ref string) workflowEvidenceBoundPayload {

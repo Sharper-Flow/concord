@@ -50,9 +50,9 @@ func seedComparisonObservation(t *testing.T, s *Store, workID string) {
 		t.Fatal(err)
 	}
 }
-func seedItemAtAcceptance(t *testing.T, workID string, prebind bool) (*Store, WorkflowActor, WorkflowActor) {
+func seedItemAtAcceptance(t *testing.T, workID string) (*Store, WorkflowActor, WorkflowActor) {
 	t.Helper()
-	return seedItemAtAcceptanceRequiring(t, workID, prebind, []string{"verification"})
+	return seedItemAtAcceptanceRequiring(t, workID, false, []string{"verification"})
 }
 
 // seedItemAtAcceptanceRequiring seeds the same item with a chosen
@@ -111,14 +111,14 @@ func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, re
 		t.Fatal(err)
 	}
 	if prebind {
-		if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"evidence:seeded-verification"}`), 0); err != nil {
+		if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"evidence:seeded-verification"}`)); err != nil {
 			t.Fatalf("bind verification evidence: %v", err)
 		}
-		if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","immutable_subject_ref":"evidence:seeded-review"}`), 0); err != nil {
+		if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","immutable_subject_ref":"evidence:seeded-review"}`)); err != nil {
 			t.Fatalf("bind review evidence: %v", err)
 		}
 	}
-	if err := runVerdictAction(t, s, workID, "accept_worker_result", json.RawMessage(mustJSON(map[string]any{"attempt_id": attemptID, "attempt_epoch": attemptEpoch})), 0); err != nil {
+	if err := runVerdictAction(t, s, workID, "accept_worker_result", json.RawMessage(mustJSON(map[string]any{"attempt_id": attemptID, "attempt_epoch": attemptEpoch}))); err != nil {
 		t.Fatalf("accept worker result: %v", err)
 	}
 	return s, owner, reviewer
@@ -150,14 +150,14 @@ func actionEvidenceRefs(action string, payload json.RawMessage) []string {
 	return []string{fields.ImmutableSubjectRef}
 }
 
-func runVerdictAction(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64) error {
-	return runVerdictActionAs(t, s, workID, action, payload, version, WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent})
+func runVerdictAction(t *testing.T, s *Store, workID, action string, payload json.RawMessage) error {
+	return runVerdictActionAs(t, s, workID, action, payload, 0, WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent})
 }
 
 // runVerdictActionAs runs one action under the supplied authenticated actor.
-func runVerdictActionAs(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64, owner WorkflowActor, runners ...GitRunner) error {
+func runVerdictActionAs(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64, owner WorkflowActor) error {
 	t.Helper()
-	ctx, err := prepareTerminalTestContext(context.Background(), s, workID, action, runners...)
+	ctx, err := prepareTerminalTestContext(context.Background(), s, workID, action)
 	if err != nil {
 		return err
 	}

@@ -63,8 +63,9 @@ func contractCorrectionEffectSnapshot(t *testing.T, s *Store, workID string) str
 
 // Successors carry the current authoring shape, including the explicit
 // decision-domain fact. The original predicate content is copied, not relabeled.
-func pContractSuccessor(t *testing.T, s *Store, id string, version int64, premise string) map[string]any {
+func pContractSuccessor(t *testing.T, s *Store, id, premise string) map[string]any {
 	t.Helper()
+	const version = int64(2)
 	var raw string
 	if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, id, WorkflowContractApproved).Scan(&raw); err != nil {
 		t.Fatal(err)
@@ -82,14 +83,14 @@ func pContractSuccessor(t *testing.T, s *Store, id string, version int64, premis
 	return payload
 }
 
-func pContractCriterionFixture(t *testing.T, id string) (workflowReturnRouteFixture, string) {
+func pContractCriterionFixture(t *testing.T, id string) workflowReturnRouteFixture {
 	t.Helper()
 	f, ref := seedCriterionAssociationAtStep(t, id, mustBuiltinDefinition(t, "workflow.research"), "conclude")
 	if err := runVerdictActionAs(t, f.store, id, "record_verdict", criterionAssociationPayload(ref, "predicate:first", "predicate:second"), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
 	seedComparisonObservation(t, f.store, id)
-	return f, ref
+	return f
 }
 
 func TestIssue933LateVerdictRecoveryHoldsStepAndRefusesHealthyReplacement(t *testing.T) {
@@ -119,11 +120,11 @@ func TestIssue933LateVerdictRecoveryHoldsStepAndRefusesHealthyReplacement(t *tes
 func TestIssue933PremiseRevisionUsesTypedContractSupersession(t *testing.T) {
 	t.Parallel()
 	const id = "issue933-contract-correction"
-	f, _ := pContractCriterionFixture(t, id)
+	f := pContractCriterionFixture(t, id)
 	if !issue1013HasIntent(issue1013Pin(t, f.store, id), "confirm_premise") {
 		t.Fatal("proved criteria did not open premise confirmation")
 	}
-	successor := pContractSuccessor(t, f.store, id, 2, "corrected premise")
+	successor := pContractSuccessor(t, f.store, id, "corrected premise")
 	if err := runVerdictActionAs(t, f.store, id, "supersede_contract", mustJSONValue(successor), 0, f.owner); err != nil {
 		t.Fatalf("typed premise supersession: %v", err)
 	}
@@ -175,13 +176,13 @@ func TestIssue933CorrectionPreflightAfterContractSupersession(t *testing.T) {
 	if err := advanceWorkflowTestInstanceToStep(t.Context(), j.s, id, "acceptance", owner); err != nil {
 		t.Fatal(err)
 	}
-	successor := pContractSuccessor(t, j.s, id, 2, "corrected premise")
+	successor := pContractSuccessor(t, j.s, id, "corrected premise")
 	if err := runVerdictActionAs(t, j.s, id, "supersede_contract", mustJSONValue(successor), 0, j.fixture.owner); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
-	payload := pReviewCorrectionPayload(t, j)
+	payload := pReviewCorrectionPayload(t)
 	before := j.effects(t)
 	if err := WorkflowActionPreflightWithRegistry(ctx, j.s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: id, ActionID: "request_correction", Payload: payload, Actor: j.fixture.owner}); err != nil {
 		t.Fatalf("public correction preflight after supersession: %v", err)
@@ -202,8 +203,8 @@ func TestIssue933CorrectionPreflightAfterContractSupersession(t *testing.T) {
 func TestWorkflowActionPreflightResolvesContractCorrectionAtCheckpoint(t *testing.T) {
 	t.Parallel()
 	const id = "preflight-supersede-at-checkpoint"
-	f, _ := pContractCriterionFixture(t, id)
-	payload := mustJSONValue(pContractSuccessor(t, f.store, id, 2, "corrected premise"))
+	f := pContractCriterionFixture(t, id)
+	payload := mustJSONValue(pContractSuccessor(t, f.store, id, "corrected premise"))
 	request := WorkflowActionPreflightRequest{WorkID: id, ExpectedVersion: readWorkVersion(t, f.store, id), StepID: "conclude", ActionID: "supersede_contract", Payload: payload, Actor: f.owner}
 	before := contractCorrectionEffectSnapshot(t, f.store, id)
 	if err := WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), request); err != nil {
@@ -223,7 +224,7 @@ func TestVerdictOmittingContractVersionResolvesActiveContract(t *testing.T) {
 	t.Parallel()
 	const id = "verdict-version-default-supersede"
 	f, ref := seedCriterionAssociationAtStep(t, id, mustBuiltinDefinition(t, "workflow.research"), "investigate")
-	successor := pContractSuccessor(t, f.store, id, 2, "corrected premise")
+	successor := pContractSuccessor(t, f.store, id, "corrected premise")
 	predicates := successor["outcome_predicates"].([]any)
 	successor["outcome_predicates"] = append(predicates, map[string]any{"predicate_id": "predicate:added", "ordinal": 2, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}})
 	if err := runVerdictActionAs(t, f.store, id, "supersede_contract", mustJSONValue(successor), 0, f.owner); err != nil {
@@ -288,7 +289,7 @@ func TestCurrentReviewKeepsContractCorrectionAfterProductiveAccept(t *testing.T)
 	if decision != workflowRefineReviewCorrectionOpen {
 		t.Fatalf("review-evidence correction decision=%d, want open after productive acceptance", decision)
 	}
-	successor := pContractSuccessor(t, j.s, id, 2, "corrected premise after accepted Review")
+	successor := pContractSuccessor(t, j.s, id, "corrected premise after accepted Review")
 	if err := runVerdictActionAs(t, j.s, id, "supersede_contract", mustJSONValue(successor), 0, j.fixture.owner); err != nil {
 		t.Fatalf("supersede after productive acceptance: %v", err)
 	}

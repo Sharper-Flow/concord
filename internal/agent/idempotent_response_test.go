@@ -122,7 +122,7 @@ func TestIdempotentResponseMissingFactsKeepPossibleEffects(t *testing.T) {
 func TestIdempotentResponseCompactionCannotInventAnOmission(t *testing.T) {
 	changed := []ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "3"}}
 	r := runtime{Tool: "concord_work_compact", Operation: "publish"}
-	_, _, _, err := r.replayMutationPayload(context.Background(), mutationPayload(changed, nil), changed)
+	_, _, _, err := r.replayMutationPayload(mutationPayload(changed, nil), changed)
 	if err == nil {
 		t.Fatal("a missing retained pin became a successful omission")
 	}
@@ -136,7 +136,7 @@ func TestIdempotentResponseCompactionReplaysItsRetainedOmission(t *testing.T) {
 	changed := []ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "3"}}
 	r := runtime{Tool: "concord_work_compact", Operation: "publish"}
 	wire := mutationPayload(changed, nil)
-	replayed, _, pinless, err := r.replayMutationPayload(context.Background(), retainCompactionPinless(wire, []string{"work-1"}), changed)
+	replayed, _, pinless, err := r.replayMutationPayload(retainCompactionPinless(wire, []string{"work-1"}), changed)
 	if err != nil || !reflect.DeepEqual(pinless, []string{"work-1"}) {
 		t.Fatalf("retained omission did not replay: pinless=%v err=%v", pinless, err)
 	}
@@ -144,7 +144,7 @@ func TestIdempotentResponseCompactionReplaysItsRetainedOmission(t *testing.T) {
 		t.Fatalf("replay changed the wire payload or leaked the retained fact: %s", replayed)
 	}
 	other := []ChangedRef{{EntityKind: "work_item", ID: "work-2", Version: "3"}}
-	if _, _, _, err := r.replayMutationPayload(context.Background(), retainCompactionPinless(mutationPayload(other, nil), []string{"work-1"}), other); err == nil {
+	if _, _, _, err := r.replayMutationPayload(retainCompactionPinless(mutationPayload(other, nil), []string{"work-1"}), other); err == nil {
 		t.Fatal("another item's retained omission covered a missing pin")
 	}
 }
@@ -152,7 +152,7 @@ func TestIdempotentResponseCompactionReplaysItsRetainedOmission(t *testing.T) {
 func TestIdempotentResponseWorkflowUnresolvedClassification(t *testing.T) {
 	r := runtime{Tool: "concord_work_transition", Operation: "workflow_action", Authority: &Service{}}
 	for _, kind := range []store.ResultKind{store.ResultPending, store.ResultPartial, store.ResultFailed, store.ResultFailedStale} {
-		response, err := r.replayWorkflowAction(context.Background(), NewBase("unresolved", r.Tool, r.Operation), store.FenceResult{OpID: "retained-operation", AttemptEpoch: 1, StepID: "execute", ResultKind: kind}, store.MutationIdempotencyRecord{})
+		response, err := r.replayWorkflowAction(NewBase("unresolved", r.Tool, r.Operation), store.FenceResult{OpID: "retained-operation", AttemptEpoch: 1, StepID: "execute", ResultKind: kind}, store.MutationIdempotencyRecord{})
 		if err != nil || response.Outcome == OutcomeOK || response.OperationRef == nil || response.OperationRef.ID != "retained-operation" {
 			t.Fatalf("kind=%s response=%+v err=%v", kind, response, err)
 		}
@@ -192,7 +192,7 @@ func TestIdempotentResponseRoutineClaimDoesNotReadHistory(t *testing.T) {
 	r := runtime{Tool: "concord_work_relate", Operation: "resolve_overlap", Envelope: CallEnvelope{SelectedProductID: "product-1"}}
 	raw := json.RawMessage(`{"resolution_kind":"compatible_with","approval":{"approval_ref":"not-consumed"}}`)
 	prior := store.MutationIdempotencyRecord{ResultEventIDs: `["absent-event"]`, AuthorizedScopeSnapshot: `{"product_ids":["product-1"]}`}
-	response, refused, err := r.replayRoutineClaimAdmission(context.Background(), nil, NewBase("claim", r.Tool, r.Operation), raw, prior)
+	response, refused, err := r.replayRoutineClaimAdmission(NewBase("claim", r.Tool, r.Operation), raw, prior)
 	if err != nil || !refused || response.Error == nil || response.Error.Kind != "operation_conflict" || response.Error.EffectState != EffectPossible {
 		t.Fatalf("missing retained consent must be an explicit current-record dependency: refused=%t response=%+v err=%v", refused, response.Error, err)
 	}

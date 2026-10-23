@@ -430,7 +430,7 @@ func TestAcceptanceRecoveryRefusesUnauthorizedAndTerminalActors(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			workID := "recovery-refusal-" + strings.ReplaceAll(tc.name, " ", "-")
-			s, owner, _ := seedItemAtAcceptance(t, workID, false)
+			s, owner, _ := seedItemAtAcceptance(t, workID)
 			defer s.Close()
 			setRequiredEvidenceKinds(t, s, workID, wf04OutstandingKind)
 			if tc.actor.AgentRef == "agent/owner" && tc.actor.SessionRef == "" {

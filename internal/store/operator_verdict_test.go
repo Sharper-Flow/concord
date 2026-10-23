@@ -35,10 +35,10 @@ func seedDeliveredItemAtAcceptance(t *testing.T, workID string) (*Store, Workflo
 	}
 	// Evidence binds while the step is still execution: bind_evidence is
 	// declared there and the delivery exit leaves it.
-	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"evidence:operator-verdict"}`), 0); err != nil {
+	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"evidence:operator-verdict"}`)); err != nil {
 		t.Fatalf("bind verification evidence: %v", err)
 	}
-	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","immutable_subject_ref":"evidence:operator-review"}`), 0); err != nil {
+	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","immutable_subject_ref":"evidence:operator-review"}`)); err != nil {
 		t.Fatalf("bind review evidence: %v", err)
 	}
 	// No lane or attempt window exists for this delivery.

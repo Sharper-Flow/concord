@@ -28,8 +28,9 @@ func deliveryRecoveryLane(t *testing.T, capabilityClass string) store.LaneDefini
 
 // deliveryRecoveryPacket builds the worker packet for one dispatch on the
 // given lane, consuming the pin's correction when one is durable.
-func deliveryRecoveryPacket(t *testing.T, s *store.Store, workID, stepID, attemptID, capabilityClass string) map[string]any {
+func deliveryRecoveryPacket(t *testing.T, s *store.Store, stepID, attemptID, capabilityClass string) map[string]any {
 	t.Helper()
+	const workID = "work-1"
 	lane := deliveryRecoveryLane(t, capabilityClass)
 	inputs := map[string]any{"task": "advance the approved gate objective", "constraints": []string{"preserve the approved contract"}}
 	pin, err := store.ReadWorkPin(context.Background(), s, workID)
@@ -185,7 +186,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		if stepID == "refine" && capabilityClass == "implementation" {
 			oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
 		}
-		response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": deliveryRecoveryPacket(t, s, "work-1", stepID, attemptID, capabilityClass)}, "idempotency_key": "gate-dispatch-" + attemptID})
+		response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": deliveryRecoveryPacket(t, s, stepID, attemptID, capabilityClass)}, "idempotency_key": "gate-dispatch-" + attemptID})
 		if response.Outcome != OutcomeOK {
 			t.Fatalf("gate recovery dispatch %s: %+v", attemptID, response.Error)
 		}

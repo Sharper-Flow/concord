@@ -26,7 +26,7 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 	retryID := "attempt:work-1:escalated-4"
 	input := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "escalated-convergence-3", "fields": map[string]any{"attempt_id": retryID, "worker_packet": deliveryRecoveryPacket(t, s, "work-1", "execution", retryID, "implementation")},
+		"idempotency_key": "escalated-convergence-3", "fields": map[string]any{"attempt_id": retryID, "worker_packet": deliveryRecoveryPacket(t, s, "execution", retryID, "implementation")},
 	}
 	raw, err := json.Marshal(input)
 	if err != nil {
@@ -73,7 +73,7 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 	secondID := "attempt:work-1:escalated-5"
 	nextInput := map[string]any{
 		"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "dispatch_worker",
-		"idempotency_key": "escalated-convergence-4", "fields": map[string]any{"attempt_id": secondID, "worker_packet": deliveryRecoveryPacket(t, s, "work-1", "execution", secondID, "implementation")},
+		"idempotency_key": "escalated-convergence-4", "fields": map[string]any{"attempt_id": secondID, "worker_packet": deliveryRecoveryPacket(t, s, "execution", secondID, "implementation")},
 	}
 	blindRaw, err := json.Marshal(nextInput)
 	if err != nil {
@@ -116,7 +116,7 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 	renewedWantEpoch := escalatedDispatchEpoch(t, s) + 1
 	renewedInput := map[string]any{
 		"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "dispatch_worker",
-		"idempotency_key": "escalated-convergence-5", "fields": map[string]any{"attempt_id": secondID, "worker_packet": deliveryRecoveryPacket(t, s, "work-1", "execution", secondID, "implementation")},
+		"idempotency_key": "escalated-convergence-5", "fields": map[string]any{"attempt_id": secondID, "worker_packet": deliveryRecoveryPacket(t, s, "execution", secondID, "implementation")},
 	}
 	renewedRaw, err := json.Marshal(renewedInput)
 	if err != nil {
@@ -176,7 +176,7 @@ func escalatedDispatchEpoch(t *testing.T, s *store.Store) int64 {
 func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Service, grant Authority, failureAt ...time.Time) (int64, string, string) {
 	t.Helper()
 	// The fixture resolves the current workflow family.
-	if got := seedAgentWorkflowAt(t, s, grant, legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation")); got != 4 {
+	if got := seedAgentWorkflowAt(t, s, grant, legacyApprovalPolicyDefinitionForRef(t)); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}

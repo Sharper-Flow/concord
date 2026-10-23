@@ -47,7 +47,7 @@ func refineProofCandidateFixture(t *testing.T, workID, definitionRef string) wor
 // refineProofCandidateRun runs one green worktree_verify through the real
 // producer on the claimed worktree at head and binds its receipt through
 // bind_evidence.
-func refineProofCandidateRun(t *testing.T, s *Store, workID, name, head string, command []string) WorktreeVerifyResult {
+func refineProofCandidateRun(t *testing.T, s *Store, workID, name, head string, command []string) {
 	t.Helper()
 	git := checksRepairClaimGit(t, s, workID, workerFixtureDirectory(t, s, workID), head)
 	req := verifyRequest(git, "refine-proof-"+name+"-"+workID, command, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil })
@@ -59,7 +59,6 @@ func refineProofCandidateRun(t *testing.T, s *Store, workID, name, head string, 
 	if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "verification", "evidence_ref": run.OperationRef}), 0, reviewGateAcceptor(workID)); err != nil {
 		t.Fatalf("bind verify %s: %v", name, err)
 	}
-	return run
 }
 
 // refineProofCandidate is the accepted Review's integrated candidate commit.

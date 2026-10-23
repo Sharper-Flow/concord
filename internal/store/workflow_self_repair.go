@@ -200,7 +200,7 @@ func workflowSelfRepairExemptTx(ctx context.Context, q queryer, workID string) (
 	if repair == nil {
 		return false, nil
 	}
-	definition, err := verifyWorkflowDefinitionPinForFold(ctx, BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: definitionRef, Version: definitionVersion, Digest: definitionDigest})
+	definition, err := verifyWorkflowDefinitionPinForFold(BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: definitionRef, Version: definitionVersion, Digest: definitionDigest})
 	if err != nil {
 		return false, err
 	}

@@ -377,8 +377,8 @@ type WorkerReviewBlock struct {
 	ResolvedFindings     []WorkerOracleResolution `json:"resolved_findings,omitempty"`
 }
 
-// Candidate identities are claims until acceptance joins the dispatch and the
-// host's clean terminal observation. A worker cannot select the current candidate.
+// WorkerReviewCandidate identities are claims until acceptance joins the dispatch
+// and the host's clean terminal observation. A worker cannot select the current candidate.
 type WorkerReviewCandidate struct {
 	ProjectID string `json:"project_id"`
 	Commit    string `json:"commit"`

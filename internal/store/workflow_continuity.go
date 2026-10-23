@@ -300,7 +300,7 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	if err != nil {
 		return out, err
 	}
-	out.DesignRecord, _, err = readCurrentWorkflowDesign(ctx, tx, req.Work)
+	out.DesignRecord, err = readCurrentWorkflowDesign(ctx, tx, req.Work)
 	if err != nil {
 		return out, err
 	}

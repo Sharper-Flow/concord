@@ -19,7 +19,7 @@ import (
 // it, an active worktree claim, and the fixture workflow instance parked at
 // execution with a contract-required verification kind nothing binds. The
 // shape follows seedItemAtAcceptanceRequiring, minus the lane attempt.
-func verifyEvidenceFixture(t *testing.T, workID string) (*Store, *fakeWorktreeGit, WorkflowActor, WorkflowActor) {
+func verifyEvidenceFixture(t *testing.T, workID string) (*Store, *fakeWorktreeGit) {
 	ctx := context.Background()
 	s := openTemp(t)
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{locatorProductEvent("product-w"), locatorProjectEvent("project-w"), locatorMembershipEvent("product-w", "project-w")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-w"): 0, VersionRef(SubjectProject, "project-w"): 0}}); err != nil {
@@ -71,7 +71,7 @@ func verifyEvidenceFixture(t *testing.T, workID string) (*Store, *fakeWorktreeGi
 	if err := os.MkdirAll(claim.Entry.Path, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return s, git, owner, reviewer
+	return s, git
 }
 
 // verifyLeaseID matches the id produced by the worktree verify mutation.
@@ -176,7 +176,7 @@ func TestGreenVerifyRunBindsAsVerificationEvidence(t *testing.T) {
 		t.Fatalf("confirm with reviewed verify receipt: %v", err)
 	}
 	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
-	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner, nil); err != nil {
+	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner); err != nil {
 		t.Fatalf("complete with reviewed verify receipt: %v", err)
 	}
 	var state string
@@ -194,7 +194,7 @@ func TestGreenVerifyRunBindsAsVerificationEvidence(t *testing.T) {
 func TestRedVerifyRunNamesNoAuthority(t *testing.T) {
 	ctx := context.Background()
 	workID := "verify-evidence-red-run"
-	s, git, _, _ := verifyEvidenceFixture(t, workID)
+	s, git := verifyEvidenceFixture(t, workID)
 	defer s.Close()
 
 	leaseID := verifyLeaseID(workID)
@@ -210,7 +210,7 @@ func TestRedVerifyRunNamesNoAuthority(t *testing.T) {
 	}
 
 	bindPayload := json.RawMessage(`{"evidence_kind":"verification","evidence_ref":"` + verifyOperationRef(leaseID) + `","immutable_subject_ref":"` + verifyOperationRef(leaseID) + `","producer_id":"principal-1","producer_run_ref":"` + verifyOperationRef(leaseID) + `","producer_watermark":"` + verifyRequestID(workID) + `"}`)
-	bindErr := runVerdictAction(t, s, workID, "bind_evidence", bindPayload, 0)
+	bindErr := runVerdictAction(t, s, workID, "bind_evidence", bindPayload)
 	requireRecoveryFailure(t, bindErr, KindInvariantViolation, "bind naming a red verify run")
 	if got := countEvidenceBinding(t, s, workID, "verification", verifyOperationRef(leaseID)); got != 0 {
 		t.Fatalf("refused red-run binding count=%d, want 0", got)
@@ -231,7 +231,7 @@ func TestRedVerifyRunNamesNoAuthority(t *testing.T) {
 func TestVerifyAuthorityLeavesWorkflowReplayUntouched(t *testing.T) {
 	ctx := context.Background()
 	workID := "verify-evidence-replay"
-	s, git, _, _ := verifyEvidenceFixture(t, workID)
+	s, git := verifyEvidenceFixture(t, workID)
 	defer s.Close()
 
 	var eventsBefore int

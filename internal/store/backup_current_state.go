@@ -51,6 +51,9 @@ func backupCurrentStateDigest(ctx context.Context, db *sql.DB) (string, error) {
 			return "", backupStateReadFailure(err)
 		}
 		columns, err := probe.Columns()
+		if rowsErr := probe.Err(); err == nil {
+			err = rowsErr
+		}
 		if closeErr := probe.Close(); err == nil {
 			err = closeErr
 		}

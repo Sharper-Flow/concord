@@ -175,15 +175,14 @@ func returnRefineFromAcceptance(t *testing.T, fixture workflowReturnRouteFixture
 	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", verdict, owner, operator); err != nil {
 		t.Fatalf("record_verdict: %v", err)
 	}
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
+	if _, err := WorkflowActorRef(owner); err != nil {
 		t.Fatal(err)
 	}
 	correction := json.RawMessage(`{"diagnosis":"the corrected contract needs re-production at the route target","strategy":"repeat the implementation external effect with the new contract","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
 	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, owner, operator); err != nil {
 		t.Fatalf("request_correction between verdict and confirm_premise: %v", err)
 	}
-	_ = acceptReturnRouteWorkerLabeled(t, fixture, workID, ownerRef, "return-refine-failure")
+	_ = acceptReturnRouteWorkerLabeled(t, fixture, workID, "return-refine-failure")
 	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), owner, operator); err != nil {
 		t.Fatalf("confirm_premise: %v", err)
 	}
@@ -193,11 +192,15 @@ func returnRefineFromAcceptance(t *testing.T, fixture workflowReturnRouteFixture
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", refineRecoverySuccessor(3, refineRecoveryDesign), owner, operator); err != nil {
 		t.Fatalf("supersede_contract with design_record at the returned refine: %v", err)
 	}
-	_, stale, err := readCurrentWorkflowDesign(context.Background(), s.DatabaseForTesting(), workID)
+	design, err := readCurrentWorkflowDesign(context.Background(), s.DatabaseForTesting(), workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stale {
-		t.Fatal("design is stale after the returned-refine supersede with design_record")
+	var expected workflowDesignContent
+	if err := json.Unmarshal([]byte(refineRecoveryDesign), &expected); err != nil {
+		t.Fatal(err)
+	}
+	if design == nil || design.Approach != expected.Approach || string(mustJSONValue(design.Decisions)) != string(mustJSONValue(expected.Decisions)) || string(mustJSONValue(design.TouchedRefs)) != string(mustJSONValue(expected.TouchedRefs)) {
+		t.Fatalf("current design = %+v, want the returned-refine replacement %+v", design, expected)
 	}
 }

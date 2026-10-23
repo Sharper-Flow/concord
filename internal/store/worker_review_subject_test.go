@@ -254,8 +254,9 @@ func reviewSubjectWindow(t *testing.T, s *Store, workID, attemptID string) Worke
 // reviewSubjectImplementComplete dispatches one implementation attempt on a
 // fresh ready job revision and records its terminal event, preparing the
 // core delivery observation when the terminal version carries one.
-func reviewSubjectImplementComplete(t *testing.T, f workContextFixture, attemptID, eventID string, observed bool) WorkerJobBinding {
+func reviewSubjectImplementComplete(t *testing.T, f workContextFixture, attemptID, eventID string) {
 	t.Helper()
+	const observed = true
 	s := f.store
 	lane := laneForID(t)
 	job := reviewSubjectReadyRevision(t, f)
@@ -286,7 +287,6 @@ func reviewSubjectImplementComplete(t *testing.T, f workContextFixture, attemptI
 		ctx = WithWorkerTerminalPreparation(ctx, prepared)
 	}
 	workerTerminalEventThroughSeamCtx(t, ctx, s, completion)
-	return job
 }
 
 func TestReviewDispatchPinsCurrentQualifiedSubject(t *testing.T) {

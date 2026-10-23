@@ -41,7 +41,7 @@ func reviewFailure(kind FailureKind, detail, next string) *Failure {
 }
 
 func workflowRequireMain(ctx context.Context, q queryer, workID, actor string) error {
-	worker, _, err := workflowRecordedEvaluationFacts(ctx, q, workID, actor, int64(1)<<62)
+	worker, err := workflowRecordedEvaluationFacts(ctx, q, workID, actor, int64(1)<<62)
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,7 @@ func workflowReviewDependencies(ctx context.Context, q queryer, workID string) (
 	if err != nil {
 		return result, err
 	}
-	design, _, err := readCurrentWorkflowDesign(ctx, q, workID)
+	design, err := readCurrentWorkflowDesign(ctx, q, workID)
 	if err != nil {
 		return result, err
 	}

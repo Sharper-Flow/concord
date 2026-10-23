@@ -143,7 +143,7 @@ func TestDeriveWorkerFailureIntegrationComposesWatermarkPopulation(t *testing.T)
 	jobB := &WorkerJobBinding{JobID: "job:integration-input-b", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, jobB)
 	attemptB := "attempt:" + workID + ":input-b"
-	oDispatchJobBoundAttempt(t, s, workID, "repair", attemptB, nil, fixture.owner, 0, "integration-input-b-"+workID, jobB)
+	oDispatchJobBoundAttempt(t, s, workID, attemptB, nil, fixture.owner, 0, "integration-input-b-"+workID, jobB)
 	completeAndAcceptAttempt(t, s, workID, attemptB, lane, acceptor)
 
 	identity, err := deriveWorkerFailureIntegration(ctx, s.db, workID, integrationAttributionObservation(failed.LeaseID))

@@ -49,7 +49,7 @@ func workerTerminalEventThroughSeamCtx(t *testing.T, ctx context.Context, s *Sto
 	t.Helper()
 	if event.Kind == WorkerCompleted {
 		event = workerCompletionAtClaim(t, s, event)
-		event = workerCompletionWithReportedSize(t, ctx, s, event)
+		event = workerCompletionWithReportedSize(t, event)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
 		_, err := ApplyWorkerEvidenceOperationTx(ctx, tx, event)
@@ -68,7 +68,7 @@ var unobservedTreeForTest = strings.Repeat("e", 40)
 // sealed-observation seam the production_size a compliant worker reports,
 // bound to the sealed observed tree. A builder's synthetic unobserved tree
 // is rebound to the sealed one; an authored tree stays as written.
-func workerCompletionWithReportedSize(t *testing.T, ctx context.Context, s *Store, event Event) Event {
+func workerCompletionWithReportedSize(t *testing.T, event Event) Event {
 	t.Helper()
 	// The retired production_size member records nothing (CD-0242 D6); the
 	// seam keeps its call site and carries no member.
@@ -80,7 +80,7 @@ func workerCompletionWithReportedSize(t *testing.T, ctx context.Context, s *Stor
 // the named delivered tree. A completion that already carries the member,
 // another lane, or an uncapped job passes unchanged, so binding tests keep
 // their authored bytes.
-func withReportedSizeForTest(t *testing.T, s *Store, event Event, tree string) Event {
+func withReportedSizeForTest(t *testing.T, event Event) Event {
 	t.Helper()
 	// The retired production_size member records nothing (CD-0242 D6).
 	return event

@@ -142,11 +142,12 @@ func TestRepairSnapshotRefusesInvalidSourceBeforeInstaller(t *testing.T) {
 			fixture := newRepairFixture(t, "#!/bin/sh\ntouch \""+marker+"\"\nexit 0\n")
 			path := filepath.Join(fixture.dataRoot, "store.db")
 			var failures []string
-			if invalid == "directory" {
+			switch invalid {
+			case "directory":
 				if err := os.Mkdir(path, 0o700); err != nil {
 					t.Fatal(err)
 				}
-			} else if invalid == "foreign-key" {
+			case "foreign-key":
 				db, err := store.Open(context.Background(), path)
 				if err != nil {
 					t.Fatal(err)
@@ -155,7 +156,7 @@ func TestRepairSnapshotRefusesInvalidSourceBeforeInstaller(t *testing.T) {
 					t.Fatal(err)
 				}
 				failures = seedSnapshotForeignKeyCorruption(t, path)
-			} else {
+			default:
 				if err := os.WriteFile(path, []byte("not a directory"), 0o600); err != nil {
 					t.Fatal(err)
 				}

@@ -204,10 +204,10 @@ func (f crossAttemptFixture) invokeReject(t *testing.T, expectedVersion int64, a
 	return invokeWorkflowActionForCD0059(context.Background(), t, f.s, f.rejectRequest(t, expectedVersion, attemptID, epoch, suffix, at))
 }
 
-// acceptAttemptRequest builds one accept_worker_result or accept_worker_evidence
-// request at the named attempt pair.
-func (f crossAttemptFixture) acceptAttemptRequest(t *testing.T, expectedVersion int64, actionID, attemptID string, epoch int64, suffix string, at int64) WorkflowActionExecutionRequest {
+// acceptAttemptRequest builds one accept_worker_result request at the named attempt pair.
+func (f crossAttemptFixture) acceptAttemptRequest(t *testing.T, expectedVersion int64, attemptID string, epoch int64, suffix string, at int64) WorkflowActionExecutionRequest {
 	t.Helper()
+	const actionID = "accept_worker_result"
 	key := actionID + "-" + suffix + "-" + f.workID
 	return WorkflowActionExecutionRequest{
 		WorkID: f.workID, ExpectedVersion: expectedVersion, ActionID: actionID,
@@ -369,7 +369,7 @@ func TestCrossAttemptResultDisposition(t *testing.T) {
 	// refuses on the exact epoch mismatch. The probe stands before the
 	// rejection because the unconsumed-rejection advance hold refuses every
 	// accept after it before a payload can reach this fence.
-	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, f.acceptAttemptRequest(t, versionBefore, "accept_worker_result", attemptR, epochR, "rejected", 45)); err == nil {
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, f.acceptAttemptRequest(t, versionBefore, attemptR, epochR, "rejected", 45)); err == nil {
 		t.Fatal("accepting the stale epoch-1 research result as a positive step advance unexpectedly succeeded")
 	} else {
 		var freshness *Failure
@@ -458,7 +458,7 @@ func TestCrossAttemptResultDisposition(t *testing.T) {
 	// A report without admitted and host-observed candidate bindings cannot
 	// acquire current Review authority. Refusal leaves the research rejection
 	// and its correction untouched.
-	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, f.acceptAttemptRequest(t, acceptVersion, "accept_worker_result", attemptV, epochV, "review", 52)); err == nil {
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, f.acceptAttemptRequest(t, acceptVersion, attemptV, epochV, "review", 52)); err == nil {
 		t.Fatal("accepting the completed review while the rejected research result is unconsumed unexpectedly succeeded")
 	} else {
 		var hold *Failure
@@ -1007,7 +1007,7 @@ func TestCrossAttemptRejectionPrefixParity(t *testing.T) {
 	}
 	f.materializeDispatch(t, attemptW, f.researchLane, f.dispatcher)
 	f.completeReport(t, attemptW, f.researchLane, 60)
-	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, f.s, f.acceptAttemptRequest(t, readWorkVersion(t, f.s, workID), "accept_worker_result", attemptW, epochV+1, "retry", 61)); err != nil {
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, f.s, f.acceptAttemptRequest(t, readWorkVersion(t, f.s, workID), attemptW, epochV+1, "retry", 61)); err != nil {
 		t.Fatalf("accept the retry's completed result: %v", err)
 	}
 	if step := currentStep(t, f.s, workID); step != f.step {
@@ -1156,7 +1156,7 @@ func TestCrossAttemptCorrectionRetryConsumption(t *testing.T) {
 	// The retry completes and local acceptance holds the step. Its materialized
 	// dispatch already consumed the correction without granting a workflow exit.
 	f.completeReport(t, attemptW, f.researchLane, 60)
-	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, f.s, f.acceptAttemptRequest(t, readWorkVersion(t, f.s, workID), "accept_worker_result", attemptW, epochW, "cleared", 61)); err != nil {
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, f.s, f.acceptAttemptRequest(t, readWorkVersion(t, f.s, workID), attemptW, epochW, "cleared", 61)); err != nil {
 		t.Fatalf("accept the retry's completed result after the hold cleared: %v", err)
 	}
 	if step := currentStep(t, f.s, workID); step != f.step {
@@ -1441,7 +1441,7 @@ func TestCrossAttemptRejectionIntervalBoundaries(t *testing.T) {
 	w.dispatch(t, heldAttempt, w.researchLane, w.dispatcher)
 	w.completeReport(t, heldAttempt, w.researchLane, 70)
 	heldEpoch := crossAttemptDispatchEpoch(t, w.s, witnessWorkID, heldAttempt)
-	if _, err := invokeWorkflowActionForCD0059(t.Context(), t, w.s, w.acceptAttemptRequest(t, readWorkVersion(t, w.s, witnessWorkID), "accept_worker_result", heldAttempt, heldEpoch, "local", 71)); err != nil {
+	if _, err := invokeWorkflowActionForCD0059(t.Context(), t, w.s, w.acceptAttemptRequest(t, readWorkVersion(t, w.s, witnessWorkID), heldAttempt, heldEpoch, "local", 71)); err != nil {
 		t.Fatalf("local result acceptance refused: %v", err)
 	}
 	if step := currentStep(t, w.s, witnessWorkID); step != "investigate" {
@@ -1516,7 +1516,7 @@ func TestCrossAttemptRejectionDispatchWindowAuthority(t *testing.T) {
 	// The later unused start moved the freshness anchor: a positive acceptance
 	// of the epoch-1 result refuses on the latest-start mismatch even though
 	// the unused window produced no worker evidence at all.
-	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, f.s, f.acceptAttemptRequest(t, readWorkVersion(t, f.s, workID), "accept_worker_result", f.attemptR, epochR, "stale-window", 60)); err == nil {
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, f.s, f.acceptAttemptRequest(t, readWorkVersion(t, f.s, workID), f.attemptR, epochR, "stale-window", 60)); err == nil {
 		t.Fatal("accepting the epoch-1 result after the later unused start unexpectedly succeeded")
 	} else {
 		var freshness *Failure

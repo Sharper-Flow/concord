@@ -38,8 +38,10 @@ func resumeCLIAsSession(t *testing.T, s *store.Store, directory, workID, session
 	return code, parsed, errOut.String()
 }
 
-func transitionWorkItem(t *testing.T, s *store.Store, workID string, from, to string, version int64) {
+func transitionWorkItem(t *testing.T, s *store.Store, workID string, version int64) {
 	t.Helper()
+	const from = "needed"
+	const to = "cancelled"
 	payload, err := json.Marshal(map[string]any{"from": from, "to": to, "reason": "fixture transition", "expected_version": version, "resulting_version": version + 1})
 	if err != nil {
 		t.Fatal(err)
@@ -304,7 +306,7 @@ func TestWorkResumeRefusesTerminalAndUnknownButBootstrapsUnclaimedWork(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	transitionWorkItem(t, s, origin.WorkID, "needed", "cancelled", origin.WorkVersion)
+	transitionWorkItem(t, s, origin.WorkID, origin.WorkVersion)
 	if code, _, stderr := resumeCLI(t, s, repo, origin.WorkID); code == 0 || !strings.Contains(stderr, "terminal work item") {
 		t.Fatalf("terminal work code=%d stderr=%q", code, stderr)
 	}
@@ -618,7 +620,7 @@ func TestWorkResumeDeterministicRefusalsExit2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	transitionWorkItem(t, s, doomed.WorkID, "needed", "cancelled", doomed.WorkVersion)
+	transitionWorkItem(t, s, doomed.WorkID, doomed.WorkVersion)
 	out, errOut = bytes.Buffer{}, bytes.Buffer{}
 	terminal, err := json.Marshal(workResumeInput{ProductID: "product-wl", ProjectID: "project-wl", WorkID: doomed.WorkID})
 	if err != nil {

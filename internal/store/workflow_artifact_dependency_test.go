@@ -25,7 +25,7 @@ func TestArtifactSupersessionUsesRecordedProofDependencies(t *testing.T) {
 			if err != nil || len(associations) != 1 || associations[0].CriterionDigest == "" {
 				t.Fatalf("captured proof dependencies = %+v, %v", associations, err)
 			}
-			successor := pContractSuccessor(t, s, f.workID, 2, "Reassess the same candidate.")
+			successor := pContractSuccessor(t, s, f.workID, "Reassess the same candidate.")
 			if changed {
 				predicate := successor["outcome_predicates"].([]any)[0].(map[string]any)
 				predicate["outcome_payload"].(map[string]any)["immutable_subject_ref"] = "commit:reassessed"

@@ -11,7 +11,7 @@ import (
 func TestContractApprovalRefusesDuplicateActiveProjection(t *testing.T) {
 	t.Parallel()
 	const workID = "duplicate-active-approval"
-	s, owner, _ := seedItemAtAcceptance(t, workID, false)
+	s, owner, _ := seedItemAtAcceptance(t, workID)
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +59,7 @@ DELETE FROM fold_guard`, workID, workID); err != nil {
 func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 	t.Parallel()
 	const workID = "duplicate-active-recovery"
-	s, owner, _ := seedItemAtAcceptance(t, workID, false)
+	s, owner, _ := seedItemAtAcceptance(t, workID)
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)
@@ -186,7 +186,7 @@ func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 }
 func TestReplayPreservesLegacyApprovalBeforeSupersession(t *testing.T) {
 	const workID = "legacy-approval-before-supersession"
-	s, owner, _ := seedItemAtAcceptance(t, workID, false)
+	s, owner, _ := seedItemAtAcceptance(t, workID)
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)

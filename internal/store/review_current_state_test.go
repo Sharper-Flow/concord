@@ -82,7 +82,7 @@ func TestReviewCurrentPlanRevisionCannotRestoreFirstEntry(t *testing.T) {
 				t.Fatal(err)
 			}
 			gitRunStore(t, repo, "branch", "-m", branch)
-			reviewSubjectImplementComplete(t, f, "member:first", "member:first:completed", true)
+			reviewSubjectImplementComplete(t, f, "member:first", "member:first:completed")
 			reviewSubjectAccept(t, f.store, f.workID, "member:first")
 			if accepted {
 				acceptCurrentReviewForTest(t, f, repo, "continue")
@@ -191,9 +191,9 @@ func TestReviewCurrentAdmissionNegativeCases(t *testing.T) {
 	}{
 		{"unaccepted ready", "", func(s *WorkflowReviewState) { s.Accepted = nil }, false},
 		{"new candidate", "", func(s *WorkflowReviewState) {
-			copy := *s.Candidate
-			copy.Commit = strings.Repeat("c", 40)
-			s.Candidate = &copy
+			candidate := *s.Candidate
+			candidate.Commit = strings.Repeat("c", 40)
+			s.Candidate = &candidate
 		}, false},
 		{"changed depended-on revision", "", func(s *WorkflowReviewState) { s.DependenciesCurrent = false }, false},
 		{"open in-scope blocker at exit", "", func(s *WorkflowReviewState) { s.Findings = reviewBlockFixture().Findings }, false},
@@ -209,9 +209,9 @@ func TestReviewCurrentAdmissionNegativeCases(t *testing.T) {
 			s.Accepted.Report.Disposition = "continue"
 			s.ContinueConsumed = true
 			s.GroupID = "group:first"
-			copy := *s.Candidate
-			copy.Commit = strings.Repeat("c", 40)
-			s.Candidate = &copy
+			candidate := *s.Candidate
+			candidate.Commit = strings.Repeat("c", 40)
+			s.Candidate = &candidate
 		}, true},
 		{"changed revision also invalidates same-group authority", "group:first", func(s *WorkflowReviewState) {
 			s.Accepted.Report.Disposition = "continue"

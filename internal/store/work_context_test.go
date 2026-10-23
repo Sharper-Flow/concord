@@ -1212,7 +1212,7 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 			t.Fatalf("current completion route %s: %v", action, err)
 		}
 	}
-	if err := journey.action(t, "record_verdict", json.RawMessage(criterionAssociationPayload(proof.OperationRef, "predicate:work-context")), fixture.owner); err != nil {
+	if err := journey.action(t, "record_verdict", criterionAssociationPayload(proof.OperationRef, "predicate:work-context"), fixture.owner); err != nil {
 		t.Fatalf("associate captured criterion proof: %v", err)
 	}
 	seedComparisonObservation(t, fixture.store, fixture.workID)

@@ -26,12 +26,11 @@ func TestRetainedReplayKeepsCommittedEmptyChangedRefs(t *testing.T) {
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}}
 	effects := 0
-	effect := func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		effects++
-		return json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), nil, nil, nil
-	}
 	execute := func(request string) Envelope {
-		response, err := r.executeMutation(ctx, NewBase(request, r.Tool, r.Operation), raw, digest, scope, nil, "", "", false, nil, nil, nil, effect, nil, nil)
+		response, err := r.executeMutation(ctx, NewBase(request, r.Tool, r.Operation), raw, digest, scope, nil, "", "", false, nil, nil, nil, func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []ChangedRef, error) {
+			effects++
+			return json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), nil, nil, nil
+		}, nil, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", request, err)
 		}

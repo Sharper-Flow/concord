@@ -149,11 +149,11 @@ func TestWorkResumeIssueKeyRefusalsHaveNoEffects(t *testing.T) {
 				}
 				recordResumeIssue(t, s, other.WorkID, link.HumanKey)
 				if scenario == "ambiguous-terminal" {
-					transitionWorkItem(t, s, other.WorkID, "needed", "cancelled", other.WorkVersion)
+					transitionWorkItem(t, s, other.WorkID, other.WorkVersion)
 				}
 				want = "ambiguous_scope"
 			case "cancelled":
-				transitionWorkItem(t, s, link.WorkID, "needed", "cancelled", 2)
+				transitionWorkItem(t, s, link.WorkID, 2)
 				want = "cannot resume terminal work item"
 			case "superseded":
 				other, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)

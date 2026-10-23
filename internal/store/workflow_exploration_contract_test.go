@@ -141,11 +141,10 @@ func TestLivenessReportsOptionalPresenceSampling(t *testing.T) {
 func TestLivenessExecutesGeneratedCorrection(t *testing.T) {
 	const workID = "liveness-generated-correction"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
-	ownerRef, err := WorkflowActorRef(fixture.owner)
-	if err != nil {
+	if _, err := WorkflowActorRef(fixture.owner); err != nil {
 		t.Fatal(err)
 	}
-	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
+	reviewer := acceptReturnRouteWorker(t, fixture, workID)
 	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatal(err)
 	}

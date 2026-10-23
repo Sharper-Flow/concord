@@ -608,7 +608,7 @@ func TestBuiltinWorkflowCurrentVersionsMatchLiveAuthoringHeads(t *testing.T) {
 // seedPinnedInstance opens one throwaway store and initializes a work item
 // under the exact registered pin, with the work item still nonterminal — the
 // state a serving release leaves behind mid-flight.
-func seedPinnedInstance(t *testing.T, path string, workID string, registered RegisteredDefinition) string {
+func seedPinnedInstance(t *testing.T, path string, workID string, registered RegisteredDefinition) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := Open(ctx, path)
@@ -629,7 +629,6 @@ func seedPinnedInstance(t *testing.T, path string, workID string, registered Reg
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	return workID
 }
 
 // seedArchivedInstance seeds a nonterminal item whose recorded instance pin

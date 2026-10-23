@@ -245,7 +245,7 @@ func TestRoutineEvaluation(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
-		if err := workflowCompletionCallerAuthority(context.Background(), tx, routinePolicyDefinition(t), workID, coordinatorRef); err != nil {
+		if err := workflowCompletionCallerAuthority(context.Background(), tx, workID, coordinatorRef); err != nil {
 			t.Fatalf("consequence_v1 completion authority refused the initiating coordinator: %v", err)
 		}
 	})
@@ -269,7 +269,7 @@ func TestRoutineEvaluation(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
-		err = workflowCompletionCallerAuthority(context.Background(), tx, routinePolicyDefinition(t), workID, coordinatorRef)
+		err = workflowCompletionCallerAuthority(context.Background(), tx, workID, coordinatorRef)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "a worker cannot accept results, associate criterion proof, or complete work") {
 			t.Fatalf("worker-authority completion returned %v, want the worker refusal", err)

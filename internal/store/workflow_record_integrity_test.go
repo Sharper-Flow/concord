@@ -105,16 +105,16 @@ func TestLaneDispatchRotatesTheLeaseNotTheAuthorship(t *testing.T) {
 	defer tx.Rollback()
 	// Main may associate proof even after authoring a delivery; the proof's
 	// captured producer, not Main's verdict word, establishes the result.
-	if err := workflowCompletionActorDistinct(ctx, tx, workID, ownerRef, "", false); err != nil {
+	if err := workflowCompletionActorDistinct(ctx, tx, workID, ownerRef); err != nil {
 		t.Errorf("Main lost proof-association authority when the lease rotated: %v", err)
 	}
 	// The dispatched lane remains a worker, not Main.
-	if err := workflowCompletionActorDistinct(ctx, tx, workID, laneRef, "", false); err == nil {
+	if err := workflowCompletionActorDistinct(ctx, tx, workID, laneRef); err == nil {
 		t.Error("a lane that executed on the delivery step cleared the evaluator-distinctness check")
 	}
 	// An agent that executed nothing on this work item remains an acceptable
 	// evaluator.
-	if err := workflowCompletionActorDistinct(ctx, tx, workID, outside, "", false); err != nil {
+	if err := workflowCompletionActorDistinct(ctx, tx, workID, outside); err != nil {
 		t.Errorf("an agent that executed nothing must remain an acceptable evaluator: %v", err)
 	}
 }

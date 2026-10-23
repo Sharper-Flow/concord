@@ -10,7 +10,7 @@ import (
 
 func seedMandateRecoveryItem(t *testing.T, workID string) *Store {
 	t.Helper()
-	s, _, _ := seedItemAtAcceptance(t, workID, false)
+	s, _, _ := seedItemAtAcceptance(t, workID)
 	owner := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/owner", "session/"+workID)
 	if err := advanceWorkflowTestInstanceToStep(t.Context(), s, workID, "release", owner); err != nil {
 		t.Fatal(err)
@@ -126,7 +126,7 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 		t.Fatalf("confirm successor: %v", err)
 	}
 	j := &candidateJourney{fixture: f, s: s, workID: workID, repo: repo}
-	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner, nil); err != nil {
+	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner); err != nil {
 		t.Fatalf("complete successor: %v", err)
 	}
 	before := map[string]string{}
@@ -356,7 +356,7 @@ func TestRecoveryPredicateRefusalStaysLocalToBinding(t *testing.T) {
 func TestBindEvidenceAdmittedPastBindingStepWhileMandateUnbound(t *testing.T) {
 	const workID = "mandate-recovery-admit"
 	s := seedMandateRecoveryItem(t, workID)
-	if err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload(), 0); err != nil {
+	if err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload()); err != nil {
 		t.Fatalf("late mandate binding refused: %v", err)
 	}
 }
@@ -364,10 +364,10 @@ func TestBindEvidenceAdmittedPastBindingStepWhileMandateUnbound(t *testing.T) {
 func TestBindEvidenceRefusedPastBindingStepOnceMandateBound(t *testing.T) {
 	const workID = "mandate-recovery-narrow"
 	s := seedMandateRecoveryItem(t, workID)
-	if err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload(), 0); err != nil {
+	if err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload()); err != nil {
 		t.Fatalf("initial mandate binding refused: %v", err)
 	}
-	err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload(), 0)
+	err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload())
 	if err == nil {
 		t.Fatal("late binding passed after the mandate was bound")
 	}
@@ -393,7 +393,7 @@ func TestRecordVerdictPassesAfterRecoveryBind(t *testing.T) {
 	if _, err := s.db.Exec(`DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	if err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload(), 0); err != nil {
+	if err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload()); err != nil {
 		t.Fatalf("mandate recovery binding refused: %v", err)
 	}
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
@@ -439,15 +439,15 @@ func TestBindEvidenceObligationRecoverableAfterMandateBound(t *testing.T) {
 	if err := seedTx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	if err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload(), 0); err != nil {
+	if err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload()); err != nil {
 		t.Fatalf("mandate binding refused: %v", err)
 	}
-	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","evidence_ref":"spec:one"}`), 0); err != nil {
+	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","evidence_ref":"spec:one"}`)); err != nil {
 		t.Fatalf("obligation recovery binding refused after the mandate was bound: %v", err)
 	}
 	// Once the obligation tuple is bound, the same bind refuses: recovery
 	// does not reopen evidence binding without limit.
-	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","evidence_ref":"spec:one"}`), 0)
+	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","evidence_ref":"spec:one"}`))
 	if err == nil {
 		t.Fatal("obligation recovery admitted a second identical bind")
 	}
@@ -495,7 +495,7 @@ func TestBindEvidenceObligationRefusedOnceSatisfied(t *testing.T) {
 	if err := seedTx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","evidence_ref":"spec:one"}`), 0)
+	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","evidence_ref":"spec:one"}`))
 	if err == nil {
 		t.Fatal("satisfied obligation reopened recovery")
 	}
@@ -507,7 +507,7 @@ func TestBindEvidenceObligationRefusedOnceSatisfied(t *testing.T) {
 
 func TestBindEvidenceRequiredKindRecoveryWithEmptyMandate(t *testing.T) {
 	const workID = "required-kind-recovery-empty-mandate"
-	s, _, _ := seedItemAtAcceptance(t, workID, false)
+	s, _, _ := seedItemAtAcceptance(t, workID)
 	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
@@ -527,7 +527,7 @@ func TestBindEvidenceRequiredKindRecoveryWithEmptyMandate(t *testing.T) {
 	}
 	for _, kind := range []string{"review", "commit"} {
 		payload := json.RawMessage(`{"evidence_kind":"` + kind + `","evidence_ref":"evidence:` + kind + `"}`)
-		if err := runVerdictAction(t, s, workID, "bind_evidence", payload, 0); err != nil {
+		if err := runVerdictAction(t, s, workID, "bind_evidence", payload); err != nil {
 			t.Fatalf("required %s recovery binding refused: %v", kind, err)
 		}
 	}
@@ -555,7 +555,7 @@ func TestBindEvidenceRequiredKindRecoveryWithEmptyMandate(t *testing.T) {
 func TestBindEvidenceRequiredKindRecoveryAfterMandateBound(t *testing.T) {
 	const workID = "required-kind-recovery-after-mandate"
 	s := seedMandateRecoveryItem(t, workID)
-	if err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload(), 0); err != nil {
+	if err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload()); err != nil {
 		t.Fatalf("mandate binding refused: %v", err)
 	}
 	db := s.DatabaseForTesting()
@@ -568,7 +568,7 @@ func TestBindEvidenceRequiredKindRecoveryAfterMandateBound(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","evidence_ref":"evidence:review-after-mandate"}`), 0); err != nil {
+	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","evidence_ref":"evidence:review-after-mandate"}`)); err != nil {
 		t.Fatalf("required-kind recovery after mandate binding refused: %v", err)
 	}
 }

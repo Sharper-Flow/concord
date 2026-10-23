@@ -1670,7 +1670,8 @@ func TestOperatorApprovalInventoryCensusRejectsStaleOwnerRow(t *testing.T) {
 	points, _ := approvalInventoryCensus(t, gated)
 	table := approvalInventoryLoadTable(t)
 	holding := "CD-0037"
-	rows := append(table.ApprovalPoints, approvalInventoryPointRow{
+	rows := table.ApprovalPoints
+	rows = append(rows, approvalInventoryPointRow{
 		ID:             "synthetic-stale-owner",
 		Owner:          approvalInventoryOwner{Path: "internal/store/workflow_registry.go", Symbol: "absentApprovalOwner", Branch: "absentApprovalOwner"},
 		HoldingLaw:     &holding,

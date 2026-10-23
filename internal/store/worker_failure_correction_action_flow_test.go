@@ -34,7 +34,7 @@ func correctionActionWitness(t *testing.T, workID string) (workflowReturnRouteFi
 	jobBefore := &WorkerJobBinding{JobID: "job:" + workID + "-before", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, jobBefore)
 	attemptBefore := "attempt:" + workID + ":before"
-	tDispatchJobBoundAttempt(t, s, workID, "repair", attemptBefore, nil, fixture.owner, "correction-flow-before-"+workID, jobBefore)
+	tDispatchJobBoundAttempt(t, s, workID, attemptBefore, nil, fixture.owner, "correction-flow-before-"+workID, jobBefore)
 	completeAndAcceptAttempt(t, s, workID, attemptBefore, lane, acceptor)
 
 	git := integrationWorkflowWorktree(t, s, workID)
@@ -43,7 +43,7 @@ func correctionActionWitness(t *testing.T, workID string) (workflowReturnRouteFi
 	jobAfter := &WorkerJobBinding{JobID: "job:" + workID + "-after", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, jobAfter)
 	attemptAfter := "attempt:" + workID + ":after"
-	tDispatchJobBoundAttempt(t, s, workID, "repair", attemptAfter, nil, fixture.owner, "correction-flow-after-"+workID, jobAfter)
+	tDispatchJobBoundAttempt(t, s, workID, attemptAfter, nil, fixture.owner, "correction-flow-after-"+workID, jobAfter)
 	completeAndAcceptAttempt(t, s, workID, attemptAfter, lane, acceptor)
 
 	jobResult := &WorkerJobBinding{JobID: "job:" + workID + "-result", Revision: 1}
@@ -51,7 +51,7 @@ func correctionActionWitness(t *testing.T, workID string) (workflowReturnRouteFi
 	attemptResult := "attempt:" + workID + ":result"
 	// Each implementation group opens on its own continue Review (CD-0242 D5).
 	acceptCurrentReviewForTest(t, workContextFixture{store: s, workID: workID, owner: fixture.owner}, workerFixtureDirectory(t, s, workID), "continue")
-	tDispatchJobBoundAttempt(t, s, workID, "repair", attemptResult, nil, fixture.owner, "correction-flow-result-"+workID, jobResult)
+	tDispatchJobBoundAttempt(t, s, workID, attemptResult, nil, fixture.owner, "correction-flow-result-"+workID, jobResult)
 	if err := completeJobBoundAttemptForTest(s, workID, attemptResult, lane, jobResult); err != nil {
 		t.Fatalf("complete the rejected attempt: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestCorrectionAttributionFullActionRequestCorrectionWitness(t *testing.T) {
 	job := &WorkerJobBinding{JobID: "job:" + workID + "-delivery", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 	attemptID := "attempt:" + workID + ":delivery"
-	tDispatchJobBoundAttempt(t, s, workID, "repair", attemptID, nil, fixture.owner, "correction-flow-delivery-"+workID, job)
+	tDispatchJobBoundAttempt(t, s, workID, attemptID, nil, fixture.owner, "correction-flow-delivery-"+workID, job)
 	completeAndAcceptAttempt(t, s, workID, attemptID, lane, reviewGateAcceptor(workID))
 
 	// The failed clean combined run the correction cites, recorded on the

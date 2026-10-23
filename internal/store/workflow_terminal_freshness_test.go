@@ -10,15 +10,11 @@ import (
 	"time"
 )
 
-func prepareTerminalTestContext(ctx context.Context, s *Store, workID, action string, runners ...GitRunner) (context.Context, error) {
+func prepareTerminalTestContext(ctx context.Context, s *Store, workID, action string) (context.Context, error) {
 	if !WorkflowActionRequiresSubjectFreshness(action) {
 		return ctx, nil
 	}
-	var runner GitRunner
-	if len(runners) > 0 {
-		runner = runners[0]
-	}
-	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: workID, Runner: runner})
+	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: workID})
 	if err != nil {
 		return ctx, err
 	}
@@ -49,7 +45,7 @@ func TestManagedCandidateTerminalFreshness(t *testing.T) {
 					j.commitB(t)
 				}
 				before := j.effects(t)
-				if err := j.terminalAction(t, action, payload, j.fixture.owner, nil); failureKind(err) != KindStaleRequiresReview {
+				if err := j.terminalAction(t, action, payload, j.fixture.owner); failureKind(err) != KindStaleRequiresReview {
 					t.Errorf("%s with %s = %v, want stale_requires_review", action, shape, err)
 				}
 				if after := j.effects(t); after != before {

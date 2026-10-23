@@ -26,8 +26,9 @@ func tSeedReviewRoute(t *testing.T, workID string) workflowReturnRouteFixture {
 // current candidate (CD-0242 D5), Main first accepts a real continue Review
 // through the dispatch, terminal, and acceptance owners, and the dispatch
 // is requested again.
-func tDispatchJobBoundAttempt(t *testing.T, s *Store, workID, stepID, attemptID string, correction *WorkflowCorrectionContext, actor WorkflowActor, key string, job *WorkerJobBinding) {
+func tDispatchJobBoundAttempt(t *testing.T, s *Store, workID, attemptID string, correction *WorkflowCorrectionContext, actor WorkflowActor, key string, job *WorkerJobBinding) {
 	t.Helper()
+	const stepID = "repair"
 	if job.Digest == "" {
 		recordWorkerJobRevisionForTest(t, s, workID, actor, job)
 	}

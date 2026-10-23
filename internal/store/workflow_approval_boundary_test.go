@@ -615,7 +615,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
 		const workID = "approval-boundary-duplicate-active"
-		s, owner, reviewer := seedItemAtAcceptance(t, workID, false)
+		s, owner, reviewer := seedItemAtAcceptance(t, workID)
 		defer s.Close()
 		ownerRef, err := WorkflowActorRef(owner)
 		if err != nil {

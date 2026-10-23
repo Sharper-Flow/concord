@@ -994,7 +994,7 @@ func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event
 	if !workflowString(p.Ref, 128) || p.Version <= 0 || !workflowDigest(p.Digest) || !workflowKinds[p.WorkKind] {
 		return newFailure(KindInvalidPayload, "fold_event", "definition_selected contains an invalid definition pin", false, "supply a closed definition reference, version, digest, and family")
 	}
-	registered, err := verifyWorkflowDefinitionPinForFold(ctx, scopeDefinitionRegistry(scope), WorkflowDefinitionPin{Ref: p.Ref, Version: p.Version, Digest: p.Digest})
+	registered, err := verifyWorkflowDefinitionPinForFold(scopeDefinitionRegistry(scope), WorkflowDefinitionPin{Ref: p.Ref, Version: p.Version, Digest: p.Digest})
 	if err != nil {
 		return err
 	}
@@ -3474,7 +3474,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		return newFailure(KindUnauthorized, "fold_event", "worker result actor must match the authenticated event actor", false, "record the worker result through the authenticated workflow owner")
 	}
 	if !derivedPair {
-		if err := workflowActorsDistinctForExecutor(ctx, tx, event.SubjectID, target.ExecutorRef, payload.ActorRef, "", false, "fold_event"); err != nil {
+		if err := workflowActorsDistinctForExecutor(ctx, tx, event.SubjectID, target.ExecutorRef, payload.ActorRef); err != nil {
 			return err
 		}
 	}
@@ -4406,14 +4406,13 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 	if p.TerminalState != "completed" && p.TerminalState != "cancelled" && p.TerminalState != "superseded" || !slices.Contains([]string{"ok", "outcome_mismatch", "insufficient_evidence"}, p.FinalVerdictKind) || !workflowString(p.VerdictActorRef, 70) || p.EvidenceCount < 0 || !workflowDigest(p.ChangedRefsDigest) || !slices.Contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) || !workflowList(p.Warnings, 16, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "completed has invalid terminal metadata", false, "supply closed terminal metadata including impact_verdict")
 	}
-	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
-	if err != nil {
+	if _, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID); err != nil {
 		return err
 	}
 	if err := requireActor(ctx, tx, event.Actor); err != nil {
 		return err
 	}
-	if err := workflowCompletionCallerAuthority(ctx, tx, entry.Definition, event.SubjectID, event.Actor); err != nil {
+	if err := workflowCompletionCallerAuthority(ctx, tx, event.SubjectID, event.Actor); err != nil {
 		return err
 	}
 	if err := requireActor(ctx, tx, p.VerdictActorRef); err != nil {

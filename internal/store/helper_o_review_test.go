@@ -19,8 +19,9 @@ func oSeedReviewRoute(t *testing.T, workID, definitionRef, step string) workflow
 	return f
 }
 
-func oDispatchJobBoundAttempt(t *testing.T, s *Store, workID, stepID, attemptID string, correction *WorkflowCorrectionContext, actor WorkflowActor, version int64, key string, job *WorkerJobBinding) {
+func oDispatchJobBoundAttempt(t *testing.T, s *Store, workID, attemptID string, correction *WorkflowCorrectionContext, actor WorkflowActor, version int64, key string, job *WorkerJobBinding) {
 	t.Helper()
+	const stepID = "repair"
 	if job.Digest == "" {
 		recordWorkerJobRevisionForTest(t, s, workID, actor, job)
 	}

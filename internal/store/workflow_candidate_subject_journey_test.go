@@ -172,12 +172,12 @@ func (j *candidateJourney) recordReadyJob(t *testing.T, jobID string, preparatio
 func (j *candidateJourney) action(t *testing.T, action string, payload any, actor WorkflowActor) error {
 	t.Helper()
 	if WorkflowActionRequiresSubjectFreshness(action) {
-		return j.terminalAction(t, action, mustJSONValue(payload), actor, nil)
+		return j.terminalAction(t, action, mustJSONValue(payload), actor)
 	}
 	return runVerdictActionAs(t, j.s, j.workID, action, mustJSONValue(payload), 0, actor)
 }
 
-func (j *candidateJourney) terminalAction(t *testing.T, action string, payload json.RawMessage, actor WorkflowActor, operator *WorkflowActor) error {
+func (j *candidateJourney) terminalAction(t *testing.T, action string, payload json.RawMessage, actor WorkflowActor) error {
 	t.Helper()
 	ctx := context.Background()
 	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo})
@@ -185,7 +185,7 @@ func (j *candidateJourney) terminalAction(t *testing.T, action string, payload j
 		return err
 	}
 	ctx = WithWorkerDispatchPreparation(ctx, prepared)
-	return j.terminalActionContext(t, ctx, action, payload, actor, operator)
+	return j.terminalActionContext(t, ctx, action, payload, actor, nil)
 }
 
 func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Context, action string, payload json.RawMessage, actor WorkflowActor, operator *WorkflowActor) error {
@@ -292,7 +292,7 @@ func journeyThroughA(t *testing.T, workID string, reviewAccepted bool) *candidat
 		if err := j.acceptEvidence(t, "attempt-review-a"); err != nil {
 			t.Fatalf("accept A review: %v", err)
 		}
-		if err := j.action(t, "record_verdict", json.RawMessage(criterionAssociationPayload(j.runA.OperationRef, "predicate:work-context")), j.fixture.owner); err != nil {
+		if err := j.action(t, "record_verdict", criterionAssociationPayload(j.runA.OperationRef, "predicate:work-context"), j.fixture.owner); err != nil {
 			t.Fatalf("record A verdict: %v", err)
 		}
 	}
@@ -352,14 +352,14 @@ func (j *candidateAtVerify) refuse(t *testing.T, route string, run func() error)
 
 func (j *candidateAtVerify) confirmPremise(t *testing.T) error {
 	t.Helper()
-	return j.terminalAction(t, "confirm_premise", json.RawMessage(`{"contract_version":1}`), j.fixture.owner, nil)
+	return j.terminalAction(t, "confirm_premise", json.RawMessage(`{"contract_version":1}`), j.fixture.owner)
 }
 
 // completeOrdinary is the ordinary completion call: impact_verdict only, with
 // no current_commit, evidence_commit, or asserted staleness.
 func (j *candidateAtVerify) completeOrdinary(t *testing.T) error {
 	t.Helper()
-	return j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), j.fixture.owner, nil)
+	return j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), j.fixture.owner)
 }
 
 // staleAcceptance drives the declared acceptance routes on A proof alone:
@@ -435,7 +435,7 @@ func TestManagedCandidateSubjectReviewOfIntegratedCandidateSurvivesSubjectMoveme
 			t.Fatalf("accept A's Review with no current pin: %v", err)
 		}
 		j.requireAcceptedReview(t, "attempt-review-a", j.a)
-		if err := j.action(t, "record_verdict", json.RawMessage(criterionAssociationPayload(j.runA.OperationRef, "predicate:work-context")), j.fixture.owner); err != nil {
+		if err := j.action(t, "record_verdict", criterionAssociationPayload(j.runA.OperationRef, "predicate:work-context"), j.fixture.owner); err != nil {
 			t.Fatalf("associate A's receipt with no current pin: %v", err)
 		}
 		j.requireRecordsUnchanged(t, j.snapshotA)
@@ -604,7 +604,7 @@ func TestManagedCandidateSubjectFreshIndependentEvidenceAcceptsB(t *testing.T) {
 	}
 	j.requireAcceptedReview(t, attempt, j.b)
 	j.bindVerification(t, executed)
-	if err := j.action(t, "record_verdict", json.RawMessage(criterionAssociationPayload(executed.OperationRef, "predicate:work-context")), j.fixture.owner); err != nil {
+	if err := j.action(t, "record_verdict", criterionAssociationPayload(executed.OperationRef, "predicate:work-context"), j.fixture.owner); err != nil {
 		t.Fatalf("associate B's native oracle receipt: %v", err)
 	}
 	if err := j.confirmPremise(t); err != nil {

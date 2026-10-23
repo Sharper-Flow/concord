@@ -25,7 +25,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
 	// The initial contract is engineering. The successor's serious registry
 	// correction exercises exact-text consent under consequence_v1.
-	version := seedAgentWorkflowAt(t, s, grant, legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation"))
+	version := seedAgentWorkflowAt(t, s, grant, legacyApprovalPolicyDefinitionForRef(t))
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)

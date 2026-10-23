@@ -397,7 +397,7 @@ func retryPacketRecordsTx(ctx context.Context, tx *sql.Tx, workID string, inputs
 	} else if lawContext != nil {
 		inputs["law_context"] = lawContext
 	}
-	if design, _, err := readCurrentWorkflowDesign(ctx, tx, workID); err != nil {
+	if design, err := readCurrentWorkflowDesign(ctx, tx, workID); err != nil {
 		return err
 	} else if design != nil {
 		inputs["design_record"] = design

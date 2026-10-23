@@ -105,14 +105,9 @@ func refineProofRequireMissingEvidence(t *testing.T, err error, wantContains str
 	}
 }
 
-// refineProofSeedVerifyRun seeds one verify lease and, when the run is green,
-// the durable worktree.verify operation the production release path records.
-func refineProofSeedVerifyRun(t *testing.T, s *Store, workID, digest string, command []string, acquired time.Time) string {
-	return refineProofSeedVerifyRunForProject(t, s, workID, digest, command, acquired, "project-1")
-}
-
-// refineProofSeedVerifyRunForProject seeds the same green run under a named
-// Project, so the integration facet's per-scope coverage can be exercised.
+// refineProofSeedVerifyRunForProject seeds one green verify lease and the
+// durable worktree.verify operation the production release path records, under
+// a named Project so the integration facet's per-scope coverage can be exercised.
 func refineProofSeedVerifyRunForProject(t *testing.T, s *Store, workID, digest string, command []string, acquired time.Time, project string) string {
 	t.Helper()
 	leaseID := digest + ":worktree-verify:" + workID

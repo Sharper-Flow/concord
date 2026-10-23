@@ -18,7 +18,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestOwnerOracleLegacyPinStaysOracleFree"
+      "value": "internal/store.TestOwnerOracleActiveDerivesFromDeclaredMember"
     },
     {
       "kind": "go_test",

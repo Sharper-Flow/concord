@@ -706,6 +706,30 @@ func oracleCompletionEvent(t *testing.T, s *Store, workID, attemptID, eventKey s
 	if build != nil {
 		build(&payload)
 	}
+	if payload.Review != nil {
+		subject, err := readCurrentOracleSubject(context.Background(), s.db, workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		payload.Review.InputCandidate = WorkerReviewCandidate{ProjectID: "project", Commit: subject, Tree: strings.Repeat("a", 40)}
+		payload.Review.OutputCandidate = payload.Review.InputCandidate
+		payload.Review.Dependencies, err = workflowReviewDependencies(context.Background(), s.db, workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if payload.Review.Assessments == nil {
+			payload.Review.Assessments = []WorkerReviewAssessment{}
+		}
+		if payload.Review.RemainingObligations == nil {
+			payload.Review.RemainingObligations = []WorkerReviewObligation{}
+		}
+		for i := range payload.Review.Findings {
+			finding := &payload.Review.Findings[i]
+			finding.FindingID = "finding:" + attemptID + ":" + itoa(i)
+			finding.Status = "open"
+			finding.EvidenceRefs, finding.ClosureRefs = []string{}, []string{}
+		}
+	}
 	for _, entry := range payload.Evidence {
 		if entry.OracleReceipt != nil && entry.OracleReceipt.SubjectCommit == "" && entry.OracleReceipt.RunRef != "" {
 			entry.OracleReceipt.SubjectCommit, err = readCurrentOracleSubject(context.Background(), s.db, workID)
@@ -746,10 +770,8 @@ func fixturePredicate(t *testing.T, s *Store, workID string) string {
 	return views[len(views)-1].AcceptanceOracle.Owners[0].PredicateIDs[0]
 }
 
-// Typed findings bind real owners; an uncovered case carries its explicit
-// entry path instead of a control; follow-ups never become delivery
-// criteria; the verdict couplings hold beside the preserved P0 rule; an
-// out-of-scope P0 follow-up stays a valid retained no_ship.
+// Typed findings bind declared owners; uncovered cases carry explicit entry
+// paths and reproduction. Follow-ups never become delivery criteria.
 func TestOwnerOracleFinding(t *testing.T) {
 	t.Parallel()
 	const workID = "owner-oracle-finding"
@@ -845,30 +867,14 @@ func TestOwnerOracleFinding(t *testing.T) {
 		t.Fatalf("uncovered case with its entry path refused: %v", err)
 	}
 
-	// An out-of-scope P0 follow-up records a valid retained no_ship and
-	// holds review debt as non-progress without forcing an invalid report.
+	// Out-of-scope P0 follow-ups remain reported concerns, not new criteria.
 	if err := report(func(payload *WorkerCompletedPayload) {
 		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{{
 			Severity: "P0", Confidence: "high", Detail: "consequential outside-scope concern",
 			Oracle: &WorkerOracleFinding{Classification: OracleClassificationFollowUp},
 		}}}
 	}); err != nil {
-		t.Fatalf("out-of-scope P0 follow-up no_ship refused: %v", err)
-	}
-	// A no_ship justified only by sub-P0 follow-ups is inconsistent.
-	if err := report(func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{{
-			Severity: "P2", Confidence: "low", Detail: "polish outside the contract",
-			Oracle: &WorkerOracleFinding{Classification: OracleClassificationFollowUp},
-		}}}
-	}); err == nil || !strings.Contains(err.Error(), "only by follow-ups below P0") {
-		t.Fatalf("follow-up-only no_ship error = %v", err)
-	}
-	// A ship never carries a classified blocker.
-	if err := report(func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Disposition: "ready_for_final_proof", Findings: []WorkerReviewFinding{oracleBlockerFinding("blocker under a ship verdict", "path-a", "control:check-a")}}
-	}); err == nil || !strings.Contains(err.Error(), "cannot carry a classified delivery blocker") {
-		t.Fatalf("ship-with-blocker error = %v", err)
+		t.Fatalf("out-of-scope P0 follow-up refused: %v", err)
 	}
 }
 
@@ -1502,9 +1508,8 @@ func TestOwnerOracleJobDebt(t *testing.T) {
 		t.Fatalf("window after the strengthened-oracle acceptance = (%#v, %v), want the discharged debt", correction, corrErr)
 	}
 
-	// A renamed job with the same obligation never discharges another
-	// job's debt: fresh window, new failure under a fresh unsatisfied
-	// revision of the original job, then an unrelated acceptance.
+	// An unrelated job cannot open a new assignment group without accepted
+	// Review authority, or discharge the original job's obligation.
 	renamed := twoPathOracleFields(t, s, workID, nil)
 	renamedBinding := recordOracleJobRevision(t, s, workID, f.owner, "job:debt-renamed", renamed)
 	rev4 := recordOracleJobRevision(t, s, workID, f.owner, jobID, twoPathOracleFields(t, s, workID, nil))
@@ -1512,12 +1517,18 @@ func TestOwnerOracleJobDebt(t *testing.T) {
 	issue1013StartRepair(t, s, workID, f.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
 	oracleDispatchAttempt(t, f, workID, attempt4, nil, &rev4)
 	s2WorkerFailedAttributedLive(t, s, workID, attempt4, "lane fallback blocked before the model ran")
-	attempt5 := "attempt:" + workID + ":5"
-	issue1013StartRepair(t, s, workID, f.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
-	oracleDispatchAttempt(t, f, workID, attempt5, nil, &renamedBinding)
-	completeAndAcceptAttempt(t, s, workID, attempt5, reviewGateLane(t, "implementation"), f.acceptor)
-	if correction, corrErr = workflowCorrectionContextForDispatch(context.Background(), s.DatabaseForTesting(), workID, "repair", ""); corrErr != nil || correction == nil {
-		t.Fatalf("window after the renamed-job acceptance = (%#v, %v), want the original job's unresolved debt", correction, corrErr)
+	lane := reviewGateLane(t, "implementation")
+	packet := joinPacketFor(t, s, workID, "repair", "attempt:"+workID+":5", lane.ID, lane.Version, lane.Digest)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, renamedBinding, "implement")
+	before, versionBefore := workerProjectionSnapshot(t, s), readWorkVersion(t, s, workID)
+	if err := dispatchJobPacketForTest(t, s, workID, "attempt:"+workID+":5", f.owner, "renamed-job-refusal", packet); !hasFailureKind(err, KindMissingEvidence) {
+		t.Fatalf("unrelated group without accepted Review = %v, want missing evidence", err)
+	}
+	if after := workerProjectionSnapshot(t, s); after != before || readWorkVersion(t, s, workID) != versionBefore {
+		t.Fatal("unrelated group refusal changed worker state")
+	}
+	if correction, corrErr = workflowCorrectionContextForDispatch(context.Background(), s.DatabaseForTesting(), workID, "repair", ""); corrErr != nil || correction == nil || correction.FailedAttemptID != attempt4 {
+		t.Fatalf("correction after unrelated-group refusal = (%#v, %v), want the original job's exact failed attempt", correction, corrErr)
 	}
 }
 

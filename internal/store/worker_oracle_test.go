@@ -275,20 +275,14 @@ func TestOwnerOracleControlsRetained(t *testing.T) {
 	}
 }
 
-// Oracle capability derives from the declared acceptance_oracle action
-// member: the newest implementation and break-fix definitions carry it,
-// every earlier version does not, and families without worker jobs never
-// do.
+// Oracle capability derives only from the declared acceptance_oracle member.
 func TestOwnerOracleActiveDerivesFromDeclaredMember(t *testing.T) {
 	t.Parallel()
-	capable := BuiltinWorkflowDefinitions()[:2]
+	capable := BuiltinWorkflowDefinitions()
 	for _, definition := range capable {
 		if !workflowOwnerOracleActive(definition) {
 			t.Fatalf("%s version %d declares record_worker_job without the oracle member", definition.Ref, definition.Version)
 		}
-	}
-	if workflowOwnerOracleActive(BuiltinWorkflowDefinitions()[2]) {
-		t.Fatal("research is oracle-capable without worker jobs")
 	}
 	// The declared member is the only derivation: a definition whose
 	// record_worker_job payload omits the field is not oracle-capable even

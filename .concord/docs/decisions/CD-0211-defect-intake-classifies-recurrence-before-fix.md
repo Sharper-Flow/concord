@@ -111,7 +111,7 @@ not the merged contract.
 | Failed-review return only, not failed-review disposition or unspawned-window hold | CON-708 | `TestCheckpointUnspawnedDispatchKeepsTheFailedReviewHold` retains its separate owner |
 | Generic evaluator return and whitelist removal, not consume-before-spawn semantics | CON-748 | `TestCorrectionRoutesDeriveFromNoWorkKind`, `TestGenericOneOffVerifyWallKeepsTheEscalationOperatorApprovable` |
 | Supersession staleness and declared artifact return, not design-revision admission | CON-721, CON-794 | `TestSupersessionStalesArtifactUntilReproduced`; design admission remains in `internal/store/workflow_design.go` |
-| Delivery-gate return target, not accepted no-ship disposition | CON-796 | `workflowDeliveryGateCorrectionTarget`; `internal/store/workflow_accepted_no_ship_recovery_test.go` retains the separate disposition owner |
+| Delivery-gate return target, not accepted no-ship disposition | CON-796 | `internal/store/workflow_review.go` owns accepted dispositions; `internal/agent/spine_correction_admission_test.go` checks correction inside execution |
 | Not owned by the two-trigger recovery contract | CON-705, CON-711, CON-714, CON-728, CON-731, CON-764, CON-770, CON-788, CON-791, CON-795 | Registry overlap, law allocation, historical delivery exits, execution contract correction, retry-wall approval, design revision, removal, abandonment, and packet capacity retain separate owners |
 
 These are mechanism boundaries, not claims that uncovered reports remain

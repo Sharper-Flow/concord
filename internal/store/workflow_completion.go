@@ -1077,6 +1077,15 @@ func latestWorkflowVerdictsBefore(ctx context.Context, q queryer, workID string,
 	if err := rows.Close(); err != nil {
 		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot close workflow verdicts", true, "retry once the database is readable", err)
 	}
+	// A contract whose ancestry carries the complete-step correction route
+	// accepts no verdict recorded at or before the cutoff, however identical
+	// the predicate payloads remain: the route exists because durable evidence
+	// disproved the predecessor's premise. The cutoff persists across later
+	// ordinary successors, so no descendant inherits the disproved verdicts.
+	cutoff, err := workflowCompleteStepCorrectionEvidenceCutoff(ctx, q, workID, contractVersion)
+	if err != nil {
+		return nil, err
+	}
 	result := make([]workflowVerdictRecordedPayload, 0)
 	seen := make(map[string]bool)
 	for _, collectedVerdict := range collected {
@@ -1086,6 +1095,9 @@ func latestWorkflowVerdictsBefore(ctx context.Context, q queryer, workID string,
 		}
 		if collectedVerdict.payloadVersion == 1 {
 			verdict.PredicateID = "predicate:primary"
+		}
+		if collectedVerdict.seq <= cutoff {
+			continue
 		}
 		if verdict.ContractVersion <= 0 || verdict.ContractVersion > contractVersion || seen[verdict.PredicateID] {
 			continue

@@ -366,12 +366,24 @@ func TestStoreRevisionBackupRestoreInventory(t *testing.T) {
 	if err := s.Transact(ctx, func(*Transaction) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
+	want := revisionValue(t, s.db)
 	snapshot := filepath.Join(t.TempDir(), "revision-backup.db")
 	manifest, err := Backup(ctx, s, snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := verifyRestoredBackup(t, ctx, snapshot, manifest); err != nil {
+	if manifest.EventWatermark != want {
+		t.Fatalf("backup inventory=%d, want store revision %d", manifest.EventWatermark, want)
+	}
+	restoredPath := filepath.Join(t.TempDir(), "restored.db")
+	report, err := RestoreBackup(ctx, snapshot, restoredPath)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if report.SourceSnapshot.EventWatermark != want || report.RestoredDatabase.EventWatermark != want || report.RestoredDatabase.SchemaVersion != CurrentSchemaVersion() {
+		t.Fatalf("restore report=%+v, want inventory %d at schema %d", report, want, CurrentSchemaVersion())
+	}
+	if got, err := storeRevisionAtPath(ctx, restoredPath); err != nil || got != want {
+		t.Fatalf("restored revision=%d, err=%v, want %d", got, err, want)
 	}
 }

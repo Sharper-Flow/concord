@@ -34,6 +34,10 @@
     },
     {
       "kind": "go_test",
+      "value": "internal/store.TestCurrentDeliveryGateReturnsWhenSuccessorStalesAcceptedReview"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/store.TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn"
     },
     {

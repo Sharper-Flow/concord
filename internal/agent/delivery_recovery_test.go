@@ -10,12 +10,8 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// Agent admission of the CD-0166 delivery-gate recovery: a pinned, nonterminal
-// instance parked on a released closed-gate delivery step with an outstanding
-// post-rejection review reads the evidence-bearing corrective return through
-// concord_work_transition, refuses the unreviewed delivery exit, and refuses
-// the unauthenticated return. record_delivery stays the only forward exit, and
-// the recovery asserts no delivery.
+// Agent admission of delivery-gate recovery keeps the current-candidate Review
+// refusal distinct from the corrective return's approval and effect checks.
 
 // deliveryRecoveryLane returns the builtin lane for one capability class.
 func deliveryRecoveryLane(t *testing.T, capabilityClass string) store.LaneDefinition {
@@ -115,13 +111,6 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 	worktree := t.TempDir()
 	grant.Worktree = worktree
 
-	// The journey runs on the canonical head: the live union authors the
-	// derived checkpoint_refine entry alone, so the public gate-return
-	// admission is authorable there and on no released pin (CD-0218 D2/D4).
-	// The released closed-gate v15 keeps its recorded behavior readable at
-	// its frozen pin.
-	// The operator-approved gate return is a legacy approval-policy flow;
-	// consequence_v1 takes no operator substitution for it.
 	pinned := legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation")
 	var err error
 	grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
@@ -251,18 +240,21 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 		t.Fatalf("gate recovery repair accept: %+v", response.Error)
 	}
 
-	// The historical parked position of a pre-gate database: the instance
-	// sits on the delivery gate with the review debt outstanding.
+	// Main's repair acceptance changed the integrated candidate. The earlier
+	// continue Review cannot authorize delivery of this different candidate.
+	deliveryRefusal := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:gate-recovery", "delivery_state": "asserted"}, "idempotency_key": "gate-recovery-delivery"})
+	if deliveryRefusal.Outcome != OutcomeError || deliveryRefusal.Error == nil || deliveryRefusal.Error.Kind != "missing_evidence" || deliveryRefusal.Error.EffectState != "none" || !strings.Contains(deliveryRefusal.Error.Message, "accepted Review on the current candidate and depended-on revisions") {
+		t.Fatalf("repair delivery exit = %+v, want a zero-effect current-candidate Review refusal", deliveryRefusal.Error)
+	}
+	recordReadyRetryJob(t, s, service, env, "job:gate-return-review")
+	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "ready_for_final_proof", false)
+
+	// Exercise the parked gate after Main accepts Review of the repaired
+	// candidate, without inventing a projection-only Review acceptance.
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
 		UPDATE workflow_instances SET current_step='delivery' WHERE work_id='work-1';
 		DELETE FROM fold_guard`); err != nil {
 		t.Fatalf("seed the parked gate position: %v", err)
-	}
-
-	// The unreviewed delivery exit refuses on the pinned shape.
-	deliveryRefusal := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:gate-recovery", "delivery_state": "asserted"}, "idempotency_key": "gate-recovery-delivery"})
-	if deliveryRefusal.Outcome != OutcomeError || deliveryRefusal.Error == nil || !strings.Contains(deliveryRefusal.Error.Message, "fresh accepted review") {
-		t.Fatalf("parked gate delivery exit = %+v, want a fresh-review refusal", deliveryRefusal.Error)
 	}
 
 	// The corrective return is admitted up to the approval wall: an
@@ -317,7 +309,7 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if pinnedVersion != pinned.Definition.Version || pinnedDigest != pinned.Digest {
-		t.Fatalf("pin after recovery = v%d %s, want the released v15 %s", pinnedVersion, pinnedDigest, pinned.Digest)
+		t.Fatalf("pin after recovery = v%d %s, want the current definition %s", pinnedVersion, pinnedDigest, pinned.Digest)
 	}
 }
 

@@ -98,12 +98,12 @@ A result that the refinement pass rejected, and the repair accepted after it,
 carry no fresh review. On `workflow.break_fix` and `workflow.implementation`,
 the refinement step refuses each advance that carries such a repaired result
 toward delivery: its accepted worker result, its recorded delivery, and the
-gate's delivery exit. A fresh accepted review clears the refusal: a
-review-lane attempt dispatched after the rejection and after the repaired
-result's latest dispatch or completion at the refinement step, so the review
-covers the result it accepts. A review dispatched before that repair
-activity settles nothing, and repair activity after a review's dispatch
-reopens the debt. The gate carries the
+gate's delivery exit. An accepted Review clears the refusal when its
+disposition of ready for final proof binds the current integrated candidate
+and depended-on revisions, with no open in-scope blocking finding (CD-0242 D5).
+A Review becomes stale exactly when a depended-on digest changes; a relaunch
+or corrected admission request does not invalidate it by itself, and Review's
+corrective edits need no further review (CD-0242 D5, D7). The gate carries the
 same refusal, so a parked, unreviewed
 change leaves only through the D2 corrective return. That return names the
 rejected result's predicates, or the active contract's predicates, and binds
@@ -130,10 +130,10 @@ changes (CD-0242 D2, D14).
   review holds every advance toward delivery and a fresh accepted review
   clears it.
 - `TestPostRejectionReviewGateRefusesPreRejectionReviewAccept` and
-  `TestPostRejectionReviewGateRefusesReviewDispatchedBeforeRepair` prove the
-  dispatch-order rule: a review dispatched before the rejection, or before
-  the repaired result, settles nothing, and the pin advertises only a
-  completed settling review's acceptance.
+  `TestPostRejectionReviewGateRefusesReviewDispatchedBeforeRepair` prove that
+  delivery requires an accepted Review of the current integrated candidate
+  and depended-on revisions, with no open in-scope blocking finding;
+  dispatch order alone does not decide applicability.
 - `TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn` proves a
   parked gate returns to repair with no delivery assertion and no
   change to recorded facts or the definition source (CD-0242 D2, D14).

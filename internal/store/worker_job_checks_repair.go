@@ -232,7 +232,7 @@ func deriveWorkerJobChecksRepairTx(ctx context.Context, q queryer, workID string
 	entries := make([]WorkerJobChecksRepairEntry, 0, len(sorted))
 	for _, revision := range sorted {
 		var named WorkerJobRecordedPayload
-		if err := workerJobRecordedEventTx(ctx, q, workID, candidate.JobID, revision, &named); err != nil {
+		if err := workerJobRecordedDescriptorTx(ctx, q, workID, candidate.JobID, revision, &named); err != nil {
 			return nil, err
 		}
 		if named.ContractVersion != candidate.ContractVersion {
@@ -295,16 +295,16 @@ func workerJobOracleJSON(oracle *AcceptanceOracle) string {
 	return string(raw)
 }
 
-// workerJobRecordedEventTx reads the complete descriptor retained by the
+// workerJobRecordedDescriptorTx reads the complete descriptor retained by the
 // revision's fold. A revision with no retained descriptor refuses.
-func workerJobRecordedEventTx(ctx context.Context, q queryer, workID, jobID string, revision int64, payload *WorkerJobRecordedPayload) error {
+func workerJobRecordedDescriptorTx(ctx context.Context, q queryer, workID, jobID string, revision int64, payload *WorkerJobRecordedPayload) error {
 	var raw string
 	err := q.QueryRowContext(ctx, `SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=? AND recorded_payload IS NOT NULL`, workID, jobID, revision).Scan(&raw)
 	if err == sql.ErrNoRows {
-		return newFailure(KindInvalidPayload, "worker_job", fmt.Sprintf("the checks repair names revision %d of the job, which holds no recorded event", revision), false, "name recorded unresolved revisions of the job")
+		return newFailure(KindInvalidPayload, "worker_job", fmt.Sprintf("the checks repair names revision %d of the job, which holds no recorded descriptor", revision), false, "name recorded unresolved revisions of the job")
 	}
 	if err != nil {
-		return wrapFailure(KindUnavailable, "worker_job", "cannot read a named revision's recorded event", true, "retry once the worker-job descriptors are readable", err)
+		return wrapFailure(KindUnavailable, "worker_job", "cannot read a named revision's recorded descriptor", true, "retry once the worker-job descriptors are readable", err)
 	}
 	if err := json.Unmarshal([]byte(raw), payload); err != nil {
 		return newFailure(KindInvariantViolation, "worker_job", "a named revision's recorded payload is malformed", false, "rebuild the worker-job events from the authoritative log")

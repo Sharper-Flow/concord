@@ -31,7 +31,7 @@ func TestWorkerCurrentJobFactsWithoutLog(t *testing.T) {
 		"P13-allowances": func() (any, error) { return readWorkerJobAllowancesTx(ctx, s.db, work) },
 		"P16-recorded-job": func() (any, error) {
 			var job WorkerJobRecordedPayload
-			err := workerJobRecordedEventTx(ctx, s.db, work, binding.JobID, binding.Revision, &job)
+			err := workerJobRecordedDescriptorTx(ctx, s.db, work, binding.JobID, binding.Revision, &job)
 			return job, err
 		},
 		"P17-checks-repairs": func() (any, error) { return readWorkerJobChecksRepairsTx(ctx, s.db, work) },

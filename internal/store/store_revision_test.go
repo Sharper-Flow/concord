@@ -10,20 +10,6 @@ import (
 	"time"
 )
 
-func revisionFixture(t *testing.T) *Store {
-	t.Helper()
-	s := openTemp(t)
-	// Keep admission regressions executable against the schema before the
-	// revision migration, so their red result tests advancement, not missing DDL.
-	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS store_revision (
-		id INTEGER PRIMARY KEY CHECK(id=1),
-		revision INTEGER NOT NULL CHECK(typeof(revision)='integer' AND revision>=0)
-	); INSERT OR IGNORE INTO store_revision(id,revision) VALUES(1,0)`); err != nil {
-		t.Fatal(err)
-	}
-	return s
-}
-
 func revisionValue(t *testing.T, q queryer) int64 {
 	t.Helper()
 	var value int64
@@ -38,7 +24,7 @@ func TestStoreRevisionWriterClasses(t *testing.T) {
 	for _, class := range []string{"ordinary callback", "durable callback", "raw ordinary landing", "multi-event operation", "bypass assertion"} {
 		t.Run(class, func(t *testing.T) {
 			t.Parallel()
-			s := revisionFixture(t)
+			s := openTemp(t)
 			ctx := context.Background()
 			before := revisionValue(t, s.db)
 			var err error
@@ -88,7 +74,7 @@ func TestStoreRevisionWriterClasses(t *testing.T) {
 
 func TestStoreRevisionRollbackAndReadSnapshot(t *testing.T) {
 	t.Parallel()
-	s := revisionFixture(t)
+	s := openTemp(t)
 	ctx := context.Background()
 	before := revisionValue(t, s.db)
 	for _, durable := range []bool{false, true} {
@@ -122,7 +108,7 @@ func TestStoreRevisionRollbackAndReadSnapshot(t *testing.T) {
 
 func TestStoreRevisionInstallationKey(t *testing.T) {
 	t.Parallel()
-	s := revisionFixture(t)
+	s := openTemp(t)
 	ctx := context.Background()
 	if _, err := s.db.Exec(`DELETE FROM agent_installation_keys WHERE key_name='cursor'`); err != nil {
 		t.Fatal(err)
@@ -213,7 +199,7 @@ func TestStoreRevisionReadTransactionLifecycle(t *testing.T) {
 
 func TestStoreRevisionReadMetadataWithoutLog(t *testing.T) {
 	t.Parallel()
-	s := revisionFixture(t)
+	s := openTemp(t)
 	ctx := context.Background()
 	if _, err := s.db.Exec(`UPDATE store_revision SET revision=87 WHERE id=1; ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
 		t.Fatal(err)
@@ -286,7 +272,7 @@ func TestStoreRevisionMigration(t *testing.T) {
 
 func TestStoreRevisionDigestExcludesCounterNotSchema(t *testing.T) {
 	t.Parallel()
-	s := revisionFixture(t)
+	s := openTemp(t)
 	ctx := context.Background()
 	before, err := backupCurrentStateDigest(ctx, s.db)
 	if err != nil {
@@ -316,7 +302,7 @@ func TestStoreRevisionDigestExcludesCounterNotSchema(t *testing.T) {
 
 func TestStoreRevisionAdmissionFailsClosed(t *testing.T) {
 	t.Parallel()
-	s := revisionFixture(t)
+	s := openTemp(t)
 	ctx := context.Background()
 	if _, err := s.db.Exec(`DELETE FROM store_revision`); err != nil {
 		t.Fatal(err)

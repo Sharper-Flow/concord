@@ -146,10 +146,9 @@ func foldSessionVacated(ctx context.Context, tx *sql.Tx, event Event) error {
 	// the relocation request: the release waits for the verified landing the
 	// vacate-landing verb records, so a refused host move, a destination
 	// mismatch, or an unreadable landing leaves every occupancy row standing.
+	// A version 1 request leaves no request standing.
 	if event.replaySourcePayloadVersion == 1 {
-		if err := releaseSessionWorktreeOccupancyTx(ctx, tx, event, "fold_event", p.WorkID, p.ProjectID, p.SourceDirectory, p.SessionRef); err != nil {
-			return err
-		}
+		return releaseSessionWorktreeOccupancyTx(ctx, tx, event, "fold_event", p.WorkID, p.ProjectID, p.SourceDirectory, p.SessionRef)
 	}
 	return writeSessionVacateRequestTx(ctx, tx, event, p)
 }
@@ -300,7 +299,7 @@ type SessionVacateReplayTarget struct {
 // ResolveSessionVacateReplayTargetTx resolves the newest committed vacate
 // request of one session that names the caller's current directory as its
 // registered main checkout or as its source worktree, and only while that
-// request is pending: a version 2 request with no recorded landing after it.
+// request is pending: no verified landing has completed it.
 // A host move that landed without a recorded landing leaves such a request
 // standing and the session outside every active worktree, so the replay from
 // the verified destination is the recovery: the core resolves it to the
@@ -316,10 +315,8 @@ type SessionVacateReplayTarget struct {
 // event, so an uncertain landing result recovers (CD-0190 D3). Once a later
 // claim's rows stand, the completed request refuses with no event, because
 // resolving it could append a landing that releases rows the later claim
-// still holds (CD-0190 D2). A version 1 request that released its rows on
-// fold refuses with no event for the same reason. It runs inside the
-// caller's transaction so the read observes the caller's own uncommitted
-// events.
+// still holds (CD-0190 D2). It runs inside the caller's transaction so the
+// read observes the caller's own uncommitted state.
 func ResolveSessionVacateReplayTargetTx(ctx context.Context, transaction *Transaction, projectID, directory, sessionRef string) (SessionVacateReplayTarget, error) {
 	var target SessionVacateReplayTarget
 	tx, err := transactionSQL(transaction, "session_vacate")
@@ -358,8 +355,8 @@ func ResolveSessionVacateReplayTargetTx(ctx context.Context, transaction *Transa
 	return SessionVacateReplayTarget{WorkID: p.WorkID, ProjectID: p.ProjectID, SourceDirectory: p.SourceDirectory, DestinationDirectory: filepath.Clean(p.DestinationDirectory)}, nil
 }
 
-// PendingSessionVacateSourceRequestTx resolves the still-pending version 2
-// vacate request of one session whose source worktree is the caller's
+// PendingSessionVacateSourceRequestTx resolves the still-pending vacate
+// request of one session whose source worktree is the caller's
 // directory. session_vacate called again re-reads the committed request's
 // state and resolves it, appends nothing, whatever idempotency key the retry
 // carries (CD-0190 D3), so the planner answers a new-key retry through this
@@ -367,7 +364,7 @@ func ResolveSessionVacateReplayTargetTx(ctx context.Context, transaction *Transa
 // A request its recorded landing already completed keeps the fresh-request
 // path, so a re-occupied worktree records its own new request (CD-0190 D2).
 // It runs inside the caller's transaction so the read observes the caller's
-// own uncommitted events.
+// own uncommitted state.
 func PendingSessionVacateSourceRequestTx(ctx context.Context, transaction *Transaction, projectID, sourceDirectory, sessionRef string) (SessionVacateReplayTarget, error) {
 	var target SessionVacateReplayTarget
 	tx, err := transactionSQL(transaction, "session_vacate")
@@ -408,7 +405,7 @@ func PendingSessionVacateSourceRequestTx(ctx context.Context, transaction *Trans
 // this replay releases them (CD-0190 D2). replayWorkID is the work item the
 // replayed idempotency record committed its request for; it grounds the
 // refusal's wording when the record names one. It runs inside the caller's
-// transaction so the read observes the caller's own uncommitted events.
+// transaction so the read observes the caller's own uncommitted state.
 func ResolveSessionVacateReplayTx(ctx context.Context, transaction *Transaction, projectID, directory, sessionRef, replayWorkID string) (SessionVacateReplayTarget, error) {
 	target, err := ResolveSessionVacateReplayTargetTx(ctx, transaction, projectID, directory, sessionRef)
 	if err == nil {

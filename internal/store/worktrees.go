@@ -3547,10 +3547,7 @@ func foldSessionClaimLanded(ctx context.Context, tx *sql.Tx, event Event) error 
 	// this shape, so the current fold below keeps refusing a landing without
 	// a host pid.
 	if event.recordedPayloadShape == recordedShapeLegacyClaimLanding {
-		if err := foldLegacySessionClaimLanded(ctx, tx, event); err != nil {
-			return err
-		}
-		return writeSessionClaimLandingTx(ctx, tx, event)
+		return foldLegacySessionClaimLanded(ctx, tx, event)
 	}
 	var p sessionClaimLandedPayload
 	if err := decodePayload(event, &p); err != nil {
@@ -3565,7 +3562,7 @@ func foldSessionClaimLanded(ctx context.Context, tx *sql.Tx, event Event) error 
 	if err := transferSessionClaimOccupancyTx(ctx, tx, event, p.ClaimOpID, p.ProjectID, p.SessionRef, p.LandedDirectory, p.HostPID, p.HostPIDStart); err != nil {
 		return err
 	}
-	return writeSessionClaimLandingTx(ctx, tx, event)
+	return writeSessionClaimLandingTx(ctx, tx, event, p)
 }
 
 // foldLegacySessionClaimLanded re-applies a landing recorded before host

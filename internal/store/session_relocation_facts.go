@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 )
 
 func sessionRelocationWriteFailure(err error) error {
@@ -13,13 +12,8 @@ func sessionRelocationWriteFailure(err error) error {
 // writeSessionVacateRequestTx makes a landing-verified request the latest
 // request of its work item, session, Project, and source directory, pending
 // until a verified landing completes it. The ordinal orders the session's
-// requests across work items. A request recorded before the landing-verified
-// release released its rows when it was recorded and leaves no request
-// standing.
+// requests across work items.
 func writeSessionVacateRequestTx(ctx context.Context, tx *sql.Tx, event Event, p sessionVacatedPayload) error {
-	if event.replaySourcePayloadVersion != 0 {
-		return nil
-	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO session_vacate_requests(work_id,session_ref,project_id,source_directory,destination_directory,request_ordinal,landed)
 		VALUES(?,?,?,?,?,(SELECT COALESCE(max(request_ordinal),0)+1 FROM session_vacate_requests WHERE session_ref=?),0)
 		ON CONFLICT(work_id,session_ref,project_id,source_directory) DO UPDATE SET destination_directory=excluded.destination_directory,request_ordinal=excluded.request_ordinal,landed=0`,
@@ -41,17 +35,12 @@ func writeSessionVacateLandingTx(ctx context.Context, tx *sql.Tx, event Event, s
 // writeSessionClaimLandingTx records that the session landed in the claim
 // generation the landing names. A landing recorded before claim generations
 // existed names none and proves no current placement.
-func writeSessionClaimLandingTx(ctx context.Context, tx *sql.Tx, event Event) error {
-	var p struct {
-		SessionRef string  `json:"session_ref"`
-		ProjectID  string  `json:"project_id"`
-		ClaimOpID  *string `json:"claim_op_id"`
-	}
-	if err := json.Unmarshal(event.Payload, &p); err != nil || p.ClaimOpID == nil {
+func writeSessionClaimLandingTx(ctx context.Context, tx *sql.Tx, event Event, p sessionClaimLandedPayload) error {
+	if p.ClaimOpID == "" {
 		return nil
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO session_claim_landings(work_id,session_ref,project_id,claim_op_id) VALUES(?,?,?,?)`,
-		event.SubjectID, p.SessionRef, p.ProjectID, *p.ClaimOpID); err != nil {
+		event.SubjectID, p.SessionRef, p.ProjectID, p.ClaimOpID); err != nil {
 		return sessionRelocationWriteFailure(err)
 	}
 	return nil

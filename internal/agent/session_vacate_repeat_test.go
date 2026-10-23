@@ -394,7 +394,7 @@ func TestSessionVacateNewKeyRetryResolvesPendingFromSource(t *testing.T) {
 
 // TestSessionVacateNewKeyRetryRefusesUnreadablePendingRequest pins the
 // pending-request lookup as a decision, not a hint: a pending request the
-// core cannot decode refuses the new-key retry and appends nothing. Only a
+// core cannot read refuses the new-key retry and appends nothing. Only a
 // confirmed absence of a pending request reaches the fresh-request path, so a
 // failed lookup never records a second relocation request for one move.
 func TestSessionVacateNewKeyRetryRefusesUnreadablePendingRequest(t *testing.T) {
@@ -428,14 +428,11 @@ func TestSessionVacateNewKeyRetryRefusesUnreadablePendingRequest(t *testing.T) {
 		t.Fatalf("first vacate response=%+v error=%+v", response, response.Error)
 	}
 
-	// Simulate a recorded request the core can no longer decode. The event
-	// log is append-only, so the test lifts the update guard on its own
-	// fixture database to damage the committed payload.
+	// Simulate a committed request whose destination the core can no longer
+	// read. The request state is fold-only, so the test opens the fold guard
+	// on its own fixture database to damage it.
 	db := s.DatabaseForTesting()
-	if _, err := db.ExecContext(ctx, `DROP TRIGGER domain_events_no_update`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(ctx, `UPDATE domain_events SET payload=json_remove(payload,'$.destination_directory') WHERE kind='work.session_vacated'`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); UPDATE session_vacate_requests SET destination_directory=''; DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 

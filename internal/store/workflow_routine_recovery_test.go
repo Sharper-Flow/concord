@@ -254,22 +254,22 @@ func TestRoutineRecovery(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-recovery-complete-step-gate"
 		ctx := context.Background()
-		fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
+		fixture := routineRecoveryAtCompleteStep(t, workID)
 		s := fixture.store
-		registered := mustBuiltinDefinition(t, "workflow.break_fix")
+		registered := mustBuiltinDefinition(t, "workflow.implementation")
 		definition := registered.Definition
 		policyDefinition := routineRecoveryPolicyDefinition(registered)
 		// Without the contradiction record the route is closed for both
 		// policies: the gate is state, never consent.
 		for name, candidate := range map[string]WorkflowDefinition{"legacy": definition, "consequence_v1": policyDefinition} {
-			available, err := workflowCompleteStepCorrectionAvailable(ctx, s.DatabaseForTesting(), workID, candidate, "complete", "test", 0)
+			available, err := workflowCompleteStepCorrectionAvailable(ctx, s.DatabaseForTesting(), workID, candidate, "release", "test", 0)
 			if err != nil || available {
 				t.Fatalf("%s complete-step gate before the contradiction record = %t, %v, want closed", name, available, err)
 			}
 		}
 		recordCompleteStepContradictionObservation(t, s, workID, fixture.owner)
 		for name, candidate := range map[string]WorkflowDefinition{"legacy": definition, "consequence_v1": policyDefinition} {
-			available, err := workflowCompleteStepCorrectionAvailable(ctx, s.DatabaseForTesting(), workID, candidate, "complete", "test", 0)
+			available, err := workflowCompleteStepCorrectionAvailable(ctx, s.DatabaseForTesting(), workID, candidate, "release", "test", 0)
 			if err != nil || !available {
 				t.Fatalf("%s complete-step gate after the contradiction record = %t, %v, want open", name, available, err)
 			}
@@ -280,7 +280,7 @@ func TestRoutineRecovery(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-recovery-stale-law"
 		ctx := context.Background()
-		fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
+		fixture := routineRecoveryAtCompleteStep(t, workID)
 		s := fixture.store
 		// The shared stale-law fixture: contract 1 mandates spec:one, and the
 		// Git-derived law projection supersedes it with accepted spec:two.
@@ -579,4 +579,20 @@ func TestRoutineRecovery(t *testing.T) {
 			t.Fatalf("refused recovery changed the work version from %d to %d", version, got)
 		}
 	})
+}
+
+// routineRecoveryAtCompleteStep parks a current implementation item on its
+// release step: a reviewed candidate with associated current proof and Main's
+// premise confirmation, the state the complete-step recovery routes read.
+func routineRecoveryAtCompleteStep(t *testing.T, workID string) acceptanceRecoveryFixture {
+	t.Helper()
+	ctx := context.Background()
+	fixture := qCurrentAcceptance(t, workID)
+	if err := fixture.run(ctx, "confirm_premise", "confirm", fixture.version(ctx, t), nil, nil); err != nil {
+		t.Fatalf("confirm the premise: %v", err)
+	}
+	if step := currentStep(t, fixture.store, workID); step != "release" {
+		t.Fatalf("step after confirmation = %q, want release", step)
+	}
+	return fixture
 }

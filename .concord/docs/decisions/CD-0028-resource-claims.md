@@ -20,7 +20,7 @@ model may assume it is the only writer.
 
 ## Decision
 
-A resource claim grants no approval or workflow authority. Terminal-transition consent follows CD-0013 D11: routine acceptance-backed completion needs no operator approval, while cancellation and work removal retain it as listed gaps without a new class assignment. All lifecycle, evidence, dependency, and claim-release invariants remain required. Historical workflow pins retain their signature rules.
+A resource claim grants no approval or workflow authority. Terminal-transition consent follows CD-0013 D11: routine acceptance-backed completion needs no operator approval, and cancellation and work removal require it only when a CD-0243 D2 class applies. All lifecycle, evidence, dependency, and claim-release invariants remain required. Historical workflow pins retain their signature rules.
 
 
 **D1. A claim is a durable record of intent, not a lock.**

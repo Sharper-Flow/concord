@@ -17,6 +17,11 @@
   rather than replacing it (CD-0036 D2), because it records only the writer
   CD-0229 D6 already accepted.
 
+**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## Context
 
 CD-0229 D6 says that when a size changes, "a successor work item at the new

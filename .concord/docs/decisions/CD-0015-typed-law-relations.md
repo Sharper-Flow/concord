@@ -9,6 +9,11 @@ relations with architecture-bound work contracts and overlap checks.
 `law_modifies` names the endpoint whose record declares it, because only that
 record can withdraw the declaration.
 
+**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## Decision
 
 Concord's durable law authority remains the Git knowledge manifest. SQLite may

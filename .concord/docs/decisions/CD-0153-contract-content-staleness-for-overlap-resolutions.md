@@ -11,6 +11,11 @@
   D7's seven action classes; CD-0036 breaking-law cutovers; and the
   execution-start claim boundary from PR 1084
 
+**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## Context
 
 CD-0222 D6 states that changing either contract makes its overlap resolution

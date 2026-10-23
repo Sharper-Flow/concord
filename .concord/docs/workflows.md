@@ -14,6 +14,11 @@
 > **Primary surface:** Defined by [`priorities.md`](./priorities.md); an admin
 > panel or web UI is optional and secondary.
 
+**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies current outcome-contract consent and revision authority. Released
+historical definitions and the operator-owned release cutover retain their
+existing requirements.
+
 ## TL;DR
 
 The live workflow catalog retains three execution families for new work

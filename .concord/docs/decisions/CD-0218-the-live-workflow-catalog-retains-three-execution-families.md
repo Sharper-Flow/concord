@@ -20,6 +20,14 @@
 - **Related:** CD-0007, CD-0012, CD-0013, CD-0036, CD-0039, CD-0077,
   CD-0115, CD-0156, CD-0172, CD-0186, CD-0198, CD-0215
 
+**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+governs D1: Product-law changes require approval only under its six classes. Workflow-family and repository-law-route requirements do not change.
+
+**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## Context
 
 The live workflow catalog requires seven families. Four families repeat bounded

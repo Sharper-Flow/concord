@@ -10,6 +10,9 @@
   TS7 ([`agent-result-envelope.md`](../agent-result-envelope.md))
 - **Supersedes:** nothing
 
+**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+limits operator consent to its six classes. Consequence summaries and operation binding do not themselves create an approval requirement; all other checks remain required.
+
 ## Context
 
 TS5 says an approval binds the consequence summary. TS6 says a core-issued

@@ -189,8 +189,9 @@ Approval is a durable core record, referenced by opaque `approval_ref`. It binds
 - revocation/consumption state.
 
 Workflow-action consent follows the definition-pinned policy in CD-0013 D11,
-which applies CD-0230 D5's classes without classifying its retained approval gaps.
-Other operation approvals remain required until their holding records are amended.
+which applies CD-0243 D2's six operator approval classes.
+Other operation approvals follow CD-0243 D6: each applies only when a D2 class
+applies, and an unclassified approval point is not an approval class.
 An external effect or durable acknowledgement alone does not determine consent.
 Required approvals default to single use. Reuse requires an explicit
 bounded approval policy naming the operation family, scope, expiry, and maximum

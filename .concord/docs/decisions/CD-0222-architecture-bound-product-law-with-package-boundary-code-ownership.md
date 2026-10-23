@@ -31,6 +31,9 @@
   [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
   D4.
 
+**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+governs D1, D4, and D5: law mandates and enactment require approval only under its six classes. It also governs D6's overlap approval rule. Law homes, applicability, footprint, and architecture checks do not change.
+
 ## Context
 
 Concord already treats accepted specifications as human-enacted law. Workflow
@@ -71,7 +74,7 @@ package-boundary code ownership. D12 states the navigation retirement.
 
 ## Decision
 
-D6's approval rule follows CD-0013 D11: `depends_on`, `blocks`, and `compatible_with` are routine version-pinned coordination answers; `merged_into` and `supersedes` require exact operator approval because they abandon or replace work identity. Current Domain intersections, judged-content freshness, both endpoint versions, the dedicated atomic writer, cycle rules, and D7 consequential admission remain required. Routine supersession grants neither legislative authority nor a standing overlap exemption.
+D6's approval rule follows CD-0013 D11: `depends_on`, `blocks`, and `compatible_with` are routine version-pinned coordination answers; `merged_into` and `supersedes` abandon or replace work identity and require operator approval only when a CD-0243 D2 class applies. Current Domain intersections, judged-content freshness, both endpoint versions, the dedicated atomic writer, cycle rules, and D7 consequential admission remain required. Routine supersession grants neither legislative authority nor a standing overlap exemption.
 
 
 ### D1. Product law and architectural concordance serve the goals

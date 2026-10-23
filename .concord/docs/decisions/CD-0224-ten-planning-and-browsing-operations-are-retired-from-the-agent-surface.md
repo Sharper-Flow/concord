@@ -24,6 +24,11 @@
   revision that changes a work item's size is a fourth writer, of
   `forward_link` and `supersedes`.
 
+**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## Context
 
 The agent surface carried ten planning and browsing operations. Five let an

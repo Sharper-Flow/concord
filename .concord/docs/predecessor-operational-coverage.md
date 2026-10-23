@@ -15,6 +15,11 @@ replacement-readiness claim by checking that Concord covers predecessor surfaces
 coverage is unassessable without a list of what it *is*. This document is that
 list, and the coverage judgement against it.
 
+**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## What this document is
 
 An enumeration of **operational territory** — what an operator or an agent must be

@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:66ba775d27b6ba24991e8fb9c2c4894cc728acd0c5fea1a46b565dfb24bef5a8",
+  "sha256": "sha256:88483dac600554e0fe836dc18fd2c5b18e1956ca85d154a1da10dd16c312a947",
   "status": "accepted",
   "summary": "A size revision that changes a work item's effective size writes one forward_link and one supersedes from the successor in the transaction that creates it, approved by the size decision that changed the size. supersedes and forward_link each gain this second writer; no other route writes either kind.",
   "tags": [

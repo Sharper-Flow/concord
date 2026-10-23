@@ -18,7 +18,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:adfe1c41196a6cc5418911a32f9b92f20f7e7e2876b3b7cce317b97bde571401",
+  "sha256": "sha256:c833464ff4e9e03d0bb4b0daab8877868966bcce7e2c00ef5f1eda9e4948bfc7",
   "status": "accepted",
   "summary": "Allows work_transition.lifecycle from a registered Project's default checkout because it writes one Product-state event, while terminal gates and implementation-bearing refusals remain unchanged.",
   "tags": [

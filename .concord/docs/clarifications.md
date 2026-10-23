@@ -555,7 +555,7 @@ fewest tools that complete canonical jobs reliably**, with bounded schemas.
 
 ### TS1–TS9 — decisions at a glance
 
-The current AJ5 overlap binding follows CD-0013 D11: routine dependency, blocking, and compatibility answers need no operator consent; merger and supersession retain exact operator approval as listed gaps without a new class assignment. Both endpoint versions and judged contract content remain bound. The table's original approval-consumption account does not impose consent on those routine answers. Workflow approval scenarios distinguish the new policy from retained historical pins.
+The current AJ5 overlap binding follows CD-0013 D11: routine dependency, blocking, and compatibility answers need no operator consent. Merger and supersession require exact operator approval only when a CD-0243 D2 class applies, such as a governing-requirement scope cut. Both endpoint versions and judged contract content remain bound. The table's original approval-consumption account does not impose consent on those routine answers. Workflow approval scenarios distinguish the new policy from retained historical pins.
 
 
 | ID | Decision boundary + current binding | Non-authorizing lean | Evidence / falsifier | Depends → artifact |

@@ -163,3 +163,14 @@ func TestQAssociateCurrentProofKeepsSeededContract(t *testing.T) {
 		t.Fatalf("seeded contract count=%d, proof association count=%d, want one each", contracts, associations)
 	}
 }
+
+// Contract-notice folds do not evaluate or complete a candidate.
+func qContractNoticeFixture(t *testing.T, workID string) (*Store, string) {
+	t.Helper()
+	s, owner, _, version := issue31ActorSetup(t, workID)
+	seedWorkflowLaw(t, s)
+	for _, action := range []string{"record_proposal", "record_discovery", "record_design", "approve_contract"} {
+		version = issue31WorkflowAction(t, s, workID, version, action, workID+":"+action, owner)
+	}
+	return s, mustActorRef(t, owner)
+}

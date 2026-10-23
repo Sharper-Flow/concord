@@ -271,7 +271,7 @@ func TestReadWorkPinCompletedIncludesVerifiedCriteria(t *testing.T) {
 		t.Fatalf("verified criteria=%+v, want one approved predicate", pin.VerifiedCriteria)
 	}
 	criterion := pin.VerifiedCriteria[0]
-	if criterion.PredicateID != "predicate:primary" || criterion.OutcomeKind != "check" || criterion.VerdictKind != "ok" {
+	if criterion.PredicateID != "predicate:return-route" || criterion.OutcomeKind != "check" || criterion.VerdictKind != "ok" {
 		t.Fatalf("verified criterion=%+v, want the approved check and ok verdict", criterion)
 	}
 }

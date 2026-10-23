@@ -9,7 +9,7 @@ import (
 )
 
 // The completion record must agree with the event log it summarizes (#856).
-// The fixture binds three evidence events, records one ok verdict, and
+// The fixture binds evidence, associates current criterion proof, and
 // confirms the premise; the completed payload must carry those facts, not
 // the literal zero, the absent-fields default, and the constant "ok".
 func TestCompletionRecordCarriesTheValuesTheGateComputed(t *testing.T) {
@@ -24,7 +24,7 @@ func TestCompletionRecordCarriesTheValuesTheGateComputed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	actorRef := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/record-integrity")
+	actorRef := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/owner", "session/record-integrity")
 	event, err := workflowCompletionEvent(context.Background(), tx, WorkflowActionExecutionRequest{WorkID: "record-integrity", ExpectedVersion: version, OperationID: "record-integrity-complete", Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}, actorRef, json.RawMessage(`{"impact_verdict":"non-breaking"}`))
 	if err != nil {
 		t.Fatalf("completion event was refused: %v", err)
@@ -36,8 +36,8 @@ func TestCompletionRecordCarriesTheValuesTheGateComputed(t *testing.T) {
 	if got, _ := payload["premise_confirmed"].(bool); !got {
 		t.Error("premise_confirmed is false while the log holds an operator premise confirmation for this contract")
 	}
-	if got, _ := payload["evidence_count"].(float64); got != 3 {
-		t.Errorf("evidence_count = %v, want 3 (the log binds verification, review, and artifact evidence)", got)
+	if got, _ := payload["evidence_count"].(float64); got != 5 {
+		t.Errorf("evidence_count = %v, want five bindings (three required kinds, captured receipt, and spec)", got)
 	}
 	if got, _ := payload["final_verdict_kind"].(string); got != "ok" {
 		t.Errorf("final_verdict_kind = %q, want the recorded verdict kind %q", got, "ok")

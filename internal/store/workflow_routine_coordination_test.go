@@ -158,7 +158,7 @@ func unsignedDeliveryCorrectionRequest(t *testing.T, s *Store, workID string, ve
 	request.ApprovalScopeJSON = ""
 	request.ApprovalVersionsJSON = ""
 	request.ApprovalConsequence = ""
-	request.Actor = readWorkflowRecordedActorRef(t, s, workID, "owner-actor-"+workID)
+	request.Actor = readWorkflowRecordedActorRef(t, s, workID)
 	return request
 }
 
@@ -205,6 +205,7 @@ func TestRoutineCoordination(t *testing.T) {
 			t.Run(kind, func(t *testing.T) {
 				t.Parallel()
 				s, _, actor := overlapContentFixture(t)
+				beforeFrom, beforeTo := routinePairVersions(t, s)
 				if err := routineResolve(t, s, "content-left", "content-right", kind, "", actor, "routine-"+kind); err != nil {
 					t.Fatalf("routine %s resolution without an approval claim refused: %v", kind, err)
 				}
@@ -223,8 +224,8 @@ func TestRoutineCoordination(t *testing.T) {
 					t.Fatalf("routine %s resolution recorded an approval claim %q", kind, recordedRef)
 				}
 				fromVersion, toVersion := routinePairVersions(t, s)
-				if fromVersion != 10 || toVersion != 10 {
-					t.Fatalf("routine %s resolution left versions %d/%d, want both advanced to 10", kind, fromVersion, toVersion)
+				if fromVersion != beforeFrom+1 || toVersion != beforeTo+1 {
+					t.Fatalf("routine %s resolution moved versions %d/%d to %d/%d, want each advanced by one", kind, beforeFrom, beforeTo, fromVersion, toVersion)
 				}
 				var storedVersion int
 				if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM domain_events WHERE event_id=?`, "routine-"+kind).Scan(&storedVersion); err != nil {
@@ -460,6 +461,10 @@ func TestRoutineCoordination(t *testing.T) {
 		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&originalPayload); err != nil {
 			t.Fatal(err)
 		}
+		var nonAssertionEventID string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT event_id FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_proposal' ORDER BY seq LIMIT 1`, workID, WorkflowActionCompleted).Scan(&nonAssertionEventID); err != nil {
+			t.Fatal(err)
+		}
 
 		cases := []struct {
 			name      string
@@ -476,7 +481,7 @@ func TestRoutineCoordination(t *testing.T) {
 				return r
 			}, wantKind: KindInvalidOperation, wantPiece: "does not match the recorded assertion"},
 			{name: "target is not an assertion", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
-				r.TargetEventID = "proposal-" + workID
+				r.TargetEventID = nonAssertionEventID
 				return r
 			}, wantKind: KindInvalidOperation, wantPiece: "not a recorded delivery assertion"},
 			{name: "target event is not recorded", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
@@ -506,7 +511,7 @@ func TestRoutineCoordination(t *testing.T) {
 		if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM domain_events WHERE event_id=?`, settled.EventID).Scan(&eventActor); err != nil {
 			t.Fatal(err)
 		}
-		if expected := readWorkflowRecordedActorRef(t, s, workID, "owner-actor-"+workID); eventActor != expected {
+		if expected := readWorkflowRecordedActorRef(t, s, workID); eventActor != expected {
 			t.Fatalf("correction actor = %q, want the recorded coordinator %q", eventActor, expected)
 		}
 		if got := readWorkVersion(t, s, workID); got != version+1 {
@@ -567,7 +572,7 @@ func TestRoutineCoordination(t *testing.T) {
 			t.Parallel()
 			const workID = "routine-coord-correction-v2"
 			s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
-			correctionRef := readWorkflowRecordedActorRef(t, s, workID, "owner-actor-"+workID)
+			correctionRef := readWorkflowRecordedActorRef(t, s, workID)
 			event := routineCorrectionEvent("routine-correction-v2", workID, correctionRef, version, targetEventID, targetSeq, targetPayloadVersion, nil)
 			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version)}); err != nil {
 				t.Fatalf("v2 correction without an approval claim refused: %v", err)
@@ -612,7 +617,7 @@ func TestRoutineCoordination(t *testing.T) {
 			t.Parallel()
 			const workID = "routine-coord-correction-v2-claim"
 			s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
-			correctionRef := readWorkflowRecordedActorRef(t, s, workID, "owner-actor-"+workID)
+			correctionRef := readWorkflowRecordedActorRef(t, s, workID)
 			event := routineCorrectionEvent("routine-correction-v2-claim", workID, correctionRef, version, targetEventID, targetSeq, targetPayloadVersion, map[string]string{
 				"approval_ref": deliveryCorrectionApprovalRef, "approval_operation_digest": deliveryCorrectionDigest,
 				"approval_scope_json": deliveryCorrectionScopeJSON(workID), "approval_versions_json": deliveryCorrectionVersionsJSON(version),
@@ -772,17 +777,12 @@ func TestRoutineCoordination(t *testing.T) {
 	})
 }
 
-// readWorkflowRecordedActorRef returns the recorded actor ref for one seeded
-// workflow actor event, so the correction events attribute the real recorded
-// identity the fixture's own actor event created.
-func readWorkflowRecordedActorRef(t *testing.T, s *Store, workID, eventID string) string {
+// readWorkflowRecordedActorRef returns the delivery fixture owner's recorded actor.
+func readWorkflowRecordedActorRef(t *testing.T, s *Store, workID string) string {
 	t.Helper()
 	var actorRef string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.actor_ref') FROM domain_events WHERE event_id=? AND subject_id=?`, eventID, workID).Scan(&actorRef); err != nil {
+	if err := s.db.QueryRow(`SELECT actor_ref FROM workflow_actors WHERE principal_ref='principal/operator' AND client_ref='client/concord-1' AND agent_ref='agent/owner' AND session_ref=?`, "session/"+workID).Scan(&actorRef); err != nil {
 		t.Fatal(err)
-	}
-	if actorRef == "" {
-		t.Fatalf("actor event %s carries no recorded actor ref", eventID)
 	}
 	return actorRef
 }

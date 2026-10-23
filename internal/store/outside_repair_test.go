@@ -458,14 +458,6 @@ func TestOutsideRepairDoesNotChangeOrdinaryCompletion(t *testing.T) {
 
 func TestWorkflowCompletedRefusesWhileOutsideRepairActive(t *testing.T) {
 	s, completion := seedCompletionGateCase(t, "outside-completion", completionGateCase{requiredEvidence: []string{"verification"}, includeVerdict: true, includePremise: true, verdictKind: "ok"})
-	// The completion fixture leaves execution started. Close that action before
-	// the hold so this case tests completion admission, not execution liveness.
-	executor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/outside-completion")
-	version := readWorkVersion(t, s, "outside-completion")
-	settled := workflowActionCompletedFixture("outside-completion-execution-settled", "outside-completion", executor, version, "execution", "record_delivery")
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{settled}, ExpectedVersions: workVersion("outside-completion", version)}); err != nil {
-		t.Fatal(err)
-	}
 	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, "outside-completion", "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
 		t.Fatal(err)
 	}

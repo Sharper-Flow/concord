@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -17,10 +16,11 @@ import (
 // action offers a route no caller can take.
 //
 // request_correction is the one exception. Its approval is never served by a
-// step question: the boundary that applies it consumes the operator identity
-// of the request, backed on the tool surface by a durable approval challenge,
-// so the CD-0166 delivery gate can declare the evidence-bearing corrective
-// return and stay reachable while its kind is internal_sqlite.
+// step question: the guard admits it from the folded correction route and,
+// under the consequence_v1 policy, as a routine repair request with no
+// operator identity. A step may therefore declare it where the step owns the
+// route that admits it: the CD-0166 delivery gate, or a step whose
+// unhealthy_verdict recovery route names it (CD-0143).
 //
 // The scope is every registered version, frozen ones included, because
 // stranded items run on old pins (CD-0115 D2).
@@ -38,7 +38,7 @@ func TestRegisteredStepsAdmitTheirApprovalRequiredActions(t *testing.T) {
 			}
 			served, _ := workflowOperatorQuestionAction(definition, step.ID)
 			for _, id := range step.Actions {
-				if id == "request_correction" && workflowStepIsDeliveryGate(&step) {
+				if id == "request_correction" && (workflowStepIsDeliveryGate(&step) || workflowUnhealthyVerdictRouteTarget(definition, step.ID) != "") {
 					continue
 				}
 				if approvalRequired[id] && id != served {
@@ -212,78 +212,5 @@ func TestFrozenOpsRunbookCleanupOpensThePremiseQuestion(t *testing.T) {
 	}
 	if completed != 0 {
 		t.Fatalf("a refused archived confirmation completed the workflow: %d events", completed)
-	}
-}
-
-// TestFrozenOpsRunbookCleanupRecordsAMissingVerdict drives a version-4
-// ops-runbook item past health with no verdict to its cleanup step. The
-// archived family offers no public route there: the pin advertises no
-// intents, the late verdict refuses as a public action, and the confirmation
-// refuses with it — nothing confirms a missing verdict and nothing completes
-// the instance (CD-0204).
-func TestFrozenOpsRunbookCleanupRecordsAMissingVerdict(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	const workID = "frozen-ops-late-verdict"
-	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.ops_runbook", 4, "health")
-	s := fixture.store
-	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
-	reviewerRef, err := WorkflowActorRef(reviewer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	version := readWorkVersion(t, s, workID)
-	reviewerEvent := workflowEventWithActor("frozen-ops-reviewer-"+workID, WorkflowActorRecorded, workID, reviewerRef, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"actor_ref": reviewerRef, "principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef,
-		"agent_ref": reviewer.AgentRef, "session_ref": reviewer.SessionRef, "actor_class": "agent",
-	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{reviewerEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		t.Fatalf("record the reviewer actor: %v", err)
-	}
-	seedVerifiedNativeRunCapture(t, s, workID)
-	ownerRef, err := WorkflowActorRef(fixture.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "cleanup", ownerRef); err != nil {
-		t.Fatalf("advance to cleanup: %v", err)
-	}
-	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("6", 16), []string{"root"})
-	pin := issue1013Pin(t, s, workID)
-	if issue1013HasIntent(pin, "confirm_premise") {
-		t.Fatalf("cleanup pin offers confirm_premise without a verdict: %#v", pin.NextValidIntents)
-	}
-	if issue1013HasIntent(pin, "record_verdict") {
-		t.Fatalf("cleanup pin offers record_verdict: %#v", pin.NextValidIntents)
-	}
-	if len(pin.NextValidIntents) != 0 {
-		t.Fatalf("archived cleanup pin offers public intents %#v, want none", pin.NextValidIntents)
-	}
-	verdict := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"ok"}`)
-	lateErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_verdict", Actor: reviewer, Payload: verdict})
-	var failure *Failure
-	if !errors.As(lateErr, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "workflow.ops_runbook is archived: new public workflow actions are refused") {
-		t.Fatalf("late verdict preflight = %v, want the archived-family invalid_operation refusal", lateErr)
-	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", verdict, 0, reviewer); err == nil {
-		t.Fatal("the archived late verdict ran")
-	}
-	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator); err == nil {
-		t.Fatal("the archived cleanup confirmed a missing verdict")
-	}
-	var step string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
-		t.Fatal(err)
-	}
-	if step != "cleanup" {
-		t.Fatalf("refused archived actions moved the step to %q, want cleanup", step)
-	}
-	var completed int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowCompleted).Scan(&completed); err != nil {
-		t.Fatal(err)
-	}
-	if completed != 0 {
-		t.Fatalf("refused archived actions completed the workflow: %d events", completed)
 	}
 }

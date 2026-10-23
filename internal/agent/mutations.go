@@ -1104,6 +1104,14 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	}
 	_, action, err := store.WorkflowActionDefinitionFor(ctx, r.Store, registry, in.WorkID, in.ActionID)
 	if err != nil {
+		// A state-derived action such as request_correction closes once its
+		// effect commits; the identical recorded request still replays.
+		if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, raw, grant, op); replayErr != nil || handled {
+			if replayErr != nil {
+				return failureEnvelope(base, replayErr), nil
+			}
+			return replay, nil
+		}
 		return failureEnvelope(base, err), nil
 	}
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)

@@ -1130,28 +1130,11 @@ func workflowAcceptBindsReadyUnsettledReview(state *WorkflowAdmissionState, fiel
 	return workflowFieldStringDefault(fields, "attempt_id", "") == state.ReadyReviewAttemptID
 }
 
-// workflowGateHoldsAction reports whether an approval-gated step records the
-// action without advancing: an accepted worker result there leaves the gate
-// as the step's only exit (CD-0117).
-func workflowGateHoldsAction(definition WorkflowDefinition, stepID, actionID string) bool {
-	return actionID == "accept_worker_result" && workflowStepHasApprovalGate(definition, stepID)
-}
-
-// workflowStepHasApprovalGate reports whether the step declares an
-// approval-required advancing action, the gate that is the step's only exit.
-func workflowStepHasApprovalGate(definition WorkflowDefinition, stepID string) bool {
-	step := workflowStep(definition, stepID)
-	if step == nil {
-		return false
-	}
-	for _, candidate := range step.Actions {
-		for _, action := range definition.ActionDefinitions {
-			if action.ID == candidate && action.ExecutionMode == ActionAdvance && action.Approval == ActionApprovalRequired {
-				return true
-			}
-		}
-	}
-	return false
+// workflowAcceptAdvancesStep reports whether an accept_worker_result
+// completion leaves its step: only the combined accept-and-delivery at the
+// refinement step does (CD-0198 D4).
+func workflowAcceptAdvancesStep(definition WorkflowDefinition, stepID string, fields map[string]json.RawMessage) bool {
+	return workflowAcceptDeliveryAdmissionActive(definition, stepID) && workflowAcceptCarriesDeliveryAssertion(fields)
 }
 
 // defaultedPayload returns the action payload with an empty payload
@@ -1472,14 +1455,12 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			completionValues["delivery_state"] = state
 		}
 	}
-	// CD-0201 D3: the accept guard's admission decision rides the completion
-	// it authors. The accepted non-delivery disposition of a ready
-	// non-settling review holds the step's advance — the debt waits for a
-	// settling review — so the guard records the hold from the folded
-	// admission state, and the fold honors the recorded field only. An
-	// accepted Review at an approval-gated step also holds: the gate is that
-	// step's only exit (CD-0117).
-	if in.request.ActionID == "accept_worker_result" && (workflowAcceptBindsReadyUnsettledReview(in.admission, fields) || workflowGateHoldsAction(in.entry.Definition, in.currentStep, in.request.ActionID)) {
+	// CD-0201 D3 and CD-0242 D5: the accept guard's admission decision rides
+	// the completion it authors, and the fold honors the recorded field only.
+	// Main's acceptance records a disposition; only the combined
+	// accept-and-delivery at the refinement step advances (CD-0198 D4), and
+	// never for the accepted disposition of a ready non-settling review.
+	if in.request.ActionID == "accept_worker_result" && (workflowAcceptBindsReadyUnsettledReview(in.admission, fields) || !workflowAcceptAdvancesStep(in.entry.Definition, in.currentStep, fields)) {
 		completionValues["review_advance_held"] = true
 	}
 	var workerPacketDigest string

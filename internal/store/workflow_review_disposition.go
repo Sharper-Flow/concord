@@ -103,7 +103,7 @@ func workflowRefineReviewCorrectionDecision(ctx context.Context, q queryer, work
 	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events e JOIN worker_attempts a
  ON a.work_id=e.subject_id AND a.attempt_id=json_extract(e.payload,'$.worker_attempt_id')
  WHERE e.subject_type='work_item' AND e.subject_id=? AND e.kind=? AND e.seq>?
- AND json_extract(e.payload,'$.step_id')=? AND json_extract(e.payload,'$.action_id')='accept_worker_result'
+ AND json_extract(e.payload,'$.step_id')=? AND json_extract(e.payload,'$.action_id')='accept_worker_evidence'
  AND a.capability_class='review' AND a.lifecycle_state='completed')`, workID, WorkflowActionCompleted, boundary, step).Scan(&accepted); err != nil {
 		return workflowRefineReviewCorrectionNotApplicable, wrapFailure(KindUnavailable, subject, "cannot inspect accepted refinement review evidence", true, "retry once the workflow projection is readable", err)
 	}

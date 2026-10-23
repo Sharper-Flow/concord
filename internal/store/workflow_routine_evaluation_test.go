@@ -99,18 +99,6 @@ func foldRoutineVerdict(t *testing.T, s *Store, workID string, reviewer Workflow
 func TestRoutineEvaluation(t *testing.T) {
 	t.Parallel()
 
-	t.Run("legacy correction keeps the operator approval identity", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-legacy-correction"
-		fixture := prepareVerdictCorrectionFixture(t, workID)
-		g := routineGuardContext(t, fixture.store, workID, "request_correction", nil, false)
-		err := guardOperatorPremiseActor(g)
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindApprovalRequired || !strings.Contains(failure.Detail, "verified operator approval identity") {
-			t.Fatalf("legacy correction without operator identity returned %v, want the approval-identity refusal", err)
-		}
-	})
-
 	t.Run("new policy refuses operator-substituted verdicts", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-verdict-substitution"

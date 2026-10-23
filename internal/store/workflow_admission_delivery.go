@@ -66,25 +66,7 @@ func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string
 		return state, nil, nil, err
 	}
 	state.Started = found
-	review, err := loadWorkflowReviewState(ctx, q, workID, 0)
-	if err != nil {
-		return state, nil, nil, err
-	}
-	candidate := review.Candidate
-	if acceptingAttempt != "" {
-		auth, result, err := readReviewAttempt(ctx, q, workID, acceptingAttempt)
-		if err != nil {
-			return state, nil, nil, err
-		}
-		pending, err := workflowAcceptedResultCandidate(ctx, q, workID, auth, result)
-		if err != nil {
-			return state, nil, nil, err
-		}
-		if pending != nil {
-			candidate = pending
-		}
-	}
-	integrationRuns, err := loadWorkflowDeliveryJobAdmissionForCandidate(ctx, q, workID, definition, &state, candidate)
+	integrationRuns, err := loadWorkflowDeliveryJobAdmissionForAccept(ctx, q, workID, definition, &state, acceptingAttempt)
 	if err != nil {
 		return state, nil, nil, err
 	}
@@ -97,7 +79,7 @@ func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string
 	}
 	var runs []workflowVerificationRun
 	for _, ref := range refs {
-		command, _, why, err := workflowCandidateVerificationRun(ctx, q, workID, ref, candidate)
+		command, _, why, err := workflowCandidateVerificationRun(ctx, q, workID, ref, acceptingAttempt)
 		if err != nil {
 			var failure *Failure
 			if !failureAs(err, &failure) || failure.Kind == KindUnavailable {
@@ -148,14 +130,10 @@ func workflowRefineProofFailure(why string) *Failure {
 // required job result population. The producer's actual subject must equal the
 // integrated candidate. Acceptance chronology cannot invalidate unchanged proof.
 func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, state *workflowDeliveryAdmission) ([]workflowVerificationRun, error) {
-	review, err := loadWorkflowReviewState(ctx, q, workID, 0)
-	if err != nil {
-		return nil, err
-	}
-	return loadWorkflowDeliveryJobAdmissionForCandidate(ctx, q, workID, definition, state, review.Candidate)
+	return loadWorkflowDeliveryJobAdmissionForAccept(ctx, q, workID, definition, state, "")
 }
 
-func loadWorkflowDeliveryJobAdmissionForCandidate(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, state *workflowDeliveryAdmission, candidate *WorkerReviewCandidate) ([]workflowVerificationRun, error) {
+func loadWorkflowDeliveryJobAdmissionForAccept(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, state *workflowDeliveryAdmission, acceptingAttempt string) ([]workflowVerificationRun, error) {
 	if !workflowWorkerJobsActive(definition) {
 		return nil, nil
 	}
@@ -218,7 +196,7 @@ func loadWorkflowDeliveryJobAdmissionForCandidate(ctx context.Context, q queryer
 	covered := map[string]bool{}
 	runs := make([]workflowVerificationRun, 0, len(refs))
 	for _, ref := range refs {
-		command, project, why, err := workflowCandidateVerificationRun(ctx, q, workID, ref, candidate)
+		command, project, why, err := workflowCandidateVerificationRun(ctx, q, workID, ref, acceptingAttempt)
 		if err != nil {
 			var failure *Failure
 			if !failureAs(err, &failure) || failure.Kind == KindUnavailable {
@@ -238,13 +216,33 @@ func loadWorkflowDeliveryJobAdmissionForCandidate(ctx context.Context, q queryer
 
 // Proof applicability follows the producer's subject, not its position relative
 // to an acceptance or a stage start. An unchanged candidate needs no rerun.
-func workflowCandidateVerificationRun(ctx context.Context, q queryer, workID, ref string, candidate *WorkerReviewCandidate) ([]string, string, string, error) {
+func workflowCandidateVerificationRun(ctx context.Context, q queryer, workID, ref, acceptingAttempt string) ([]string, string, string, error) {
 	producer, err := readOracleVerifySubjectReceipt(ctx, q, workID, ref)
 	if err != nil {
 		return nil, "", "", err
 	}
 	if producer == nil {
 		return nil, "", "no passing unchanged-tree producer receipt", nil
+	}
+	// Only an actual producer needs singular Review dependencies. Inapplicable
+	// delivery and refs without a producer must leave recovery readable.
+	review, err := loadWorkflowReviewState(ctx, q, workID, 0)
+	if err != nil {
+		return nil, "", "", err
+	}
+	candidate := review.Candidate
+	if acceptingAttempt != "" {
+		auth, result, err := readReviewAttempt(ctx, q, workID, acceptingAttempt)
+		if err != nil {
+			return nil, "", "", err
+		}
+		pending, err := workflowAcceptedResultCandidate(ctx, q, workID, auth, result)
+		if err != nil {
+			return nil, "", "", err
+		}
+		if pending != nil {
+			candidate = pending
+		}
 	}
 	if candidate == nil || producer.SubjectRef != "commit:"+candidate.Commit || producer.ProjectID != candidate.ProjectID {
 		return producer.Command, producer.ProjectID, "verification does not cover the current integrated candidate", nil

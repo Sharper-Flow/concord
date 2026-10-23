@@ -5,7 +5,8 @@ import (
 	"encoding/json"
 )
 
-// A clean first editing result at its own dispatch commit changed nothing.
+// A clean first result at its dispatch commit must prove the job's declared
+// outcome already holds; editing capability alone does not require an edit.
 // Later attempts may deliver a retained draft from an earlier failed attempt;
 // without a recorded job base, commit equality cannot judge those corrections.
 func guardAcceptWorkerResultChanges(g *workflowActionGuardContext, fields map[string]json.RawMessage) error {
@@ -49,6 +50,68 @@ func guardAcceptWorkerResultChanges(g *workflowActionGuardContext, fields map[st
 	if firstAttempt != attemptID {
 		return nil
 	}
-	return newFailure(KindInvalidOperation, "workflow_action", "accept_worker_result: the editing job's first result has no changed paths; its clean observed delivery equals its dispatch subject", false,
-		"reject the result with reject_worker_result and dispatch a correction that delivers the recorded job")
+	lineage, err := readWorkerOracleFindingLineageTx(g.ctx, g.tx, g.request.WorkID)
+	if err != nil {
+		return err
+	}
+	oracle := lineage.oracleForBinding(*completed.WorkerJob)
+	if proven, err := unchangedJobOutcomeProven(g, &completed, oracle); err != nil {
+		return err
+	} else if proven {
+		return nil
+	}
+	return newFailure(KindInvalidOperation, "workflow_action", "accept_worker_result: the job has no changed paths and lacks fresh passing evidence that its declared outcome already holds", false,
+		"report fresh passing executions of every declared job control on the unchanged subject with the required evidence roles; if the outcome does not hold, reject_worker_result and correct the unmet outcome, not the absence of an edit")
+}
+
+func unchangedJobOutcomeProven(g *workflowActionGuardContext, completed *WorkerCompletedPayload, oracle *AcceptanceOracle) (bool, error) {
+	if oracle == nil || len(oracle.Controls) == 0 {
+		return false, nil
+	}
+	var worker string
+	if err := g.tx.QueryRowContext(g.ctx, `SELECT json_extract(payload,'$.lane_actor_ref') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, string(SubjectWorkItem), g.request.WorkID, WorkerDispatched, completed.AttemptID).Scan(&worker); err != nil {
+		return false, workflowProjectionError(err, "cannot read the result's producing actor")
+	}
+	controls := oracleControlIndex(oracle)
+	covered := map[string]bool{}
+	for _, receipt := range inFlightOracleReceipts(completed) {
+		if receipt.Result != OracleReceiptResultPass || receipt.SubjectCommit != completed.ObservedDelivery.Commit {
+			continue
+		}
+		if err := validateWorkerOracleReceiptJoins(&receipt, controls); err != nil {
+			return false, err
+		}
+		producer, err := workerOracleReceiptProducerTx(g.ctx, g.tx, g.request.WorkID, &receipt, oracle, completed.ObservedDelivery.Commit)
+		if err != nil {
+			return false, err
+		}
+		for _, id := range receipt.ControlIDs {
+			control := controls[id]
+			if !oracleReceiptCoversControl(receipt, control) {
+				continue
+			}
+			fresh, err := oracleControlProducerFreshTx(g.ctx, g.tx, g.request.WorkID, receipt.SubjectCommit, control, producer)
+			if err != nil {
+				return false, err
+			}
+			if !fresh {
+				continue
+			}
+			if control.RequiredEvidenceRole == OracleEvidenceRoleIndependentlyExecuted {
+				bound, err := oracleClosureProducerBoundTx(g.ctx, g.tx, g.request.WorkID, receipt.RunRef, producer.OperationRef)
+				if err != nil {
+					return false, err
+				}
+				independent, err := oracleClosureIndependentProducerTx(g.ctx, g.tx, g.request.WorkID, producer, completed, worker)
+				if err != nil {
+					return false, err
+				}
+				if !bound || !independent {
+					continue
+				}
+			}
+			covered[id] = true
+		}
+	}
+	return len(covered) == len(controls), nil
 }

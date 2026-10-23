@@ -5,7 +5,99 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestAcceptWorkerResultNoChangeProvesDeclaredOutcomeAndReachesReview(t *testing.T) {
+	const workID = "accept-confirmed-outcome"
+	f := seedOracleRepairFixture(t, workID)
+	defer f.store.Close()
+	job := recordOracleJobRevision(t, f.store, workID, f.owner, "job:confirm", twoPathOracleFields(t, f.store, workID, nil))
+	attempt := "attempt:" + workID
+	subject := dispatchChangeAcceptanceAttempt(t, f, workID, attempt, job)
+	receipts := noChangeOutcomeReceipts(t, f, workID, true)
+	completed := completeChangeAcceptanceAttempt(t, f, workID, attempt, subject, func(p *WorkerCompletedPayload) {
+		appendNoChangeReceipts(p, receipts)
+	})
+	if completed.ObservedDelivery == nil || completed.ObservedDelivery.State != "clean" || completed.ObservedDelivery.Commit != subject {
+		t.Fatalf("confirmation did not retain the clean dispatch subject: %+v", completed.ObservedDelivery)
+	}
+	if err := acceptChangeTestAttempt(t, f, workID, attempt); err != nil {
+		t.Fatalf("declared outcome already passes without a change: %v", err)
+	}
+	review := "attempt:confirmed-review"
+	reviewJob := recordOracleJobRevision(t, f.store, workID, f.owner, "job:confirmed-review", twoPathOracleFields(t, f.store, workID, nil))
+	lane := reviewGateLane(t, "review")
+	packet := joinPacketFor(t, f.store, workID, "repair", review, lane.ID, lane.Version, lane.Digest)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, f.store, workID, reviewJob, lane.ID)
+	if err := dispatchJobPacketForTest(t, f.store, workID, review, f.owner, "dispatch-confirmed-review", packet); err != nil {
+		t.Fatalf("review after accepted confirmation: %v", err)
+	}
+	if window := reviewSubjectWindow(t, f.store, workID, review); window.SubjectCommit != subject {
+		t.Fatalf("review subject = %s, want unchanged accepted subject %s", window.SubjectCommit, subject)
+	}
+}
+
+func TestAcceptWorkerResultNoChangeRequiresCompleteFreshOutcomeProof(t *testing.T) {
+	for _, name := range []string{"missing-control", "later-failure", "unbound-independent"} {
+		t.Run(name, func(t *testing.T) {
+			workID := "accept-nochange-" + name
+			f := seedOracleRepairFixture(t, workID)
+			defer f.store.Close()
+			job := recordOracleJobRevision(t, f.store, workID, f.owner, "job:confirm", twoPathOracleFields(t, f.store, workID, nil))
+			attempt := "attempt:" + workID
+			subject := dispatchChangeAcceptanceAttempt(t, f, workID, attempt, job)
+			receipts := noChangeOutcomeReceipts(t, f, workID, name != "unbound-independent")
+			if name == "missing-control" {
+				receipts = receipts[:1]
+			}
+			completeChangeAcceptanceAttempt(t, f, workID, attempt, subject, func(p *WorkerCompletedPayload) {
+				appendNoChangeReceipts(p, receipts)
+			})
+			if name == "later-failure" {
+				oracleVerifyControl(t, f, workID, "outcome-still-fails", "1", oracleGoArgv("path-a"), 1)
+			}
+			before := maxEventSeq(t, f.store, workID)
+			err := acceptChangeTestAttempt(t, f, workID, attempt)
+			if err == nil || !strings.Contains(err.Error(), "no changed paths") {
+				t.Fatalf("accept with %s proof = %v, want no-change refusal", name, err)
+			}
+			if after := maxEventSeq(t, f.store, workID); after != before {
+				t.Fatalf("refused acceptance wrote events: before=%d after=%d", before, after)
+			}
+		})
+	}
+}
+
+func appendNoChangeReceipts(p *WorkerCompletedPayload, receipts []WorkerOracleReceipt) {
+	for i := range receipts {
+		entry := p.Evidence[0]
+		entry.Detail = receipts[i].RunRef
+		entry.OracleReceipt = &receipts[i]
+		p.Evidence = append(p.Evidence, entry)
+	}
+}
+
+func noChangeOutcomeReceipts(t *testing.T, f oracleRepairFixture, workID string, bindIndependent bool) []WorkerOracleReceipt {
+	t.Helper()
+	var receipts []WorkerOracleReceipt
+	for _, path := range []string{"a", "b"} {
+		run := oracleVerifyControl(t, f, workID, "confirm-"+path, "1", oracleGoArgv("path-"+path), 0)
+		if path == "b" && bindIndependent {
+			event := workflowTypedEvent("bind-"+run.LeaseID, WorkflowEvidenceBound, workID, "actor:test", time.Unix(60, 0).UTC(), readWorkVersion(t, f.store, workID), map[string]any{
+				"evidence_kind": "verification", "immutable_subject_ref": run.OperationRef, "producer_id": "principal-1",
+				"producer_run_ref": run.OperationRef, "producer_watermark": "req-v-" + run.LeaseID, "observed_at": time.Unix(60, 0).UTC().Format(time.RFC3339Nano),
+			})
+			if err := applyWorkflowTestOperation(context.Background(), f.store, Operation{Events: []Event{event}}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		exit := 0
+		receipts = append(receipts, WorkerOracleReceipt{ControlIDs: []string{"control:check-" + path}, CaseIDs: []string{"case:path-" + path}, SubjectCommit: strings.TrimPrefix(run.SubjectRef, "commit:"),
+			RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}, Result: OracleReceiptResultPass, ExitCode: &exit, RunRef: run.OperationRef, EvidenceRefs: []string{run.OperationRef}})
+	}
+	return receipts
+}
 
 func TestAcceptWorkerResultRefusesNoOpLaneReport(t *testing.T) {
 	const workID = "accept-noop-implementation"
@@ -15,7 +107,12 @@ func TestAcceptWorkerResultRefusesNoOpLaneReport(t *testing.T) {
 	job := recordOracleJobRevision(t, s, workID, f.owner, "job:noop", twoPathOracleFields(t, s, workID, nil))
 	attempt := "attempt:" + workID
 	subject := dispatchChangeAcceptanceAttempt(t, f, workID, attempt, job)
-	completed := completeChangeAcceptanceAttempt(t, f, workID, attempt, subject)
+	failed := oracleVerifyControl(t, f, workID, "required-outcome-fails", "1", oracleGoArgv("path-a"), 1)
+	exit := 1
+	completed := completeChangeAcceptanceAttempt(t, f, workID, attempt, subject, func(p *WorkerCompletedPayload) {
+		withReceipt(p, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, SubjectCommit: subject,
+			RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}, Result: OracleReceiptResultFail, ExitCode: &exit, RunRef: failed.OperationRef, EvidenceRefs: []string{failed.OperationRef}})
+	})
 	if completed.ObservedDelivery == nil || completed.ObservedDelivery.State != "clean" || completed.ObservedDelivery.Commit != subject {
 		t.Fatalf("no-op fixture must complete clean at its dispatch subject: observation=%+v subject=%s", completed.ObservedDelivery, subject)
 	}
@@ -57,10 +154,14 @@ func dispatchChangeAcceptanceAttempt(t *testing.T, f oracleRepairFixture, workID
 	return view.SubjectCommit
 }
 
-func completeChangeAcceptanceAttempt(t *testing.T, f oracleRepairFixture, workID, attempt, head string) WorkerCompletedPayload {
+func completeChangeAcceptanceAttempt(t *testing.T, f oracleRepairFixture, workID, attempt, head string, builds ...func(*WorkerCompletedPayload)) WorkerCompletedPayload {
 	t.Helper()
 	s := f.store
-	completion := oracleCompletionEvent(t, s, workID, attempt, "noop-completion", nil)
+	completion := oracleCompletionEvent(t, s, workID, attempt, "noop-completion", func(p *WorkerCompletedPayload) {
+		for _, build := range builds {
+			build(p)
+		}
+	})
 	prepared, err := PrepareWorkerTerminalDelivery(context.Background(), s, PrepareWorkerTerminalDeliveryRequest{
 		WorkID: workID, AttemptID: attempt, EventID: completion.EventID, Runner: qualifiedSubjectRunner{head: head},
 	})

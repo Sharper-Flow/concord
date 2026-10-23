@@ -102,9 +102,9 @@ func TestUnfencedCheckpointEpochUsesCausalPrefix(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "unfenced-checkpoint-prefix"
-	definition := mustBuiltinDefinition(t, "workflow.architecture_spike").Definition
+	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
 	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "")
-	step := workflowStep(definition, "decision_record")
+	step := workflowStep(definition, "acceptance")
 	assertEpoch := func(beforeSeq, want int64) {
 		t.Helper()
 		got, err := workflowCheckpointAttemptEpoch(context.Background(), s.db, definition, step, workID, step.ID, beforeSeq)
@@ -113,19 +113,19 @@ func TestUnfencedCheckpointEpochUsesCausalPrefix(t *testing.T) {
 		}
 	}
 	assertEpoch(0, 1)
-	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"decision_record","attempt_epoch":1}`)
+	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"acceptance","attempt_epoch":1}`)
 	var firstSeq int64
 	if err := s.db.QueryRow(`SELECT MAX(seq) FROM domain_events`).Scan(&firstSeq); err != nil {
 		t.Fatal(err)
 	}
 	assertEpoch(firstSeq, 1)
 	assertEpoch(0, 2)
-	stalenessEvent(t, s, workID, WorkflowActionStarted, `{"step_id":"decision_record","action_id":"dispatch_worker","attempt_epoch":1}`)
+	stalenessEvent(t, s, workID, WorkflowActionStarted, `{"step_id":"acceptance","action_id":"dispatch_worker","attempt_epoch":1}`)
 	assertEpoch(0, 2)
 	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"review","attempt_epoch":41}`)
-	stalenessEvent(t, s, "another-work", WorkflowActionCheckpointed, `{"step_id":"decision_record","attempt_epoch":51}`)
+	stalenessEvent(t, s, "another-work", WorkflowActionCheckpointed, `{"step_id":"acceptance","attempt_epoch":51}`)
 	assertEpoch(0, 2)
-	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"decision_record","attempt_epoch":2}`)
+	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"acceptance","attempt_epoch":2}`)
 	var secondSeq int64
 	if err := s.db.QueryRow(`SELECT MAX(seq) FROM domain_events`).Scan(&secondSeq); err != nil {
 		t.Fatal(err)
@@ -133,12 +133,12 @@ func TestUnfencedCheckpointEpochUsesCausalPrefix(t *testing.T) {
 	assertEpoch(firstSeq, 1)
 	assertEpoch(secondSeq, 2)
 	assertEpoch(0, 3)
-	stalenessEvent(t, s, workID, WorkflowActionStarted, `{"step_id":"decision_record","action_id":"dispatch_worker","attempt_epoch":61}`)
+	stalenessEvent(t, s, workID, WorkflowActionStarted, `{"step_id":"acceptance","action_id":"dispatch_worker","attempt_epoch":61}`)
 	assertEpoch(secondSeq, 2)
 	assertEpoch(0, 61)
-	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"decision_record","attempt_epoch":61}`)
+	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"acceptance","attempt_epoch":61}`)
 	assertEpoch(0, 62)
-	if _, err := workflowCheckpointAttemptEpoch(context.Background(), s.db, definition, workflowStep(definition, "poc_optional"), workID, "poc_optional", 0); !hasFailureKind(err, KindIllegalLifecycleTransition) {
+	if _, err := workflowCheckpointAttemptEpoch(context.Background(), s.db, definition, workflowStep(definition, "execution"), workID, "execution", 0); !hasFailureKind(err, KindIllegalLifecycleTransition) {
 		t.Fatalf("fenced checkpoint without a start = %v, want invalid_transition", err)
 	}
 }
@@ -236,11 +236,8 @@ func TestSupersessionStalesArtifactUntilReproduced(t *testing.T) {
 	}
 }
 
-// TestResearchAndSpikeProducersClearStaleness derives the production frontier
-// from the owning family mechanisms: research's investigate step produces
-// through its recording actions, and the spike's decision_record through
-// record_decision — no worker dispatch exists on either step.
-func TestResearchAndSpikeProducersClearStaleness(t *testing.T) {
+// Research's investigate step produces through its recording action.
+func TestResearchProducerClearsStaleness(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
@@ -258,24 +255,6 @@ func TestResearchAndSpikeProducersClearStaleness(t *testing.T) {
 	stalenessEvent(t, s, researchWork, string(WorkflowActionCompleted), stalenessActionPayload("investigate", "record_finding"))
 	if state := foldStalenessState(t, s, researchWork, research); state.ArtifactStale {
 		t.Fatal("record_finding at investigate did not clear research staleness")
-	}
-
-	spikeStore := openTemp(t)
-	defer spikeStore.Close()
-	spike := mustBuiltinDefinition(t, "workflow.architecture_spike").Definition
-	if actions := workflowStepArtifactActions(spike, "decision_record"); len(actions) != 1 || actions[0] != "record_decision" {
-		t.Fatalf("spike decision_record artifact actions = %v, want [record_decision]", actions)
-	}
-	const spikeWork = "stale-spike"
-	pinWorkflowAtStep(t, spikeStore, spikeWork, "workflow.architecture_spike", spike.Version, "review")
-	stalenessSeedContract(t, spikeStore, spikeWork)
-	stalenessEvent(t, spikeStore, spikeWork, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
-	if state := foldStalenessState(t, spikeStore, spikeWork, spike); !state.ArtifactStale {
-		t.Fatal("bad verdict at review did not stale the spike artifact")
-	}
-	stalenessEvent(t, spikeStore, spikeWork, string(WorkflowActionCompleted), stalenessActionPayload("decision_record", "record_decision"))
-	if state := foldStalenessState(t, spikeStore, spikeWork, spike); state.ArtifactStale {
-		t.Fatal("record_decision at decision_record did not clear spike staleness")
 	}
 }
 
@@ -406,13 +385,9 @@ func TestStaleOkVerdictNeedsUnhealthyVerdictForDeclaredRoute(t *testing.T) {
 func TestCorrectionRoutesDeriveFromNoWorkKind(t *testing.T) {
 	t.Parallel()
 	expectations := map[string][2]string{
-		"workflow.implementation":     {"acceptance", "execution"},
-		"workflow.break_fix":          {"verify", "repair"},
-		"workflow.generic_one_off":    {"verify", "execute"},
-		"workflow.static_analysis":    {"review", "analyze"},
-		"workflow.ops_runbook":        {"health", "execute"},
-		"workflow.architecture_spike": {"review", "decision_record"},
-		"workflow.research":           {"conclude", "investigate"},
+		"workflow.implementation": {"acceptance", "execution"},
+		"workflow.break_fix":      {"verify", "repair"},
+		"workflow.research":       {"conclude", "investigate"},
 	}
 	for ref, want := range expectations {
 		definition := mustBuiltinDefinition(t, ref).Definition

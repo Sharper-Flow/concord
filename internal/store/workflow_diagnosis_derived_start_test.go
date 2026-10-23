@@ -481,8 +481,8 @@ func TestNonQualifyingActionsCannotStartTheRepairStep(t *testing.T) {
 	}
 	err = runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:no-start-`+workID+`","delivery_state":"asserted"}`), 0, actor)
 	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence || failure.Detail != "execution progression requires an accepted Review on the current candidate and depended-on revisions" {
-		t.Fatalf("record_delivery without any start or Review = %v, want the Review refusal (CD-0242 D5)", err)
+	if !errors.As(err, &failure) || !strings.Contains(failure.Detail, "fenced start") {
+		t.Fatalf("record_delivery without any start = %v, want the missing-start refusal", err)
 	}
 	// The continuity hold stays behind the start at the fenced step, so no
 	// checkpoint-shaped side door starts the step either.

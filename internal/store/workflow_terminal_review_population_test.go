@@ -2,6 +2,7 @@ package store
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -165,10 +166,9 @@ func TestManagedCandidateTerminalReviewPopulation(t *testing.T) {
 		runB := j.observeRun(t, "b-verdict")
 		j.bindVerification(t, runB)
 		before := j.effects(t)
-		if err := j.action(t, "record_verdict", criterionAssociationPayload(runB.OperationRef, "predicate:work-context"), j.fixture.owner); err == nil {
-			t.Fatal("criterion association over unrecorded B admitted")
-		} else {
-			t.Logf("criterion association over unrecorded B refused: %v", err)
+		var failure *Failure
+		if err := j.action(t, "record_verdict", criterionAssociationPayload(runB.OperationRef, "predicate:work-context"), j.fixture.owner); !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "requires a passing producer receipt on the final candidate") {
+			t.Fatalf("criterion association over unrecorded B = %v, want the final-candidate receipt refusal", err)
 		}
 		if after := j.effects(t); after != before {
 			t.Fatalf("refused association changed durable state:\nbefore=%s\nafter=%s", before, after)

@@ -208,6 +208,34 @@ class SubagentMethodProjectionTests(unittest.TestCase):
             self.assertIn("do not broaden the review into an unrelated audit", text)
         self.assertEqual(carrying, {"review"})
 
+    def test_group_review_delivers_recurring_scan_without_a_new_report_contract(self):
+        approved = (
+            "Every code-changing workflow includes a slop scan in its implementation-group reviews. "
+            "The scan covers dead or superseded mechanisms, duplication, unnecessary abstractions, "
+            "contradictory guidance and missing cleanup across the accumulated change and affected dependencies. "
+            "Use applicable deterministic checks plus semantic inspection; scanner warnings alone are not verdicts. "
+            "Resolve in-scope blocking findings before progression. Reuse applicable evidence, but check "
+            "subsequent changes before delivery. Small changes use their existing review; this adds no "
+            "separate review stage or repository-wide cleanup campaign."
+        )
+        manifest, _ = generator.load_manifest()
+        carrying = set()
+        for lane in manifest["lanes"]:
+            text = " ".join(lane_projection(lane).split())
+            if approved not in text:
+                continue
+            carrying.add(lane["id"])
+            self.assertIn("existing `findings`, `assessments` and `remaining_obligations`", text)
+            self.assertIn("Bind findings and applicable checks to the corrected `output_candidate`", text)
+            self.assertIn("Do not add a reviewer or install a scanner", text)
+            self.assertIn("Do not turn style preferences into defects or a blocking disposition", text)
+        self.assertEqual(carrying, {"review"})
+        block = REPORT_SCHEMA["$defs"]["review_block"]
+        self.assertNotIn("slop_scan", block["properties"])
+        self.assertEqual(set(block["properties"]["disposition"]["enum"]), {
+            "continue", "correction_required", "revision_required", "ready_for_final_proof",
+        })
+
     def test_review_teaching_agrees_with_report_schema(self):
         manifest, _ = generator.load_manifest()
         review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")

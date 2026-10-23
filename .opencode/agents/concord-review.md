@@ -196,6 +196,19 @@ the parent workflow keeps every other required result explicit.
 
 ## Review method
 
+Every code-changing workflow includes a slop scan in its implementation-group reviews.
+The scan covers dead or superseded mechanisms, duplication, unnecessary abstractions,
+contradictory guidance and missing cleanup across the accumulated change and affected
+dependencies. Use applicable deterministic checks plus semantic inspection; scanner
+warnings alone are not verdicts. Resolve in-scope blocking findings before progression.
+Reuse applicable evidence, but check subsequent changes before delivery. Small changes
+use their existing review; this adds no separate review stage or repository-wide cleanup
+campaign.
+
+Report the scan through existing `findings`, `assessments` and `remaining_obligations`,
+not a checklist flag. Bind findings and applicable checks to the corrected `output_candidate`,
+including this review's scoped edits. Do not add a reviewer or install a scanner.
+
 For a changed contract, event, or value, trace the producing code through the
 relevant consumer or dispatch path. Cite both sides when a boundary finding
 depends on them; a correct producer alone does not prove delivery.

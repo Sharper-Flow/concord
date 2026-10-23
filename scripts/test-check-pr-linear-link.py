@@ -209,6 +209,59 @@ def test_a_title_mention_is_not_the_related_line() -> None:
     assert not ok, "the Related-to line is required in the body, not the title"
 
 
+# A closing word directly before any <TEAM>-<n> token refuses, whatever the
+# token means. Whether Linear acts on it depends on which teams and issues the
+# workspace holds, and the check does not read the workspace: a fixed team list
+# would let a team created later close issues unchecked. Ordinary prose of the
+# same shape refuses too, and the refusal tells the author how to reword it.
+REWORD = "put another word between the closing word and the token, or drop the closing word"
+
+
+def test_a_future_team_key_after_a_closing_word_is_refused() -> None:
+    ok, detail = guard.check_pr_link("work/work-abc", "feat: add a thing", "Related to CON-427\n\nCloses FUTURETEAM-1\n")
+    assert not ok, "a key from a team that does not exist yet must still refuse"
+    assert "FUTURETEAM-1" in detail, detail
+
+
+def test_sha256_prose_after_a_closing_word_is_refused() -> None:
+    body = "Related to CON-427\n\nImplements SHA-256 digests for the store.\n"
+    ok, detail = guard.check_pr_link("work/work-abc", "feat: add a thing", body)
+    assert not ok, "SHA-256 has the shape of an issue key and SHA is a team, so it must refuse"
+    assert "'Implements SHA-256'" in detail, detail
+    assert REWORD in detail, detail
+
+
+def test_utf8_prose_after_a_closing_word_is_refused_with_rewording_guidance() -> None:
+    body = "Related to CON-427\n\nThe decoder reads complete UTF-8 sequences.\n"
+    ok, detail = guard.check_pr_link("work/work-abc", "feat: add a thing", body)
+    assert not ok, "UTF-8 has the shape of an issue key, so it must refuse"
+    assert detail.startswith("the body has the closing phrase 'complete UTF-8',"), detail
+    assert "closing UTF-8 if such an issue exists" in detail, "the refusal must not claim UTF-8 is an issue"
+    assert REWORD in detail, detail
+    assert "Related to <TEAM>-<n>" in detail, detail
+
+
+def test_the_refusal_quotes_every_closing_phrase_it_found() -> None:
+    body = "Related to CON-427\n\nFixes CON-1 and then Resolves https://linear.app/example/issue/CON-2/slug\n"
+    ok, detail = guard.check_pr_link("work/work-abc", "feat: add a thing", body)
+    assert not ok, detail
+    assert "'Fixes CON-1'" in detail, detail
+    assert "'Resolves https://linear.app/example/issue/CON-2'" in detail, detail
+
+
+def test_a_title_refusal_quotes_the_title_phrase() -> None:
+    ok, detail = guard.check_pr_link("work/work-abc", "fix: complete UTF-8 decoding", "Related to CON-427\n")
+    assert not ok, detail
+    assert "title" in detail and "'complete UTF-8'" in detail, detail
+    assert REWORD in detail, detail
+
+
+def test_rewording_the_prose_passes() -> None:
+    body = "Related to CON-427\n\nThe decoder reads complete, valid UTF-8 sequences.\n"
+    ok, detail = guard.check_pr_link("work/work-abc", "feat: add a thing", body)
+    assert ok, detail
+
+
 def test_non_work_branch_passes_without_a_body() -> None:
     ok, detail = guard.check_pr_link("feature/thing", "", "")
     assert ok, detail

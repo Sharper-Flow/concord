@@ -478,17 +478,7 @@ func TestManagedCandidateSubjectLateReviewNeverReplacesNewerCandidate(t *testing
 	if got := j.dispatchedSubject(t, corrective); got != j.a {
 		t.Fatalf("corrective Review input = %q, want A %q", got, j.a)
 	}
-	path := filepath.Join("internal", "store", job.JobID, "review.txt")
-	if err := os.MkdirAll(filepath.Join(j.repo, filepath.Dir(path)), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(j.repo, path), []byte("corrective review note\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	a2 := j.commit(t, "reviewer@example.invalid", "corrective review pass")
-	report := currentReviewBlockForTest(t, j.s, j.workID, corrective, "ready_for_final_proof")
-	report.OutputCandidate = WorkerReviewCandidate{ProjectID: report.InputCandidate.ProjectID, Commit: a2, Tree: reviewObservedTree(t, j.repo, a2)}
-	j.completeReview(t, corrective, job, report)
+	a2, _ := j.completeCorrectiveReview(t, corrective, job, filepath.Join("internal", "store", job.JobID, "review.txt"), "corrective review note\n", "corrective-a2")
 	if err := j.acceptEvidence(t, corrective); err != nil {
 		t.Fatalf("accept the corrective Review that integrates A2: %v", err)
 	}
@@ -552,24 +542,6 @@ func (j *candidateJourney) requireAcceptedReview(t *testing.T, attemptID, candid
 	}
 	if state.Accepted == nil || state.Accepted.AttemptID != attemptID || state.Candidate == nil || state.Candidate.Commit != candidate {
 		t.Fatalf("accepted Review = %+v candidate = %+v, want %s integrating %s", state.Accepted, state.Candidate, attemptID, candidate)
-	}
-}
-
-// correctToRepair binds the B observation, records the reviewer's verdict
-// that B lacks evidence, and takes the declared operator-approved correction
-// back to repair.
-func (j *candidateAtVerify) correctToRepair(t *testing.T, observation WorktreeVerifyResult) {
-	t.Helper()
-	j.bindVerification(t, observation)
-	if err := j.action(t, "record_verdict", map[string]any{"contract_version": 1, "verdicts": []map[string]any{{"predicate_id": "predicate:work-context", "verdict_kind": "insufficient_evidence", "evaluation_evidence": []string{observation.OperationRef}}}}, j.reviewer); err != nil {
-		t.Fatalf("record B insufficient-evidence verdict: %v", err)
-	}
-	correction := map[string]any{"diagnosis": "the coordinator integration produced subject B, which no independent evidence covers", "strategy": "prepare the pinned harness for B and verify B independently", "predicate_ids": []string{"predicate:work-context"}, "evidence_refs": []string{observation.OperationRef}}
-	if err := runIssue933OperatorAction(t, j.s, j.workID, "request_correction", mustJSONValue(correction), j.fixture.owner, j.fixture.operator); err != nil {
-		t.Fatalf("request correction for B: %v", err)
-	}
-	if got := currentStep(t, j.s, j.workID); got != "repair" {
-		t.Fatalf("step after correction = %q, want repair", got)
 	}
 }
 
@@ -697,6 +669,29 @@ func (j *candidateJourney) completeLane(t *testing.T, attemptID, capability stri
 		review = currentReviewBlockForTest(t, j.s, j.workID, attemptID, "ready_for_final_proof")
 	}
 	j.completeAttempt(t, attemptID, capability, *job, review, receipt)
+}
+
+// completeCorrectiveReview commits the dispatched Review's corrective change
+// inside its job's path scope, verifies the corrected candidate, and returns
+// the Review's terminal report naming that output with the run's receipt.
+func (j *candidateJourney) completeCorrectiveReview(t *testing.T, attemptID string, job WorkerJobBinding, path, content, observeID string) (string, WorktreeVerifyResult) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(j.repo, filepath.Dir(path)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(j.repo, path), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output := j.commit(t, "reviewer@example.invalid", "corrective review pass")
+	run := j.observeRun(t, observeID)
+	if run.SubjectRef != "commit:"+output {
+		t.Fatalf("corrected candidate run = %q, want %q", run.SubjectRef, output)
+	}
+	report := currentReviewBlockForTest(t, j.s, j.workID, attemptID, "ready_for_final_proof")
+	report.OutputCandidate = WorkerReviewCandidate{ProjectID: report.InputCandidate.ProjectID, Commit: output, Tree: reviewObservedTree(t, j.repo, output)}
+	j.reviewReceipts = []string{run.OperationRef}
+	j.completeReview(t, attemptID, job, report)
+	return output, run
 }
 
 // completeReview appends the Review attempt's worker.completed report with

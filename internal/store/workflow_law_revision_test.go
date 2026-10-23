@@ -132,11 +132,27 @@ func TestWorkflowLawRevisionSupersededWithoutSuccessorFailsClosed(t *testing.T) 
 func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 	t.Parallel()
 	workID := "law-recontract-route"
-	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includePremise: true})
+	s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includeVerdict: true, includePremise: true})
+	actor := workflowActorForRef(t, s, completion.Actor)
 	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 	cutoverLawProjection(t, s)
+	// At the current fixture's completion step, correction also requires the
+	// contradiction recorded after proof (CD-0172 D1).
+	recordCompleteStepContradictionObservation(t, s, workID, actor)
+	binding, err := readWorkflowArchitectureBinding(t.Context(), s.db, workID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','product',?,'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test'); DELETE FROM fold_guard`, binding.HomeDomainID); err != nil {
+		t.Fatal(err)
+	}
+	successor := map[string]any{
+		"contract_version": 2, "premise": "continue under successor law",
+		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:successor-law", "immutable_subject_ref": "commit:successor-law", "expected_result": "pass"}}},
+		"required_evidence": []string{"verification", "review"}, "route_conventions": []string{"complete_step_correction"}, "spec_mandate": []string{"spec:two"}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
+		"supersede_reason": "move to the accepted successor law", "audit_evidence": []string{"evidence:law-cutover"}, "decision_domains": []string{}, "architecture_binding": binding,
+	}
 	version := readWorkVersion(t, s, workID)
-	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/executor", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +163,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := applyWorkflowActionRawTx(context.Background(), tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: mustJSONValue(map[string]any{"contract_version": 2, "premise": "continue under successor law", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:successor-law", "immutable_subject_ref": "commit:successor-law", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:two"}, "law_modifies": []string{}, "rigor_class": "prototype_internal", "supersede_reason": "move to the accepted successor law", "audit_evidence": []string{"evidence:law-cutover"}}), Actor: actor,
+		WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: mustJSONValue(successor), Actor: actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "recontract-recover", OperationID: "recontract-recover", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-recover", RequestID: "request:recontract-recover", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 3, 0, time.UTC),
 	})
 	_ = scope.close(context.Background())

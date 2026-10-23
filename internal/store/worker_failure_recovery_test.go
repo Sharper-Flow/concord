@@ -81,6 +81,30 @@ func TestFailedWorkerRecoveryRefusesWithoutTheCurrentFailedAttempt(t *testing.T)
 	}
 }
 
+// seedCurrentRepairWorker seeds current workflow.break_fix work at repair with
+// the fixture-approved contract and a claimed worktree, then dispatches one
+// implement attempt on a ready worker-job revision through the real
+// dispatch_worker authorization and lane dispatch. It returns the fixture,
+// the attempt, and the attempt's authorized epoch.
+func seedCurrentRepairWorker(t *testing.T, workID string) (workContextFixture, string, int64) {
+	t.Helper()
+	f := seedWorkContextFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.break_fix"))
+	reviewSubjectClaim(t, f.store, workID)
+	attemptID := "attempt:" + workID
+	job := reviewSubjectReadyRevision(t, f)
+	view, err := readWorkContextView(context.Background(), f.store.DatabaseForTesting(), workID)
+	if err != nil || view == nil {
+		t.Fatalf("admitted view = %+v err = %v, want a present view", view, err)
+	}
+	if err := dispatchWorkContextAttempt(t, f, workContextDispatchPacket(t, f, attemptID, job, view)); err != nil {
+		t.Fatalf("implement dispatch %s refused: %v", attemptID, err)
+	}
+	if err := ApplyOperation(context.Background(), f.store, Operation{Events: []Event{implementDispatchEvidenceEvent(workID, attemptID, laneForID(t), job)}}); err != nil {
+		t.Fatal(err)
+	}
+	return f, attemptID, reviewSubjectWindow(t, f.store, workID, attemptID).AttemptEpoch
+}
+
 func seedOldDefinitionWorker(t *testing.T, workID string) (*Store, WorkflowActor, string, RegisteredDefinition) {
 	t.Helper()
 	s, owner, attemptID, entry := seedOldDefinitionWorkAtRepair(t, workID)

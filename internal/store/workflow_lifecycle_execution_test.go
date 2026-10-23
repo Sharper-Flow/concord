@@ -93,14 +93,9 @@ func TestFirstWorkflowActionStartsLifecycle(t *testing.T) {
 	}
 }
 
-// TestExecutionStartStepSetMatchesRegistry pins the migration backfill's
-// external-effect step-id set to the registered definitions: the set holds
-// exactly the step ids the registered history declares external-effect,
-// across every registered version of every family. The migration freezes the
-// set and still replays effects recorded under retired families, so the
-// comparison universe is the registered history — the narrowed live heads
-// would silently drop steps only archived pins declare. A registry change
-// that moves a step kind must revisit the migration decision.
+// TestExecutionStartStepSetMatchesRegistry checks that the migration backfill
+// covers every current external-effect step. CD-0242 D14 retains no historical
+// definitions, so the frozen migration may also name retired steps.
 func TestExecutionStartStepSetMatchesRegistry(t *testing.T) {
 	t.Parallel()
 	var migrationSQL string
@@ -140,11 +135,6 @@ func TestExecutionStartStepSetMatchesRegistry(t *testing.T) {
 	for id := range registrySet {
 		if !migrationSet[id] {
 			t.Errorf("registered external-effect step %q is missing from the migration set", id)
-		}
-	}
-	for id := range migrationSet {
-		if !registrySet[id] {
-			t.Errorf("migration set names %q, which no registered version declares external-effect", id)
 		}
 	}
 }

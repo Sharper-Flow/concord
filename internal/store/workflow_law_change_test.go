@@ -1156,12 +1156,10 @@ func lawChangeConstructorFixture(t *testing.T, workID string) (*Store, WorkflowD
 func lawChangeConstructorItem(t *testing.T, s *Store, workID string, productChanging bool) (WorkflowDefinition, DefinitionRegistry, string) {
 	t.Helper()
 	ref := "workflow.break_fix"
-	lookup := LiveWorkflowDefinitionForRef
 	if !productChanging {
-		ref = "workflow.generic_one_off"
-		lookup = BuiltinWorkflowDefinitionForRef
+		ref = "workflow.research"
 	}
-	live, err := lookup(ref)
+	live, err := LiveWorkflowDefinitionForRef(ref)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1394,6 +1392,8 @@ func TestLawChangeThroughTheRealConstructors(t *testing.T) {
 		generic, genericRegistry, genericOwner := lawChangeConstructorItem(t, s, workID, false)
 		fields := lawChangeConstructorFields(t, s, 1, []string{"law-agent"}, []string{})
 		delete(fields, "architecture_binding")
+		// The non-Product-changing family admits only outcome tokens.
+		fields["outcome_predicates"] = json.RawMessage(`[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["report_recorded"]}}]`)
 		constructLawChangeContract(t, s, generic, genericRegistry, workID, genericOwner, fields)
 		const moverID = "law-change-ctor-registry-mover"
 		seedWork(t, s, moverID)

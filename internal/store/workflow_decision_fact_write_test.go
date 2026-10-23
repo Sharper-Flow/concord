@@ -682,183 +682,6 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		assertNoFoldGuardRows(t, s)
 	})
 
-	t.Run("the legacy twin keeps null absence clone-only attribution and rebuild equality on the same folds", func(t *testing.T) {
-		t.Parallel()
-		// The unchanged builtin legacy twin: workflow.static_analysis v15 is
-		// the released head whose approval policy is the legacy absence and
-		// whose contracts are non-Product-changing, so the live folds and the
-		// rebuild resolve the same pin through the builtin registry itself.
-		legacyRegistered, ok := BuiltinWorkflowRegistry().Lookup("workflow.static_analysis", 15)
-		if !ok {
-			t.Fatal("the builtin registry carries no workflow.static_analysis v15 entry for the legacy twin")
-		}
-		legacy := legacyRegistered.Definition
-		if legacy.ApprovalPolicy != "" {
-			t.Fatalf("the builtin workflow.static_analysis v15 entry declares approval policy %q, want the released legacy absence", legacy.ApprovalPolicy)
-		}
-		if legacy.ChangesProductTruth == nil || *legacy.ChangesProductTruth {
-			t.Fatal("the builtin workflow.static_analysis v15 entry must classify non-Product-changing for the legacy clone route to be real")
-		}
-		registry := BuiltinWorkflowRegistry()
-		missingID := "decision-fact-legacy-missing"
-		s, missingOwner := resolutionSeedStore(t, missingID)
-		defer s.Close()
-		appendWorkflowEventsWithRegistry(t, s, registry, resolutionSelectionOperation(t, s, missingID, legacyRegistered, missingOwner))
-		seedLegacyItem := func(itemID string) WorkflowActor {
-			t.Helper()
-			seedWork(t, s, itemID)
-			owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + itemID, ActorClass: ActorAgent}
-			appendWorkflowEventsWithRegistry(t, s, registry, resolutionSelectionOperation(t, s, itemID, legacyRegistered, owner))
-			return owner
-		}
-		nullOwner := seedLegacyItem("decision-fact-legacy-null")
-		cloneOwner := seedLegacyItem("decision-fact-legacy-clone")
-		// Missing member and explicit null both store NULL absence under the
-		// legacy pin, with the authoring operator attributed.
-		for _, legacyCase := range []struct {
-			itemID  string
-			owner   WorkflowActor
-			present bool
-		}{
-			{itemID: missingID, owner: missingOwner, present: false},
-			{itemID: "decision-fact-legacy-null", owner: nullOwner, present: true},
-		} {
-			ownerRef := ownerRefForTest(t, legacyCase.owner)
-			version := readWorkVersion(t, s, legacyCase.itemID)
-			event := factWriteInitialContractEvent(t, s, legacyCase.itemID, ownerRef, nil, legacyCase.present)
-			appendWorkflowEventsWithRegistry(t, s, registry, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, legacyCase.itemID): version}})
-			if stored := storedDecisionDomains(t, s, legacyCase.itemID, 1); stored != "" {
-				t.Fatalf("the legacy %s contract stored decision_domains %q, want NULL absence", legacyCase.itemID, stored)
-			}
-			payload := factWriteEventPayloadByID(t, s, "decision-fact-initial-contract-"+legacyCase.itemID)
-			var fields map[string]json.RawMessage
-			if err := json.Unmarshal([]byte(payload), &fields); err != nil {
-				t.Fatal(err)
-			}
-			member, present := fields["decision_domains"]
-			if legacyCase.present && (!present || string(member) != "null") {
-				t.Fatalf("the legacy explicit-null contract recorded member %q (present %v), want the null wire shape", member, present)
-			}
-			if !legacyCase.present && present {
-				t.Fatalf("the legacy member-absent contract recorded a fact member: %s", payload)
-			}
-			var rowRef, rowDigest, approvedBy string
-			var rowVersion int64
-			if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest,approved_by FROM workflow_contracts WHERE work_id=? AND contract_version=1`, legacyCase.itemID).Scan(&rowRef, &rowVersion, &rowDigest, &approvedBy); err != nil {
-				t.Fatal(err)
-			}
-			if rowRef != legacyRegistered.Definition.Ref || rowVersion != legacyRegistered.Definition.Version || rowDigest != legacyRegistered.Digest {
-				t.Fatalf("the legacy contract pinned %s@%d %s, want the registered legacy twin %s@%d %s", rowRef, rowVersion, rowDigest, legacyRegistered.Definition.Ref, legacyRegistered.Definition.Version, legacyRegistered.Digest)
-			}
-			if approvedBy != ownerRef {
-				t.Fatalf("the legacy contract recorded approved_by %q, want the authoring owner %s", approvedBy, ownerRef)
-			}
-		}
-		// The legacy clone-only route keeps carrying the recorded fact with
-		// its operator attribution and the authored supersession time.
-		cloneRef := ownerRefForTest(t, cloneOwner)
-		cloneVersion := readWorkVersion(t, s, "decision-fact-legacy-clone")
-		cloneContract := factWriteInitialContractEvent(t, s, "decision-fact-legacy-clone", cloneRef, []string{"product"}, true)
-		appendWorkflowEventsWithRegistry(t, s, registry, Operation{Events: []Event{cloneContract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "decision-fact-legacy-clone"): cloneVersion}})
-		supersedeVersion := readWorkVersion(t, s, "decision-fact-legacy-clone")
-		cloneEvent := resolutionEvent("decision-fact-legacy-clone-supersede", WorkflowContractSuperseded, "decision-fact-legacy-clone", cloneRef, supersedeVersion, map[string]any{
-			"previous_contract_version": 1, "predecessor_contract_versions": []int64{1}, "new_contract_version": 2,
-			"supersede_reason": "the legacy twin keeps its clone-only route", "audit_evidence": []string{"audit:decision-fact-legacy-clone"},
-		})
-		appendWorkflowEventsWithRegistry(t, s, registry, Operation{Events: []Event{cloneEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "decision-fact-legacy-clone"): supersedeVersion}})
-		if stored := storedDecisionDomains(t, s, "decision-fact-legacy-clone", 2); stored != `["product"]` {
-			t.Fatalf("the legacy clone stored decision_domains %q, want the predecessor's recorded fact carried forward", stored)
-		}
-		if stored := storedDecisionDomains(t, s, "decision-fact-legacy-clone", 1); stored != `["product"]` {
-			t.Fatalf("the superseded legacy predecessor stored %q, want its recorded fact immutable", stored)
-		}
-		var cloneApprovedBy, cloneApprovedAt string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT approved_by,approved_at FROM workflow_contracts WHERE work_id=? AND contract_version=2`, "decision-fact-legacy-clone").Scan(&cloneApprovedBy, &cloneApprovedAt); err != nil {
-			t.Fatal(err)
-		}
-		if cloneApprovedBy != cloneRef {
-			t.Fatalf("the legacy clone recorded approved_by %q, want the superseding owner %s", cloneApprovedBy, cloneRef)
-		}
-		if cloneApprovedAt != cloneEvent.OccurredAt.UTC().Format(time.RFC3339Nano) {
-			t.Fatalf("the legacy clone recorded approved_at %q, want the authored supersession time %s", cloneApprovedAt, cloneEvent.OccurredAt.UTC().Format(time.RFC3339Nano))
-		}
-		var predecessorSupersededBy int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT superseded_by FROM workflow_contracts WHERE work_id=? AND contract_version=1`, "decision-fact-legacy-clone").Scan(&predecessorSupersededBy); err != nil {
-			t.Fatal(err)
-		}
-		if predecessorSupersededBy != 2 {
-			t.Fatalf("the superseded legacy predecessor names superseded_by=%d, want the clone version 2", predecessorSupersededBy)
-		}
-		// The legacy shapes rebuild and rehash equal: the recorded bytes stay
-		// the authority across a full projection rebuild. Each stage holds the
-		// legacy absence state too: the missing-member and explicit-null items
-		// keep explicit SQL NULL decision_domains with their version-1
-		// contracts active, and the clone keeps its carried product fact at
-		// active version 2.
-		assertLegacyNullState := func(stage string, store *Store) {
-			t.Helper()
-			var declaredFacts int64
-			if err := store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id IN (?,?) AND decision_domains IS NOT NULL`, missingID, "decision-fact-legacy-null").Scan(&declaredFacts); err != nil {
-				t.Fatal(err)
-			}
-			if declaredFacts != 0 {
-				t.Fatalf("%s declares %d decision facts on the NULL-absence legacy items, want explicit SQL NULL absence", stage, declaredFacts)
-			}
-			for _, legacyCase := range []struct {
-				itemID string
-				want   int64
-			}{
-				{itemID: missingID, want: 1},
-				{itemID: "decision-fact-legacy-null", want: 1},
-				{itemID: "decision-fact-legacy-clone", want: 2},
-			} {
-				active, err := activeWorkflowContractVersion(context.Background(), store.DatabaseForTesting(), legacyCase.itemID, "workflow_decision_fact_write_test")
-				if err != nil {
-					t.Fatal(err)
-				}
-				if active != legacyCase.want {
-					t.Fatalf("%s active contract version for %s = %d, want %d", stage, legacyCase.itemID, active, legacyCase.want)
-				}
-			}
-		}
-		before := fullWorkflowProjectionSnapshot(t, s)
-		hashBefore, err := WorkflowProjectionHash(context.Background(), s)
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertLegacyNullState("the legacy twin baseline", s)
-		if err := RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatalf("legacy twin rebuild: %v", err)
-		}
-		if before != fullWorkflowProjectionSnapshot(t, s) {
-			t.Fatal("the legacy twin rebuild diverged from the live projection")
-		}
-		hashAfter, err := WorkflowProjectionHash(context.Background(), s)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if hashBefore != hashAfter {
-			t.Fatal("the legacy twin rebuild moved the full projection hash")
-		}
-		assertLegacyNullState("the legacy twin rebuild", s)
-		if err := s.Close(); err != nil {
-			t.Fatal(err)
-		}
-		reopened := openTempAtPath(t, s.path)
-		defer reopened.Close()
-		if before != fullWorkflowProjectionSnapshot(t, reopened) {
-			t.Fatal("the legacy twin reopen diverged from the pre-reopen projection")
-		}
-		reopenHash, err := WorkflowProjectionHash(context.Background(), reopened)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if hashAfter != reopenHash {
-			t.Fatal("the legacy twin reopen moved the full projection hash")
-		}
-		assertLegacyNullState("the legacy twin reopen", reopened)
-	})
-
 	t.Run("the clone-only successor refuses under the new policy with the confirmed predecessor preserved", func(t *testing.T) {
 		t.Parallel()
 		const workID = "decision-fact-clone-only-successor"
@@ -1216,7 +1039,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		}
 	})
 
-	t.Run("the declaration consumers agree with the decision-fact owner and keep every legacy declaration unchanged", func(t *testing.T) {
+	t.Run("the declaration consumers agree with the decision-fact owner", func(t *testing.T) {
 		t.Parallel()
 		const workID = "decision-fact-consumer-new-policy"
 		s, registry, definition, _, _ := seedApprovalItemAtAcceptance(t, workID, []string{})
@@ -1244,39 +1067,8 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		}
 		assertFactWriteFieldsCarryFact(t, "the discovered recovery declaration", recoveryAction.Payload.Fields, workflowContractRecoveryPayloadFields())
 
-		// The legacy pin keeps the released initial declaration byte-identical
-		// with no fact member at the same consumer.
-		legacyRegistered, ok := BuiltinWorkflowRegistry().Lookup("workflow.static_analysis", 15)
-		if !ok {
-			t.Fatal("the builtin registry carries no workflow.static_analysis v15 entry for the legacy consumer witness")
-		}
-		const legacyID = "decision-fact-consumer-legacy"
-		legacyStore, legacyOwner := resolutionSeedStore(t, legacyID)
-		defer legacyStore.Close()
-		appendWorkflowEventsWithRegistry(t, legacyStore, BuiltinWorkflowRegistry(), resolutionSelectionOperation(t, legacyStore, legacyID, legacyRegistered, legacyOwner))
-		_, legacyAction, err := WorkflowActionDefinitionFor(ctx, legacyStore, BuiltinWorkflowRegistry(), legacyID, "approve_contract")
-		if err != nil {
-			t.Fatalf("dispatch refused the legacy-pinned initial action: %v", err)
-		}
-		var expectedLegacy WorkflowActionDefinition
-		for _, action := range legacyRegistered.Definition.ActionDefinitions {
-			if action.ID == "approve_contract" {
-				expectedLegacy = action
-				break
-			}
-		}
-		if !reflect.DeepEqual(legacyAction, expectedLegacy) {
-			t.Fatalf("dispatch resolved the legacy initial action %+v, want the released declaration byte-identical", legacyAction)
-		}
-		for _, field := range legacyAction.Payload.Fields {
-			if field.Name == "decision_domains" {
-				t.Fatal("the legacy-pinned initial action declares the decision fact")
-			}
-		}
-
 		// Closed payload validation admits the new-policy initial action only
-		// with the required fact and refuses every absent or broken shape,
-		// while the legacy declaration keeps its released answers.
+		// with the required fact and refuses every absent or broken shape.
 		completeRaw := factWriteAuthoringJSON(t, factWriteApproveAuthoring(workID, []string{"product"}, true))
 		if err := validateWorkflowActionPayload(definition, "approve_contract", completeRaw); err != nil {
 			t.Fatalf("closed validation refused the initial action payload carrying the required fact: %v", err)
@@ -1294,18 +1086,9 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if err := validateWorkflowActionPayload(definition, "approve_contract", unorderedRaw); err == nil {
 			t.Fatal("closed validation accepted an initial action payload with a noncanonical fact order")
 		}
-		legacyPayload := factWriteAuthoringJSON(t, factWriteApproveAuthoring(legacyID, nil, false))
-		if err := validateWorkflowActionPayload(legacyRegistered.Definition, "approve_contract", legacyPayload); err != nil {
-			t.Fatalf("closed validation refused the legacy initial action payload without the fact: %v", err)
-		}
-		legacyWithFact := factWriteAuthoringJSON(t, factWriteApproveAuthoring(legacyID, []string{"product"}, true))
-		if err := validateWorkflowActionPayload(legacyRegistered.Definition, "approve_contract", legacyWithFact); err == nil {
-			t.Fatal("the legacy initial declaration accepted the undeclared decision fact")
-		}
 
 		// The recovery payload validator admits the complete successor only
-		// with the required fact beside the new policy and keeps the released
-		// declaration's answers for the legacy pin.
+		// with the required fact beside the new policy.
 		recoveryComplete, _ := factWriteSuccessorPayload(t, workID, []string{"product"}, true)
 		if err := validateWorkflowContractRecoveryPayload(definition, recoveryComplete); err != nil {
 			t.Fatalf("recovery validation refused the complete successor payload carrying the required fact: %v", err)
@@ -1321,14 +1104,6 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		recoveryBroken, _ := factWriteSuccessorPayload(t, workID, []string{"product", "product"}, true)
 		if err := validateWorkflowContractRecoveryPayload(definition, recoveryBroken); err == nil {
 			t.Fatal("recovery validation accepted a successor payload with a duplicate fact member")
-		}
-		legacyRecovery, _ := factWriteSuccessorPayload(t, legacyID, nil, false)
-		if err := validateWorkflowContractRecoveryPayload(legacyRegistered.Definition, legacyRecovery); err != nil {
-			t.Fatalf("recovery validation refused the legacy successor payload without the fact: %v", err)
-		}
-		legacyRecoveryWithFact, _ := factWriteSuccessorPayload(t, legacyID, []string{"product"}, true)
-		if err := validateWorkflowContractRecoveryPayload(legacyRegistered.Definition, legacyRecoveryWithFact); err == nil {
-			t.Fatal("the legacy recovery declaration accepted the undeclared decision fact")
 		}
 	})
 

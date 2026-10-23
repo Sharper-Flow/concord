@@ -296,7 +296,8 @@ func TestWorkflowLawRevisionAllowsTerminalLifecycleMutationAfterCutover(t *testi
 func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *testing.T) {
 	t.Parallel()
 	workID := "law-cross-connection-order"
-	s1, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
+	s1 := seedLawRevisionPendingReview(t, workID)
+	acceptancePayload := mustJSONValue(lawRevisionAcceptancePayload(t, s1, workID))
 	attachWorkflowLawPin(t, s1, workID, "sha256:"+strings.Repeat("a", 64))
 	s2, err := Open(context.Background(), s1.Path())
 	if err != nil {
@@ -357,7 +358,7 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *tes
 			acceptanceDone <- beginErr
 			return
 		}
-		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: crossVersion, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": "attempt:cross", "attempt_epoch": 1}), Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-accept", OperationID: "cross-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-accept", RequestID: "request:cross-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: crossVersion, ActionID: "accept_worker_result", Payload: acceptancePayload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-accept", OperationID: "cross-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-accept", RequestID: "request:cross-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
 		if actionErr == nil {
 			tx.Rollback()
 			acceptanceDone <- nil
@@ -389,7 +390,7 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *tes
 func TestWorkflowLawRevisionCutoverCommitsBeforeCrossProcessAcceptance(t *testing.T) {
 	t.Parallel()
 	workID := "law-cross-process-order"
-	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
+	s := seedLawRevisionPendingReview(t, workID)
 	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 	version := readWorkVersion(t, s, workID)
 
@@ -498,12 +499,13 @@ func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
 		}
 		fmt.Println("cutover=committed")
 	case "acceptance":
+		acceptancePayload := mustJSONValue(lawRevisionAcceptancePayload(t, s, workID))
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID, ActorClass: ActorOperator}
-		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: mustEnvInt64(t, "TEST_CONCORD_LAW_RACE_VERSION"), ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": "attempt:cross-process", "attempt_epoch": 1}), Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-process-accept", OperationID: "cross-process-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-process-accept", RequestID: "request:cross-process-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: mustEnvInt64(t, "TEST_CONCORD_LAW_RACE_VERSION"), ActionID: "accept_worker_result", Payload: acceptancePayload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-process-accept", OperationID: "cross-process-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-process-accept", RequestID: "request:cross-process-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
 		tx.Rollback()
 		var failure *Failure
 		if !failureAs(actionErr, &failure) || failure.Kind != KindStaleLawRevision {
@@ -513,6 +515,26 @@ func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
 	default:
 		t.Fatalf("unknown race worker role %q", role)
 	}
+}
+
+func seedLawRevisionPendingReview(t *testing.T, workID string) *Store {
+	t.Helper()
+	f := oSeedReviewRoute(t, workID, "workflow.implementation", "execution")
+	if _, err := f.store.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND superseded_by IS NULL; DELETE FROM fold_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
+	completeCurrentReviewForTest(t, workContextFixture{store: f.store, workID: workID, owner: f.owner, operator: f.operator}, workerFixtureDirectory(t, f.store, workID), "continue")
+	return f.store
+}
+
+func lawRevisionAcceptancePayload(t *testing.T, s *Store, workID string) map[string]any {
+	t.Helper()
+	var attempt string
+	if err := s.db.QueryRow(`SELECT attempt_id FROM worker_attempts WHERE work_id=? AND lifecycle_state='completed' ORDER BY attempt_id LIMIT 1`, workID).Scan(&attempt); err != nil {
+		t.Fatal(err)
+	}
+	window := attributionDispatchWindow(t, s, workID, attempt)
+	return map[string]any{"attempt_id": attempt, "attempt_epoch": window.AttemptEpoch}
 }
 
 func mustEnvInt64(t *testing.T, name string) int64 {
@@ -584,10 +606,17 @@ func TestWorkflowLawRevisionPinsFoldAndRebuildWithoutConsultingCurrentLaw(t *tes
 func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterCutover(t *testing.T) {
 	t.Parallel()
 	workID := "law-stale-in-flight"
-	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
+	s := seedLawRevisionPendingReview(t, workID)
+	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
+	acceptancePayload := mustJSONValue(lawRevisionAcceptancePayload(t, s, workID))
+	var definitionRef string
+	var definitionVersion int
+	if err := s.db.QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionVersion); err != nil {
+		t.Fatal(err)
+	}
 	claim, err := ClaimStepAuthorized(context.Background(), s, ClaimRequest{
-		OpID: "law-stale-in-flight-op", WorkID: workID, WorkflowTypeRef: workflowFixtureRef, WorkflowTypeVersion: 1,
-		StepID: "execution", StepKind: StepInternalSQLite, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64),
+		OpID: "law-stale-in-flight-op", WorkID: workID, WorkflowTypeRef: definitionRef, WorkflowTypeVersion: definitionVersion,
+		StepID: "execution", StepKind: StepExternalEffect, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64),
 		AcceptedScopeSnapshot: `{}`, PrincipalRef: "principal/in-flight", Tool: "workflow-test", IdempotencyKey: "law-stale-in-flight-claim",
 		RequestID: "request:law-stale-in-flight", ContractDigest: testManifestDigest, ObservedAt: time.Date(2026, 8, 17, 0, 0, 0, 0, time.UTC),
 	}, nil)
@@ -621,7 +650,7 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 		t.Fatal(err)
 	}
 	_, err = applyWorkflowActionRawTx(context.Background(), tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: currentVersion, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": "attempt:stale", "attempt_epoch": 1}), Actor: owner,
+		WorkID: workID, ExpectedVersion: currentVersion, ActionID: "accept_worker_result", Payload: acceptancePayload, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "accept-stale", OperationID: "accept-stale", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "accept-stale", RequestID: "request:accept-stale", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 2, 0, time.UTC),
 	})
 	_ = scope.close(context.Background())

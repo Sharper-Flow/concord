@@ -1905,6 +1905,9 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event, sco
 	if err := startWorkflowInstanceStepTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID, p.StepID, p.ActorRef, p.ExecutionModel, event.OccurredAt); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch) VALUES(?,?,?) ON CONFLICT(work_id,step_id) DO UPDATE SET attempt_epoch=excluded.attempt_epoch`, event.SubjectID, p.StepID, p.AttemptEpoch); err != nil {
+		return workflowProjectionError(err, "cannot record the current step epoch")
+	}
 	return beginWorkflowLifecycleTx(ctx, tx, event)
 }
 
@@ -2784,6 +2787,9 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
+	if err := writeWorkerAuthorizationTx(ctx, tx, event, p); err != nil {
+		return workflowProjectionError(err, "cannot record the worker authorization or disposition")
+	}
 	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',last_checkpoint_at=? WHERE work_id=?`, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
 	if err != nil || p.ActionID == "" || (!advancesStep && p.ActionID != "request_correction") {
 		return err
@@ -3434,7 +3440,9 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	}
 	if payload.ActionID == "record_worker_job" || payload.ActionID == "reject_worker_result" && isWorkflowReplay(ctx) {
 		// Recorded executor identity does not depend on current rejection eligibility.
-		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.lane_actor_ref'),'') FROM domain_events WHERE seq=?`, attemptSeq).Scan(&target.ExecutorRef); err != nil {
+		var err error
+		target.ExecutorRef, err = workerExecutorAtSequenceTx(ctx, tx, event.SubjectID, payload.WorkerAttemptID, attemptSeq)
+		if err != nil {
 			return workflowProjectionError(err, "cannot read recorded worker executor")
 		}
 	}

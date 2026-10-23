@@ -872,9 +872,9 @@ func workerFailureTerminalObserverAdmits(observer string) bool {
 // observed-delivery subject an attempt owns: the worker.completed event
 // whose core-observed delivery the store itself took. The most recent one
 // wins; a failed attempt has none.
-const workerFailureObservedDeliverySubjectQuery = `SELECT event_id, json_extract(payload,'$.observed_delivery') FROM domain_events
-WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?
-AND json_extract(payload,'$.observed_delivery') IS NOT NULL ORDER BY seq DESC LIMIT 1`
+const workerFailureObservedDeliverySubjectQuery = `SELECT terminal_event_id, json_extract(terminal_payload,'$.observed_delivery') FROM worker_attempts
+WHERE work_id=? AND terminal_kind=? AND attempt_id=?
+AND json_extract(terminal_payload,'$.observed_delivery') IS NOT NULL`
 
 // workerFailureObservedDeliverySubject resolves the typed subject reference
 // for a coordinator result_review observation: the attempt's completed
@@ -891,7 +891,7 @@ func workerFailureObservedDeliverySubject(ctx context.Context, q queryer, workID
 	}
 	var eventID string
 	var raw sql.NullString
-	if err := q.QueryRowContext(ctx, workerFailureObservedDeliverySubjectQuery, string(SubjectWorkItem), workID, WorkerCompleted, attemptID).Scan(&eventID, &raw); err != nil {
+	if err := q.QueryRowContext(ctx, workerFailureObservedDeliverySubjectQuery, workID, WorkerCompleted, attemptID).Scan(&eventID, &raw); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -910,7 +910,7 @@ func workerFailureObservedDeliverySubject(ctx context.Context, q queryer, workID
 }
 
 // verifyWorkerFailureObservedDeliverySubject verifies one subject reference
-// against the log: the named event must exist as this attempt's completed
+// against the retained terminal: the named identity must be this attempt's completed
 // observed delivery, and a supplied digest must match the recorded delivery
 // bytes. A locator existence never creates the subject it names.
 func verifyWorkerFailureObservedDeliverySubject(ctx context.Context, q queryer, workID string, attemptID string, subject *WorkerFailureSubjectRef) error {
@@ -918,9 +918,9 @@ func verifyWorkerFailureObservedDeliverySubject(ctx context.Context, q queryer, 
 		return nil
 	}
 	var raw sql.NullString
-	err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.observed_delivery') FROM domain_events
-WHERE subject_type=? AND subject_id=? AND kind=? AND event_id=? AND json_extract(payload,'$.attempt_id')=? AND json_extract(payload,'$.observed_delivery') IS NOT NULL`,
-		string(SubjectWorkItem), workID, WorkerCompleted, subject.Locator, attemptID).Scan(&raw)
+	err := q.QueryRowContext(ctx, `SELECT json_extract(terminal_payload,'$.observed_delivery') FROM worker_attempts
+WHERE work_id=? AND terminal_kind=? AND terminal_event_id=? AND attempt_id=? AND json_extract(terminal_payload,'$.observed_delivery') IS NOT NULL`,
+		workID, WorkerCompleted, subject.Locator, attemptID).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return workerFailureBoundFailure("failure_attribution subject reference " + subject.Locator + " names no completed observed_delivery event of attempt " + attemptID)
 	}
@@ -1538,26 +1538,20 @@ type WorkerFailureAttributionRecord struct {
 	Attribution   *WorkerFailureAttribution `json:"attribution"`
 }
 
-// workerFailureAttributionTerminalEventQuery reads one attempt's terminal
-// attribution member as raw bytes beside its recorded source payload
-// version. The terminal filter binds the dispatched arm to the born-failed
-// terminal alone; the failed arm matches every worker.failed event.
-const workerFailureAttributionTerminalEventQuery = `SELECT event_id, payload_version, json_extract(payload,'$.failure_attribution') FROM domain_events
-WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? %s ORDER BY seq DESC LIMIT 1`
-
 // workerFailureAttributionTerminalRecord resolves one terminal arm: the
 // event identity, the recorded source version, and the decoded attribution —
 // the explicit legacy marker when a below-boundary source recorded none.
 func workerFailureAttributionTerminalRecord(ctx context.Context, q queryer, workID, attemptID string, kind string, terminalFilter string, capableVersion int) (*WorkerFailureAttributionRecord, bool, error) {
-	terminalClause := ""
-	if terminalFilter != "" {
-		terminalClause = "AND json_extract(payload,'" + terminalFilter + "')='failed'"
-	}
 	var eventID string
 	var sourceVersion int
 	var raw sql.NullString
-	err := q.QueryRowContext(ctx, strings.Replace(workerFailureAttributionTerminalEventQuery, "%s", terminalClause, 1),
-		string(SubjectWorkItem), workID, kind, attemptID).Scan(&eventID, &sourceVersion, &raw)
+	query := `SELECT terminal_event_id,terminal_payload_version,json_extract(terminal_payload,'$.failure_attribution') FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_kind=?`
+	args := []any{workID, attemptID, kind}
+	if terminalFilter != "" {
+		query = `SELECT dispatch_event_id,dispatch_payload_version,json_extract(dispatch_payload,'$.failure_attribution') FROM worker_attempts WHERE work_id=? AND attempt_id=? AND json_extract(dispatch_payload,'$.terminal')='failed'`
+		args = []any{workID, attemptID}
+	}
+	err := q.QueryRowContext(ctx, query, args...).Scan(&eventID, &sourceVersion, &raw)
 	if err == sql.ErrNoRows {
 		return nil, false, nil
 	}
@@ -1579,8 +1573,7 @@ func workerFailureAttributionTerminalRecord(ctx context.Context, q queryer, work
 	return record, true, nil
 }
 
-// WorkerFailureAttributionForAttemptTx is the event-based attribution reader
-// over the existing attempt history: it resolves the attempt's terminal —
+// WorkerFailureAttributionForAttemptTx resolves the attempt's retained terminal —
 // the worker.failed event, or the born-failed worker.dispatched evidence
 // that closed the attempt at dispatch — through the caller's queryer,
 // decodes the attribution member strictly, and resolves a below-boundary

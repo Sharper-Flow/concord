@@ -352,17 +352,13 @@ func TestWorkerJobDeliveredPathContainmentAtAcceptance(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
-		var trigger string
-		if err := tx.QueryRow(`SELECT sql FROM sqlite_master WHERE type='trigger' AND name='domain_events_no_update'`).Scan(&trigger); err != nil {
+		if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tx.Exec(`DROP TRIGGER domain_events_no_update`); err != nil {
+		if _, err := tx.Exec(`UPDATE worker_attempts SET terminal_payload=json_set(json_remove(terminal_payload,'$.observed_delivery.changed_paths'),'$.observed_delivery.paths',json('[{"path":"owner/value.go","added":1,"deleted":0},{"path":"unrelated/extra.go","added":1,"deleted":0}]')) WHERE work_id=? AND terminal_kind=? AND attempt_id=?`, workID, WorkerCompleted, attempt); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tx.Exec(`UPDATE domain_events SET payload=json_set(json_remove(payload,'$.observed_delivery.changed_paths'),'$.observed_delivery.paths',json('[{"path":"owner/value.go","added":1,"deleted":0},{"path":"unrelated/extra.go","added":1,"deleted":0}]')) WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerCompleted, attempt); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := tx.Exec(trigger); err != nil {
+		if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
 			t.Fatal(err)
 		}
 		if err := tx.Commit(); err != nil {

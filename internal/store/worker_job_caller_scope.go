@@ -189,14 +189,10 @@ func validateWorkerJobAllowanceShape(projectScope string, allowance *WorkerJobCa
 	return nil
 }
 
-// readWorkerJobAllowancesTx scans the work's worker.job_recorded events once
-// and maps every recorded revision binding onto the direct-caller allowance
-// its event retained (absent when the revision carries none). Like the
-// oracle reader, the allowance reads from the events — no projection column
-// carries it — and the queryer already in hand is used, never a *Store
-// reach through the pool inside a transaction.
+// readWorkerJobAllowancesTx maps each current revision binding to its retained
+// direct-caller allowance, using the caller's queryer throughout.
 func readWorkerJobAllowancesTx(ctx context.Context, q queryer, workID string) (map[WorkerJobBinding]*WorkerJobCallerAllowance, error) {
-	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.job_id'), json_extract(payload,'$.revision'), json_extract(payload,'$.digest'), json_extract(payload,'$.direct_caller_allowance') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=?`, string(SubjectWorkItem), workID, WorkerJobRecorded)
+	rows, err := q.QueryContext(ctx, `SELECT job_id,revision,digest,json_extract(recorded_payload,'$.direct_caller_allowance') FROM worker_job_revisions WHERE work_id=? AND recorded_payload IS NOT NULL`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read recorded worker-job allowances", true, "retry once the event log is readable", err)
 	}
@@ -501,7 +497,7 @@ func workerJobPathScopeTx(ctx context.Context, tx *sql.Tx, workID string, bindin
 // dispatch authorization bound to its completion.
 func workerDispatchCallerExclusionsTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) ([]string, error) {
 	var raw string
-	err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_caller_exclusions'),'[]') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&raw)
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_caller_exclusions'),'[]') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -520,7 +516,7 @@ func workerDispatchCallerExclusionsTx(ctx context.Context, tx *sql.Tx, workID, a
 // carries; both are absent when the attempt recorded no completion.
 func readWorkerCompletedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) ([]WorkerDirectCallerRepair, *WorkerObservedDelivery, error) {
 	var raw string
-	err := tx.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerCompleted, attemptID).Scan(&raw)
+	err := tx.QueryRowContext(ctx, `SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_kind=?`, workID, attemptID, WorkerCompleted).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return nil, nil, nil
 	}

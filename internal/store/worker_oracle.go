@@ -772,16 +772,10 @@ func validateOracleDomainTx(ctx context.Context, tx *sql.Tx, workID string, cont
 	return nil
 }
 
-// readWorkerJobOraclesTx is the one tx-scoped reader of recorded oracles:
-// it scans the work item's worker.job_recorded events once, in log order,
-// and maps each recorded revision binding onto the oracle its event
-// retained (nil when the revision predates the oracle). The recorded digest
-// travels with the event, so the map's keys carry the digest the recording
-// derived. The read uses the queryer already in hand — never a *Store reach
-// through the pool inside a transaction — and issues no nested query while
-// rows are open.
+// readWorkerJobOraclesTx maps current revision bindings to their retained
+// oracles (nil when absent), without nested queries while rows are open.
 func readWorkerJobOraclesTx(ctx context.Context, q queryer, workID string) (map[WorkerJobBinding]*AcceptanceOracle, error) {
-	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.job_id'), json_extract(payload,'$.revision'), json_extract(payload,'$.digest'), json_extract(payload,'$.acceptance_oracle') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=?`, string(SubjectWorkItem), workID, WorkerJobRecorded)
+	rows, err := q.QueryContext(ctx, `SELECT job_id,revision,digest,json_extract(recorded_payload,'$.acceptance_oracle') FROM worker_job_revisions WHERE work_id=? AND recorded_payload IS NOT NULL`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot read recorded acceptance oracles", true, "retry once the event log is readable", err)
 	}

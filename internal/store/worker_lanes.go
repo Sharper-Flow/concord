@@ -292,7 +292,7 @@ func workflowDispatchedJobForAttempt(ctx context.Context, q queryer, workID, att
 		return nil, nil
 	}
 	var raw string
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_job'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerDispatched, attemptID).Scan(&raw); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(dispatch_payload,'$.worker_job'),'') FROM worker_attempts WHERE work_id=? AND attempt_id=? AND dispatch_payload IS NOT NULL`, workID, attemptID).Scan(&raw); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -1536,6 +1536,9 @@ func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
 	if rows, rowsErr := promoted.RowsAffected(); rowsErr != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot read the in-flight promotion result", true, "retry once the database is writable", rowsErr)
 	} else if rows > 0 {
+		if err := writeWorkerDispatchFactsTx(ctx, tx, event, payload.AttemptID); err != nil {
+			return err
+		}
 		return pinWorkerDispatchedLaneActor(ctx, tx, event, payload)
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO worker_attempts
@@ -1546,6 +1549,9 @@ func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
 			return newFailure(KindProjectionConflict, "fold_event", "worker attempt is already dispatched", false, "use a new attempt identity")
 		}
 		return wrapFailure(KindUnavailable, "fold_event", "cannot create worker attempt projection", true, "retry once the database is writable", err)
+	}
+	if err := writeWorkerDispatchFactsTx(ctx, tx, event, payload.AttemptID); err != nil {
+		return err
 	}
 	return pinWorkerDispatchedLaneActor(ctx, tx, event, payload)
 }
@@ -1853,7 +1859,7 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := verifyWorkerTerminalUpdate(result, "cannot verify worker completion projection", "record worker.dispatched before worker.completed"); err != nil {
 		return err
 	}
-	return nil
+	return writeWorkerTerminalFactsTx(ctx, tx, event, payload.AttemptID)
 }
 
 // validateWorkerCompletedSourceVersion refuses completion content a replayed
@@ -2143,7 +2149,7 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := voidWorkerJobRepairByAttemptTx(ctx, tx, event.SubjectID, payload.AttemptID, event.Seq-1); err != nil {
 		return err
 	}
-	return nil
+	return writeWorkerTerminalFactsTx(ctx, tx, event, payload.AttemptID)
 }
 
 // validateNoLiveWorkerSession is the live-admission host-observation gate for
@@ -2374,7 +2380,7 @@ func sortedObligationList(values map[string]struct{}) string {
 // admits no predicate tie for it.
 func dispatchedPacketPredicateIDsTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) ([]string, error) {
 	var raw *string
-	if err := tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.worker_packet_predicate_ids') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&raw); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.worker_packet_predicate_ids') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&raw); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}

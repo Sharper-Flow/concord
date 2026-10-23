@@ -295,12 +295,11 @@ func workerJobOracleJSON(oracle *AcceptanceOracle) string {
 	return string(raw)
 }
 
-// workerJobRecordedEventTx reads one recorded revision's exact event payload,
-// so the repair derivation compares content the fold actually holds. A
-// revision the log never recorded refuses.
+// workerJobRecordedEventTx reads the complete descriptor retained by the
+// revision's fold. A revision with no retained descriptor refuses.
 func workerJobRecordedEventTx(ctx context.Context, q queryer, workID, jobID string, revision int64, payload *WorkerJobRecordedPayload) error {
 	var raw string
-	err := q.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerJobRecorded, jobID, revision).Scan(&raw)
+	err := q.QueryRowContext(ctx, `SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=? AND recorded_payload IS NOT NULL`, workID, jobID, revision).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return newFailure(KindInvalidPayload, "worker_job", fmt.Sprintf("the checks repair names revision %d of the job, which holds no recorded event", revision), false, "name recorded unresolved revisions of the job")
 	}
@@ -313,11 +312,11 @@ func workerJobRecordedEventTx(ctx context.Context, q queryer, workID, jobID stri
 	return nil
 }
 
-// readWorkerJobChecksRepairsTx reads each recorded revision's checks-repair
-// metadata from its job-recorded event, keyed by the binding the recording
+// readWorkerJobChecksRepairsTx reads each current revision's checks-repair
+// metadata from its retained descriptor, keyed by the binding the recording
 // derived. A revision without one is absent from the map.
 func readWorkerJobChecksRepairsTx(ctx context.Context, q queryer, workID string) (map[WorkerJobBinding]*WorkerJobChecksRepair, error) {
-	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.job_id'), json_extract(payload,'$.revision'), json_extract(payload,'$.digest'), json_extract(payload,'$.checks_repair') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.checks_repair') IS NOT NULL`, string(SubjectWorkItem), workID, WorkerJobRecorded)
+	rows, err := q.QueryContext(ctx, `SELECT job_id,revision,digest,json_extract(recorded_payload,'$.checks_repair') FROM worker_job_revisions WHERE work_id=? AND json_extract(recorded_payload,'$.checks_repair') IS NOT NULL`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "worker_job", "cannot read the recorded checks repairs", true, "retry once the event log is readable", err)
 	}

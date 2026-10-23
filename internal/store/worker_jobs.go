@@ -344,6 +344,9 @@ func foldWorkerJobRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 		if recorded != payload.Digest {
 			return newFailure(KindProjectionConflict, "fold_event", "a worker-job revision is immutable and cannot change content in place", false, "record a new revision of the job instead")
 		}
+		if _, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET recorded_payload=? WHERE work_id=? AND job_id=? AND revision=?`, string(event.Payload), event.SubjectID, payload.JobID, payload.Revision); err != nil {
+			return workflowProjectionError(err, "cannot retain the recorded job descriptor")
+		}
 		return advanceWorkflowVersion(ctx, tx, event, payload.WorkflowVersionFields)
 	case err != sql.ErrNoRows:
 		return wrapFailure(KindUnavailable, "fold_event", "cannot compare the recorded worker-job revision", true, "retry once the worker-job projection is readable", err)
@@ -386,7 +389,8 @@ func foldWorkerJobRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET (group_permission,group_review_ref,correction_ref)=(SELECT group_permission,group_review_ref,correction_ref FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision<? AND (group_permission<>'' OR correction_ref<>'') ORDER BY revision DESC LIMIT 1) WHERE work_id=? AND job_id=? AND revision=? AND EXISTS(SELECT 1 FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision<? AND (group_permission<>'' OR correction_ref<>''))`, event.SubjectID, payload.JobID, payload.Revision, event.SubjectID, payload.JobID, payload.Revision, event.SubjectID, payload.JobID, payload.Revision); err != nil {
 		return workflowProjectionError(err, "cannot carry the assignment's admitted group to its new revision")
 	}
-	return nil
+	_, err = tx.ExecContext(ctx, `UPDATE worker_job_revisions SET recorded_payload=? WHERE work_id=? AND job_id=? AND revision=?`, string(event.Payload), event.SubjectID, payload.JobID, payload.Revision)
+	return workflowProjectionError(err, "cannot retain the recorded job descriptor")
 }
 
 func nonNilPrerequisites(values []WorkerJobPrerequisite) []WorkerJobPrerequisite {
@@ -613,7 +617,7 @@ func dispatchConsumedChecksRepairReviewTx(ctx context.Context, q queryer, workID
 	var jobID string
 	var revision int64
 	var digest string
-	err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.checks_repair_review.worker_job.job_id'), json_extract(payload,'$.checks_repair_review.worker_job.revision'), json_extract(payload,'$.checks_repair_review.worker_job.digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? AND json_extract(payload,'$.checks_repair_review') IS NOT NULL ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&jobID, &revision, &digest)
+	err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.checks_repair_review.worker_job.job_id'), json_extract(payload,'$.checks_repair_review.worker_job.revision'), json_extract(payload,'$.checks_repair_review.worker_job.digest') FROM worker_authorizations WHERE work_id=? AND attempt_id=? AND json_extract(payload,'$.checks_repair_review') IS NOT NULL`, workID, attemptID).Scan(&jobID, &revision, &digest)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return false, nil
@@ -1103,7 +1107,7 @@ func validateWorkerPacketJob(ctx context.Context, q queryer, definition Workflow
 // no dispatch_worker completion names the attempt.
 func dispatchCompletionJobForAttempt(ctx context.Context, q queryer, workID, attemptID string) (bool, *WorkerJobBinding, error) {
 	var raw string
-	err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_job'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&raw)
+	err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_job'),'') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return false, nil, nil
 	}

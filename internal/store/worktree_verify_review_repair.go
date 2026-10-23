@@ -55,7 +55,7 @@ func validateNativeReviewRepairTx(ctx context.Context, q queryer, work string, d
 		return refuse()
 	}
 	var raw []byte
-	err := q.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=? ORDER BY seq DESC LIMIT 1`, work, WorkerJobRecorded, d.WorkerJob.JobID, d.WorkerJob.Revision, d.WorkerJob.Digest).Scan(&raw)
+	err := q.QueryRowContext(ctx, `SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=? AND digest=? AND recorded_payload IS NOT NULL`, work, d.WorkerJob.JobID, d.WorkerJob.Revision, d.WorkerJob.Digest).Scan(&raw)
 	if err != nil {
 		return err
 	}

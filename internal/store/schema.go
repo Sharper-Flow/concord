@@ -6547,6 +6547,13 @@ CREATE TABLE store_revision (
 INSERT INTO store_revision(id,revision) SELECT 1,COALESCE(MAX(seq),0) FROM domain_events;
 `,
 	},
+	{
+		Version:        139,
+		Name:           "worker_current_facts",
+		Breaking:       true,
+		FoldMaintained: "advance",
+		SQL:            workerCurrentFactsMigration,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

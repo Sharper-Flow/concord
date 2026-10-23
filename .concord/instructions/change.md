@@ -11,8 +11,11 @@ that is the finding. Something can be present, called, and working, and still
 not be warranted.
 
 Default to subtraction. Remove what a change supersedes in the same change, or
-say why it stays. Never hide superseded code behind a flag, a guard, or a
-compatibility path, and never copy an implementation instead of calling it.
+say why it stays. When accepted law retires behaviour, delete its tests and
+coverage witnesses in that change, citing the retiring clause. Never keep those
+tests failing while waiting for law text. Never hide superseded code behind a
+flag, a guard, or a compatibility path, and never copy an implementation instead
+of calling it.
 
 Delete records of what a thing used to be. A struck-through line, a renamed-from
 note, a commented-out block, or a file kept only as a marker records history
@@ -20,7 +23,9 @@ that version control already holds. Material that still governs a decision is
 not history, however old it is.
 
 Never delete tests, validation, error handling, or observability to reduce the
-size of something.
+size of something. A failing test is not a reason to delete it. Every test
+deletion must cite the clause that retires its behaviour; review must check that
+the clause covers the deletion.
 
 Never use `git stash`: every worktree shares one stash list. When your role
 may commit, save work as a commit on the item's own branch instead.

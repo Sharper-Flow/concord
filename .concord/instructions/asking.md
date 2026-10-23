@@ -32,6 +32,9 @@ UI corrections, and security repairs restoring existing protections do not
 independently require approval. Another class may still apply. Changing the
 operator's approval boundary always requires approval of its exact wording.
 
+When proposed law needs the operator's exact-text approval, obtain it when the
+law is proposed, before implementation. Never batch these approvals at the end.
+
 State the choice with your recommendation and material risks. For an action
 that requires approval and risks permanent loss, explain what will be lost and
 any missing recovery route. The operator may explicitly approve that loss.

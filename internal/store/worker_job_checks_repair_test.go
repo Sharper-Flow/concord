@@ -232,7 +232,7 @@ func TestChecksRepairSatisfiesNamedRevisionsAndAdmitsOneConfirmingReview(t *test
 		t.Fatal(err)
 	}
 	var delivery workflowDeliveryAdmission
-	if _, err := loadWorkflowDeliveryJobAdmission(ctx, s.db, workID, definition.Definition, &delivery); err != nil {
+	if _, err := loadWorkflowDeliveryJobAdmissionForAccept(ctx, s.db, workID, definition.Definition, &delivery, ""); err != nil {
 		t.Fatal(err)
 	}
 	if !delivery.ChecksRepairReviewDebt {

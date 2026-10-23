@@ -94,25 +94,6 @@ func EventByIDTx(ctx context.Context, transaction *Transaction, eventID string) 
 	return eventByID(ctx, tx, eventID)
 }
 
-// EventByID reads one durable event through the store's deferred read snapshot;
-// append-only receipt-linked event reads need no write-transaction join.
-func EventByID(ctx context.Context, s *Store, eventID string) (Event, bool, error) {
-	var event Event
-	var found bool
-	err := s.readSnapshot(ctx, func(q queryer) error {
-		return eventByIDInto(ctx, q, eventID, &event, &found)
-	})
-	return event, found, err
-}
-
-// eventByIDInto assigns the shared core's result so the snapshot closure stays
-// one store call.
-func eventByIDInto(ctx context.Context, q queryer, eventID string, event *Event, found *bool) error {
-	var err error
-	*event, *found, err = eventByID(ctx, q, eventID)
-	return err
-}
-
 // eventByID is the shared raw-event core; q is the caller's read handle.
 func eventByID(ctx context.Context, q queryer, eventID string) (Event, bool, error) {
 	var event Event

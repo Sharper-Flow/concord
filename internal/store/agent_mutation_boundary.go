@@ -42,14 +42,6 @@ type MutationIdempotencyInsert struct {
 	ObservedAt              time.Time
 }
 
-// MutationEventRefsUpdate links a workflow replay identity to its committed
-// events. The durable operation owns its result payload and changed references.
-type MutationEventRefsUpdate struct {
-	Key            MutationIdempotencyKey
-	ResultEventIDs string
-	ObservedAt     time.Time
-}
-
 // WorkflowContractSnapshot is the active contract data needed by mutation
 // preflight and approval responses.
 type WorkflowContractSnapshot struct {
@@ -121,18 +113,6 @@ func InsertMutationIdempotencyTx(ctx context.Context, transaction *Transaction, 
 	_, err = tx.ExecContext(ctx, `INSERT INTO idempotency_records(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_event_ids,result_payload,changed_refs,authorized_scope_snapshot,first_observed_at,last_observed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, input.Key.PrincipalRef, input.Key.Tool, input.Key.OperationKind, input.Key.IdempotencyKey, input.CanonicalDigest, input.OperationID, input.ResultEventIDs, input.ResultPayload, input.ChangedRefs, input.AuthorizedScopeSnapshot, observed, observed)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "mutation_idempotency", "cannot persist idempotency record", true, "retry once the database is writable", err)
-	}
-	return nil
-}
-
-func UpdateMutationEventRefsTx(ctx context.Context, transaction *Transaction, input MutationEventRefsUpdate) error {
-	tx, err := transactionSQL(transaction, "mutation_idempotency")
-	if err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx, `UPDATE idempotency_records SET result_event_ids=?,last_observed_at=? WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, input.ResultEventIDs, input.ObservedAt.UTC().Format(time.RFC3339Nano), input.Key.PrincipalRef, input.Key.Tool, input.Key.OperationKind, input.Key.IdempotencyKey)
-	if err != nil {
-		return wrapFailure(KindUnavailable, "mutation_idempotency", "cannot persist mutation event references", true, "retry once the database is writable", err)
 	}
 	return nil
 }

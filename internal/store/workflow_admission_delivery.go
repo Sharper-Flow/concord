@@ -124,15 +124,11 @@ func workflowRefineProofFailure(why string) *Failure {
 		false, "run worktree_verify on the refined work, then bind_evidence with evidence_kind verification and the run's worktree_verify operation ref before record_delivery")
 }
 
-// loadWorkflowDeliveryJobAdmission loads the CD-0205 job facet of the delivery
+// loadWorkflowDeliveryJobAdmissionForAccept loads the CD-0205 job facet of the delivery
 // admission: the required jobs' latest revisions with their dispositions, and
 // whether qualifying core-owned worktree verification evidence integrates the
 // required job result population. The producer's actual subject must equal the
 // integrated candidate. Acceptance chronology cannot invalidate unchanged proof.
-func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, state *workflowDeliveryAdmission) ([]workflowVerificationRun, error) {
-	return loadWorkflowDeliveryJobAdmissionForAccept(ctx, q, workID, definition, state, "")
-}
-
 func loadWorkflowDeliveryJobAdmissionForAccept(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, state *workflowDeliveryAdmission, acceptingAttempt string) ([]workflowVerificationRun, error) {
 	if !workflowWorkerJobsActive(definition) {
 		return nil, nil

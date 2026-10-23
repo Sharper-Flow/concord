@@ -387,20 +387,10 @@ func TestWorkflowPredicateDecoderIsClosedAndRejectsTrailingData(t *testing.T) {
 	}
 }
 
-func TestWorkflowActorValidationAndDistinctness(t *testing.T) {
+func TestWorkflowActorValidation(t *testing.T) {
 	t.Parallel()
 	if err := ValidateWorkflowActor(WorkflowActor{PrincipalRef: "p1", ClientRef: "c1", AgentRef: "a1", SessionRef: "s1", ActorClass: ActorAgent}); err != nil {
 		t.Fatal(err)
-	}
-	executing := WorkflowActor{PrincipalRef: "p1", ClientRef: "c1", AgentRef: "a1", SessionRef: "s1", ActorClass: ActorAgent}
-	verdict := executing
-	if err := validateDistinctWorkflowActorsForReplay(executing, verdict, false); err == nil {
-		t.Fatal("same executing and verdict actor accepted")
-	}
-	operatorVerdict := executing
-	operatorVerdict.ActorClass = ActorOperator
-	if err := validateDistinctWorkflowActorsForReplay(executing, operatorVerdict, false); err != nil {
-		t.Fatalf("operator verdict was not distinct from agent executor: %v", err)
 	}
 }
 

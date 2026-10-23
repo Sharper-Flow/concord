@@ -6,9 +6,6 @@ import (
 	"testing"
 )
 
-// Replay validation retains its recorded model policy. The live completion
-// boundary authenticates Main rather than requiring another model or actor.
-
 func distinctnessActor(agent, session string, class ActorClass, model string) WorkflowActor {
 	return WorkflowActor{
 		ActorRef:     DeriveWorkflowActorRef("principal/operator", "client/concord-1", agent, session),
@@ -18,86 +15,6 @@ func distinctnessActor(agent, session string, class ActorClass, model string) Wo
 		SessionRef:   session,
 		ActorClass:   class,
 		Model:        model,
-	}
-}
-
-func TestDeclaredModelDistinctnessRejectsCollisionAndFailsClosed(t *testing.T) {
-	t.Parallel()
-	for _, testCase := range []struct {
-		name         string
-		executing    WorkflowActor
-		verdict      WorkflowActor
-		declared     bool
-		wantKind     FailureKind
-		wantAccepted bool
-	}{
-		{
-			name:         "declared collision is rejected",
-			executing:    distinctnessActor("agent/executor", "session/exec", ActorAgent, "vendor/model-a"),
-			verdict:      distinctnessActor("agent/reviewer", "session/review", ActorAgent, "vendor/model-a"),
-			declared:     true,
-			wantKind:     KindUnauthorized,
-			wantAccepted: false,
-		},
-		{
-			name:         "declared distinct models are accepted",
-			executing:    distinctnessActor("agent/executor", "session/exec", ActorAgent, "vendor/model-a"),
-			verdict:      distinctnessActor("agent/reviewer", "session/review", ActorAgent, "vendor/model-b"),
-			declared:     true,
-			wantAccepted: true,
-		},
-		{
-			name:         "undeclared collision is accepted because D6 is not globally mandatory",
-			executing:    distinctnessActor("agent/executor", "session/exec", ActorAgent, "vendor/model-a"),
-			verdict:      distinctnessActor("agent/reviewer", "session/review", ActorAgent, "vendor/model-a"),
-			declared:     false,
-			wantAccepted: true,
-		},
-		{
-			name:         "declared distinctness without an executing model fails closed",
-			executing:    distinctnessActor("agent/executor", "session/exec", ActorAgent, ""),
-			verdict:      distinctnessActor("agent/reviewer", "session/review", ActorAgent, "vendor/model-b"),
-			declared:     true,
-			wantKind:     KindMissingEvidence,
-			wantAccepted: false,
-		},
-		{
-			name:         "declared distinctness without a verdict model fails closed",
-			executing:    distinctnessActor("agent/executor", "session/exec", ActorAgent, "vendor/model-a"),
-			verdict:      distinctnessActor("agent/reviewer", "session/review", ActorAgent, ""),
-			declared:     true,
-			wantKind:     KindMissingEvidence,
-			wantAccepted: false,
-		},
-		{
-			name:         "operator verdict carries no model and stays distinct",
-			executing:    distinctnessActor("agent/executor", "session/exec", ActorAgent, "vendor/model-a"),
-			verdict:      distinctnessActor("agent/reviewer", "session/review", ActorOperator, ""),
-			declared:     true,
-			wantAccepted: true,
-		},
-		{
-			name:         "same actor is rejected on D5 before the model dimension",
-			executing:    distinctnessActor("agent/executor", "session/exec", ActorAgent, "vendor/model-a"),
-			verdict:      distinctnessActor("agent/executor", "session/exec", ActorAgent, "vendor/model-b"),
-			declared:     true,
-			wantKind:     KindUnauthorized,
-			wantAccepted: false,
-		},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			err := validateDistinctWorkflowActorsForReplay(testCase.executing, testCase.verdict, testCase.declared)
-			if testCase.wantAccepted {
-				if err != nil {
-					t.Fatalf("expected acceptance, got %v", err)
-				}
-				return
-			}
-			if err == nil {
-				t.Fatal("expected rejection")
-			}
-			assertFailureKind(t, err, testCase.wantKind)
-		})
 	}
 }
 

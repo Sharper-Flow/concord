@@ -312,21 +312,6 @@ func workflowCorrectionHealthyBaseline(ctx context.Context, q queryer, workID st
 	return lastHealthySeq, nil
 }
 
-// workflowCorrectionActiveHealthyBaseline resolves the active contract and
-// returns its healthy baseline before beforeSeq. A work item without an
-// active contract has no healthy verdict set to open a window from, so the
-// baseline opens at the log start and every recorded request counts.
-func workflowCorrectionActiveHealthyBaseline(ctx context.Context, q queryer, workID string, beforeSeq int64, subject string) (int64, error) {
-	contractVersion, err := activeWorkflowContractVersion(ctx, q, workID, subject)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return 0, nil
-		}
-		return 0, err
-	}
-	return workflowCorrectionHealthyBaseline(ctx, q, workID, contractVersion, beforeSeq)
-}
-
 // workflowCorrectionAcceptanceBefore finds the satisfied-obligation acceptance
 // preceding a checkpoint's failure. The in-flight completion is excluded.
 func workflowCorrectionAcceptanceBefore(ctx context.Context, q queryer, workID string, seq int64, subject string) (int64, error) {

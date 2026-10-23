@@ -61,7 +61,7 @@ func guardAcceptWorkerResultChanges(g *workflowActionGuardContext, fields map[st
 		return nil
 	}
 	return newFailure(KindInvalidOperation, "workflow_action", "accept_worker_result: the job has no changed paths and lacks fresh passing evidence that its declared outcome already holds", false,
-		"report fresh passing executions of every declared job control on the unchanged subject with the required evidence roles; if the outcome does not hold, reject_worker_result and correct the unmet outcome, not the absence of an edit")
+		"bind_evidence for each independently executed control run and retry; otherwise reject_worker_result and dispatch a correction whose report proves every declared job control passes on the unchanged subject, or that delivers the outcome a failing control shows unmet; no edit is required when the outcome already holds")
 }
 
 func unchangedJobOutcomeProven(g *workflowActionGuardContext, completed *WorkerCompletedPayload, oracle *AcceptanceOracle) (bool, error) {
@@ -69,7 +69,7 @@ func unchangedJobOutcomeProven(g *workflowActionGuardContext, completed *WorkerC
 		return false, nil
 	}
 	var worker string
-	if err := g.tx.QueryRowContext(g.ctx, `SELECT json_extract(payload,'$.lane_actor_ref') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, string(SubjectWorkItem), g.request.WorkID, WorkerDispatched, completed.AttemptID).Scan(&worker); err != nil {
+	if err := g.tx.QueryRowContext(g.ctx, `SELECT COALESCE(json_extract(payload,'$.lane_actor_ref'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, string(SubjectWorkItem), g.request.WorkID, WorkerDispatched, completed.AttemptID).Scan(&worker); err != nil {
 		return false, workflowProjectionError(err, "cannot read the result's producing actor")
 	}
 	controls := oracleControlIndex(oracle)

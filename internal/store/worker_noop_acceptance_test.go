@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +16,7 @@ func TestAcceptWorkerResultNoChangeProvesDeclaredOutcomeAndReachesReview(t *test
 	job := recordOracleJobRevision(t, f.store, workID, f.owner, "job:confirm", twoPathOracleFields(t, f.store, workID, nil))
 	attempt := "attempt:" + workID
 	subject := dispatchChangeAcceptanceAttempt(t, f, workID, attempt, job)
-	receipts := noChangeOutcomeReceipts(t, f, workID, true)
+	receipts, _ := noChangeOutcomeReceipts(t, f, workID, true)
 	completed := completeChangeAcceptanceAttempt(t, f, workID, attempt, subject, func(p *WorkerCompletedPayload) {
 		appendNoChangeReceipts(p, receipts)
 	})
@@ -39,7 +40,7 @@ func TestAcceptWorkerResultNoChangeProvesDeclaredOutcomeAndReachesReview(t *test
 }
 
 func TestAcceptWorkerResultNoChangeRequiresCompleteFreshOutcomeProof(t *testing.T) {
-	for _, name := range []string{"missing-control", "later-failure", "unbound-independent"} {
+	for _, name := range []string{"no-proof", "missing-control", "later-failure", "unbound-independent", "self-produced-independent"} {
 		t.Run(name, func(t *testing.T) {
 			workID := "accept-nochange-" + name
 			f := seedOracleRepairFixture(t, workID)
@@ -47,8 +48,25 @@ func TestAcceptWorkerResultNoChangeRequiresCompleteFreshOutcomeProof(t *testing.
 			job := recordOracleJobRevision(t, f.store, workID, f.owner, "job:confirm", twoPathOracleFields(t, f.store, workID, nil))
 			attempt := "attempt:" + workID
 			subject := dispatchChangeAcceptanceAttempt(t, f, workID, attempt, job)
-			receipts := noChangeOutcomeReceipts(t, f, workID, name != "unbound-independent")
-			if name == "missing-control" {
+			receipts, independent := noChangeOutcomeReceipts(t, f, workID, name != "unbound-independent")
+			if name == "self-produced-independent" {
+				req := verifyRequest(f.git, "self-confirm-"+workID, oracleGoArgv("path-b"), func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil })
+				req.WorkID, req.ProjectID = workID, "project"
+				if err := f.store.db.QueryRow(`SELECT a.principal_ref,a.client_ref,a.agent_ref,a.session_ref FROM workflow_actors a JOIN domain_events e ON a.actor_ref=json_extract(e.payload,'$.lane_actor_ref') WHERE e.subject_id=? AND e.kind=? AND json_extract(e.payload,'$.attempt_id')=?`, workID, WorkerDispatched, attempt).Scan(&req.PrincipalRef, &req.Owner.ClientRef, &req.Owner.AgentRef, &req.Owner.SessionRef); err != nil {
+					t.Fatal(err)
+				}
+				self, err := f.store.VerifyWorktree(context.Background(), req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				seedOracleExecuteLedgerFixture(t, f.store, &self, oracleFixtureGraphForCommand(t, f.store, workID, req.Command))
+				bindNoChangeRun(t, f, workID, self, req.PrincipalRef)
+				receipts[1].RunRef, receipts[1].EvidenceRefs = self.OperationRef, []string{self.OperationRef}
+			}
+			switch name {
+			case "no-proof":
+				receipts = nil
+			case "missing-control":
 				receipts = receipts[:1]
 			}
 			completeChangeAcceptanceAttempt(t, f, workID, attempt, subject, func(p *WorkerCompletedPayload) {
@@ -62,8 +80,18 @@ func TestAcceptWorkerResultNoChangeRequiresCompleteFreshOutcomeProof(t *testing.
 			if err == nil || !strings.Contains(err.Error(), "no changed paths") {
 				t.Fatalf("accept with %s proof = %v, want no-change refusal", name, err)
 			}
+			var failure *Failure
+			if !errors.As(err, &failure) || !strings.Contains(failure.RecoveryAction, "reject_worker_result and dispatch a correction") {
+				t.Fatalf("no-change refusal recovery must name a route open to a terminal result: %v", err)
+			}
 			if after := maxEventSeq(t, f.store, workID); after != before {
 				t.Fatalf("refused acceptance wrote events: before=%d after=%d", before, after)
+			}
+			if name == "unbound-independent" {
+				bindNoChangeRun(t, f, workID, independent, "principal-1")
+				if err := acceptChangeTestAttempt(t, f, workID, attempt); err != nil {
+					t.Fatalf("accept after binding the independent run: %v", err)
+				}
 			}
 		})
 	}
@@ -78,25 +106,34 @@ func appendNoChangeReceipts(p *WorkerCompletedPayload, receipts []WorkerOracleRe
 	}
 }
 
-func noChangeOutcomeReceipts(t *testing.T, f oracleRepairFixture, workID string, bindIndependent bool) []WorkerOracleReceipt {
+func noChangeOutcomeReceipts(t *testing.T, f oracleRepairFixture, workID string, bindIndependent bool) ([]WorkerOracleReceipt, WorktreeVerifyResult) {
 	t.Helper()
 	var receipts []WorkerOracleReceipt
+	var independent WorktreeVerifyResult
 	for _, path := range []string{"a", "b"} {
 		run := oracleVerifyControl(t, f, workID, "confirm-"+path, "1", oracleGoArgv("path-"+path), 0)
-		if path == "b" && bindIndependent {
-			event := workflowTypedEvent("bind-"+run.LeaseID, WorkflowEvidenceBound, workID, "actor:test", time.Unix(60, 0).UTC(), readWorkVersion(t, f.store, workID), map[string]any{
-				"evidence_kind": "verification", "immutable_subject_ref": run.OperationRef, "producer_id": "principal-1",
-				"producer_run_ref": run.OperationRef, "producer_watermark": "req-v-" + run.LeaseID, "observed_at": time.Unix(60, 0).UTC().Format(time.RFC3339Nano),
-			})
-			if err := applyWorkflowTestOperation(context.Background(), f.store, Operation{Events: []Event{event}}); err != nil {
-				t.Fatal(err)
+		if path == "b" {
+			independent = run
+			if bindIndependent {
+				bindNoChangeRun(t, f, workID, run, "principal-1")
 			}
 		}
 		exit := 0
 		receipts = append(receipts, WorkerOracleReceipt{ControlIDs: []string{"control:check-" + path}, CaseIDs: []string{"case:path-" + path}, SubjectCommit: strings.TrimPrefix(run.SubjectRef, "commit:"),
 			RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}, Result: OracleReceiptResultPass, ExitCode: &exit, RunRef: run.OperationRef, EvidenceRefs: []string{run.OperationRef}})
 	}
-	return receipts
+	return receipts, independent
+}
+
+func bindNoChangeRun(t *testing.T, f oracleRepairFixture, workID string, run WorktreeVerifyResult, principal string) {
+	t.Helper()
+	event := workflowTypedEvent("bind-"+run.LeaseID, WorkflowEvidenceBound, workID, "actor:test", time.Unix(60, 0).UTC(), readWorkVersion(t, f.store, workID), map[string]any{
+		"evidence_kind": "verification", "immutable_subject_ref": run.OperationRef, "producer_id": principal,
+		"producer_run_ref": run.OperationRef, "producer_watermark": "req-v-" + run.LeaseID, "observed_at": time.Unix(60, 0).UTC().Format(time.RFC3339Nano),
+	})
+	if err := applyWorkflowTestOperation(context.Background(), f.store, Operation{Events: []Event{event}}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestAcceptWorkerResultRefusesNoOpLaneReport(t *testing.T) {

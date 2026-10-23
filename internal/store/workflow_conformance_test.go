@@ -631,70 +631,70 @@ func TestWorkflowScenarioCorpusMutationsRerunAgainstAuthoritativeState(t *testin
 
 func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *testing.T) {
 	t.Parallel()
-	corpus := readWorkflowScenarioCorpus(t)
-	var scenario workflowScenario
-	for _, candidate := range corpus.Scenarios {
-		if candidate.ID == "WF20-internal-inline" {
-			scenario = candidate
-			break
-		}
-	}
-	if scenario.ID == "" {
-		t.Fatal("WF20 is missing from the corpus")
-	}
+	const workID = "corpus-inline-current"
+	const operationID = "corpus-inline-approve"
 	ctx := context.Background()
 	s := openTemp(t)
-	actor := WorkflowActor{PrincipalRef: scenario.Request.Grant.PrincipalRef, ClientRef: scenario.Request.Grant.ClientRef, AgentRef: scenario.Request.Grant.AgentRef, SessionRef: scenario.Request.Grant.SessionRef, ActorClass: ActorAgent}
-	actorRef, err := WorkflowActorRef(actor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition, err := BuiltinWorkflowDefinitionForRef(scenario.Request.DefinitionPin.Ref)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := replayWorkflowCorpusSetup(ctx, t, s, scenario.Setup, definition, actorRef, true); err != nil {
-		t.Fatal(err)
-	}
-	if definition.Definition.ChangesProductTruth != nil && *definition.Definition.ChangesProductTruth {
-		if err := seedCorpusArchitectureScope(ctx, s, scenario.Setup.FixtureRefs.WorkItem, scenario.Request.Fields); err != nil {
-			t.Fatal(err)
-		}
-	}
-	var beforeVersion, beforeContracts int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, scenario.Setup.FixtureRefs.WorkItem).Scan(&beforeVersion); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, scenario.Setup.FixtureRefs.WorkItem).Scan(&beforeContracts); err != nil {
-		t.Fatal(err)
-	}
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	seedIssue31DomainRegistry(t, s)
+	actor := WorkflowActor{PrincipalRef: "principal:corpus", ClientRef: "client:corpus", AgentRef: "agent:corpus-main", SessionRef: "session:corpus-inline", ActorClass: ActorAgent}
+	definition := mustBuiltinDefinition(t, "workflow.implementation")
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope, err := beginFold(ctx, tx)
-	if err != nil {
-		tx.Rollback()
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: corpusNow}); err != nil {
+		_ = tx.Rollback()
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(scenario.Request.Fields)
-	_, actionErr := applyWorkflowActionRawTx(ctx, tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: scenario.Setup.FixtureRefs.WorkItem, ExpectedVersion: scenario.Request.ExpectedVersion, ActionID: scenario.Request.ActionID, Payload: payload, Actor: actor, AcceptedInputsDigest: scenario.Request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: scenario.Request.Idempotency.Key, OperationID: scenario.Request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: scenario.Request.Idempotency.Key, RequestID: scenario.Request.Idempotency.RequestID, AcceptedScope: `{}`, ContractDigest: testManifestDigest, Now: corpusNow})
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	version := readWorkVersion(t, s, workID)
+	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+		version = issue31WorkflowAction(t, s, workID, version, action, workID+":"+action, actor)
+	}
+	payload := testApprovalPayload(t, s, workID, "approve_contract", json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"domain_registry_content_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`))
+	var beforeVersion, beforeContracts int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&beforeVersion); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&beforeContracts); err != nil {
+		t.Fatal(err)
+	}
+	tx, err = s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	scope, err := beginFold(ctx, tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, actionErr := applyWorkflowActionRawTx(ctx, tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: operationID, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: operationID, RequestID: operationID + ":request", AcceptedScope: `{}`, ContractDigest: testManifestDigest, Now: corpusNow})
 	_ = scope.close(ctx)
 	if actionErr != nil {
-		tx.Rollback()
 		t.Fatalf("WF20 production action failed before rollback fault: %v", actionErr)
+	}
+	var pendingContracts int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&pendingContracts); err != nil {
+		t.Fatal(err)
+	}
+	if pendingContracts != beforeContracts+1 {
+		t.Fatalf("approval wrote %d contracts inside the transaction, want %d", pendingContracts, beforeContracts+1)
 	}
 	if err := tx.Rollback(); err != nil {
 		t.Fatal(err)
 	}
 	var eventCount, contracts, afterVersion int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id LIKE ?`, scenario.Request.Operation.OpID+":%").Scan(&eventCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id LIKE ?`, operationID+":%").Scan(&eventCount); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, scenario.Setup.FixtureRefs.WorkItem).Scan(&contracts); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contracts); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, scenario.Setup.FixtureRefs.WorkItem).Scan(&afterVersion); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&afterVersion); err != nil {
 		t.Fatal(err)
 	}
 	if eventCount != 0 || contracts != beforeContracts || afterVersion != beforeVersion {

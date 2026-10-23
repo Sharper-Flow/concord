@@ -635,8 +635,10 @@ func TestManagedCandidateSubjectCorrectiveDispatchOnB(t *testing.T) {
 	}
 	run := j.observeRun(t, "correction-b")
 	j.bindVerification(t, run)
+	const diagnosis = "B needs a bounded corrective pass"
+	const strategy = "correct B under its pinned oracle"
 	correction := map[string]any{
-		"diagnosis": "B needs a bounded corrective pass", "strategy": "correct B under its pinned oracle",
+		"diagnosis": diagnosis, "strategy": strategy,
 		"predicate_ids": []string{"predicate:work-context"}, "evidence_refs": []string{run.OperationRef},
 	}
 	if err := j.action(t, "request_correction", correction, j.fixture.owner); err != nil {
@@ -652,10 +654,10 @@ func TestManagedCandidateSubjectCorrectiveDispatchOnB(t *testing.T) {
 	if err != nil || before == nil {
 		t.Fatalf("open correction before dispatch = %+v err=%v", before, err)
 	}
-	carried := j.dispatchJob(t, attempt, "implement", "implementation", jobB)
-	if carried == nil || carried.Disposition != before.Disposition || carried.FailedAttemptID != before.FailedAttemptID || carried.FailedAttemptEpoch != before.FailedAttemptEpoch || carried.Diagnosis != before.Diagnosis || carried.Strategy != before.Strategy {
-		t.Errorf("corrective dispatch carried %+v, want the open correction %+v", carried, before)
+	if before.Disposition != "verification" || before.Diagnosis != diagnosis || before.Strategy != strategy || len(before.PredicateIDs) != 1 || before.PredicateIDs[0] != "predicate:work-context" || len(before.EvidenceRefs) != 1 || before.EvidenceRefs[0] != run.OperationRef {
+		t.Fatalf("correction context = %+v, want this request's diagnosis, strategy, predicate and B evidence", before)
 	}
+	j.dispatchJob(t, attempt, "implement", "implementation", jobB)
 	if got := j.dispatchedSubject(t, attempt); got != j.b {
 		t.Errorf("corrective dispatch subject = %q, want B %q", got, j.b)
 	}
@@ -682,7 +684,7 @@ func TestManagedCandidateSubjectCorrectiveDispatchOnB(t *testing.T) {
 
 // dispatchJob dispatches one job-bound attempt on the named lane at the
 // current step, carrying the open correction context when one exists.
-func (j *candidateJourney) dispatchJob(t *testing.T, attemptID, laneID, capability string, job WorkerJobBinding) *WorkflowCorrectionContext {
+func (j *candidateJourney) dispatchJob(t *testing.T, attemptID, laneID, capability string, job WorkerJobBinding) {
 	t.Helper()
 	laneVersion, laneDigest := registeredLaneIdentity(t, laneID)
 	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attemptID, laneID, laneVersion, laneDigest)
@@ -699,7 +701,6 @@ func (j *candidateJourney) dispatchJob(t *testing.T, attemptID, laneID, capabili
 	}
 	bound := job
 	j.laneDispatch(t, attemptID, capability, &bound)
-	return correction
 }
 
 // dispatchPacket authorizes one prepared packet through the dispatch_worker

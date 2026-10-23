@@ -1508,7 +1508,7 @@ func verifyRestoredBackup(t *testing.T, ctx context.Context, backupPath string, 
 	if verified.SourceSnapshot.SchemaVersion != manifest.SchemaVersion || verified.RestoredDatabase.EventWatermark != manifest.EventWatermark {
 		return fmt.Errorf("restored manifest = %+v, want schema=%d watermark=%d", verified, manifest.SchemaVersion, manifest.EventWatermark)
 	}
-	if got, err := maxEventSeqAtPath(ctx, restoredPath); err != nil || got != manifest.EventWatermark {
+	if got, err := storeRevisionAtPath(ctx, restoredPath); err != nil || got != manifest.EventWatermark {
 		return fmt.Errorf("restored watermark = %d, want %d (err=%v)", got, manifest.EventWatermark, err)
 	}
 	restoredStore, err := Open(ctx, restoredPath)
@@ -1536,15 +1536,13 @@ func verifyRestoredBackup(t *testing.T, ctx context.Context, backupPath string, 
 	return nil
 }
 
-func maxEventSeqAtPath(ctx context.Context, path string) (int64, error) {
+func storeRevisionAtPath(ctx context.Context, path string) (int64, error) {
 	db, err := sqlOpenReadOnly(ctx, path)
 	if err != nil {
 		return 0, err
 	}
 	defer db.Close()
-	var seq int64
-	err = db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events`).Scan(&seq)
-	return seq, err
+	return storeRevision(ctx, db)
 }
 
 func sqlOpenReadOnly(_ context.Context, path string) (*sql.DB, error) {

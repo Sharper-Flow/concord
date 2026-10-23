@@ -286,3 +286,20 @@ func TestStoreRevisionConstraints(t *testing.T) {
 		t.Fatalf("overflow changed revision to %d", got)
 	}
 }
+
+func TestStoreRevisionBackupRestoreInventory(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	if err := s.Transact(ctx, func(*Transaction) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := filepath.Join(t.TempDir(), "revision-backup.db")
+	manifest, err := Backup(ctx, s, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyRestoredBackup(t, ctx, snapshot, manifest); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -81,9 +81,12 @@ type ContextFailure struct {
 }
 
 type ContinuitySnapshot struct {
-	ReviewInput     *WorkerReviewInput `json:"review_input,omitempty"`
-	WorkID          string             `json:"work_id"`
-	ProductIdentity []string           `json:"product_identity"`
+	// ReviewInputWarning reports optional Git enrichment failure outside the
+	// projection bytes so session recovery does not depend on repository access.
+	ReviewInputWarning error              `json:"-"`
+	ReviewInput        *WorkerReviewInput `json:"review_input,omitempty"`
+	WorkID             string             `json:"work_id"`
+	ProductIdentity    []string           `json:"product_identity"`
 	// WorkflowInstance states workflow-instance presence as typed
 	// information: WorkflowInstancePresent for the pinned default every
 	// captured item carries, WorkflowInstanceAbsent for an imported or
@@ -341,7 +344,9 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	if receipt != nil {
 		commit := strings.TrimPrefix(receipt.SubjectRef, "commit:")
 		tree, treeErr := readReviewCandidateTree(ctx, CommittedReadGitRunner{}, receipt.Path, commit)
-		if treeErr == nil {
+		if treeErr != nil {
+			out.ReviewInputWarning = treeErr
+		} else {
 			out.ReviewInput = &WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: receipt.ProjectID, Commit: commit, Tree: tree}, Dependencies: *out.WorkPin.Review.Dependencies}
 		}
 	}

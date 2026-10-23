@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -65,6 +66,49 @@ func TestReviewDispatchRequiresExactReviewInput(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReviewContinuityPreservesRecoveryOnCandidateTreeFailure(t *testing.T) {
+	f := seedWorkContextFixture(t, "review-input-tree-failure")
+	t.Cleanup(func() { _ = f.store.Close() })
+	repo, _ := reviewSubjectClaim(t, f.store, f.workID)
+	snapshot, err := ReadWorkflowContinuity(t.Context(), f.store, ContinuityRequest{Work: f.workID})
+	if err != nil || snapshot.ReviewInput == nil {
+		t.Fatalf("reachable candidate: %+v, %v", snapshot.ReviewInput, err)
+	}
+	if err := os.Rename(repo+"/.git", repo+"/.git-unavailable"); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("continuity", func(t *testing.T) {
+		snapshot, err := ReadWorkflowContinuity(t.Context(), f.store, ContinuityRequest{Work: f.workID})
+		if err != nil {
+			t.Fatalf("optional review input blocked continuity: %v", err)
+		}
+		var failure *Failure
+		if !failureAs(snapshot.ReviewInputWarning, &failure) || failure.Kind != KindGitUnreachable {
+			t.Fatalf("want typed candidate-tree Git warning, got %v", snapshot.ReviewInputWarning)
+		}
+		if !strings.Contains(failure.Detail, "candidate tree") || failure.Err == nil || !failure.RetrySafe || failure.RecoveryAction == "" {
+			t.Fatalf("candidate-tree failure lost its cause or recovery: %+v", failure)
+		}
+		if snapshot.ReviewInput != nil {
+			t.Fatal("unreachable candidate must not expose review input")
+		}
+	})
+	t.Run("session start", func(t *testing.T) {
+		cmd := exec.CommandContext(t.Context(), "go", "run", "../../cmd/concord", "continuity-block", repo) //nolint:gosec // fixed test-only Go command against the same synthetic fixture
+		cmd.Env = append(os.Environ(), "CONCORD_DB_PATH="+f.store.path)
+		raw, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("session boot with unreachable candidate: %v\n%s", err, raw)
+		}
+		var boot struct {
+			WorkID string `json:"work_id"`
+		}
+		if err := json.Unmarshal(raw, &boot); err != nil || boot.WorkID != f.workID {
+			t.Fatalf("session boot lost work identity: %s, %v", raw, err)
+		}
+	})
 }
 
 func TestReviewEvalDependencyDigestsMatchStore(t *testing.T) {

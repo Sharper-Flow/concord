@@ -1983,7 +1983,18 @@ func continuityResultMetaObservedAt(snapshot store.ContinuitySnapshot, next *str
 	if strings.HasPrefix(snapshot.Watermark, "seq:") {
 		watermark, _ = strconv.ParseInt(strings.TrimPrefix(snapshot.Watermark, "seq:"), 10, 64)
 	}
-	return store.ResultMeta{QueryID: "C19.Continuity", ContractVersion: "C19/1.0", ResolvedScope: store.ResolvedScope{WorkID: snapshot.WorkID, ProductIDs: snapshot.ProductIdentity}, SourceVersionWatermark: watermark, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: observedAt}, OrderingKeys: []string{"boundary_sequence"}, NextCursor: next, Omissions: []string{}, Warnings: []string{}}
+	warnings := []string{}
+	if snapshot.ReviewInputWarning != nil {
+		kind := store.KindUnavailable
+		var failure *store.Failure
+		if errors.As(snapshot.ReviewInputWarning, &failure) {
+			kind = failure.Kind
+		}
+		// Stable notice: review_input_candidate_tree:<typed failure kind>.
+		// Raw paths and Git output stay on the non-JSON snapshot error only.
+		warnings = append(warnings, "review_input_candidate_tree:"+string(kind))
+	}
+	return store.ResultMeta{QueryID: "C19.Continuity", ContractVersion: "C19/1.0", ResolvedScope: store.ResolvedScope{WorkID: snapshot.WorkID, ProductIDs: snapshot.ProductIdentity}, SourceVersionWatermark: watermark, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: observedAt}, OrderingKeys: []string{"boundary_sequence"}, NextCursor: next, Omissions: []string{}, Warnings: warnings}
 }
 
 // continuityProjectionHeader is the small closed identity header every page

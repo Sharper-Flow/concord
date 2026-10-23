@@ -5,7 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1121,9 +1124,10 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	const readingMarker = "CON887-READING-MARKER"
 	const findingMarker = "CON887-FINDING-MARKER"
 	const workerMarker = "CON887-WORKER-MARKER"
-	lane := BuiltinLaneDefinitions()[0]
+	reading := fixture.repoReading(workContextTestChild, "", "primary")
+	reading["reason"] = readingMarker
 	if err := fixture.recordWorkContext(t, map[string]any{
-		"required_reading": []map[string]any{{"domain_id": workContextTestChild, "reason": readingMarker, "source": map[string]any{"kind": "repository_file", "project_id": "project", "path": "internal/store/work_context.go", "commit_oid": workContextTestCommit()}}},
+		"required_reading": []map[string]any{reading},
 		"context_findings": []map[string]any{
 			workContextFinding(workContextTestChild, "rejected_approach", findingMarker+"-A", ""),
 			workContextFinding(workContextTestChild, "open_question", findingMarker+"-B", ""),
@@ -1131,19 +1135,53 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("declaration refused: %v", err)
 	}
-	// The attempt's original dispatch authorization precedes the generic
-	// dispatch evidence, so the terminal report resolves its own Project.
-	ownerRef, err := WorkflowActorRef(fixture.owner)
+	repo, _ := reviewSubjectClaim(t, fixture.store, fixture.workID)
+	var branch string
+	if err := fixture.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(fixture.workID)).Scan(&branch); err != nil {
+		t.Fatal(err)
+	}
+	gitRunStore(t, repo, "branch", "-m", branch)
+	journey := &candidateJourney{fixture: fixture, s: fixture.store, workID: fixture.workID, repo: repo}
+	implementation := WorkerJobBinding{JobID: "job:ctx-no-promotion"}
+	const implementAttempt = "attempt:ctx-no-promotion:implement"
+	conformanceImplementComplete(t, journey, &implementation, implementAttempt)
+	if err := journey.action(t, "accept_worker_result", map[string]any{"attempt_id": implementAttempt, "attempt_epoch": journey.dispatchEpoch(t, implementAttempt)}, fixture.owner); err != nil {
+		t.Fatalf("accept the integrated context fixture: %v", err)
+	}
+	journey.observe(t, "ctx-no-promotion-candidate")
+
+	job := reviewSubjectReadyRevision(t, fixture)
+	const reviewAttempt = "attempt:ctx-no-promotion:review"
+	if err := descendantDispatch(t, journey, "review", reviewAttempt, job, nil); err != nil {
+		t.Fatalf("dispatch the current Review: %v", err)
+	}
+	journey.laneDispatch(t, reviewAttempt, "review", &job)
+	window := reviewSubjectWindow(t, fixture.store, fixture.workID, reviewAttempt)
+	request := journey.request("ctx-no-promotion-proof", nil)
+	request.Command = []string{"git", "diff", "--exit-code", "HEAD"}
+	proof, err := fixture.store.VerifyWorktree(t.Context(), request)
+	if err != nil || proof.ExitCode != 0 || proof.SubjectRef != "commit:"+journey.head(t) {
+		t.Fatalf("capture criterion proof on the current candidate: %+v err=%v", proof, err)
+	}
+	lane := reviewGateLane(t, "review")
+	retained := []WorkerContextFinding{{Kind: "observation", Statement: workerMarker, SubjectRef: "internal/store/work_context.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
+	event := workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-promote", reviewAttempt, preferredModelForLane(lane), lane, retained, WorkerEvidenceEventPayloadVersion(WorkerCompleted), repo)
+	var report WorkerCompletedPayload
+	if err := json.Unmarshal(event.Payload, &report); err != nil {
+		t.Fatal(err)
+	}
+	report.WorkerJob = &job
+	report.Review = currentReviewBlockForTest(t, fixture.store, fixture.workID, reviewAttempt, "ready_for_final_proof")
+	report.Review.Assessments = []WorkerReviewAssessment{{PredicateID: "predicate:work-context", Assessment: "supported", ReceiptRefs: []string{proof.OperationRef}}}
+	report.Evidence = slices.DeleteFunc(report.Evidence, func(evidence WorkerReportEvidence) bool { return evidence.Obligation == "severity" })
+	event.Payload = mustJSONValue(report)
+	prepared, err := PrepareWorkerTerminalDelivery(t.Context(), fixture.store, PrepareWorkerTerminalDeliveryRequest{WorkID: fixture.workID, AttemptID: reviewAttempt, EventID: event.EventID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	recordWorkerFixtureDispatchAuthorization(t, fixture.store, fixture.workID, "attempt-ctx-promote", "repair", ownerRef)
-	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-ctx-promote", lane, nil)}}); err != nil {
-		t.Fatal(err)
-	}
-	retained := []WorkerContextFinding{{Kind: "observation", Statement: workerMarker, SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
-	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-promote", "attempt-ctx-promote", preferredModelForLane(lane), lane, retained, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
-		t.Fatal(err)
+	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(t.Context(), prepared), fixture.store, event)
+	if err := journey.action(t, "accept_worker_result", map[string]any{"attempt_id": reviewAttempt, "attempt_epoch": window.AttemptEpoch}, fixture.owner); err != nil {
+		t.Fatalf("accept the exact Review: %v", err)
 	}
 	// The compaction-draft-adjacent boundary: a durable checkpoint and a
 	// summary boundary carry only their own content, before the terminal
@@ -1159,50 +1197,44 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	})), 0, fixture.owner); err != nil {
 		t.Fatalf("context boundary refused: %v", err)
 	}
-	// Ordinary completion: the terminal completion event derives from the
-	// log's verdicts, never from context content. A distinct recorded
-	// reviewer authors the verdict the completion records, mirroring the
-	// self-evaluation refusal the corrected independence law pins.
-	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/ctx-reviewer", SessionRef: "session/" + fixture.workID + "-reviewer", ActorClass: ActorOperator}
-	reviewerRef, err := WorkflowActorRef(reviewer)
+	// Main associates the captured proof and completes through the declared
+	// exits. Context claims cannot stand in for criterion evidence.
+	if err := journey.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": proof.OperationRef}, fixture.owner); err != nil {
+		t.Fatalf("bind captured proof: %v", err)
+	}
+	delivery := map[string]any{"delivery_artifact": "commit:" + journey.head(t), "delivery_state": "asserted"}
+	for _, action := range []string{"record_delivery", "checkpoint_refine", "record_delivery", "record_delivery"} {
+		fields := delivery
+		if action == "checkpoint_refine" {
+			fields = map[string]any{}
+		}
+		if err := journey.action(t, action, fields, fixture.owner); err != nil {
+			t.Fatalf("current completion route %s: %v", action, err)
+		}
+	}
+	if err := journey.action(t, "record_verdict", json.RawMessage(criterionAssociationPayload(proof.OperationRef, "predicate:work-context")), fixture.owner); err != nil {
+		t.Fatalf("associate captured criterion proof: %v", err)
+	}
+	seedComparisonObservation(t, fixture.store, fixture.workID)
+	freshness, err := PrepareWorkflowAcceptanceFreshness(t.Context(), fixture.store, PrepareWorkerDispatchRequest{WorkID: fixture.workID, SessionWorktree: repo})
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := readWorkVersion(t, fixture.store, fixture.workID)
-	reviewerEvent := workflowEventWithActor("ctx-reviewer-"+fixture.workID, WorkflowActorRecorded, fixture.workID, reviewerRef, map[string]any{
-		"work_id": fixture.workID, "expected_version": version, "resulting_version": version + 1,
-		"actor_ref": reviewerRef, "principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef,
-		"agent_ref": reviewer.AgentRef, "session_ref": reviewer.SessionRef, "actor_class": string(reviewer.ActorClass),
-	})
-	if err := applyWorkflowTestOperation(context.Background(), fixture.store, Operation{Events: []Event{reviewerEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, fixture.workID): version}}); err != nil {
-		t.Fatalf("record reviewer: %v", err)
+	ctx := WithWorkerDispatchPreparation(t.Context(), freshness)
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, fixture.store, WorkflowActionExecutionRequest{
+		WorkID: fixture.workID, ExpectedVersion: readWorkVersion(t, fixture.store, fixture.workID), ActionID: "confirm_premise", SelectedChoice: "confirm",
+		Payload: json.RawMessage(`{}`), Actor: fixture.owner, SessionWorktree: repo,
+		AcceptedInputsDigest: nativeDigest([]byte("ctx-no-promotion-confirm")), IdempotencyIdentity: "ctx-no-promotion-confirm", OperationID: "ctx-no-promotion-confirm",
+		PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "ctx-no-promotion-confirm", RequestID: "request:ctx-no-promotion-confirm", ContractDigest: testManifestDigest, Now: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("confirm the evidenced premise: %v", err)
 	}
-	version = readWorkVersion(t, fixture.store, fixture.workID)
-	verdict := workflowEventWithActor("ctx-verdict-"+fixture.workID, WorkflowVerdictRecorded, fixture.workID, reviewerRef, map[string]any{
-		"work_id": fixture.workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1,
-		"predicate_id": "predicate:work-context", "verdict_kind": "ok", "verdict_actor_ref": reviewerRef,
-		"evaluation_evidence": []string{"evidence:ctx-verdict"},
-	})
-	verdict.PayloadVersion = 2
-	if err := applyWorkflowTestOperation(context.Background(), fixture.store, Operation{Events: []Event{verdict}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, fixture.workID): version}}); err != nil {
-		t.Fatalf("record reviewer verdict: %v", err)
-	}
-	version = readWorkVersion(t, fixture.store, fixture.workID)
-	completion := workflowEventWithActor("ctx-completed-"+fixture.workID, WorkflowCompleted, fixture.workID, reviewerRef, map[string]any{
-		"work_id": fixture.workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": reviewerRef, "premise_confirmed": true, "evidence_count": 1, "changed_refs_digest": WorkflowChangedRefsDigest([]string{fixture.workID}), "impact_verdict": "non-breaking",
-	})
-	completion.PayloadVersion = 2
-	if err := applyWorkflowTestOperation(context.Background(), fixture.store, Operation{Events: []Event{completion}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, fixture.workID): version}}); err != nil {
+	if err := journey.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}, fixture.owner); err != nil {
 		t.Fatalf("completion after context records refused: %v", err)
 	}
 	// Closing the lifecycle keeps the context as claims: the closed item
 	// still answers every declared and worker-reported finding verbatim,
 	// each still reported, and the reading reference unchanged.
-	version = readWorkVersion(t, fixture.store, fixture.workID)
-	closePayload := mustJSONValue(map[string]any{"from": "in_progress", "to": "completed", "reason": "the work context stays claims at close", "expected_version": version, "resulting_version": version + 1})
-	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{{EventID: "ctx-close-" + fixture.workID, Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "operator", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 1, Payload: closePayload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, fixture.workID): version}}); err != nil {
-		t.Fatalf("close the lifecycle after the terminal completion: %v", err)
-	}
 	var lifecycle string
 	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, fixture.workID).Scan(&lifecycle); err != nil {
 		t.Fatal(err)
@@ -1267,6 +1299,11 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	}
 	if archivedAfter != archivedBefore {
 		t.Fatalf("context completion changed archived-work rows from %d to %d", archivedBefore, archivedAfter)
+	}
+	output, err := (ExecGitRunner{}).Run(t.Context(), repo, "grep", "-n", "-e", readingMarker, "-e", findingMarker, "-e", workerMarker, "HEAD", "--")
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		t.Fatalf("committed context-marker search must find no match: output=%q err=%v", output, err)
 	}
 }
 

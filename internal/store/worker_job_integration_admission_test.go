@@ -27,7 +27,7 @@ func TestCombinedAcceptanceRequiresIntegration(t *testing.T) {
 	if combined.Failure == nil {
 		t.Fatal("combined final acceptance admitted the same missing integration rejected by standalone delivery")
 	}
-	if !strings.Contains(combined.Failure.Detail, "verification evidence") {
+	if !strings.Contains(combined.Failure.Detail, "requires passing producer verification on the current integrated candidate") {
 		t.Fatalf("combined refusal = %q, want the integration remedy", combined.Failure.Detail)
 	}
 }

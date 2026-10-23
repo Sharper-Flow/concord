@@ -131,9 +131,14 @@ changes (CD-0242 D2, D14).
   clears it.
 - `TestPostRejectionReviewGateRefusesPreRejectionReviewAccept` and
   `TestPostRejectionReviewGateRefusesReviewDispatchedBeforeRepair` prove that
-  delivery requires an accepted Review of the current integrated candidate
-  and depended-on revisions, with no open in-scope blocking finding;
-  dispatch order alone does not decide applicability.
+  a Review of an earlier candidate cannot authorize delivery of a changed
+  candidate, and that a later launch or Review's corrective output leaves an
+  applicable Review standing; dispatch order alone does not decide
+  applicability.
+- `TestCurrentDeliveryGateReturnsWhenSuccessorStalesAcceptedReview` proves a
+  changed depended-on criterion leaves the accepted Review inapplicable at the
+  gate, and `TestReviewCurrentAdmissionNegativeCases` proves an open in-scope
+  blocking finding refuses progression.
 - `TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn` proves a
   parked gate returns to repair with no delivery assertion and no
   change to recorded facts or the definition source (CD-0242 D2, D14).

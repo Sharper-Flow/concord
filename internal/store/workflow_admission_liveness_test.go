@@ -888,7 +888,6 @@ func admissionStepProducesArtifact(definition WorkflowDefinition, stepID, action
 func admissionSupersedeSuccessors(definition WorkflowDefinition, state admissionModelState) []admissionModelState {
 	successor := state
 	successor.contracts, successor.stale, successor.verdict, successor.observed = 1, "", "", false
-	successor.artifactStale = true
 	successor.attemptFresh = false
 	if workflowDerivedStepStartActive(definition) {
 		// The typed supersession opens the successor contract's pass. The
@@ -910,11 +909,8 @@ func admissionSupersedeSuccessors(definition WorkflowDefinition, state admission
 	if contractStep, err := workflowDefinitionContractStep(definition); err == nil {
 		reset := admissionEnterStep(definition, state, contractStep)
 		reset.contracts, reset.stale, reset.verdict, reset.observed = 0, "", "", false
-		// The supersession stands as a staleness cause with or without a
-		// successor (CD-0201 D6): the fold reads the event sequence, not
-		// the projection, so only fresh production at the route target —
-		// which every walk back to an evaluator step passes — clears it.
-		reset.mandate, reset.artifactStale = "", true
+		// A supersession changes no artifact staleness (CD-0242 D7).
+		reset.mandate = ""
 		reset.attemptFresh = false
 		successors = append(successors, reset)
 	}
@@ -933,7 +929,7 @@ func admissionSupersedeCriterionVariants(previous admissionModelState, changed [
 			continue
 		}
 		unchanged := successor
-		unchanged.verdict, unchanged.artifactStale = previous.verdict, previous.artifactStale
+		unchanged.verdict = previous.verdict
 		if !successor.designStale {
 			unchanged.review.current = previous.review.current
 		}

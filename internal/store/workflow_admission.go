@@ -79,9 +79,10 @@ type WorkflowAdmissionState struct {
 	// invalidated.
 	DesignStale bool
 	// ArtifactStale reports the artifact the current step's evaluation
-	// judges has gone stale: a bad verdict or a successor contract landed
-	// after the artifact was last produced at the route target
-	// (CD-0201 D5). While set, record_verdict admits only a non-ok verdict
+	// judges has gone stale: a bad verdict landed after the artifact was
+	// last produced at the route target (CD-0201 D5). A supersession
+	// invalidates only the Review and proof whose digests it changes
+	// (CD-0242 D7). While set, record_verdict admits only a non-ok verdict
 	// and confirm_premise refuses; only fresh production at the declared
 	// route target clears it.
 	ArtifactStale bool

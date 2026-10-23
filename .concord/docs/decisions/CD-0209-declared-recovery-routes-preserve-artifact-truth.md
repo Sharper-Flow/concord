@@ -259,12 +259,11 @@ An unreadable state fails typed, and the
 admission model carries the failure rather than assuming the bit is
 false.
 
-The artifact becomes stale on the latest of two recorded facts:
-
-- a recorded verdict whose kind is not `ok`, or whose entry is
-  incomparable with the approved result;
-- a contract supersession that changed the objective the artifact must
-  satisfy and that landed at or after the producer step.
+The artifact becomes stale on a recorded verdict whose kind is not `ok`,
+or whose entry is incomparable with the approved result. A contract
+supersession invalidates only the Review and proof whose recorded digests
+it changes
+([CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)).
 
 The artifact clears on the latest production event at the declared
 target that postdates the stale cause, where the production event is

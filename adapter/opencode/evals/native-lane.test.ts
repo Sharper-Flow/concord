@@ -1,6 +1,8 @@
 import { expect, mock, spyOn, test } from "bun:test"
 import * as childProcess from "node:child_process"
 import { EventEmitter } from "node:events"
+import * as http from "node:http"
+import { Readable } from "node:stream"
 import { setImmediate } from "node:timers/promises"
 import NativeLaneProvider, { childRunStream } from "./native-lane.mjs"
 import { readWorkerReportTexts } from "../worker-report-protocol.js"
@@ -111,13 +113,27 @@ async function syntheticHost(options: {
     }),
   })
   const spawn = spyOn(childProcess, "spawn").mockReturnValue(server as unknown as childProcess.ChildProcess)
+  const eventRequests: { options: http.RequestOptions, destroy: ReturnType<typeof mock> }[] = []
+  const get = spyOn(http, "get").mockImplementation(((input: string, requestOptions: http.RequestOptions, respond: (response: unknown) => void) => {
+    const url = String(input)
+    const route = new URL(url).pathname
+    requests.push({ method: "GET", url })
+    const request = Object.assign(new EventEmitter(), { destroy: mock(() => request) })
+    eventRequests.push({ options: requestOptions, destroy: request.destroy })
+    queueMicrotask(() => {
+      if (route === options.failRoute) request.emit("error", failure)
+      else respond({ statusCode: route === options.statusRoute ? 503 : 200 })
+    })
+    return request
+  }) as unknown as typeof http.get)
+  const toWeb = spyOn(Readable, "toWeb").mockReturnValue({ getReader: () => reader } as unknown as ReturnType<typeof Readable.toWeb>)
   const fetch = spyOn(globalThis, "fetch").mockImplementation((async (input, init) => {
     const url = String(input)
     const route = new URL(url).pathname
     requests.push({ method: init?.method ?? "GET", url })
     if (route === options.failRoute) throw failure
     if (route === options.statusRoute) return { ok: false, status: 503, text: async () => "synthetic private body" }
-    if (route === "/event") return { ok: true, body: { getReader: () => reader } }
+    if (route === "/event") throw new Error("the event stream must not use the shared fetch pool")
     return {
       ok: true, status: route.endsWith("/prompt_async") ? 204 : 200,
       json: async () => {
@@ -143,9 +159,11 @@ async function syntheticHost(options: {
     if (options.exitBeforeReady) server.emit("close")
     const settledBeforeClose = settled
     if (options.holdClose) { closed = true; server.emit("close") }
-    return { ...await outcome, requests, beforeLine, failure, reader, server, closed, settledBeforeClose }
+    return { ...await outcome, requests, beforeLine, failure, reader, server, closed, settledBeforeClose, eventRequests }
   } finally {
     spawn.mockRestore()
+    get.mockRestore()
+    toWeb.mockRestore()
     fetch.mockRestore()
   }
 }
@@ -160,6 +178,10 @@ test("native eval waits for a complete listening line at every stdout chunk boun
       expect(run.requests[0]).toEqual({ method: "GET", url: "http://synthetic-host.test/agent" })
       expect(run.requests).toHaveLength(5)
       expect(run.reader.cancel).toHaveBeenCalledTimes(1)
+      expect(run.eventRequests).toHaveLength(1)
+      expect(run.eventRequests[0].options.agent).toBe(false)
+      expect(run.eventRequests[0].options.signal).toBeInstanceOf(AbortSignal)
+      expect(run.eventRequests[0].destroy).toHaveBeenCalledTimes(1)
       expect(run.server.kill).toHaveBeenCalledTimes(1)
       expect(run.closed).toBe(true)
     }
@@ -191,6 +213,7 @@ for (const [method, route, hasReader] of [
     expect(run.error?.message).not.toContain("private")
     expect(run.requests.filter(request => new URL(request.url).pathname === route)).toHaveLength(1)
     expect(run.reader.cancel).toHaveBeenCalledTimes(hasReader ? 1 : 0)
+    expect(run.eventRequests.map(request => request.destroy.mock.calls.length)).toEqual(route === "/agent" || route === "/session" ? [] : [1])
     expect(run.server.kill).toHaveBeenCalledTimes(1)
     expect(run.closed).toBe(true)
   })
@@ -200,6 +223,16 @@ test("native eval records an HTTP refusal's status without its body", async () =
   const run = await syntheticHost({ statusRoute: "/agent" })
   expect(run.error?.message).toBe("native eval GET /agent failed: Error 503")
   expect(run.requests).toHaveLength(1)
+  expect(run.server.kill).toHaveBeenCalledTimes(1)
+  expect(run.closed).toBe(true)
+})
+
+test("native eval refuses a non-OK event status and releases its unpooled connection", async () => {
+  const run = await syntheticHost({ statusRoute: "/event" })
+  expect(run.error?.message).toBe("native eval GET /event failed: Error 503")
+  expect(run.requests).toHaveLength(3)
+  expect(run.reader.cancel).toHaveBeenCalledTimes(1)
+  expect(run.eventRequests[0].destroy).toHaveBeenCalledTimes(1)
   expect(run.server.kill).toHaveBeenCalledTimes(1)
   expect(run.closed).toBe(true)
 })

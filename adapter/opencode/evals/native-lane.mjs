@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { readFileSync } from "node:fs"
+import { get } from "node:http"
 import { networkInterfaces } from "node:os"
+import { Readable } from "node:stream"
 
 const lanes = JSON.parse(readFileSync(new URL("../../../contracts/agent-lanes.v1.json", import.meta.url), "utf8")).lanes
 const modelSchema = JSON.parse(readFileSync(new URL("../../../contracts/agent-lane-report.schema.json", import.meta.url), "utf8")).properties.readback_model
@@ -80,24 +82,30 @@ export default class NativeLaneProvider {
       signal.addEventListener("abort", () => reject(signal.reason), { once: true })
     })
     let reader
+    let eventRequest
     try {
       const url = await ready
-      const call = async (route, body, stream = false) => {
+      const failed = (method, route, cause) => new Error(`native eval ${method} ${route} failed: ${causeChain(cause)}`, { cause })
+      const call = async (route, body) => {
         const method = body === undefined ? "GET" : "POST"
         try {
-          const response = await fetch(url + route, { method, headers: stream ? undefined : { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal })
+          const response = await fetch(url + route, { method, headers: { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal })
           if (!response.ok) throw Object.assign(new Error(`${route}: ${response.status} ${await response.text()}`), { status: response.status })
-          return stream ? response : response.status === 204 ? undefined : await response.json()
+          return response.status === 204 ? undefined : await response.json()
         } catch (cause) {
-          throw new Error(`native eval ${method} ${route} failed: ${causeChain(cause)}`, { cause })
+          throw failed(method, route, cause)
         }
       }
       const configured = await call("/agent")
       if (!configured.some(agent => agent.name === this.agent && agent.mode === "subagent" && agent.hidden === true)) throw new Error("native eval requires a hidden subagent definition")
       const parent = await call("/session", { title: `Advisory ${this.agent} eval` })
-      const events = await call("/event", undefined, true)
-      if (!events.ok || !events.body) throw new Error("native eval event stream is unavailable")
-      reader = events.body.getReader()
+      // The event stream owns an unpooled connection. A pooled one outlives
+      // this host and is handed to the next host bound to the same origin.
+      const events = await new Promise((resolve, reject) => {
+        eventRequest = get(url + "/event", { agent: false, signal }, resolve).on("error", reject)
+      }).catch(cause => { throw failed("GET", "/event", cause) })
+      reader = Readable.toWeb(events).getReader()
+      if (events.statusCode !== 200) throw failed("GET", "/event", Object.assign(new Error(`/event: ${events.statusCode}`), { status: events.statusCode }))
       await call(`/session/${parent.id}/prompt_async`, {
         agent: parentAgent,
         parts: [this.taskMessage(prompt)],
@@ -133,6 +141,7 @@ export default class NativeLaneProvider {
       }
     } finally {
       await reader?.cancel().catch(() => {})
+      eventRequest?.destroy()
       server.kill()
       await closed
     }

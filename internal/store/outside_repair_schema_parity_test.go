@@ -465,15 +465,13 @@ func TestOutsideRepairRecordVerdictGroupSubsets(t *testing.T) {
 		switch member {
 		case "predicate_id":
 			return "predicate:outside-repair-subset"
-		case "verdict_kind":
-			return "ok"
-		case "evaluation_evidence":
-			return []any{"evidence:outside-repair-subset"}
+		case "receipt_refs":
+			return []any{"worktree_verify:outside-repair-subset"}
 		}
 		t.Fatalf("unknown entry member %s", member)
 		return nil
 	}
-	entryGroup := []string{"predicate_id", "verdict_kind", "evaluation_evidence"}
+	entryGroup := []string{"predicate_id", "receipt_refs"}
 	completeBatch := func() map[string]any {
 		verdict := map[string]any{}
 		for _, member := range entryGroup {
@@ -524,12 +522,12 @@ func TestOutsideRepairRecordVerdictGroupSubsets(t *testing.T) {
 	for _, subset := range properSubsets {
 		label := strings.Join(subset, "+")
 		// The entry's own schema carries the discipline inside the batch:
-		// predicate_id and verdict_kind are required, so a subset that
+		// predicate_id and receipt_refs are required, so a subset that
 		// includes both is a legal minimal entry both boundaries admit,
 		// and a subset that omits either is a partial entry both refuse.
 		entryErr := core(entryCarrying(subset))
 		entryVerdict := require("entry-carrying-" + label)
-		if slices.Contains(subset, "predicate_id") && slices.Contains(subset, "verdict_kind") {
+		if slices.Contains(subset, "predicate_id") && slices.Contains(subset, "receipt_refs") {
 			if entryErr != nil {
 				t.Errorf("core payload validation refuses the legal minimal entry {%s}: %v", label, entryErr)
 			}
@@ -584,8 +582,8 @@ func topLevelOnly(subset []string) map[string]any {
 			fields[member] = "predicate:outside-repair-subset"
 		case "verdict_kind":
 			fields[member] = "ok"
-		case "evaluation_evidence":
-			fields[member] = []any{"evidence:outside-repair-subset"}
+		case "receipt_refs":
+			fields[member] = []any{"worktree_verify:outside-repair-subset"}
 		}
 	}
 	return fields

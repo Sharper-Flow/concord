@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"strings"
 	"testing"
@@ -139,14 +138,14 @@ func TestConfirmPremiseRefusalNamesTheMissingArtifact(t *testing.T) {
 // must hide the action. Once the question opens, the action returns.
 func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 	ctx := context.Background()
-	s := openTemp(t)
 	workID := "hidden-confirmation-work"
 	otherWorkID := "hidden-confirmation-other"
-	seedWork(t, s, workID)
+	f, _, refs := pReceiptFixture(t, workID, 1, 1)
+	s := f.store
 	seedWork(t, s, otherWorkID)
-	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
-	seedWithheldQuestionWorkflow(t, s, workID)
+	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_contracts SET decision_domains='["product"]' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
 
 	pinIntents := func() (pin WorkPin) {
 		pin, err := ReadWorkPin(ctx, s, workID)
@@ -175,21 +174,18 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 
 	// An absent contract leaves no question either; the confirmation is
 	// unavailable there for the same reason and must stay hidden.
-	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	bare := openTemp(t)
+	seedWork(t, bare, workID)
+	seedWorkflowLaw(t, bare)
+	seedIssue31DomainRegistry(t, bare)
+	seedWithheldQuestionWorkflow(t, bare, workID)
+	if _, err := bare.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM workflow_contracts WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
-	var removed struct{ DecisionDomains sql.NullString }
-	if err := db.QueryRow(`SELECT decision_domains FROM workflow_contracts WHERE work_id=?`, workID).Scan(&removed.DecisionDomains); err != nil {
+	contractless, err := ReadWorkPin(ctx, bare, workID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM workflow_contracts WHERE work_id=?`, workID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
-	contractless := pinIntents()
 	if contractless.PendingOperatorDecision != nil || contractless.WithheldOperatorDecision != nil {
 		t.Fatalf("contractless question = %+v / %+v, want none", contractless.PendingOperatorDecision, contractless.WithheldOperatorDecision)
 	}
@@ -197,18 +193,9 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 		t.Fatal("pin advertised confirm_premise without an approved contract")
 	}
 
-	// With the contract restored and the investigation artifact recorded, the
+	// With the investigation artifact recorded, the
 	// question opens. The confirmation stays hidden until its deliverables
 	// stand, because the pin reads the admission that execution enforces.
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains) SELECT ?,1,'withheld question premise','internal_sqlite','[]','[]','2026-08-01T00:00:00Z',(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]','[]',1,'prototype_internal',?`, workID, removed.DecisionDomains); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("6", 16), []string{"root", otherWorkID})
 	open := pinIntents()
 	if open.PendingOperatorDecision == nil || open.PendingOperatorDecision.ActionID != "confirm_premise" {
@@ -217,7 +204,9 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 	if advertised(open) {
 		t.Fatal("pin advertised confirm_premise while its verdict was missing")
 	}
-	seedConfirmPremiseDeliverables(t, s, workID)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
+		t.Fatal(err)
+	}
 	if !advertised(pinIntents()) {
 		t.Fatal("pin hid confirm_premise while its question was open and its deliverables stood")
 	}

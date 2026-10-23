@@ -642,85 +642,87 @@ func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	workID := "architecture-obligation-completion"
-	s, _, binding, mandate, revisions, _ := architectureValidationFixture(t, workID)
-	registered, ok := BuiltinWorkflowRegistry().Current("workflow.implementation")
-	if !ok {
-		t.Fatal("latest implementation definition missing")
-	}
-	executor := WorkflowActor{PrincipalRef: "principal:architecture", ClientRef: "client:architecture", AgentRef: "agent:architecture", SessionRef: "session:architecture", ActorClass: ActorAgent}
-	operator := WorkflowActor{PrincipalRef: "principal:architecture", ClientRef: "client:architecture", AgentRef: "agent:reviewer", SessionRef: "session:architecture", ActorClass: ActorOperator}
-	executorRef := DeriveWorkflowActorRef(executor.PrincipalRef, executor.ClientRef, executor.AgentRef, executor.SessionRef)
-	operatorRef := DeriveWorkflowActorRef(operator.PrincipalRef, operator.ClientRef, operator.AgentRef, operator.SessionRef)
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	f, repo, refs := pReceiptFixture(t, workID, 1, 1, func(f workContextFixture) {
+		s := f.store
+		if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+			INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid)
+			SELECT home_project_id,home_locator_id,law_id,'product','root',content_hash,'test' FROM law_subjects WHERE law_id='spec:one';
+			DELETE FROM fold_guard`); err != nil {
+			t.Fatal(err)
+		}
+		var contractRaw []byte
+		if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq LIMIT 1`, workID, WorkflowContractApproved).Scan(&contractRaw); err != nil {
+			t.Fatal(err)
+		}
+		var successor map[string]any
+		if err := json.Unmarshal(contractRaw, &successor); err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{"work_id", "expected_version", "resulting_version"} {
+			delete(successor, key)
+		}
+		var lawHash string
+		if err := s.db.QueryRow(`SELECT content_hash FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`).Scan(&lawHash); err != nil {
+			t.Fatal(err)
+		}
+		successor["contract_version"] = 2
+		successor["required_evidence"] = []string{"verification", "review"}
+		successor["spec_mandate"] = []string{"spec:one"}
+		successor["law_revisions"] = []WorkflowLawRevision{{LawID: "spec:one", ContentHash: lawHash}}
+		successor["architecture_binding"].(map[string]any)["verification_obligations"] = []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}
+		version := readWorkVersion(t, s, workID)
+		ownerRef, _ := WorkflowActorRef(f.owner)
+		event := workflowEventWithActor(workID+":successor", WorkflowContractSuperseded, workID, ownerRef, map[string]any{
+			"work_id": workID, "expected_version": version, "resulting_version": version + 1, "previous_contract_version": 1, "new_contract_version": 2,
+			"supersede_reason": "Require law-bound verification.", "audit_evidence": []string{"evidence:architecture-obligation"}, "successor_contract": successor,
+		})
+		event.PayloadVersion = 4
+		if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+			t.Fatal(err)
+		}
+		seedWorkflowAuthority(t, s, "architecture-obligation-spec", workID, "principal:spec", "request:spec", []string{"spec:one"})
+		if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{
+			"evidence_kind": "artifact", "immutable_subject_ref": "spec:one", "producer_id": "principal:spec",
+			"producer_run_ref": "architecture-obligation-spec", "producer_watermark": "request:spec",
+		}), 0, f.owner); err != nil {
+			t.Fatal(err)
+		}
+	})
+	s := f.store
+	pin, err := ReadWorkPin(ctx, s, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: executor, Now: time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)}); err != nil {
-		tx.Rollback()
+	if pin.Review == nil || pin.Review.Accepted == nil {
+		t.Fatal("fixture has no accepted Review")
+	}
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
-	if err := tx.Commit(); err != nil {
+	registered, err := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	operatorEvent := workflowEventWithActor("architecture-obligation-operator", WorkflowActorRecorded, workID, operatorRef, map[string]any{
-		"work_id": workID, "expected_version": int64(4), "resulting_version": int64(5), "actor_ref": operatorRef,
-		"principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": string(operator.ActorClass),
-	})
-	approval := workflowEventWithActor("architecture-obligation-contract", WorkflowContractApproved, workID, executorRef, map[string]any{
-		"work_id": workID, "expected_version": int64(5), "resulting_version": int64(6), "contract_version": int64(1), "premise": "bind verification to law",
-		"outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:architecture-obligation", "immutable_subject_ref": "commit:architecture-obligation", "expected_result": "pass"},
-		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:architecture-obligation", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:architecture-obligation", "immutable_subject_ref": "commit:architecture-obligation", "expected_result": "pass"}}},
-		"required_evidence":  []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": []string{}, "law_revisions": revisions,
-		"law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
-	})
-	approval.PayloadVersion = 3
-	start := workflowEventWithActor("architecture-obligation-start", WorkflowActionStarted, workID, executorRef, map[string]any{
-		"work_id": workID, "expected_version": int64(6), "resulting_version": int64(7), "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1,
-		"accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "architecture-obligation-operation", "actor_ref": executorRef,
-	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{operatorEvent, approval, start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
-		t.Fatal(err)
+	outstanding, err := outstandingWorkflowEvidenceRequirementsForWork(ctx, s.db, workID, registered.Definition)
+	if err != nil || len(outstanding) != 1 || outstanding[0].Kind != "verification" || outstanding[0].Reference != "spec:one" {
+		t.Fatalf("outstanding requirements=%+v err=%v, want only (verification,spec:one)", outstanding, err)
 	}
-	seedWorkflowAuthority(t, s, "architecture-obligation-verification", workID, "principal:verification", "request:verification", []string{"evidence:verification"})
-	seedWorkflowAuthority(t, s, "architecture-obligation-review", workID, "principal:review", "request:review", []string{"evidence:review"})
-	seedWorkflowAuthority(t, s, "architecture-obligation-spec", workID, "principal:spec", "request:spec", []string{"spec:one"})
-	evidenceVersion := readWorkVersion(t, s, workID)
-	evidence := []Event{
-		workflowEvent("architecture-obligation-verification", WorkflowEvidenceBound, workID, map[string]any{
-			"work_id": workID, "expected_version": evidenceVersion, "resulting_version": evidenceVersion + 1, "evidence_kind": "verification", "immutable_subject_ref": "evidence:verification",
-			"producer_id": "principal:verification", "producer_run_ref": "architecture-obligation-verification", "producer_watermark": "request:verification", "observed_at": "2026-08-18T00:00:00Z",
-		}),
-		workflowEvent("architecture-obligation-review", WorkflowEvidenceBound, workID, map[string]any{
-			"work_id": workID, "expected_version": evidenceVersion + 1, "resulting_version": evidenceVersion + 2, "evidence_kind": "review", "immutable_subject_ref": "evidence:review",
-			"producer_id": "principal:review", "producer_run_ref": "architecture-obligation-review", "producer_watermark": "request:review", "observed_at": "2026-08-18T00:00:00Z",
-		}),
-		workflowEvent("architecture-obligation-spec", WorkflowEvidenceBound, workID, map[string]any{
-			"work_id": workID, "expected_version": evidenceVersion + 2, "resulting_version": evidenceVersion + 3, "evidence_kind": "artifact", "immutable_subject_ref": "spec:one",
-			"producer_id": "principal:spec", "producer_run_ref": "architecture-obligation-spec", "producer_watermark": "request:spec", "observed_at": "2026-08-18T00:00:00Z",
-		}),
-	}
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: evidence, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): evidenceVersion}}); err != nil {
-		t.Fatal(err)
-	}
+	// Seed the authorized engineering confirmation to isolate completion's
+	// obligation guard from the earlier acceptance-deliverables guard.
+	ownerRef, _ := WorkflowActorRef(f.owner)
 	version := readWorkVersion(t, s, workID)
-	verdict := workflowEventWithActor("architecture-obligation-verdict", WorkflowVerdictRecorded, workID, operatorRef, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "predicate_id": "predicate:architecture-obligation", "verdict_kind": "ok", "verdict_actor_ref": operatorRef,
-		"evaluation_evidence": []string{"evidence:review"}, "incomparable_with_approved": false,
+	premise := workflowEventWithActor("architecture-obligation-premise", WorkflowPremiseConfirmed, workID, ownerRef, map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 2, "confirming_actor_ref": ownerRef, "confirmation_authority": "coordinator",
 	})
-	verdict.PayloadVersion = 2
-	premise := workflowEventWithActor("architecture-obligation-premise", WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{
-		"work_id": workID, "expected_version": version + 1, "resulting_version": version + 2, "contract_version": int64(1), "confirming_actor_ref": operatorRef,
-	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{verdict, premise}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+	premise.PayloadVersion = 2
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{premise}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
 	}
-	version = readWorkVersion(t, s, workID)
-	completion := workflowEventWithActor("architecture-obligation-completion", WorkflowCompleted, workID, operatorRef, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": operatorRef,
-		"premise_confirmed": true, "evidence_count": 3, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking",
-	})
-	completion.PayloadVersion = 2
-	if err := CompleteWorkflow(ctx, s, completion); err == nil {
+	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "release", ownerRef); err != nil {
+		t.Fatal(err)
+	}
+	j := &candidateJourney{fixture: f, s: s, workID: workID, repo: repo}
+	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner, nil); err == nil {
 		t.Fatal("completion accepted unsatisfied verification obligation")
 	} else {
 		var failure *Failure

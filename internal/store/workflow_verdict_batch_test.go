@@ -4,977 +4,486 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 )
 
-// CD-0198 D1: one record_verdict call can carry a verdict for each approved
-// predicate it judges. The batch writes all of its verdicts or none, keeps
-// every CD-0012 D7 independence check and every evidence-binding check, and
-// single-predicate calls behave exactly as they did before the batched form.
-
-// seedWorkflowVerdictBatchFixture seeds one implementation item at its
-// acceptance step under a contract with three approved predicates, two of
-// whose evaluation references are already durably bound. It is the return
-// route fixture's shape with a multi-predicate contract, so a batch has real
-// work to divide and a real omission to leave missing.
 func seedWorkflowVerdictBatchFixture(t *testing.T, workID string) workflowReturnRouteFixture {
-	return seedWorkflowVerdictBatchFixtureRequiring(t, workID, 0, []string{"verification"})
-}
-
-// seedWorkflowVerdictBatchFixtureWithEvidence seeds the batch fixture and
-// binds extraEvidence more durably bound evidence references beyond the three
-// named kinds, named evidence:batch-extra-00 upward, so an evidence-bound
-// regression has real locators to divide.
-func seedWorkflowVerdictBatchFixtureWithEvidence(t *testing.T, workID string, extraEvidence int) workflowReturnRouteFixture {
-	return seedWorkflowVerdictBatchFixtureRequiring(t, workID, extraEvidence, []string{"verification"})
-}
-
-// seedWorkflowVerdictBatchFixtureRequiring seeds the batch fixture with a
-// chosen required_evidence set, so a contract can demand native_run and the
-// batch's mint and union bound resolve a real captured record.
-func seedWorkflowVerdictBatchFixtureRequiring(t *testing.T, workID string, extraEvidence int, requiredEvidence []string) workflowReturnRouteFixture {
-	return seedWorkflowVerdictBatchFixtureDefinition(t, workID, extraEvidence, requiredEvidence, batchVerdictContractPredicates(workID), "workflow.implementation")
-}
-
-// seedWorkflowVerdictBatchFixtureOnFixtureDefinition seeds the batch fixture's
-// multi-predicate contract on the fixture definition, whose acceptance step
-// carries no refinement failure edge. An accepted execution worker supplies
-// the delivery that the verdict-correction return requires.
-func seedWorkflowVerdictBatchFixtureOnFixtureDefinition(t *testing.T, workID string) workflowReturnRouteFixture {
-	return seedWorkflowVerdictBatchFixtureDefinition(t, workID, 0, []string{"verification"}, batchVerdictContractPredicates(workID), workflowFixtureRef)
-}
-
-// seedWorkflowVerdictBatchFixturePredicates seeds the batch fixture with a
-// chosen approved predicate set, so a batch can fill the declared eight-entry
-// verdicts bound with distinct approved predicates.
-func seedWorkflowVerdictBatchFixturePredicates(t *testing.T, workID string, extraEvidence int, requiredEvidence []string, predicates []map[string]any) workflowReturnRouteFixture {
-	return seedWorkflowVerdictBatchFixtureDefinition(t, workID, extraEvidence, requiredEvidence, predicates, "workflow.implementation")
-}
-
-// seedWorkflowVerdictBatchFixtureDefinition seeds the batch fixture on a
-// chosen workflow family, so the late recovery route can ride the fixture
-// definition while every other test rides the production definition.
-func seedWorkflowVerdictBatchFixtureDefinition(t *testing.T, workID string, extraEvidence int, requiredEvidence []string, predicates []map[string]any, definitionRef string) workflowReturnRouteFixture {
 	t.Helper()
-	var registered RegisteredDefinition
-	if definitionRef == workflowFixtureRef {
-		registered = workflowFixtureDefinition(t, 2)
-	} else {
-		// The batch verdicts run under the operator substitution the legacy
-		// policy keeps.
-		registered = legacyApprovalPolicyDefinitionForRef(t, definitionRef)
-	}
-	return seedWorkflowVerdictBatchFixtureOn(t, workID, extraEvidence, requiredEvidence, predicates, registered, definitionRef)
-}
-
-// seedWorkflowVerdictBatchFixtureOn pins the batch fixture to one resolved
-// definition, so a test can exercise a wire shape on the exact historical pin
-// that authors it (CD-0218) while the production head keeps its own tests.
-func seedWorkflowVerdictBatchFixtureOn(t *testing.T, workID string, extraEvidence int, requiredEvidence []string, predicates []map[string]any, registered RegisteredDefinition, definitionRef string) workflowReturnRouteFixture {
-	t.Helper()
-	ctx := context.Background()
-	s := openTemp(t)
-	seedWork(t, s, workID)
-	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
-
-	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	operatorRef, err := WorkflowActorRef(operator)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: owner, Now: time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)}); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-
-	version := int64(4)
-	nextEvent := func(event Event) Event {
-		version++
-		return event
-	}
-	actorEvent := func(id string, actor WorkflowActor, actorRef string) Event {
-		return nextEvent(workflowEventWithActor(id, WorkflowActorRecorded, workID, actorRef, map[string]any{
-			"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-			"actor_ref": actorRef, "principal_ref": actor.PrincipalRef, "client_ref": actor.ClientRef,
-			"agent_ref": actor.AgentRef, "session_ref": actor.SessionRef, "actor_class": string(actor.ActorClass),
-		}))
-	}
-	events := []Event{actorEvent("batch-operator-"+workID, operator, operatorRef)}
-	contractFields := map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check",
-		"outcome_predicates": predicates,
-		"required_evidence":  requiredEvidence, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-		"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1, "rigor_class": "prototype_internal",
-		"consequence_class": "internal_sqlite",
-	}
-	if definitionRef != workflowFixtureRef {
-		contractFields["architecture_binding"] = WorkflowArchitectureBinding{
-			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
-			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
-			VerificationObligations: []WorkflowVerificationObligation{},
-		}
-	}
-	contract := workflowEventWithActor("batch-contract-"+workID, WorkflowContractApproved, workID, ownerRef, contractFields)
-	contract.PayloadVersion = 3
-	events = append(events, nextEvent(withPinnedDecisionFact(t, registered.Definition, contract)))
-	for _, kind := range []string{"verification", "review", "artifact"} {
-		evidenceRef := "evidence:return-route-" + kind
-		seedWorkflowAuthority(t, s, "batch-authority-"+kind+"-"+workID, workID, "principal/batch-"+kind, "request/batch-"+kind+"-"+workID, []string{evidenceRef})
-		events = append(events, nextEvent(workflowEventWithActor("batch-evidence-"+kind+"-"+workID, WorkflowEvidenceBound, workID, ownerRef, map[string]any{
-			"work_id": workID, "expected_version": version, "resulting_version": version + 1, "evidence_kind": kind,
-			"immutable_subject_ref": evidenceRef, "producer_id": "principal/batch-" + kind, "producer_run_ref": "batch-authority-" + kind + "-" + workID,
-			"producer_watermark": "request/batch-" + kind + "-" + workID, "observed_at": "2026-09-12T00:00:00Z",
-		})))
-	}
-	for index := 0; index < extraEvidence; index++ {
-		evidenceRef := fmt.Sprintf("evidence:batch-extra-%02d", index)
-		authorityID := fmt.Sprintf("batch-authority-extra-%s-%02d", workID, index)
-		seedWorkflowAuthority(t, s, authorityID, workID, "principal/batch-extra", "request/"+authorityID, []string{evidenceRef})
-		events = append(events, nextEvent(workflowEventWithActor("batch-evidence-extra-"+workID+"-"+fmt.Sprintf("%02d", index), WorkflowEvidenceBound, workID, ownerRef, map[string]any{
-			"work_id": workID, "expected_version": version, "resulting_version": version + 1, "evidence_kind": "artifact",
-			"immutable_subject_ref": evidenceRef, "producer_id": "principal/batch-extra", "producer_run_ref": authorityID,
-			"producer_watermark": "request/" + authorityID, "observed_at": "2026-09-12T00:00:00Z",
-		})))
-	}
-	if err := applyWorkflowTestOperation(ctx, s, Operation{
-		Events:           events,
-		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	seedStep := "acceptance"
-	if definitionRef == workflowFixtureRef {
-		seedStep = "execution"
-	}
-	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, seedStep, ownerRef); err != nil {
-		t.Fatal(err)
-	}
-	if definitionRef == workflowFixtureRef {
-		produceContractCorrectionWorker(t, s, workID, "initial", owner)
-	}
-	return workflowReturnRouteFixture{store: s, owner: owner, operator: operator}
+	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.implementation"), "acceptance", []string{"verification"}, []string{"verification", "review", "artifact"}, batchVerdictContractPredicates(workID)...)
 }
 
 func batchVerdictContractPredicates(workID string) []map[string]any {
-	check := func(ref string) map[string]any {
-		return map[string]any{"kind": "check", "check_ref": "check:" + ref, "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}
+	var predicates []map[string]any
+	for ordinal, id := range []string{"batch-present", "batch-absent", "batch-third"} {
+		predicates = append(predicates, map[string]any{"predicate_id": "predicate:" + id, "ordinal": ordinal, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:" + id, "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}})
 	}
-	return []map[string]any{
-		{"predicate_id": "predicate:batch-present", "ordinal": 0, "outcome_kind": "check", "outcome_payload": check("batch-present")},
-		{"predicate_id": "predicate:batch-absent", "ordinal": 1, "outcome_kind": "check", "outcome_payload": check("batch-absent")},
-		{"predicate_id": "predicate:batch-third", "ordinal": 2, "outcome_kind": "check", "outcome_payload": check("batch-third")},
+	return predicates
+}
+
+// The fixture captures VerifyWorktree receipts and an independently dispatched
+// Review. No caller verdict or evidence-kind binding can substitute for them.
+func pReceiptFixture(t *testing.T, workID string, criteria, receiptsPerCriterion int, beforeProduction ...func(workContextFixture)) (workContextFixture, string, [][]string) {
+	t.Helper()
+	var predicates []map[string]any
+	for i := 0; i < criteria; i++ {
+		predicates = append(predicates, map[string]any{"predicate_id": fmt.Sprintf("predicate:p%d", i), "ordinal": i, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": fmt.Sprintf("check:p%d", i), "immutable_subject_ref": "commit:fixture", "expected_result": "pass"}})
+	}
+	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.implementation"), "execution", []string{}, []string{}, predicates...)
+	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
+	t.Cleanup(func() { _ = f.store.Close() })
+	for _, setup := range beforeProduction {
+		setup(f)
+	}
+	repo, _ := reviewSubjectClaim(t, f.store, workID)
+	var branch string
+	if err := f.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(workID)).Scan(&branch); err != nil {
+		t.Fatal(err)
+	}
+	gitRunStore(t, repo, "branch", "-m", branch)
+	j := &candidateJourney{fixture: f, s: f.store, workID: workID, repo: repo}
+	job := reviewSubjectReadyRevision(t, f)
+	if err := descendantDispatch(t, j, "implement", "p:implementation", job, nil); err != nil {
+		t.Fatal(err)
+	}
+	j.laneDispatch(t, "p:implementation", "implementation", &job)
+	editDir := repo + "/internal/store/" + job.JobID
+	if err := os.MkdirAll(editDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(editDir+"/value.go", []byte("package fixture\nconst Value = 7\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	j.commit(t, "Concord Test", "Implement the checked fixture")
+	j.completeLane(t, "p:implementation", "implementation", &job, nil)
+	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": "p:implementation", "attempt_epoch": j.dispatchEpoch(t, "p:implementation")}, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	refs := make([][]string, criteria)
+	for i := range refs {
+		for k := 0; k < receiptsPerCriterion; k++ {
+			lease := fmt.Sprintf("sha256:%064x:worktree-verify:%s", i*receiptsPerCriterion+k+1, workID)
+			result, err := f.store.VerifyWorktree(t.Context(), WorktreeVerifyRequest{Owner: SessionWorktreeOwner{ClientRef: f.owner.ClientRef, AgentRef: f.owner.AgentRef, SessionRef: f.owner.SessionRef}, WorkID: workID, ProjectID: "project", LeaseID: lease, PrincipalRef: f.owner.PrincipalRef, RequestID: fmt.Sprintf("request:p:%d:%d", i, k), Now: time.Now().UTC(), Runner: ExecGitRunner{}, Command: []string{"true"}, RunCommand: func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil }})
+			if err != nil || result.ExitCode != 0 || result.TrackedFilesChanged {
+				t.Fatalf("capture criterion %d receipt %d: %+v %v", i, k, result, err)
+			}
+			refs[i] = append(refs[i], verifyOperationRef(lease))
+		}
+	}
+	pAcceptReceiptReview(t, f, repo, refs)
+	if err := runVerdictActionAs(t, f.store, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": refs[0][0], "producer_id": f.owner.PrincipalRef, "producer_run_ref": refs[0][0], "producer_watermark": "request:p:0:0"}), 0, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	owner, _ := WorkflowActorRef(f.owner)
+	if err := advanceWorkflowTestInstanceToStep(t.Context(), f.store, workID, "acceptance", owner); err != nil {
+		t.Fatal(err)
+	}
+	return f, repo, refs
+}
+
+func pAcceptReceiptReview(t *testing.T, f workContextFixture, repo string, refs [][]string) {
+	t.Helper()
+	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
+	job := reviewSubjectReadyRevision(t, f)
+	attempt := "p:review:" + job.JobID
+	if err := descendantDispatch(t, j, "review", attempt, job, nil); err != nil {
+		t.Fatal(err)
+	}
+	j.laneDispatch(t, attempt, "review", &job)
+	report := currentReviewBlockForTest(t, f.store, f.workID, attempt, "ready_for_final_proof")
+	for i, proof := range refs {
+		report.Assessments = append(report.Assessments, WorkerReviewAssessment{PredicateID: fmt.Sprintf("predicate:p%d", i), Assessment: "supported", ReceiptRefs: proof})
+	}
+	lane := reviewGateLane(t, "review")
+	event := jobBoundCompletionEvent(f.workID, attempt+":completed", attempt, lane, time.Now().UTC(), &job, repo)
+	var payload WorkerCompletedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload.Review = report
+	event.Payload = mustJSONValue(payload)
+	prepared, err := PrepareWorkerTerminalDelivery(t.Context(), f.store, PrepareWorkerTerminalDeliveryRequest{WorkID: f.workID, AttemptID: attempt, EventID: event.EventID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(t.Context(), prepared), f.store, event)
+	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": j.dispatchEpoch(t, attempt)}, f.owner); err != nil {
+		t.Fatal(err)
 	}
 }
 
-// batchVerdictPredicateSet declares count distinct approved predicates, so a
-// test can fill the declared eight-entry verdicts bound.
-func batchVerdictPredicateSet(workID string, count int) []map[string]any {
-	check := func(ref string) map[string]any {
-		return map[string]any{"kind": "check", "check_ref": "check:" + ref, "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}
+func pReceiptBatch(refs [][]string, indexes ...int) json.RawMessage {
+	entries := make([]map[string]any, 0, len(indexes))
+	for _, i := range indexes {
+		entries = append(entries, map[string]any{"predicate_id": fmt.Sprintf("predicate:p%d", i), "receipt_refs": refs[i]})
 	}
-	set := make([]map[string]any, 0, count)
-	for index := 0; index < count; index++ {
-		name := fmt.Sprintf("batch-p%02d", index)
-		set = append(set, map[string]any{"predicate_id": "predicate:" + name, "ordinal": index, "outcome_kind": "check", "outcome_payload": check(name)})
-	}
-	return set
+	return mustJSONValue(map[string]any{"verdicts": entries})
 }
 
-// TestWorkflowVerdictBatchParityAndRebuild proves a valid batch produces the
-// same per-predicate projections as separate calls, and that RebuildFromLog
-// reproduces the batched history from the event log alone.
+func pConfirmReceiptPremise(t *testing.T, f workContextFixture, repo string) error {
+	t.Helper()
+	ctx := t.Context()
+	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, f.store, PrepareWorkerDispatchRequest{WorkID: f.workID, SessionWorktree: repo})
+	if err != nil {
+		return err
+	}
+	ctx = WithWorkerDispatchPreparation(ctx, prepared)
+	version := readWorkVersion(t, f.store, f.workID)
+	id := fmt.Sprintf("confirm-%s-%d", f.workID, version)
+	return f.store.Transact(ctx, func(tx *Transaction) error {
+		_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+			WorkID: f.workID, ExpectedVersion: version, ActionID: "confirm_premise", Payload: json.RawMessage(`{}`), Actor: f.owner, SelectedChoice: "confirm",
+			AcceptedInputsDigest: nativeDigest([]byte(id)), IdempotencyIdentity: id, OperationID: id,
+			PrincipalRef: f.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: id, RequestID: "request:" + id, ContractDigest: testManifestDigest, Now: time.Now().UTC(),
+		})
+		return err
+	})
+}
+
 func TestWorkflowVerdictBatchParityAndRebuild(t *testing.T) {
-	ctx := context.Background()
-	singleWork, batchWork := "batch-parity-single", "batch-parity-batch"
-	// The parity pair pins the last historical version whose record_verdict
-	// still authors the single wire shape beside the batch; the canonical
-	// head's batch-only contract carries its own tests.
-	pinned, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 29)
-	if !ok {
-		t.Fatal("implementation v29 left the registry")
-	}
-	single := seedWorkflowVerdictBatchFixtureOn(t, singleWork, 0, []string{"verification"}, batchVerdictContractPredicates(singleWork), pinned, "workflow.implementation")
-	batch := seedWorkflowVerdictBatchFixture(t, batchWork)
-
-	present := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:batch-present","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}`)
-	absent := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:batch-absent","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-review"]}`)
-	if err := runIssue933OperatorAction(t, single.store, singleWork, "record_verdict", present, single.owner, single.operator); err != nil {
-		t.Fatalf("separate present verdict: %v", err)
-	}
-	if err := runIssue933OperatorAction(t, single.store, singleWork, "record_verdict", absent, single.owner, single.operator); err != nil {
-		t.Fatalf("separate absent verdict: %v", err)
-	}
-	batchPayload := json.RawMessage(`{"contract_version":1,"verdicts":[` +
-		`{"predicate_id":"predicate:batch-present","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]},` +
-		`{"predicate_id":"predicate:batch-absent","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-review"]}]}`)
-	if err := runIssue933OperatorAction(t, batch.store, batchWork, "record_verdict", batchPayload, batch.owner, batch.operator); err != nil {
-		t.Fatalf("batched verdict call: %v", err)
-	}
-
-	read := func(s *Store, workID string) []workflowVerdictRecordedPayload {
-		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, 1)
-		_ = tx.Rollback()
-		if err != nil {
-			t.Fatal(err)
-		}
-		sort.Slice(verdicts, func(i, j int) bool { return verdicts[i].PredicateID < verdicts[j].PredicateID })
-		return verdicts
-	}
-	compare := func(stage string) {
-		t.Helper()
-		fromSingles, fromBatch := read(single.store, singleWork), read(batch.store, batchWork)
-		if len(fromSingles) != 2 || len(fromBatch) != 2 {
-			t.Fatalf("%s: singles=%d batch=%d recorded verdicts, want 2 each", stage, len(fromSingles), len(fromBatch))
-		}
-		for index := range fromSingles {
-			want, got := fromSingles[index], fromBatch[index]
-			// The actor reference is derived from the work's own session, so
-			// each work holds a different operator ref; the actor must simply
-			// be one and the same across each work's verdicts.
-			if fromSingles[0].VerdictActorRef != fromSingles[1].VerdictActorRef || fromBatch[0].VerdictActorRef != fromBatch[1].VerdictActorRef {
-				t.Fatalf("%s: the call actor must ride on every verdict of one call", stage)
-			}
-			if want.PredicateID != got.PredicateID || want.VerdictKind != got.VerdictKind ||
-				want.ContractVersion != got.ContractVersion || want.IncomparableWithApproved != got.IncomparableWithApproved ||
-				strings.Join(want.EvaluationEvidence, "|") != strings.Join(got.EvaluationEvidence, "|") {
-				t.Fatalf("%s: verdict %d diverged: separate=%+v batch=%+v", stage, index, want, got)
-			}
-		}
-		missingSingle, missingSingleErr := missingPredicateVerdictsCtx(t, single.store, singleWork)
-		missingBatch, missingBatchErr := missingPredicateVerdictsCtx(t, batch.store, batchWork)
-		if missingSingleErr != nil || missingBatchErr != nil {
-			t.Fatalf("%s: missing-predicate reads failed: %v %v", stage, missingSingleErr, missingBatchErr)
-		}
-		if strings.Join(missingSingle, ",") != strings.Join(missingBatch, ",") || len(missingBatch) != 1 || missingBatch[0] != "predicate:batch-third" {
-			t.Fatalf("%s: missing predicates separate=%v batch=%v, want [predicate:batch-third] on both", stage, missingSingle, missingBatch)
+	f, _, refs := pReceiptFixture(t, "batch-parity-current", 3, 1)
+	// A single association is a one-entry batch, not the retired scalar form.
+	for _, indexes := range [][]int{{0}, {1}} {
+		if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, indexes...), 0, f.owner); err != nil {
+			t.Fatalf("one-entry batch: %v", err)
 		}
 	}
-	compare("live projections")
-
-	// One typed event per entry, with eventID-derived per-entry ids.
+	before, err := latestWorkflowVerdicts(t.Context(), f.store.db, f.workID, 1)
+	if err != nil || len(before) != 2 {
+		t.Fatalf("single associations = %+v: %v", before, err)
+	}
+	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, 0, 1), 0, f.owner); err != nil {
+		t.Fatalf("two-entry batch: %v", err)
+	}
 	var eventIDs []string
-	rows, err := batch.store.DatabaseForTesting().Query(`SELECT event_id FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq`, batchWork, WorkflowVerdictRecorded)
+	rows, err := f.store.db.Query(`SELECT event_id FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 2`, f.workID, WorkflowVerdictRecorded)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for rows.Next() {
-		var eventID string
-		if err := rows.Scan(&eventID); err != nil {
+		var id string
+		if err := rows.Scan(&id); err != nil {
 			t.Fatal(err)
 		}
-		eventIDs = append(eventIDs, eventID)
+		eventIDs = append(eventIDs, id)
 	}
 	if err := rows.Err(); err != nil {
-		_ = rows.Close()
 		t.Fatal(err)
 	}
 	if err := rows.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if len(eventIDs) != 2 ||
-		!strings.HasSuffix(eventIDs[0], ":semantic:verdict:0") || !strings.HasSuffix(eventIDs[1], ":semantic:verdict:1") ||
-		strings.TrimSuffix(eventIDs[0], ":semantic:verdict:0") != strings.TrimSuffix(eventIDs[1], ":semantic:verdict:1") {
+	if len(eventIDs) != 2 || !strings.HasSuffix(eventIDs[0], ":semantic:verdict:1") || !strings.HasSuffix(eventIDs[1], ":semantic:verdict:0") || strings.TrimSuffix(eventIDs[0], ":semantic:verdict:1") != strings.TrimSuffix(eventIDs[1], ":semantic:verdict:0") {
 		t.Fatalf("batch event ids = %v, want the operation-derived per-entry pair", eventIDs)
 	}
-
-	if err := RebuildFromLog(ctx, batch.store); err != nil {
-		t.Fatalf("rebuild workflow event log: %v", err)
+	after, err := latestWorkflowVerdicts(t.Context(), f.store.db, f.workID, 1)
+	for i := range before {
+		before[i].WorkflowVersionFields = WorkflowVersionFields{}
 	}
-	compare("rebuilt projections")
+	for i := range after {
+		after[i].WorkflowVersionFields = WorkflowVersionFields{}
+	}
+	if err != nil || string(mustJSONValue(before)) != string(mustJSONValue(after)) {
+		t.Fatalf("batch differs from separate associations: before=%+v after=%+v err=%v", before, after, err)
+	}
+	owner, err := WorkflowActorRef(f.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range after {
+		if v.VerdictActorRef != owner {
+			t.Fatalf("association actor=%s, want Main %s", v.VerdictActorRef, owner)
+		}
+	}
+	missing, err := missingPredicateVerdictsCtx(t, f.store, f.workID)
+	if err != nil || !slices.Equal(missing, []string{"predicate:p2"}) {
+		t.Fatalf("parity omitted criterion=%v err=%v", missing, err)
+	}
+	pAssertBatchRebuild(t, f, 2)
+}
+
+func TestWorkflowVerdictBatchAtomicRefusal(t *testing.T) {
+	f, _, refs := pReceiptFixture(t, "batch-atomic-current", 2, 1)
+	entry := func(id string, proof []string) map[string]any {
+		return map[string]any{"predicate_id": id, "receipt_refs": proof}
+	}
+	valid := entry("predicate:p0", refs[0])
+	for _, tc := range []struct {
+		name    string
+		entries []map[string]any
+		kind    FailureKind
+	}{
+		{"duplicate", []map[string]any{valid, valid}, KindInvalidPayload},
+		{"unapproved last", []map[string]any{valid, entry("predicate:foreign", refs[1])}, KindInvalidPayload},
+		{"unproved last", []map[string]any{valid, entry("predicate:p1", []string{"worktree_verify:missing"})}, KindMissingEvidence},
+		{"empty last", []map[string]any{valid, entry("predicate:p1", []string{})}, KindInvalidPayload},
+		{"missing last receipts", []map[string]any{valid, {"predicate_id": "predicate:p1"}}, KindInvalidPayload},
+		{"caller verdict", []map[string]any{valid, {"predicate_id": "predicate:p1", "receipt_refs": refs[1], "verdict_kind": "ok"}}, KindInvalidPayload},
+		{"unknown entry field", []map[string]any{valid, {"predicate_id": "predicate:p1", "receipt_refs": refs[1], "ordinal": 1}}, KindInvalidPayload},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := mustJSONValue(map[string]any{"verdicts": tc.entries})
+			before := contractCorrectionEffectSnapshot(t, f.store, f.workID)
+			preflight := WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: f.workID, ActionID: "record_verdict", Payload: payload, Actor: f.owner})
+			err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", payload, 0, f.owner)
+			if !hasFailureKind(preflight, tc.kind) || !hasFailureKind(err, tc.kind) {
+				t.Fatalf("preflight=%v mutation=%v want %s", preflight, err, tc.kind)
+			}
+			if after := contractCorrectionEffectSnapshot(t, f.store, f.workID); after != before {
+				t.Fatal("refused batch changed durable state")
+			}
+		})
+	}
+	for _, payload := range []json.RawMessage{
+		mustJSONValue(map[string]any{"predicate_id": "predicate:p0", "verdicts": []map[string]any{valid}}),
+		json.RawMessage(`{"verdict_kind":"ok"}`),
+		mustJSONValue(map[string]any{"receipt_refs": refs[0], "verdicts": []map[string]any{valid}}),
+	} {
+		assertRecoveryRefusalWithoutEffect(t, f.store, f.workID, KindInvalidPayload, func() error { return runVerdictActionAs(t, f.store, f.workID, "record_verdict", payload, 0, f.owner) })
+	}
+	// Main may have executed; a dispatched worker still cannot associate proof.
+	var worker WorkflowActor
+	if err := f.store.db.QueryRow(`SELECT principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=(SELECT json_extract(payload,'$.lane_actor_ref') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')='p:implementation' LIMIT 1)`, f.workID, WorkerDispatched).Scan(&worker.PrincipalRef, &worker.ClientRef, &worker.AgentRef, &worker.SessionRef, &worker.ActorClass); err != nil {
+		t.Fatal(err)
+	}
+	assertRecoveryRefusalWithoutEffect(t, f.store, f.workID, KindUnauthorized, func() error {
+		return runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, 0, 1), 0, worker)
+	})
+	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, 0, 1), 0, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	pAssertBatchRebuild(t, f, 2)
+}
+
+func TestWorkflowVerdictBatchLateRecoveryResolvesActiveContract(t *testing.T) {
+	f, ref := seedLateCriterionAssociation(t, "batch-late-current")
+	// Isolate active-version resolution from the separate contract-return journey.
+	if _, err := f.store.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains,definition_ref,definition_version,definition_digest)
+		SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains,definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1;
+		UPDATE workflow_contracts SET superseded_by=2 WHERE work_id=? AND contract_version=1;
+		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
+		DELETE FROM fold_guard`, "batch-late-current", "batch-late-current", "batch-late-current"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runVerdictActionAs(t, f.store, "batch-late-current", "record_verdict", criterionAssociationPayload(ref, "predicate:first"), 0, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	payload := criterionAssociationPayload(ref, "predicate:first", "predicate:second")
+	before := contractCorrectionEffectSnapshot(t, f.store, "batch-late-current")
+	preflight := WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: "batch-late-current", ActionID: "record_verdict", Payload: payload, Actor: f.owner})
+	err := runVerdictActionAs(t, f.store, "batch-late-current", "record_verdict", payload, 0, f.owner)
+	if !hasFailureKind(preflight, KindIllegalLifecycleTransition) || !hasFailureKind(err, KindIllegalLifecycleTransition) {
+		t.Fatalf("mixed late batch preflight=%v mutation=%v", preflight, err)
+	}
+	if after := contractCorrectionEffectSnapshot(t, f.store, "batch-late-current"); after != before {
+		t.Fatal("mixed late batch changed durable state")
+	}
+	payload = criterionAssociationPayload(ref, "predicate:second")
+	if err := WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: "batch-late-current", ActionID: "record_verdict", Payload: payload, Actor: f.owner}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runVerdictActionAs(t, f.store, "batch-late-current", "record_verdict", payload, 0, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	verdicts, err := latestWorkflowVerdicts(t.Context(), f.store.db, "batch-late-current", 2)
+	if err != nil || len(verdicts) != 2 {
+		t.Fatalf("active associations=%+v err=%v", verdicts, err)
+	}
+	for _, v := range verdicts {
+		if v.ContractVersion != 2 || v.CriterionDigest == "" || !slices.Equal(v.EvaluationEvidence, []string{ref}) {
+			t.Fatalf("association did not capture active criterion and exact proof: %+v", v)
+		}
+	}
+	if step := currentStep(t, f.store, "batch-late-current"); step != "complete" {
+		t.Fatalf("late association moved step to %s", step)
+	}
+}
+
+func TestWorkflowVerdictBatchOmissionStaysMissing(t *testing.T) {
+	f, repo, refs := pReceiptFixture(t, "batch-omission-current", 3, 1)
+	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, 0, 1), 0, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	missing, err := missingPredicateVerdictsCtx(t, f.store, f.workID)
+	if err != nil || !slices.Equal(missing, []string{"predicate:p2"}) {
+		t.Fatalf("missing=%v err=%v", missing, err)
+	}
+	seedComparisonObservation(t, f.store, f.workID)
+	err = runIssue933OperatorAction(t, f.store, f.workID, "confirm_premise", json.RawMessage(`{}`), f.owner, f.operator)
+	if !hasFailureKind(err, KindMissingEvidence) || !strings.Contains(err.Error(), "predicate:p2") {
+		t.Fatalf("confirmation did not name omitted criterion: %v", err)
+	}
+	if step := currentStep(t, f.store, f.workID); step != "acceptance" {
+		t.Fatalf("refused confirmation moved to %s", step)
+	}
+	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, 2), 0, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	missing, err = missingPredicateVerdictsCtx(t, f.store, f.workID)
+	if err != nil || len(missing) != 0 {
+		t.Fatalf("full coverage still missing=%v err=%v", missing, err)
+	}
+	if err := pConfirmReceiptPremise(t, f, repo); err != nil {
+		t.Fatalf("confirm after full coverage: %v", err)
+	}
+	if step := currentStep(t, f.store, f.workID); step != "release" {
+		t.Fatalf("confirmation moved to %s, want release", step)
+	}
+}
+
+func pAssertBatchRebuild(t *testing.T, f workContextFixture, count int) {
+	t.Helper()
+	before, err := latestWorkflowVerdicts(t.Context(), f.store.db, f.workID, 1)
+	if err != nil || len(before) != count {
+		t.Fatalf("associations=%+v want %d: %v", before, count, err)
+	}
+	for _, association := range before {
+		if err := verifyWorkflowCriterionAssociation(t.Context(), f.store.db, f.workID, association); err != nil {
+			t.Fatalf("association lost criterion proof: %v", err)
+		}
+	}
+	var eventsBefore int
+	if err := f.store.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, f.workID, WorkflowVerdictRecorded).Scan(&eventsBefore); err != nil {
+		t.Fatal(err)
+	}
+	if err := RebuildFromLog(t.Context(), f.store); err != nil {
+		t.Fatal(err)
+	}
+	after, err := latestWorkflowVerdicts(t.Context(), f.store.db, f.workID, 1)
+	if err != nil || string(mustJSONValue(before)) != string(mustJSONValue(after)) {
+		t.Fatalf("rebuild changed associations: before=%+v after=%+v err=%v", before, after, err)
+	}
+	var eventsAfter int
+	if err := f.store.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, f.workID, WorkflowVerdictRecorded).Scan(&eventsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if eventsBefore < count || eventsAfter != eventsBefore {
+		t.Fatalf("rebuild verdict event count %d -> %d, want at least %d", eventsBefore, eventsAfter, count)
+	}
+	for _, association := range after {
+		if err := verifyWorkflowCriterionAssociation(t.Context(), f.store.db, f.workID, association); err != nil {
+			t.Fatalf("rebuilt association lost criterion proof: %v", err)
+		}
+	}
+}
+
+func pAssertReceiptUnion(t *testing.T, criteria, perCriterion int) {
+	t.Helper()
+	f, _, refs := pReceiptFixture(t, fmt.Sprintf("batch-union-%d-%d", criteria, perCriterion), criteria, perCriterion)
+	indexes := make([]int, criteria)
+	var want []string
+	for i := range indexes {
+		indexes[i] = i
+		want = append(want, refs[i]...)
+	}
+	version := readWorkVersion(t, f.store, f.workID)
+	op := fmt.Sprintf("record_verdict-%s-%d", f.workID, version)
+	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, indexes...), 0, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	var raw []byte
+	if err := f.store.db.QueryRow(`SELECT evidence_refs FROM durable_operations WHERE op_id=?`, op).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(want)
+	slices.Sort(got)
+	if !slices.Equal(got, want) || len(got) != criteria*perCriterion {
+		t.Fatalf("durable union=%v want %v", got, want)
+	}
+	var completed struct {
+		VerdictEntryCount  int      `json:"verdict_entry_count"`
+		ResultEvidenceRefs []string `json:"result_evidence_refs"`
+	}
+	if err := f.store.db.QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, op+":completed").Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &completed); err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(completed.ResultEvidenceRefs)
+	if completed.VerdictEntryCount != criteria || !slices.Equal(completed.ResultEvidenceRefs, want) {
+		t.Fatalf("completion lost union or count: %+v", completed)
+	}
+	var recorded int
+	if err := f.store.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, f.workID, WorkflowVerdictRecorded).Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != criteria {
+		t.Fatalf("batch recorded %d verdict events, want %d", recorded, criteria)
+	}
+	pAssertBatchRebuild(t, f, criteria)
+}
+
+func TestWorkflowVerdictBatchEvidenceUnionIsTheDurableAuthority(t *testing.T) {
+	pAssertReceiptUnion(t, 2, 17)
+}
+func TestWorkflowVerdictBatchMaximumUnionRebuilds(t *testing.T) { pAssertReceiptUnion(t, 8, 32) }
+
+// Missing proof must not inherit another entry's receipts or mint evidence.
+func TestWorkflowVerdictBatchMixedDefaultEvidenceIsPerEntry(t *testing.T) {
+	f, _, refs := pReceiptFixture(t, "batch-no-default-current", 2, 1)
+	payload := mustJSONValue(map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:p0", "receipt_refs": refs[0]}, {"predicate_id": "predicate:p1"}}})
+	assertRecoveryRefusalWithoutEffect(t, f.store, f.workID, KindInvalidPayload, func() error { return runVerdictActionAs(t, f.store, f.workID, "record_verdict", payload, 0, f.owner) })
+	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, 0, 1), 0, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	verdicts, err := latestWorkflowVerdicts(t.Context(), f.store.db, f.workID, 1)
+	if err != nil || len(verdicts) != 2 {
+		t.Fatalf("associations=%v err=%v", verdicts, err)
+	}
+	for _, v := range verdicts {
+		var i int
+		if _, err := fmt.Sscanf(v.PredicateID, "predicate:p%d", &i); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(v.EvaluationEvidence, refs[i]) {
+			t.Fatalf("entry borrowed proof: %+v", v)
+		}
+	}
+	var minted int
+	if err := f.store.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.producer_run_ref') LIKE 'record_verdict-%'`, f.workID, WorkflowEvidenceBound).Scan(&minted); err != nil || minted != 0 {
+		t.Fatalf("association minted %d bindings: %v", minted, err)
+	}
+}
+
+func TestWorkflowVerdictBatchEvidenceUnionSpansNativeRunEnrichment(t *testing.T) {
+	f, _, refs := pReceiptFixture(t, "batch-native-not-proof", 2, 1)
+	capture := seedVerifiedNativeRunCapture(t, f.store, f.workID)
+	bad := [][]string{refs[0], {capture}}
+	assertRecoveryRefusalWithoutEffect(t, f.store, f.workID, KindMissingEvidence, func() error {
+		return runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(bad, 0, 1), 0, f.owner)
+	})
+	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, 0, 1), 0, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	verdicts, err := latestWorkflowVerdicts(t.Context(), f.store.db, f.workID, 1)
+	if err != nil || len(verdicts) != 2 {
+		t.Fatalf("associations=%v err=%v", verdicts, err)
+	}
+	for _, v := range verdicts {
+		var i int
+		if _, err := fmt.Sscanf(v.PredicateID, "predicate:p%d", &i); err != nil {
+			t.Fatal(err)
+		}
+		if slices.Contains(v.EvaluationEvidence, capture) || !slices.Equal(v.EvaluationEvidence, refs[i]) {
+			t.Fatalf("native-run capture changed exact criterion proof: %+v", v)
+		}
+	}
 }
 
 func missingPredicateVerdictsCtx(t *testing.T, s *Store, workID string) ([]string, error) {
 	t.Helper()
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	return missingPredicateVerdicts(context.Background(), tx, workID)
+	return missingPredicateVerdicts(t.Context(), s.db, workID)
 }
 
-// TestWorkflowVerdictBatchAtomicRefusal proves a batch holding a duplicate
-// predicate, a predicate outside the active contract, unbound evidence, an
-// executing-actor verdict, or a malformed shape refuses as a whole and
-// writes nothing.
-func TestWorkflowVerdictBatchAtomicRefusal(t *testing.T) {
-	const workID = "batch-atomic-refusal"
-	fixture := seedWorkflowVerdictBatchFixture(t, workID)
-	s := fixture.store
-
-	eventsForWork := func() int64 {
-		var count int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&count); err != nil {
-			t.Fatal(err)
-		}
-		return count
-	}
-	before := eventsForWork()
-
-	cases := []struct {
-		name    string
-		payload string
-		want    FailureKind
-	}{
-		{"both shapes", `{"predicate_id":"predicate:batch-present","verdicts":[{"predicate_id":"predicate:batch-absent","verdict_kind":"ok"}]}`, KindInvalidPayload},
-		{"neither shape", `{"verdict_kind":"ok"}`, KindInvalidPayload},
-		{"entry field beside batch", `{"verdicts":[{"predicate_id":"predicate:batch-present","verdict_kind":"ok"}],"evaluation_evidence":["evidence:return-route-verification"]}`, KindInvalidPayload},
-		{"duplicate predicate", `{"verdicts":[{"predicate_id":"predicate:batch-present","verdict_kind":"ok"},{"predicate_id":"predicate:batch-present","verdict_kind":"insufficient_evidence"}]}`, KindInvalidPayload},
-		{"predicate outside contract", `{"verdicts":[{"predicate_id":"predicate:batch-present","verdict_kind":"ok"},{"predicate_id":"predicate:not-approved","verdict_kind":"ok"}]}`, KindInvalidPayload},
-		{"unknown entry field", `{"verdicts":[{"predicate_id":"predicate:batch-present","verdict_kind":"ok","ordinal":0}]}`, KindInvalidPayload},
-		{"unbound entry evidence", `{"verdicts":[{"predicate_id":"predicate:batch-present","verdict_kind":"ok","evaluation_evidence":["evidence:never-bound"]}]}`, KindMissingEvidence},
-		{"malformed last entry", `{"verdicts":[{"predicate_id":"predicate:batch-present","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]},{"predicate_id":"predicate:batch-absent","verdict_kind":"excellent"}]}`, KindInvalidPayload},
-		{"unbound last entry", `{"verdicts":[{"predicate_id":"predicate:batch-present","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]},{"predicate_id":"predicate:batch-absent","verdict_kind":"ok","evaluation_evidence":["evidence:never-bound"]}]}`, KindMissingEvidence},
-	}
-	for _, testCase := range cases {
-		err := runIssue933OperatorAction(t, s, workID, "record_verdict", json.RawMessage(testCase.payload), fixture.owner, fixture.operator)
-		failure, ok := err.(*Failure)
-		if !ok || failure.Kind != testCase.want {
-			t.Errorf("%s: err=%v, want %s", testCase.name, err, testCase.want)
-		}
-		if got := eventsForWork(); got != before {
-			t.Errorf("%s: event count moved from %d to %d; the refused batch must write nothing", testCase.name, before, got)
-		}
-	}
-
-	// The executing actor cannot judge its own delivery, batched or not,
-	// and the refusal still writes nothing (CD-0012 D7).
-	executorBatch := json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:batch-present","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}]}`)
-	err := runVerdictActionAs(t, s, workID, "record_verdict", executorBatch, 0, fixture.owner)
-	failure, ok := err.(*Failure)
-	if !ok || failure.Kind != KindUnauthorized {
-		t.Errorf("executing-actor batch: err=%v, want %s", err, KindUnauthorized)
-	}
-	if got := eventsForWork(); got != before {
-		t.Errorf("executing-actor batch wrote %d events over %d", got-before, before)
-	}
-
-	// The same batch from an independent evaluator records both entries.
-	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", executorBatch, fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("the valid batch the refusals cleared the way for: %v", err)
-	}
-	if got := eventsForWork(); got != before+2 {
-		t.Fatalf("valid batch wrote %d events over %d, want the two verdict events", got-before, before)
-	}
-}
-
-// TestWorkflowVerdictBatchLateRecoveryResolvesActiveContract proves the
-// batched late-recovery route resolves an omitted contract_version to the
-// active contract, exactly as the verdict constructor does at the
-// verification step: after a supersession to v2, an eligible batch without a
-// version passes admission and mutates, an ineligible entry refuses the batch
-// as a whole, and the released single-form defaulting is unchanged.
-func TestWorkflowVerdictBatchLateRecoveryResolvesActiveContract(t *testing.T) {
-	const workID = "batch-late-active-version"
-	fixture := seedWorkflowVerdictBatchFixtureOnFixtureDefinition(t, workID)
-	s := fixture.store
-
-	// Three non-ok verdicts at the verification step, so the successor keeps
-	// full coverage through the carried verdicts and every predicate holds an
-	// eligible latest verdict at the late recovery step.
-	v1Mismatches := json.RawMessage(`{"contract_version":1,"verdicts":[` +
-		`{"predicate_id":"predicate:batch-present","verdict_kind":"outcome_mismatch","incomparable_with_approved":true,"evaluation_evidence":["evidence:return-route-verification"]},` +
-		`{"predicate_id":"predicate:batch-absent","verdict_kind":"insufficient_evidence","evaluation_evidence":["evidence:return-route-review"]},` +
-		`{"predicate_id":"predicate:batch-third","verdict_kind":"insufficient_evidence","evaluation_evidence":["evidence:return-route-artifact"]}]}`)
-	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", v1Mismatches, fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("verification-step mismatch batch: %v", err)
-	}
-	seedComparisonObservation(t, s, workID)
-	predicate := func(id string, ordinal int) string {
-		return `{"predicate_id":"predicate:` + id + `","ordinal":` + fmt.Sprint(ordinal) + `,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:` + id + `","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}`
-	}
-	successor := json.RawMessage(`{"contract_version":2,"premise":"corrected premise","outcome_predicates":[` +
-		predicate("batch-present", 0) + "," + predicate("batch-absent", 1) + "," + predicate("batch-third", 2) +
-		`],"required_evidence":["verification"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","supersede_reason":"correct the accepted premise","audit_evidence":["evidence:batch-late-supersede"]}`)
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", successor, fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("supersede contract at the verification step: %v", err)
-	}
-	beforeProduction := contractCorrectionEffectSnapshot(t, s, workID)
-	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), fixture.owner, fixture.operator); !hasFailureKind(err, KindStaleRequiresReview) {
-		t.Fatalf("successor confirmation before production = %v, want stale_requires_review", err)
-	}
-	if got := contractCorrectionEffectSnapshot(t, s, workID); got != beforeProduction {
-		t.Fatalf("stale successor confirmation changed effects: before %s, after %s", beforeProduction, got)
-	}
-	correction := json.RawMessage(`{"diagnosis":"the successor still has three unhealthy predicates","strategy":"repeat execution under the active successor","predicate_ids":["predicate:batch-present","predicate:batch-absent","predicate:batch-third"],"evidence_refs":["evidence:return-route-verification","evidence:return-route-review","evidence:return-route-artifact"]}`)
-	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("request successor batch correction: %v", err)
-	}
-	produceContractCorrectionWorker(t, s, workID, "successor", fixture.owner)
-	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("confirm premise on the successor: %v", err)
-	}
-	var step string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
-		t.Fatal(err)
-	}
-	if step != "release" {
-		t.Fatalf("step before the late recovery = %q, want release", step)
-	}
-	verdictEvents := func() int64 {
-		var count int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&count); err != nil {
-			t.Fatal(err)
-		}
-		return count
-	}
-
-	// The released single-form defaulting is unchanged: a late single verdict
-	// without a version still refuses against the active successor, while the
-	// explicit successor version is admitted.
-	singleNoVersion := json.RawMessage(`{"predicate_id":"predicate:batch-present","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}`)
-	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", singleNoVersion, fixture.owner, fixture.operator); err == nil {
-		t.Fatal("single-form late verdict without a version must keep the released refusal")
-	}
-	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":2,"predicate_id":"predicate:batch-present","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}`), fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("explicit successor single verdict: %v", err)
-	}
-
-	// A mixed batch without a version refuses as a whole: batch-present is
-	// now ok and comparable, so one ineligible entry writes nothing.
-	before := verdictEvents()
-	beforeEffects := contractCorrectionEffectSnapshot(t, s, workID)
-	mixed := json.RawMessage(`{"verdicts":[` +
-		`{"predicate_id":"predicate:batch-absent","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-review"]},` +
-		`{"predicate_id":"predicate:batch-present","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}]}`)
-	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", mixed, fixture.owner, fixture.operator); err == nil {
-		t.Fatal("mixed batch with an ineligible entry must refuse as a whole")
-	}
-	if got := verdictEvents(); got != before {
-		t.Fatalf("refused mixed batch moved verdict events from %d to %d", before, got)
-	}
-	if got := contractCorrectionEffectSnapshot(t, s, workID); got != beforeEffects {
-		t.Fatalf("refused mixed batch changed effects: before %s, after %s", beforeEffects, got)
-	}
-
-	// Every entry eligible: the batch without a version passes admission and
-	// mutates against the active successor, stamping contract_version 2 on
-	// each recorded verdict.
-	eligible := json.RawMessage(`{"verdicts":[` +
-		`{"predicate_id":"predicate:batch-absent","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-review"]},` +
-		`{"predicate_id":"predicate:batch-third","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-artifact"]}]}`)
-	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-		WorkID: workID, ActionID: "record_verdict", Payload: eligible, Actor: fixture.owner,
-	}); err != nil {
-		t.Fatalf("late batch admission without a version: %v", err)
-	}
-	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", eligible, fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("late batch mutation without a version must resolve the active contract: %v", err)
-	}
-	var versions []int64
-	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(payload,'$.contract_version') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 2`, workID, WorkflowVerdictRecorded)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for rows.Next() {
-		var version int64
-		if err := rows.Scan(&version); err != nil {
-			t.Fatal(err)
-		}
-		versions = append(versions, version)
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		t.Fatal(err)
-	}
-	if err := rows.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if len(versions) != 2 || versions[0] != 2 || versions[1] != 2 {
-		t.Fatalf("late batch verdict versions = %v, want contract_version 2 on both entries", versions)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
-		t.Fatal(err)
-	}
-	if step != "release" {
-		t.Fatalf("step after the late batch = %q, want release", step)
-	}
-}
-
-// TestWorkflowVerdictBatchOmissionStaysMissing proves the predicates a batch
-// omits stay missing: the premise confirmation names them until each is
-// judged, so a batch cannot silently narrow completion coverage.
-func TestWorkflowVerdictBatchOmissionStaysMissing(t *testing.T) {
-	const workID = "batch-omission"
-	fixture := seedWorkflowVerdictBatchFixture(t, workID)
-	batchPayload := json.RawMessage(`{"contract_version":1,"verdicts":[` +
-		`{"predicate_id":"predicate:batch-present","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]},` +
-		`{"predicate_id":"predicate:batch-absent","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-review"]}]}`)
-	if err := runIssue933OperatorAction(t, fixture.store, workID, "record_verdict", batchPayload, fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("batched verdict call: %v", err)
-	}
-	missing, err := missingPredicateVerdictsCtx(t, fixture.store, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(missing) != 1 || missing[0] != "predicate:batch-third" {
-		t.Fatalf("missing predicates = %v, want [predicate:batch-third]", missing)
-	}
-	confirmErr := runIssue933OperatorAction(t, fixture.store, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator)
-	confirmFailure, ok := confirmErr.(*Failure)
-	if !ok || confirmFailure.Kind != KindMissingEvidence {
-		t.Fatalf("confirm_premise over an omitted predicate = %v, want %s", confirmErr, KindMissingEvidence)
-	}
-	if !strings.Contains(confirmFailure.Detail, "predicate:batch-third") {
-		t.Fatalf("confirmation refusal %q must name the omitted predicate", confirmFailure.Detail)
-	}
-	var step string
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
-		t.Fatal(err)
-	}
-	if step != "acceptance" {
-		t.Fatalf("step after refused confirmation = %q, want acceptance", step)
-	}
-
-	third := json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:batch-third","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-review"]}]}`)
-	if err := runIssue933OperatorAction(t, fixture.store, workID, "record_verdict", third, fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("batched third verdict: %v", err)
-	}
-	missing, err = missingPredicateVerdictsCtx(t, fixture.store, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(missing) != 0 {
-		t.Fatalf("missing predicates after full coverage = %v, want none", missing)
-	}
-	if err := runIssue933OperatorAction(t, fixture.store, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("confirm_premise after full coverage: %v", err)
-	}
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
-		t.Fatal(err)
-	}
-	if step != "release" {
-		t.Fatalf("step after confirmation = %q, want release", step)
-	}
-}
-
-// batchVerdictCompletion reads the work's latest workflow.action_completed
-// event, so a test can hold the durable operation against the evidence union
-// its completion declared.
-func batchVerdictCompletion(t *testing.T, s *Store, workID string) (eventID string, entryCount int, refs []string) {
-	t.Helper()
-	var payload []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT event_id, payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted).Scan(&eventID, &payload); err != nil {
-		t.Fatal(err)
-	}
-	var decoded struct {
-		VerdictEntryCount  int      `json:"verdict_entry_count"`
-		ResultEvidenceRefs []string `json:"result_evidence_refs"`
-	}
-	if err := json.Unmarshal(payload, &decoded); err != nil {
-		t.Fatal(err)
-	}
-	return eventID, decoded.VerdictEntryCount, decoded.ResultEvidenceRefs
-}
-
-// batchVerdictDurableRefs reads the durable operation's evidence authority —
-// the complete deduplicated union the call resolved.
-func batchVerdictDurableRefs(t *testing.T, s *Store, operationID string) []string {
-	t.Helper()
-	var raw []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT evidence_refs FROM durable_operations WHERE op_id=?`, operationID).Scan(&raw); err != nil {
-		t.Fatal(err)
-	}
-	var refs []string
-	if err := json.Unmarshal(raw, &refs); err != nil {
-		t.Fatal(err)
-	}
-	return refs
-}
-
-// batchVerdictRefSet sorts a copy of refs, so two unions compare as sets.
-func batchVerdictRefSet(refs []string) []string {
-	sorted := append([]string(nil), refs...)
-	sort.Strings(sorted)
-	return sorted
-}
-
-// TestWorkflowVerdictBatchEvidenceUnionIsTheDurableAuthority proves the
-// declared batch bound holds the schema, not an aggregate cap: two entries of
-// 17 distinct durably bound references each — a 34-reference union past the
-// single-form per-operation bound — record both verdicts, the durable
-// operation and its completion name the complete union, and RebuildFromLog
-// reproduces the batched history from the event log alone.
-func TestWorkflowVerdictBatchEvidenceUnionIsTheDurableAuthority(t *testing.T) {
-	const workID = "batch-union-authority"
-	fixture := seedWorkflowVerdictBatchFixtureWithEvidence(t, workID, 32)
-	version := readWorkVersion(t, fixture.store, workID)
-	operationID := fmt.Sprintf("issue933-record_verdict-%s-%d", workID, version)
-
-	extra := func(from, to int) []string {
-		refs := make([]string, 0, to-from)
-		for index := from; index < to; index++ {
-			refs = append(refs, fmt.Sprintf("evidence:batch-extra-%02d", index))
-		}
-		return refs
-	}
-	presentRefs := append([]string{"evidence:return-route-verification"}, extra(0, 16)...)
-	absentRefs := append(extra(16, 32), "evidence:return-route-review")
-	batchPayload, err := json.Marshal(map[string]any{"contract_version": 1, "verdicts": []any{
-		map[string]any{"predicate_id": "predicate:batch-present", "verdict_kind": "ok", "evaluation_evidence": presentRefs},
-		map[string]any{"predicate_id": "predicate:batch-absent", "verdict_kind": "ok", "evaluation_evidence": absentRefs},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := runIssue933OperatorAction(t, fixture.store, workID, "record_verdict", batchPayload, fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("a 34-reference batch of separately bound entries refused: %v", err)
-	}
-
-	want := batchVerdictRefSet(append(append([]string{}, presentRefs...), absentRefs...))
-	if len(want) != 34 {
-		t.Fatalf("test built a %d-reference union, want the 34 distinct locators", len(want))
-	}
-	eventID, entryCount, completionRefs := batchVerdictCompletion(t, fixture.store, workID)
-	if entryCount != 2 {
-		t.Fatalf("completion verdict_entry_count = %d, want the declared 2 entries", entryCount)
-	}
-	if len(completionRefs) != 34 || strings.Join(batchVerdictRefSet(completionRefs), "|") != strings.Join(want, "|") {
-		t.Fatalf("completion result_evidence_refs holds %d refs, want the complete 34-reference union", len(completionRefs))
-	}
-	if eventID != operationID+":completed" {
-		t.Fatalf("completion event id = %q, want the batch operation's", eventID)
-	}
-	durableRefs := batchVerdictDurableRefs(t, fixture.store, operationID)
-	if len(durableRefs) != 34 || strings.Join(batchVerdictRefSet(durableRefs), "|") != strings.Join(want, "|") {
-		t.Fatalf("durable operation evidence authority holds %d refs, want the complete 34-reference union", len(durableRefs))
-	}
-	var recorded int64
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&recorded); err != nil {
-		t.Fatal(err)
-	}
-	if recorded != 2 {
-		t.Fatalf("batch recorded %d verdicts, want 2", recorded)
-	}
-	if err := RebuildFromLog(context.Background(), fixture.store); err != nil {
-		t.Fatalf("rebuild workflow event log: %v", err)
-	}
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&recorded); err != nil {
-		t.Fatal(err)
-	}
-	if recorded != 2 {
-		t.Fatalf("rebuild reproduced %d verdicts, want 2", recorded)
-	}
-}
-
-// TestWorkflowVerdictBatchMaximumUnionRebuilds proves the schema-bounded
-// maximum batch succeeds with its complete durable union: eight entries of 32
-// distinct durably bound references each — the 256-reference union the
-// payload schema bounds — record eight verdicts in one call, the completion
-// declares the eight-entry count, the fold admits the union, and
-// RebuildFromLog reproduces the history.
-func TestWorkflowVerdictBatchMaximumUnionRebuilds(t *testing.T) {
-	const workID = "batch-union-maximum"
-	fixture := seedWorkflowVerdictBatchFixturePredicates(t, workID, 256, []string{"verification"}, batchVerdictPredicateSet(workID, 8))
-	version := readWorkVersion(t, fixture.store, workID)
-	operationID := fmt.Sprintf("issue933-record_verdict-%s-%d", workID, version)
-
-	entries := make([]any, 0, 8)
-	want := make([]string, 0, 256)
-	for index := 0; index < 8; index++ {
-		refs := make([]string, 0, 32)
-		for ref := 0; ref < 32; ref++ {
-			refs = append(refs, fmt.Sprintf("evidence:batch-extra-%02d", index*32+ref))
-		}
-		want = append(want, refs...)
-		entries = append(entries, map[string]any{"predicate_id": fmt.Sprintf("predicate:batch-p%02d", index), "verdict_kind": "ok", "evaluation_evidence": refs})
-	}
-	batchPayload, err := json.Marshal(map[string]any{"contract_version": 1, "verdicts": entries})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := runIssue933OperatorAction(t, fixture.store, workID, "record_verdict", batchPayload, fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("the schema-bounded 256-reference batch refused: %v", err)
-	}
-
-	wantSet := batchVerdictRefSet(want)
-	eventID, entryCount, completionRefs := batchVerdictCompletion(t, fixture.store, workID)
-	if entryCount != 8 {
-		t.Fatalf("completion verdict_entry_count = %d, want the declared 8 entries", entryCount)
-	}
-	if len(completionRefs) != 256 || strings.Join(batchVerdictRefSet(completionRefs), "|") != strings.Join(wantSet, "|") {
-		t.Fatalf("completion result_evidence_refs holds %d refs, want the complete 256-reference union", len(completionRefs))
-	}
-	if eventID != operationID+":completed" {
-		t.Fatalf("completion event id = %q, want the batch operation's", eventID)
-	}
-	durableRefs := batchVerdictDurableRefs(t, fixture.store, operationID)
-	if len(durableRefs) != 256 || strings.Join(batchVerdictRefSet(durableRefs), "|") != strings.Join(wantSet, "|") {
-		t.Fatalf("durable operation evidence authority holds %d refs, want the complete 256-reference union", len(durableRefs))
-	}
-	var recorded int64
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&recorded); err != nil {
-		t.Fatal(err)
-	}
-	if recorded != 8 {
-		t.Fatalf("batch recorded %d verdicts, want 8", recorded)
-	}
-	if err := RebuildFromLog(context.Background(), fixture.store); err != nil {
-		t.Fatalf("rebuild workflow event log: %v", err)
-	}
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&recorded); err != nil {
-		t.Fatal(err)
-	}
-	if recorded != 8 {
-		t.Fatalf("rebuild reproduced %d verdicts, want 8", recorded)
-	}
-}
-
-// TestWorkflowVerdictBatchMixedDefaultEvidenceIsPerEntry proves the
-// mixed-evidence isolation: with artifact-only evidence on the first entry
-// and an evidence-defaulted second entry, the defaulted entry resolves the
-// operation-minted reference alone. It never inherits the first entry's
-// artifact, and the mint binds no required kind onto evidence the caller
-// supplied for a different entry — the minted binding kinds stay exactly the
-// contract's required kinds.
-func TestWorkflowVerdictBatchMixedDefaultEvidenceIsPerEntry(t *testing.T) {
-	const workID = "batch-mixed-default-per-entry"
-	fixture := seedWorkflowVerdictBatchFixture(t, workID)
-	version := readWorkVersion(t, fixture.store, workID)
-	operationID := fmt.Sprintf("issue933-record_verdict-%s-%d", workID, version)
-	mintedRef := "evidence:" + operationID
-	artifact := "evidence:return-route-artifact"
-
-	batchPayload, err := json.Marshal(map[string]any{"contract_version": 1, "verdicts": []any{
-		map[string]any{"predicate_id": "predicate:batch-present", "verdict_kind": "ok", "evaluation_evidence": []string{artifact}},
-		map[string]any{"predicate_id": "predicate:batch-absent", "verdict_kind": "ok"},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := runIssue933OperatorAction(t, fixture.store, workID, "record_verdict", batchPayload, fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("mixed explicit and defaulted batch refused: %v", err)
-	}
-
-	entryEvidence := func(predicate string) []string {
-		var raw []byte
-		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.predicate_id')=?`, workID, WorkflowVerdictRecorded, predicate).Scan(&raw); err != nil {
-			t.Fatal(err)
-		}
-		var decoded struct {
-			EvaluationEvidence []string `json:"evaluation_evidence"`
-		}
-		if err := json.Unmarshal(raw, &decoded); err != nil {
-			t.Fatal(err)
-		}
-		return decoded.EvaluationEvidence
-	}
-	if got := entryEvidence("predicate:batch-present"); len(got) != 1 || got[0] != artifact {
-		t.Fatalf("explicit entry evidence = %v, want exactly its own artifact", got)
-	}
-	if got := entryEvidence("predicate:batch-absent"); len(got) != 1 || got[0] != mintedRef {
-		t.Fatalf("defaulted entry evidence = %v, want exactly the operation-minted %s", got, mintedRef)
-	}
-	// The mint bound exactly its unchanged kind set — the definition's
-	// verification, review, and artifact kinds — and bound them only on the
-	// operation-minted reference. The first entry's artifact gained no
-	// binding from this call; its seeded artifact-kind binding is the only
-	// one it carries.
-	var mintedBindings int
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.producer_run_ref')=?`, workID, WorkflowEvidenceBound, operationID).Scan(&mintedBindings); err != nil {
-		t.Fatal(err)
-	}
-	if mintedBindings != 3 {
-		t.Fatalf("the mint produced %d bindings, want exactly the minted reference's verification, review, and artifact bindings", mintedBindings)
-	}
-	var mintedKinds []string
-	rows, err := fixture.store.DatabaseForTesting().Query(`SELECT json_extract(payload,'$.evidence_kind') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.producer_run_ref')=?`, workID, WorkflowEvidenceBound, operationID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for rows.Next() {
-		var kind string
-		if err := rows.Scan(&kind); err != nil {
-			t.Fatal(err)
-		}
-		mintedKinds = append(mintedKinds, kind)
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		t.Fatal(err)
-	}
-	if err := rows.Close(); err != nil {
-		t.Fatal(err)
-	}
-	sort.Strings(mintedKinds)
-	if strings.Join(mintedKinds, ",") != "artifact,review,verification" {
-		t.Fatalf("minted binding kinds = %v, want the unchanged artifact, review, verification set", mintedKinds)
-	}
-	var mintedOnArtifact int
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.producer_run_ref')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, operationID, artifact).Scan(&mintedOnArtifact); err != nil {
-		t.Fatal(err)
-	}
-	if mintedOnArtifact != 0 {
-		t.Fatal("the mint bound a kind onto the explicit entry's artifact")
-	}
-	var artifactBindings int
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, artifact).Scan(&artifactBindings); err != nil {
-		t.Fatal(err)
-	}
-	if artifactBindings != 1 {
-		t.Fatalf("the artifact carries %d bindings, want only its seeded artifact-kind binding", artifactBindings)
-	}
-}
-
-// TestWorkflowVerdictBatchEvidenceUnionSpansNativeRunEnrichment proves the
-// required native-run capture joins both the mint set and the durable union:
-// with a verification and native_run contract, a mixed batch resolves its
-// defaulted entry against the operation-minted reference plus the verified
-// capture, mints the capture under the non-native required kind exactly as a
-// defaulted single call does, names the capture and the minted reference in
-// the completed operation's evidence union, and an all-defaulted batch shares
-// that one minted set across every entry.
-func TestWorkflowVerdictBatchEvidenceUnionSpansNativeRunEnrichment(t *testing.T) {
-	const workID = "batch-union-native-run"
-	fixture := seedWorkflowVerdictBatchFixtureRequiring(t, workID, 4, []string{"verification", "native_run"})
-	capture := seedVerifiedNativeRunCapture(t, fixture.store, workID)
-	version := readWorkVersion(t, fixture.store, workID)
-	operationID := fmt.Sprintf("issue933-record_verdict-%s-%d", workID, version)
-	mintedRef := "evidence:" + operationID
-	explicitRefs := []string{"evidence:return-route-artifact", "evidence:batch-extra-00"}
-
-	marshal := func(value map[string]any) json.RawMessage {
-		encoded, err := json.Marshal(value)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return encoded
-	}
-	mixedBatch := marshal(map[string]any{"contract_version": 1, "verdicts": []any{
-		map[string]any{"predicate_id": "predicate:batch-present", "verdict_kind": "ok", "evaluation_evidence": explicitRefs},
-		map[string]any{"predicate_id": "predicate:batch-absent", "verdict_kind": "ok"},
-	}})
-	if err := runIssue933OperatorAction(t, fixture.store, workID, "record_verdict", mixedBatch, fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("mixed batch under a verification and native_run contract refused: %v", err)
-	}
-	entryEvidence := func(predicate string) []string {
-		var raw []byte
-		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.predicate_id')=?`, workID, WorkflowVerdictRecorded, predicate).Scan(&raw); err != nil {
-			t.Fatal(err)
-		}
-		var decoded struct {
-			EvaluationEvidence []string `json:"evaluation_evidence"`
-		}
-		if err := json.Unmarshal(raw, &decoded); err != nil {
-			t.Fatal(err)
-		}
-		return decoded.EvaluationEvidence
-	}
-	if got := entryEvidence("predicate:batch-present"); strings.Join(got, "|") != strings.Join(explicitRefs, "|") {
-		t.Fatalf("explicit entry evidence = %v, want exactly its own references", got)
-	}
-	if got := entryEvidence("predicate:batch-absent"); strings.Join(got, "|") != mintedRef+"|"+capture {
-		t.Fatalf("defaulted entry evidence = %v, want exactly the minted reference plus the verified capture", got)
-	}
-	// The mint bound its unchanged kind set — verification, review, and
-	// artifact — on the minted reference and on the verified capture, plus
-	// native_run on the capture alone: seven bindings, none on the explicit
-	// entry's references.
-	var mintedBindings int
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.producer_run_ref')=?`, workID, WorkflowEvidenceBound, operationID).Scan(&mintedBindings); err != nil {
-		t.Fatal(err)
-	}
-	if mintedBindings != 7 {
-		t.Fatalf("the mint produced %d bindings, want the kind set on the minted reference and the capture plus native_run", mintedBindings)
-	}
-	bindingCount := func(ref string) int {
-		t.Helper()
-		var count int
-		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.producer_run_ref')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, operationID, ref).Scan(&count); err != nil {
-			t.Fatal(err)
-		}
-		return count
-	}
-	if got := bindingCount(mintedRef); got != 3 {
-		t.Fatalf("the minted reference carries %d minted bindings, want the three non-native kinds", got)
-	}
-	if got := bindingCount(capture); got != 4 {
-		t.Fatalf("the capture carries %d minted bindings, want the three non-native kinds plus native_run", got)
-	}
-	var captureVerification int
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')='verification' AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, capture).Scan(&captureVerification); err != nil {
-		t.Fatal(err)
-	}
-	if captureVerification == 0 {
-		t.Fatal("the defaulted entry's mint bound no verification kind on the verified capture")
-	}
-	for _, ref := range explicitRefs {
-		var mintedOnExplicit int
-		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.producer_run_ref')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, operationID, ref).Scan(&mintedOnExplicit); err != nil {
-			t.Fatal(err)
-		}
-		if mintedOnExplicit != 0 {
-			t.Fatalf("the mint bound a kind onto the explicit entry's %s", ref)
-		}
-	}
-	_, entryCount, completionRefs := batchVerdictCompletion(t, fixture.store, workID)
-	if entryCount != 2 {
-		t.Fatalf("completion verdict_entry_count = %d, want 2", entryCount)
-	}
-	want := batchVerdictRefSet(append(append([]string{}, explicitRefs...), mintedRef, capture))
-	if len(completionRefs) != 4 || strings.Join(batchVerdictRefSet(completionRefs), "|") != strings.Join(want, "|") {
-		t.Fatalf("completion result_evidence_refs = %v, want the complete four-reference union", completionRefs)
-	}
-	if err := RebuildFromLog(context.Background(), fixture.store); err != nil {
-		t.Fatalf("rebuild workflow event log: %v", err)
-	}
-
-	// An all-defaulted batch under the same contract shares the one minted
-	// set: the capture is bound under the non-native required kind and every
-	// verdict names it, matching the defaulted single call.
-	const defaultedWork = "batch-defaulted-native-run"
-	defaulted := seedWorkflowVerdictBatchFixtureRequiring(t, defaultedWork, 0, []string{"verification", "native_run"})
-	defaultedCapture := seedVerifiedNativeRunCapture(t, defaulted.store, defaultedWork)
-	defaultedBatch := marshal(map[string]any{"contract_version": 1, "verdicts": []any{
-		map[string]any{"predicate_id": "predicate:batch-present", "verdict_kind": "ok"},
-		map[string]any{"predicate_id": "predicate:batch-absent", "verdict_kind": "ok"},
-	}})
-	if err := runIssue933OperatorAction(t, defaulted.store, defaultedWork, "record_verdict", defaultedBatch, defaulted.owner, defaulted.operator); err != nil {
-		t.Fatalf("defaulted batch under a native_run contract: %v", err)
-	}
-	var defaultedCaptureVerification int
-	if err := defaulted.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')='verification' AND json_extract(payload,'$.immutable_subject_ref')=?`, defaultedWork, WorkflowEvidenceBound, defaultedCapture).Scan(&defaultedCaptureVerification); err != nil {
-		t.Fatal(err)
-	}
-	if defaultedCaptureVerification == 0 {
-		t.Fatal("the defaulted batch minted no verification binding on the verified capture")
-	}
-	var naming int
-	if err := defaulted.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND EXISTS (SELECT 1 FROM json_each(json_extract(payload,'$.evaluation_evidence')) WHERE value=?)`, defaultedWork, WorkflowVerdictRecorded, defaultedCapture).Scan(&naming); err != nil {
-		t.Fatal(err)
-	}
-	if naming != 2 {
-		t.Fatalf("%d batched verdicts name the capture, want every defaulted entry sharing the minted set", naming)
-	}
-}
-
-// missingPredicateVerdicts lists the approved contract predicates that have
-// no recorded verdict. The join deliberately does NOT mirror completion
-// clause 6: any verdict kind counts here, because a weaker or incomparable
-// verdict at confirm_premise follows the declared failure edge to refine
-// rather than wedging the item, while clause 6 still refuses such
-// verdicts at complete. One verdict per predicate id, latest per predicate.
 func missingPredicateVerdicts(ctx context.Context, tx queryer, workID string) ([]string, error) {
 	contract, _, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
 	if err != nil {

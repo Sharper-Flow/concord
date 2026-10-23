@@ -10,14 +10,6 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestAcceptanceReviewRoundTrip"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestRepinReachesTheCheckpointReviewDefinition"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/store.TestJoinRefusesLaneAtUnadmittedStepKind"
     },
     {

@@ -25,6 +25,11 @@
   that contract (CD-0159 D2-D3). This citation records contract approval,
   not verbatim approval of every later exact commitment.
 
+**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## Context
 
 The reclaim probe read the live worktree's branch and discarded it. Every

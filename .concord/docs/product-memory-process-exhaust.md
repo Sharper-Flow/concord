@@ -26,7 +26,7 @@ Process exhaust stays producer-owned with salvage into bounded note fields
 before approval.
 ## Contract
 
-For routine publication under CD-0013 D11, salvage and evidence review precede the exact durable publication intent, not a human approval. The authenticated publisher records its own summary attestation; no operator attestation is invented. Loss-prevention obligations, content/home proof, and separate operator approval for physical research-pack deletion remain required. That approval remains a listed gap without a new class assignment. Publication acceptance does not itself permit research retirement.
+For routine publication under CD-0013 D11, salvage and evidence review precede the exact durable publication intent, not a human approval. The authenticated publisher records its own summary attestation; no operator attestation is invented. Loss-prevention obligations, content/home proof, and research-retirement eligibility remain required. Physical research-pack deletion requires separate operator approval only when a CD-0243 D2 class applies. Publication acceptance does not itself permit research retirement.
 
 
 The binding contract is sections 1 through 3: the no-receipt decision with

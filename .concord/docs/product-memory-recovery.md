@@ -11,6 +11,11 @@
 > current rows with Git, worktrees, artifacts, and external effects; no event
 > replay or rebuild-from-log exists.
 
+**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## Context
 
 One global SQLite authority and canonical git notes need one backup and

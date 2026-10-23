@@ -25,6 +25,11 @@
   applies, so the size-revision relation writer this record listed no longer
   exists.
 
+**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## Context
 
 The agent surface carried ten planning and browsing operations. Five let an

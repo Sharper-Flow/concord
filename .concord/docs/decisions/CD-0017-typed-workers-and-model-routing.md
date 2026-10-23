@@ -9,6 +9,11 @@
 **Cites:** #42/CD-0016 (context continuity — separate decision; lane dispatch consumes its pinned projections)
 **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D6
 
+**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## Context
 
 Issue #57 requires every sub-agent used by Concord runtime orchestration to be

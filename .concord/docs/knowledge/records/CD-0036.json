@@ -25,7 +25,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b4f6cc938c101f59ac980981e7490340bd119c1ed98ffbac5824a39e608f665e",
+  "sha256": "sha256:145f1f2d941b2009db662ec00d507890ef2dd65b23f7c3681da80a73a9fea3a1",
   "status": "accepted",
   "summary": "Contract approval pins one content digest for each mandated law ID; a compatible amendment keeps the law ID, states the current rule in place, and triggers reassessment only of the obligations whose meaning it changes, while a breaking supersession marks stale exactly the contracts that consumed the superseded revision until recovery.",
   "tags": [

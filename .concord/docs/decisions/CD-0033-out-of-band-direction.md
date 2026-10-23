@@ -10,6 +10,9 @@
 - **Amended:** 2026-10-18.
 - **Supersedes:** nothing
 
+**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+limits this record's operator-consent requirements to its six classes; its D5 governs recovery and permanent loss. All other checks remain required.
+
 ## Context
 
 The operator console is the host-started OpenCode session. Observation and

@@ -37,7 +37,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5742ac2b3522e0151652bdc6626361a20975127d9c8c9b0f10b240c29a728a44",
+  "sha256": "sha256:2fe50315f14137b22a05dc36d541d2ae66772c894c1c32daffcd167409e9abb2",
   "status": "accepted",
   "summary": "A workflow definition is a composition of versioned parts, and each step is defined in exactly one part; the registry compiles compositions, and no released definition version is retained for history. The decision model sets each work item's size and its minimum steps, proof, and testing; the operator may move a size up or down, and a task that proves bigger than its size reruns the model and continues in the same item. Sized workflows record define start and merge-queue entry.",
   "tags": [

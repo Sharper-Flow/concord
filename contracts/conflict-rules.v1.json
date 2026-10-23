@@ -3,7 +3,7 @@
   "catalog_generation": 3,
   "source": {
     "path": ".concord/docs/goals.md",
-    "sha256": "sha256:17d76512848703e475ec9253b6ca7293509afa7a5acdc2a2a8f2a04608b3a866"
+    "sha256": "sha256:27b2d7ba12e2bcfbfb6dee3126b88a4b162bcd69cff6a77d41786c81b70626c6"
   },
   "rules": [
     {
@@ -29,13 +29,8 @@
         "agent",
         "operator"
       ],
-      "state": "satisfied",
-      "mechanism": "operator_boundary",
-      "evidence": [
-        {"kind": "go_test", "value": "internal/agent.TestWorkflowNonSeriousLawChangeAdmission"},
-        {"kind": "go_test", "value": "internal/agent.TestWorkflowSeriousLawChangeApproval"},
-        {"kind": "go_test", "value": "internal/store.TestLawChangeThroughTheRealConstructors"}
-      ]
+      "state": "outstanding",
+      "issue": "CON-1100"
     },
     {
       "id": "S",
@@ -155,13 +150,8 @@
       "actors": [
         "agent"
       ],
-      "state": "satisfied",
-      "mechanism": "programmed_check",
-      "evidence": [
-        {"kind": "go_test", "value": "internal/store.TestLawChangeSeriousness"},
-        {"kind": "go_test", "value": "internal/store.TestBuiltinBreakFixSeriousLawConsent"},
-        {"kind": "go_test", "value": "internal/agent.TestWorkflowSeriousLawChangeApproval"}
-      ]
+      "state": "outstanding",
+      "issue": "CON-1100"
     }
   ],
   "a1": [
@@ -322,25 +312,27 @@
           "P12",
           "R3"
         ],
-        "crucial": []
+        "crucial": [
+          "P12",
+          "R3"
+        ]
       },
       "actors": [
         "agent",
         "operator"
       ],
-      "state": "satisfied",
-      "mechanism": "operator_boundary",
-      "evidence": [
-        {"kind": "go_test", "value": "internal/store.TestLawChangeSeriousness"},
-        {"kind": "go_test", "value": "internal/agent.TestWorkflowNonSeriousLawChangeAdmission"},
-        {"kind": "go_test", "value": "internal/agent.TestWorkflowSeriousLawChangeApproval"}
-      ]
+      "state": "outstanding",
+      "issue": "CON-1100"
     },
     {
       "row": 4,
       "sizes": {
-        "small": [],
-        "larger": [],
+        "small": [
+          "P12"
+        ],
+        "larger": [
+          "P12"
+        ],
         "crucial": [
           "P12"
         ]
@@ -417,12 +409,15 @@
       "row": 9,
       "sizes": {
         "small": [
+          "P10",
           "S"
         ],
         "larger": [
+          "P10",
           "S"
         ],
         "crucial": [
+          "P10",
           "S"
         ]
       },

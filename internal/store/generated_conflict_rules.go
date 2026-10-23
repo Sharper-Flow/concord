@@ -5,7 +5,7 @@ package store
 // conflictRuleSourceHash pins the goals.md snapshot the shipped
 // conflict-rule table was checked against (CD-0230 D6). The conflict
 // recorder consumes it; it never classifies consent.
-const conflictRuleSourceHash = "sha256:17d76512848703e475ec9253b6ca7293509afa7a5acdc2a2a8f2a04608b3a866"
+const conflictRuleSourceHash = "sha256:27b2d7ba12e2bcfbfb6dee3126b88a4b162bcd69cff6a77d41786c81b70626c6"
 
 // conflictRuleCatalogGeneration is the table's per-revision identity.
 // Consumers pin it beside the source hash; it never classifies consent.

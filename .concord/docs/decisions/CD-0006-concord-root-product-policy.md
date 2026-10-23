@@ -11,6 +11,9 @@ resolution, and the revised priority order to D5/D10/R3.
 for [Concord (CON) issue 1063](https://linear.app/sharper-flow/issue/CON-1063).
 D1 and D2 follow goals.md and CD-0082 D1; the full-successor requirement is removed.
 
+**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+governs D5 and D10: law mandates and enactment require approval only under its six classes.
+
 ## Context
 
 PM1–PM10, C14/C15, and TS1–TS9 settled Concord's Product-memory, resource,

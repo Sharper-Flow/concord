@@ -20,6 +20,11 @@ fields), C17 §5.2 (no activity-derived priority), C17 §5.4 (no third blocked s
 C18 (the operator surface stays read-only), CD-0013/CD-0017 D4 (worker
 authority boundary).
 
+**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## Context
 
 An agent working one work item needs to raise a second item that the operator can hand

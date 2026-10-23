@@ -28,9 +28,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ae3a225485e76a222149ce9fe20fce2f20ab741a793e551abf83d50b46a7efec",
+  "sha256": "sha256:b0f09cac044f998aa364d3ee3436b152ad4e1480142ed6f408c3523d770e4283",
   "status": "accepted",
-  "summary": "Amends CD-0222 D6 so a contract revision makes an overlap resolution stale only when it changes affected Domains, law additions or modifications, Domain modifications, or Domain-relation modifications. Preserves the 2,513-row resolution population, the execution-start claim boundary from PR 1084, D7, the closed resolution kinds, operator approval, and CD-0036.",
+  "summary": "Amends CD-0222 D6 so a contract revision makes an overlap resolution stale only when it changes affected Domains, law additions or modifications, Domain modifications, or Domain-relation modifications. Preserves the 2,513-row resolution population, the execution-start claim boundary from PR 1084, D7, the closed resolution kinds, and CD-0036. Operator approval follows CD-0243 D2 and D7.",
   "tags": [
     "product-law",
     "architecture",

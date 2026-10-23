@@ -13,6 +13,9 @@
   [CD-0217](CD-0217-publication-and-retention-boundaries.md),
   [compaction-retention-policy](../compaction-retention-policy.md)
 
+**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+limits this record's operator-consent requirements to its six classes; its D5 replaces an unconditional recovery veto. Retention eligibility and other non-consent checks remain required.
+
 ## Context
 
 Research belongs to work but does not acquire a work lifecycle of its own.
@@ -25,7 +28,7 @@ This replacement does not restore Epic identity or alter unrelated Initiative ob
 
 ## Decision
 
-Physical pack deletion through `research_retire` retains operator approval as a listed gap under CD-0013 D11, without a new class assignment. Non-dry-run retirement requires exact one-use approval bound to the explicit candidate set, versions, Product scope, and operation. Dry-run and eligibility checks require no deletion consent and confer no authority to delete. Active-consumer protection, eligibility fences, atomicity, and replay identity remain required. Approval does not waive CD-0230 D5's destructive-action safety requirements.
+Physical pack deletion through `research_retire` follows CD-0013 D11 and requires operator approval only when a [CD-0243 D2](CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision) class applies. Such an approval is exact and one-use, bound to the explicit candidate set, versions, Product scope, and operation. Dry-run and eligibility checks require no deletion consent and confer no authority to delete. Active-consumer protection, eligibility fences, atomicity, and replay identity remain required. CD-0243 D5 governs recovery and permanent loss.
 
 
 ### D1. Initiative remains secondary business context

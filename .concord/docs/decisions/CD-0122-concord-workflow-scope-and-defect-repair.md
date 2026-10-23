@@ -9,6 +9,9 @@
 - **Preserves:** Product law, repository review and merge evidence, worktree
   isolation, and host-owned roles
 
+**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+limits this record's operator-consent requirements to its six classes; its D5 governs recovery and permanent loss. Execution relinquishment and other non-consent checks remain required.
+
 ## Context
 
 CD-0089 authorizes Concord to coordinate its development. Its broad wording can

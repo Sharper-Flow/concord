@@ -11,6 +11,9 @@
 - **Supersedes:** nothing
 - **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — the store keeps current rows; no event history or replay exists.
 
+**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+limits operator consent to its six classes. Consequence summaries and operation binding do not themselves create an approval requirement; all other checks remain required.
+
 ## Context
 
 TS5 says an approval binds the consequence summary. TS6 says a core-issued

@@ -51,6 +51,11 @@ definition builder, with strict payload fields and no approval. The explicit
 continuity read does not automatically inject pinned context into current
 OpenCode calls; typed-agent injection on restart belongs to issue #120.
 
+**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## Context
 
 The workflow engine carries a work item from an approved contract to a

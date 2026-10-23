@@ -49,8 +49,8 @@ FULL_PROFILE_FILES = ("Concord-RTE.md", "Concord.md")
 PLANNER_PROFILE_FILE = "Concord-Planner.md"
 PRIMARY_BUILD_TOOLS = ("edit", "write", "patch")
 RTE_REQUIRED_PHRASES = (
-    "decides inside another session's item only a choice that session brings to it",
-    "Bring the operator only a choice neither of you can clearly decide",
+    "The RTE coordinates dependencies, not another session's technical choices or operator approvals",
+    "They contact you for coordination, not permission",
     "Never answer a Concord approval challenge",
     "goes to the operator unchanged",
     "Each session owns its design, code, tests, review, law text, publication",

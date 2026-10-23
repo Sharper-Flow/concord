@@ -20,6 +20,9 @@
   outcome substitution, CD-0036 revision identity and breaking-law cutovers, and
   CD-0222 Domain-bound contracts
 
+**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+governs D4: law enactment requires approval only under its six classes. Operator-free revisions retain the `derived` tier under CD-0230 D4; the tests for `legislated` standing do not change.
+
 ## Context
 
 Concord records no difference between law the operator legislated and law an

@@ -5,6 +5,9 @@ operator, who said that "the concord backlog and operation snowball no longer re
 Quotes are the operator's exact words. Items marked "approved" began as agent proposals that the operator
 approved.
 
+[CD-0243](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md) amends the roles and the
+operator's approval boundary below.
+
 ## Purpose
 - Scope: "a single machine solution using Opencode to coordinate agent led code development of software
   products."
@@ -17,11 +20,13 @@ approved.
   adhere to those different sources of alignment **or** modify them in a way that all agents will then also align
   to."
 - For whom: agents that work separately on the same system, under one operator.
-- The operator's role on a good day:
-  - "continually refine the linear backlog to define upcoming work";
-  - "answer questions from agents regarding preferences/UI/UX or product decisions";
-  - "review and accept changes that affect UI/UX".
-- Agents review and accept changes that do not affect UI/UX, without the operator (approved).
+- The User Operator owns product direction and the six approval classes in
+  [CD-0243 D2](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision).
+- The Concord Agent owns its item through delivery. Concord-RTE, the release train engineer (RTE), coordinates concurrent work;
+  Concord-Planner is the operator's assistant Product Owner. Both are optional, not approval gates
+  on a Concord Agent's work (CD-0243 D1).
+- Agents review and accept work outside the operator's approval classes. A spawned review
+  subagent counts as external review; required checks and evidence still apply.
 
 ### What hurts now
 - "Agents trying to finish Concord seem to be continually scattered."
@@ -131,8 +136,10 @@ the case (Appendix A), not a ranking.
 ## 4. Constraints that must hold
 - Single machine.
 - OpenCode is the agent host.
-- "data safety is a given." It is a constraint, not one of the goals (approved). There is no exception, even
-  at the operator's request: the agent stops, states the risk, and proposes a safe route (approved).
+- Data safety follows S and P10. Modifying production application data and risking irreversible
+  customer-data loss require operator approval. The operator may explicitly approve an explained
+  irreversible loss without a verified recovery route. Lack of recovery is not a separate approval
+  class or absolute stop outside the six classes (CD-0243 D2, D5).
 - Must not change, even where it slows agents down: "Not allowing slop or dead code to continue existing or go
   unnoticed". Bloat a change did not make still gets a follow-up item (rule R1), and goal E requires those
   items to be closed.
@@ -150,7 +157,7 @@ was thinking a cross-tabulation chart so we have an answer for each combo". The 
 
 ### A1. Goal-by-goal chart
 Axes: Law = product law. Arch = domain architecture. Speed = fast, right-sized delivery. Quality = quality and
-bloat removal. Safety = data safety. You = the operator's decisions (UI/UX, preferences, product). Parts =
+bloat removal. Safety = data safety. You = the six operator approval classes in CD-0243 D2. Parts =
 reusable workflow parts and programmed tools. Each pair appears once.
 
 |  | Arch | Speed | Quality | Safety | You | Parts |
@@ -167,16 +174,17 @@ Rules the operator stated:
   item".
 - R2 (Arch vs Speed): "have the coordinator stop one until the other completes that step". "That step" is the
   step where the two changes touch the shared domain. Other steps run in parallel (approved).
-- R3 (Law vs Speed, Law vs You): "change the law or if serious than consult the user". P12 defines "serious".
+- R3 (Law vs Speed, Law vs You): change the law and record why; ask the operator only when P12 requires it (CD-0243).
 
 From the operator's earlier answers:
-- S: data safety wins.
-- U: a UI/UX change waits for the operator's review and acceptance.
+- S: establish data-loss risk and recovery before acting; apply P10 and CD-0243 D5.
+- U: a new or changed UI/UX design or interaction waits for operator review and acceptance.
+  Minor corrections that introduce no new design or interaction need no fresh approval (CD-0243 D2).
 
 Approved proposals (situation, then rule):
 - P1 Law vs Arch. A law's home domain no longer owns the behavior the law governs. The law states what must be
   true; the architecture states where it lives. Fix whichever is wrong, and move the law to the domain that
-  owns the behavior. Apply R3's seriousness test.
+  owns the behavior. Apply R3's approval test.
 - P2 Law vs Quality. A current law requires code the agent judges bloat. Never delete what a current law
   requires. Change or retire the law first under R3, then remove the code.
 - P3 Law vs Parts. A law needs a check that no reusable part provides. Enforce a law with a programmed check,
@@ -185,8 +193,7 @@ Approved proposals (situation, then rule):
   boundary inside the change. An architect step may move the boundary. With no architect step, file a
   follow-up item.
 - P5 Arch vs You. An architecture choice also changes what the operator sees or decides. Agents own
-  architecture. Consult the operator only when the choice changes UI/UX or product behavior, or passes the P12
-  seriousness test.
+  architecture. Consult the operator only when the choice falls within CD-0243 D2's six approval classes.
 - P6 Arch vs Parts. A domain needs a variant of a shared part. Extend the shared part with a parameter. Never
   copy it into a domain-local version. If the part cannot fit without a special case, file a follow-up item to
   redesign the part.
@@ -197,13 +204,15 @@ Approved proposals (situation, then rule):
   wins. The agent states the quality cost once, with evidence, before building it.
 - P9 Quality vs Parts. A shared part has bloat or fits the change badly. Use the part and fix the part itself,
   not a local workaround. If the fix is larger than the change's size, file a follow-up item on the part.
-- P10 Safety vs You. The operator asks for something that risks data safety. Data safety wins, with no
-  exception. The agent stops, states the risk, and proposes a safe route.
+- P10 Safety vs You. The agent explains permanent-loss risk and any missing recovery route before asking
+  for required approval. The operator may explicitly approve irreversible loss. Without that approval,
+  do not risk irreversible customer-data loss. Outside the six classes, lack of recovery alone is not
+  an operator-approval requirement or an absolute stop (CD-0243 D2, D5).
 - P11 You vs Parts. The operator wants a behavior that no reusable part supports. The operator decides what;
   the agent builds it as a new part or as a parameter of an existing part, not as a one-off.
-- P12 Meaning of "serious" in R3. A law change is serious when it removes or reverses behavior that users see,
-  touches security or data safety, changes UI/UX, or affects more than one domain. Otherwise the agent changes
-  the law and records why.
+- P12 Approval test for law changes under R3. Apply CD-0243 D2's six approval classes. Seriousness,
+  Domain count, and crucial size do not independently require approval. Adding, removing, or reclassifying
+  an operator approval always requires the operator's approval of its exact wording.
 
 ### A2. Conflict situations by change size
 Columns are the sizes the decision model gives a change. "Same" means the rule does not change with size.
@@ -212,13 +221,13 @@ Columns are the sizes the decision model gives a change. "Same" means the rule d
 |---|---|---|---|---|---|
 | 1 | A fix meets bloat | R1 | Same | Same | Agent |
 | 2 | Two agents change one domain at once | R2 | Same | Same | Coordinator |
-| 3 | A change breaks a product law | R3, with P12 for "serious" | Same | Always consult the operator | Agent; operator if serious |
-| 4 | A change needs a new domain or moves a domain boundary | Resize the task (row 8) | The architect step decides | The architect step decides; consult the operator if P12 applies | Agent |
+| 3 | A change breaks a product law | R3, with P12 for approval | Same | Same | Agent; operator when P12 requires approval |
+| 4 | A change needs a new domain or moves a domain boundary | Resize the task (row 8); apply P12 | The architect step decides; apply P12 | Same | Agent; operator when P12 requires approval |
 | 5 | Review finds problems | Review fixes problems inside the change's scope and verifies its fixes; file follow-up items for the rest | Same | Same; the coordinator runs more review until review reports no high or medium problem | Review fixes; the coordinator ends the loop |
 | 6 | A check fails for a cause the change did not make | Do not fix it in the current change. File a bug item. If it blocks shipping, the coordinator schedules the bug first | Same | Same | Coordinator |
-| 7 | A change affects UI/UX | U | Same | Same | Operator |
+| 7 | A change affects UI/UX | U | Same | Same | Operator for new design or interaction; agent for minor corrections under U |
 | 8 | A task proves bigger than its workflow size | Run the decision model again, add the newly required steps, and continue without redoing completed work | Same | Same | Decision model; coordinator |
-| 9 | Data safety is at risk | S | Same | Same | Agent stops; P10 |
+| 9 | Data safety is at risk | S; P10 | Same | Same | Agent assesses risk; operator when CD-0243 D2 requires approval |
 
 ## Appendix B. Review of `.concord/docs/priorities.md`
 The operator asked: "see our existing top priorities doc and ask me if there are things we should remove or
@@ -243,7 +252,7 @@ Not a full sweep. In each case the operator's decision wins.
 |---|---|---|
 | 1 | `.concord/docs/priorities.md`: "a higher-numbered priority must not compromise a lower-numbered one." | No ranking; conflict rules (Appendix A). |
 | 2 | Priority 3: proof scales "not the workflow shape. A prototype does not skip gates." | Workflow sizes change steps, proof, and testing (goal B). |
-| 3 | Priority 1: "Accepted specifications and decisions are human-enacted law." `.concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md` D1: a law change needs "an operator-approved mandate". | Agents change law unless the change is serious (R3, P12). |
+| 3 | Priority 1: "Accepted specifications and decisions are human-enacted law." `.concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md` D1: a law change needs "an operator-approved mandate". | Agents change law with a recorded reason; approval follows R3 and P12's six-class test. |
 | 4 | Priority 1: overlapping work needs "an explicit, version-pinned compatibility, sequencing, merger, supersession, or terminal resolution". | The coordinator sequences the overlapping step (R2). |
 | 5 | CD-0222 D2: a domain "is not inferred from paths"; owner notes do not "assign Domain identity from paths". | A declared, checked package-to-domain map (goal A). |
 | 6 | Priority 6: one purpose-built workflow type for each kind of work. | Workflows composed from shared parts (goal C). |

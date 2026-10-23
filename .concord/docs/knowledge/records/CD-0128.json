@@ -10,7 +10,6 @@
     ".concord/docs/workflow-engine-contract.md",
     "adapter/opencode/packet.ts",
     "internal/store/workflow_design.go",
-    "internal/store/workflow_design_test.go",
     "internal/agent/design_contract_correction_test.go"
   ],
   "home_domain_id": "product-root:concord",

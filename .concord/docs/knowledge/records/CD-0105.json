@@ -18,7 +18,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b544962e862e4cf9b5445b77dbe8036194b19ff2891b40065d169ec0202f66df",
+  "sha256": "sha256:4811869464db7cda6d365270edbc8e4fad3df903f933e5ed4fef3ce9d4b236e7",
   "status": "accepted",
   "summary": "The worktree audit reports a fourth drift class, terminal_present: a worktree on disk, still claimed, whose work is completed or cancelled. A typed operation, worktree_audit_reclaim, performs the one safe action the audit names, reclaiming each such row through the direct reclaim's own gates in its own transaction, so one refusal never rolls back another reclamation and a replay returns the recorded pass. Every other class stays report-only. Amends CD-0096 D3 Destroy at the trigger it left unnamed.",
   "tags": [

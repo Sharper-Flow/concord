@@ -17,6 +17,9 @@
   stranding refusal, and operator approval for every other non-terminal
   removal and for destructive removal
 
+**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+limits this record's operator-consent requirements to its six classes; its D5 replaces an unconditional recovery veto. Occupancy and other non-consent checks remain required.
+
 ## Context
 
 CD-0105 named the trigger that reclaims a finished worktree. It left the

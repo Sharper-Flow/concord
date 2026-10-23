@@ -142,7 +142,7 @@ attributes, not by a fixed gate count.
   A reviewer's own corrective edits are verified, not reviewed again.
 - No silent drift — deviations from spec, architecture binding, or plan are surfaced, not papered over.
 - Required-obligation blocking — unmet blocking obligations halt the work.
-- Human authority at consequence boundaries — the operator decides UI/UX, product, and serious law changes (U, R3, P12).
+- Human authority at consequence boundaries — the operator decides the six classes in [CD-0243 D2](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision), including law changes within those classes (U, R3, P12). Seriousness, Domain count, and crucial size do not independently require approval.
 - Durable proof — evidence is retained and inspectable after the work is finished.
 - Proportional rigor — the decision model (goal B) sets each change's minimum steps, proof, and testing; [CD-0242 D4](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum) governs its mandatory stages, and no agent may waive a mandatory stage or an operator approval.
 
@@ -172,7 +172,8 @@ view is fresh enough to act on.
   truth, not the session channel that directs agent labor. Operator direction
   given out-of-band is legitimate and invisible to Concord by design; when it
   changes a required end-state, it binds through contract supersession — the
-  single write path, operator-approved — and completion's premise confirmation
+  single write path, operator-approved only when a CD-0243 D2 class applies —
+  and completion's premise confirmation
   names the recorded premise, so an unsuperseded redirect surfaces as a premise
   the operator will not recognize. The blind spot that remains is documented,
   not accidental.

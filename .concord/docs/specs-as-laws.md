@@ -9,6 +9,11 @@
 > concurrent work.
 > **Origin:** User direction, 2026-07-25.
 
+**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## TL;DR
 
 Specs are Product law, organized through one canonical Domain architecture. When
@@ -165,7 +170,7 @@ shows the legislative moments explicitly.
 | Public predecessor behavior | Concord treatment |
 |---|---|
 | Change validation detected spec conflicts | **Preserved as an outcome, redesigned structurally** through Git-derived law checks and typed refusals. |
-| Spec deltas modified or superseded accepted law | **Preserved as an outcome** through Git law deltas and revision identity, with approval split by seriousness under CD-0230 D4. |
+| Spec deltas modified or superseded accepted law | **Preserved as an outcome** through Git law deltas and revision identity, with approval following CD-0243 D2 and D4. |
 | Agreement/design checkpoints surfaced legislative choices | **Preserved as human authority** without requiring one universal workflow shape. |
 | Cross-change architecture overlap was not authoritative | **Added by CD-0222** through Domain-bound contracts and version-pinned resolutions. |
 

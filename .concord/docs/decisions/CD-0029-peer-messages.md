@@ -18,7 +18,7 @@ authoring because its target rebased and self-resolved.
 
 ## Decision
 
-A peer message supplies neither consent nor authority. CD-0013 D11 governs terminal transitions: routine completion requires its unchanged acceptance evidence, not operator approval; cancellation and removal retain operator approval as listed gaps without a new class assignment. A message cannot satisfy either gate or alter the recipient's classification; [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: no historical workflow pins are retained.
+A peer message supplies neither consent nor authority. CD-0013 D11 governs terminal transitions: routine completion requires its unchanged acceptance evidence, not operator approval; cancellation and removal require operator approval only when a CD-0243 D2 class applies. A message cannot satisfy either gate or alter the recipient's classification; [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: no historical workflow pins are retained.
 
 
 **D1. Messages are durable rows addressed to work, not sessions.**

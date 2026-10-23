@@ -1,4 +1,4 @@
-# CD-0230: The conflict rules are one checked table, and an agent changes law that is not serious
+# CD-0230: The conflict rules are one checked table, and law changes follow the operator's approval boundary
 
 - **Status:** Accepted
 - **Date:** 2026-10-17
@@ -22,8 +22,7 @@
   and D3 to D6, law revision identity and breaking cutovers;
   [CD-0122](CD-0122-concord-workflow-scope-and-defect-repair.md), work outside
   the workflow; [CD-0213](CD-0213-linear-mcp-is-the-only-planning-authority.md),
-  Linear as the only planning authority; each operator approval point an
-  accepted record holds, until that record is amended
+  Linear as the only planning authority
 - **Approval:** The Snowball coordinator approved this record on 2026-10-17
   under the operator's delegation. The record is serious under P12 because it
   affects more than one Domain.
@@ -96,40 +95,20 @@ spot checks read these records.
 A conflict between a law's letter and its stated intent is a law conflict. The
 agent raises it under R3 and does not apply the letter silently.
 
-### D4. An agent changes law that is not serious
+### D4. Law changes follow the operator's approval boundary
 
-An agent changes a law and records why, unless the change is serious under
-P12. A serious law change needs the operator's approval of its exact text. At
-`crucial` size, every law change needs that approval (Appendix A2 row 3).
-
-The P12 test that a change affects more than one Domain counts the child
-Domains of the laws the change adds, modifies, or removes. Each such law
-contributes its home Domain and its `applies_to_domain_ids` (CD-0222 D3), as
-recorded before and after the change. The Product-root Domain is not counted:
-a root-homed law is Product-wide by placement, and its applicability names the
-child Domains it reaches. A reference record is not law and adds no Domain.
-A change to the Domain registry, itself Product law (CD-0222 D2), counts each
-child Domain whose entry it adds, modifies, or removes, and both child ends of
-each architecture relation it adds, modifies, or removes. The test holds when
-the count exceeds one.
-
-The count reads recorded law homes and applicability, so it needs no
-declaration. It does not count the Domains of the code that ships with the law
-change. Those Domains are the work's footprint, which reaches every Domain of
-each touched package (CD-0222 D2) and sizes the work under CD-0229. Review
-checks that each added law's home follows CD-0222 D3, so the root Domain does
-not become a catch-all that lowers the count.
-
-The agent declares the other three tests: whether the change removes or
-reverses behavior users see, touches security or data safety, or changes
-UI/UX. Independent review checks that declaration.
+An agent changes a law and records why. Operator approval applies only when
+the change falls within a class defined by
+[CD-0243 D2](CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision).
+Seriousness, Domain count, and crucial size do not independently require
+approval. Adding, removing, or reclassifying an operator approval always
+requires the operator's approval of its exact wording.
 
 This amends CD-0006 D5 and D10, CD-0013 D9, CD-0036 D2, CD-0159 D4, CD-0218
 D1, and CD-0222 D1, D4, and D5. Where they require human or operator approval
 for a law change, a law mandate, or the choice between amendment and
-replacement, that approval is required only for a serious change. A
-non-serious change carries the agent's recorded reason, and the agent records
-its CD-0036 choice with it.
+replacement, that approval is required only under CD-0243 D2. An agent-owned
+change carries the agent's recorded reason and its CD-0036 choice.
 
 This amends CD-0159 D2 and D5. A law revision enacted without the operator's
 approval gives the record the `derived` tier, whatever tier it held before,
@@ -146,38 +125,27 @@ under P12.
 
 ### D5. The operator approves only at the operator's boundaries
 
-An operator approval point belongs to one of four classes, or is a listed gap:
+The six classes and their boundaries are defined by CD-0243 D2: product
+direction, UI/UX, production application data, security, increased spending,
+and legal obligations. Every applicable class counts. Decisions outside them
+belong to agents under CD-0243 D3. A gap in the table's classification is not
+an independent approval requirement; each point must be classified under a
+class or as agent-owned.
 
-- a change that affects UI/UX, which waits for the operator's review and
-  acceptance (rule U), including approval of a development preview of the
-  final candidate before it is pushed to a shared remote or merged
-  ([CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication));
-- a product or preference decision, including a governed scope cut;
-- a serious law change under D4;
-- a destructive action on Concord-owned state that has a verified recovery
-  route before it runs, such as a snapshot Concord has verified.
+[CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)
+governs the UI/UX class: it includes approval of a development preview of the
+final candidate before it is pushed to a shared remote or merged.
 
-A destructive action without a verified recovery route is not an approval
-point. It is a data-safety risk: the agent stops, states the risk, and
-proposes a safe route, even at the operator's request (rule S and P10).
+The agent asks the operator directly, with its recommendation and material
+risks. The release train engineer (RTE) coordinates dependencies; it does not decide operator choices.
+An advisor supplies a second opinion, not operator approval. A spawned review
+subagent counts as external review, with required checks and evidence intact.
 
-The table lists each operator approval point that an accepted record holds,
-with its class. A point that fits no class is listed as a gap with its
-follow-up item. It stays an operator approval until the record that holds it
-is amended. Removing a point or changing its class removes behavior the
-operator sees, so it is serious under P12.
-
-A choice inside a work item that carries a security risk, changes UI/UX, sets
-a preference, or sets product direction, and that no approval point holds,
-goes first to the item's coordinator: the release train engineer (RTE) when
-one coordinates the item, otherwise the operator. The agent states the choice
-in plain words with its recommendation and the risk. The coordinator decides a
-choice whose answer is clear, alone or with an advisor subagent, and records
-the decision and its reasons on the item. A choice that neither can clearly
-decide goes to the operator. This route settles no approval point: each point
-the table lists, the exact-text approval of a serious law change, rule U's
-review and acceptance, and a Concord approval challenge stay with the
-operator. A purely technical choice stays with the agent that owns the item.
+CD-0243 D5 governs recovery and permanent loss. The operator may explicitly
+approve explained irreversible loss without a verified recovery route.
+Customer-data loss remains reserved. Lack of recovery outside the classes is
+not a separate approval requirement or absolute veto. An implementation gap
+does not authorize bypassing a current tool gate (CD-0243 D6).
 
 ### D6. Follow-up items form a checkable ledger
 
@@ -193,47 +161,21 @@ the D6 label duty as a gap.
 
 - Keep the rules as prose and rely on review. Goal F rules this out.
 - Copy the rule text into the table. Two copies would drift.
-- Let the agent decide all four P12 tests alone. The Domain test reads
-  recorded law homes, and a recorded fact needs no judgement.
-- Count the Domains of the change's footprint record. The footprint lists
-  every Domain of each touched package. An amendment of a law homed in one
-  Domain that also changed the installer counted six child Domains, so every
-  law change that ships with code in a shared package needed an operator turn.
-- Count the change's declared affected Domains. That set also names the
-  Domains the shipped code touches, so a one-Domain law change with installer
-  code still counts two, and a change outside a contract has no store-checked
-  set.
-- Give each file its own Domains in the package map. CD-0222 D2 keeps the map
-  at package grain, and a file such as the installer still serves several
-  Domains, so the count would follow the file and not the law. It would also
-  rewrite the map and change work sizing, which reads the same footprint.
-- Count a root-homed law as every child Domain. Fifty current law records are
-  root-homed, so every amendment of one would be serious: the footprint's
-  overcount again.
-- Keep operator approval for every law change. R3 replaces that rule.
-- Treat every change to a `legislated` record as serious. That adds a fifth
-  test P12 does not hold.
-- Reclassify every operator approval point outside the four classes at once,
-  without amending the records that hold them. An unnamed amendment cannot be
-  checked, and it would remove approvals no review has seen.
+- Require approval based on seriousness or Domain count alone. CD-0243 D2
+  reserves approval for six classes, including changes to that boundary.
 - Keep the follow-up ledger in the store. CD-0213 keeps planning facts in
   Linear only.
 
 ## Consequences
 
-A non-serious law change no longer costs an operator turn. The cost moves to
-the declaration of the P12 tests and its review.
-
-The P12 Domain test reads the changed laws' child Domains. A change to
-root-homed law without applicability is no longer serious by the Domain
-test alone; the other three tests and the `crucial`-size rule still apply.
+A law change outside the six classes needs no operator turn. An agent records
+its reason and review checks the applicable approval classes.
 
 A record the operator legislated becomes `derived` when an agent revises it
 without operator approval, so its standing shows who last enacted it.
 
-Operator approval points outside the four D5 classes stay in force as listed
-gaps. Each becomes an agent or coordinator decision only when a later change
-amends the record that holds it.
+Missing classifications are implementation gaps, not approval classes. Current
+tool refusals still follow their admitted recovery routes until aligned.
 
 Every change to `goals.md` moves its content hash, so the change that edits
 `goals.md` also checks the table against it and records the new hash.
@@ -247,21 +189,9 @@ Every change to `goals.md` moves its content hash, so the change that edits
   validator refuses a missing A1 cell or A2 row, a rule with no mechanism
   kind, and a stale `goals.md` hash, that it reports each gap, and that each
   rule that files follow-up items names its label.
-- `go test ./internal/store` must prove that a non-serious law change with a
-  recorded reason is admitted without operator approval and records the
-  `derived` tier, also for a D5 cohort record, that a change modifying laws
-  homed in two child Domains requires approval, that a changed law's
-  `applies_to_domain_ids` count toward the test, that a change removing or
-  superseding laws homed in two child Domains requires approval, that a law
-  whose `applies_to_domain_ids` the same change narrows still counts the
-  Domain it dropped, that a law moved between two child Domains counts both,
-  that a change adding an architecture relation between two child Domains
-  requires approval, that a change modifying laws homed in one child Domain
-  and in the root Domain, with code in `internal/agent` and `internal/store`,
-  counts one Domain, that an amendment of one law homed in `agent-surface`
-  that also edits `scripts/install.py` counts one Domain, that every law
-  change at `crucial` size requires approval, and that a governed scope cut
-  requires it at every size.
-- `go test ./internal/store` must prove that each operator approval point
-  carries one of the four D5 classes or stays an operator approval as a listed
-  gap, and that a conflict record names its rule ID, size, and outcome.
+- `go test ./internal/store` must prove consent follows the six classes,
+  including exact-text approval for approval-boundary changes, while an
+  agent-enacted law revision records the `derived` tier. Classification and
+  runtime alignment are separate implementation obligations under CD-0243 D6.
+- `python3 scripts/check-conflict-rules.py` checks each recorded conflict rule
+  and its source hash; it does not by itself prove six-class runtime consent.

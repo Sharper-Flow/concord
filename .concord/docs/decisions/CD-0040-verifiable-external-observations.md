@@ -12,6 +12,11 @@
 - **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 records observations and verifications as current rows
 - **Supersedes:** nothing
 
+**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies D7's freshness-policy approval requirement. D9's operator-only
+exception for an unverifiable source, and all other admission, safety,
+evidence, and historical-pin requirements remain unchanged.
+
 ## Context
 
 Concord records facts about state it does not own: Git positions, worktrees,

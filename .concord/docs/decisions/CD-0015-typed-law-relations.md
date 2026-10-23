@@ -12,6 +12,11 @@ record can withdraw the declaration.
 the event vocabulary in §Decision: the store keeps current rows, and no domain
 event exists.
 
+**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## Decision
 
 Concord's durable law authority remains the Git knowledge manifest. SQLite may

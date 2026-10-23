@@ -46,9 +46,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bb19e74fa4a0d1c3d1264129404bdb641e9afe0fad1116d7f79cfa6dc3b8ae11",
+  "sha256": "sha256:79bf3b07fc05478e41960cf6b0382a90127db3e45b60943956a1cce4dd4b5c04",
   "status": "accepted",
-  "summary": "An operator-approved typed disposition holds live work for outside defect repair and suppresses managed actions and prompts. One declared reconciliation either closes from independently fetched merged pull requests, the complete successful required-check set on immutable heads, and a published release containing every merge, or resumes the unchanged workflow. Closure records a distinct outside_repair terminal instance, not fabricated managed completion. The host creates the isolated ordinary repair worktree and starts the unmanaged repair session under the approved host operational procedure. Host permissions and repair-agent configuration remain host-owned. Only this explicit reconciliation amends CD-0183 D4, building on CD-0122 D2.",
+  "summary": "A typed disposition holds live work for outside defect repair and suppresses managed actions and prompts. Operator consent follows CD-0243 D2 and D7. One declared reconciliation either closes from independently fetched merged pull requests, the complete successful required-check set on immutable heads, and a published release containing every merge, or resumes the unchanged workflow. Closure records a distinct outside_repair terminal instance, not fabricated managed completion. The host creates the isolated ordinary repair worktree and starts the unmanaged repair session under the approved host operational procedure. Host permissions and repair-agent configuration remain host-owned. Only this explicit reconciliation amends CD-0183 D4, building on CD-0122 D2.",
   "tags": [
     "workflow",
     "repair",

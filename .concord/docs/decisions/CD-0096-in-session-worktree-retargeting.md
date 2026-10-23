@@ -19,6 +19,9 @@
   at D3 Destroy re-binds the git gates to one immutable live `HEAD`
   observation and separates stored-ref deletion from directory removal.
 
+**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+limits this record's operator-consent requirements to its six classes; its D5 replaces an unconditional recovery veto. Occupancy, identity, and other non-consent checks remain required.
+
 ## Context
 
 CD-0088 gives the host one route into a canonical worktree. `concord_work_start`

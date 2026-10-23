@@ -38,7 +38,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b612706c5796b2a0c2d6eb5002f8f64cadc5e1fba94e27f6540118d54be4716b",
+  "sha256": "sha256:86dbd56c7f4b0c8304ed40a7a26a4f52a454132dccd439f01cb79c8ee759b2f7",
   "status": "accepted",
   "summary": "Concord keeps numbered agents host-owned, supplies an inert intake example and generated named primary profiles, and leaves live numbered definitions unchanged through every installer operation.",
   "tags": [

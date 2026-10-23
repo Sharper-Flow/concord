@@ -138,6 +138,12 @@ func TestInFlightWorkflowSurvivesDefinitionVersionSupersession(t *testing.T) {
 // A schema migration applied while an item is mid-flight must leave it advanceable
 // and its history readable.
 func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
+	original := migrations
+	t.Cleanup(func() { migrations = original })
+	migrations = append(append([]migration(nil), migrations...), migration{
+		Version: CurrentSchemaVersion() + 1, Name: "inflight_schema_tail",
+		SQL: `CREATE TABLE inflight_schema_tail (value TEXT);`,
+	})
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "concord-inflight.db")
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -201,8 +207,6 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	// The registered tail is spent, so the next advance is a synthetic step
 	// beyond it: the open item crosses that boundary on the combined schema
 	// too, and the manifest tracks it the same way.
-	original := migrations
-	t.Cleanup(func() { migrations = original })
 	migrations = append(append([]migration(nil), migrations...), migration{
 		Version: CurrentSchemaVersion() + 1, Name: "inflight_schema_probe",
 		SQL: `CREATE TABLE inflight_schema_probe (value TEXT);`,

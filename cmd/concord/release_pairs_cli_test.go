@@ -1055,8 +1055,8 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 	if err != nil {
 		t.Fatalf("the pre-migration snapshot must verify at the baseline schema: %v", err)
 	}
-	if verified.SchemaVersion != cutoverBaselineSchema || verified.EventWatermark != int64(len(want["domain_events"])) {
-		t.Fatalf("the verified snapshot = %+v, want the baseline schema and the seeded event watermark %d", verified, len(want["domain_events"]))
+	if verified.SchemaVersion != cutoverBaselineSchema || verified.EventWatermark != 0 {
+		t.Fatalf("the verified snapshot = %+v, want the baseline schema and zero pre-revision inventory", verified)
 	}
 
 	// The migrated store requires the manifest-derived floor, keeps the

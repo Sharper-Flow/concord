@@ -312,7 +312,7 @@ func TestMigration59PreservesPopulatedBootstrapOperation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := ensureInstallationKey(ctx, db); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO agent_installation_keys(key_name,key_bytes,created_at) VALUES('cursor',zeroblob(32),'2026-08-30T00:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
 	repo := initBootstrapStoreRepo(t)

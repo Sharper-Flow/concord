@@ -575,21 +575,17 @@ func stagedInventory(ctx context.Context, stageDB *sql.DB) (int, int64, error) {
 	return schema, watermark, err
 }
 
-// The event watermark is inventory only, never a verification input. A store
-// without the history table has no event inventory.
+// The store revision is inventory only, never a verification input. A snapshot
+// from before the revision migration reports zero inventory.
 func backupEventInventory(ctx context.Context, db *sql.DB) (int64, error) {
 	var exists bool
-	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM main.sqlite_schema WHERE type='table' AND name='domain_events')`).Scan(&exists); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM main.sqlite_schema WHERE type='table' AND name='store_revision')`).Scan(&exists); err != nil {
 		return 0, backupStateReadFailure(err)
 	}
 	if !exists {
 		return 0, nil
 	}
-	var watermark sql.NullInt64
-	if err := db.QueryRowContext(ctx, `SELECT MAX(seq) FROM domain_events`).Scan(&watermark); err != nil {
-		return 0, backupStateReadFailure(err)
-	}
-	return watermark.Int64, nil
+	return storeRevision(ctx, db)
 }
 
 func verifyBackupFile(ctx context.Context, destination string, supportedMax int, clock func() time.Time) (BackupManifest, error) {

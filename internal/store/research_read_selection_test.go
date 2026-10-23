@@ -158,7 +158,7 @@ func TestResearchSelectedReadQueryerServesPendingWriteTx(t *testing.T) {
 		t.Fatalf("committed selection read: %+v", fromDB)
 	}
 
-	wtx, err := beginWriteTx(ctx, s.db, nil)
+	wtx, err := beginWriteTx(ctx, s.db, nil, stateWriteAdmission)
 	if err != nil {
 		t.Fatal(err)
 	}

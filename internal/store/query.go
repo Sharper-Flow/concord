@@ -348,14 +348,14 @@ func beginRead(ctx context.Context, s *Store, op string) (*sql.Tx, error) {
 }
 
 func queryMeta(ctx context.Context, tx *sql.Tx, id string, scope ResolvedScope, keys []string) (ResultMeta, error) {
-	var watermark sql.NullInt64
-	if err := tx.QueryRowContext(ctx, `SELECT max(seq) FROM domain_events`).Scan(&watermark); err != nil {
+	watermark, err := storeRevision(ctx, tx)
+	if err != nil {
 		return ResultMeta{}, wrapFailure(KindUnavailable, id, "cannot read the live source watermark", true, "retry once the database is readable", err)
 	}
 	now := time.Now().UTC()
 	return ResultMeta{
 		QueryID: id, ContractVersion: queryContractVersion, ResolvedScope: scope,
-		SourceVersionWatermark: watermark.Int64, Authority: "authoritative",
+		SourceVersionWatermark: watermark, Authority: "authoritative",
 		Freshness:    Freshness{ObservedAt: now.Format(time.RFC3339Nano), Age: 0, Stale: false},
 		OrderingKeys: keys, Omissions: []string{}, Warnings: []string{},
 	}, nil

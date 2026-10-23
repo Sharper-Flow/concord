@@ -24,7 +24,7 @@ func beginReadTx(ctx context.Context, db beginTxSource) (*sql.Tx, error) {
 // beginOrdinaryTx uses the write owner without changing NORMAL commit or raw
 // transaction lifecycle semantics. Only durable writes need a pinned connection.
 func beginOrdinaryTx(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
-	tx, err := beginWriteTx(ctx, db, nil)
+	tx, err := beginWriteTx(ctx, db, nil, stateWriteAdmission)
 	if err != nil {
 		return nil, err
 	}

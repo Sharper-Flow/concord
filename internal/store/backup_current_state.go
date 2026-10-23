@@ -10,9 +10,9 @@ import (
 	"strings"
 )
 
-// backupCurrentStateDigest includes every persistent table, including direct
-// authority and SQLite sequence state, plus schema definitions. Physical page
-// locations are excluded: an online copy can change those without changing state.
+// backupCurrentStateDigest includes persistent state and schema definitions.
+// Physical page locations are excluded: an online copy can change those without
+// changing state.
 func backupCurrentStateDigest(ctx context.Context, db *sql.DB) (string, error) {
 	tx, err := beginReadTx(ctx, db)
 	if err != nil {
@@ -23,7 +23,8 @@ func backupCurrentStateDigest(ctx context.Context, db *sql.DB) (string, error) {
 	if err := hashBackupRows(ctx, tx, h, `SELECT type,name,tbl_name,sql FROM main.sqlite_schema ORDER BY type COLLATE BINARY,name COLLATE BINARY`); err != nil {
 		return "", err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT name FROM main.sqlite_schema WHERE type='table' ORDER BY name COLLATE BINARY`)
+	// The revision is a publication counter advanced by every write, including replay, so its row content is not Product state.
+	rows, err := tx.QueryContext(ctx, `SELECT name FROM main.sqlite_schema WHERE type='table' AND name!='store_revision' ORDER BY name COLLATE BINARY`)
 	if err != nil {
 		return "", backupStateReadFailure(err)
 	}

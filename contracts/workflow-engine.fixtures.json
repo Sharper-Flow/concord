@@ -10,7 +10,7 @@
         "schema_version": "1.3",
         "ref": "workflow.implementation",
         "version": 1,
-        "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+        "digest": "sha256:0de6c645c47bb445d18e3d20218bfe0733ead99e00278e939d7df2b308e2686c",
         "work_kind": "implementation",
         "changes_product_truth": true,
         "step_graph": {
@@ -59,7 +59,11 @@
         "rigor_rules": [{"maturity": "prototype", "audience_band": "internal", "required_evidence_kinds": ["verification"]}],
         "staleness_rules": [],
         "composition_rules": {"forward_link_only": true, "allowed_successor_work_kinds": ["break_fix", "research"], "forbidden_compositions": []},
-        "evaluator_independence": {"model_distinct": false}
+        "evaluator_independence": {"model_distinct": false},
+        "recovery_routes": [
+          {"step": "acceptance", "trigger": "unhealthy_verdict", "action": "request_correction", "target": "execution"},
+          {"step": "release", "trigger": "unhealthy_verdict", "action": "request_correction", "target": "execution"}
+        ]
       }
     },
     {"id": "outcome-exists-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "exists", "surface": "git:tree", "subjects": ["path:cmd/concord"]}},

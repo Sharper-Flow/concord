@@ -1979,6 +1979,122 @@ esac''',
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertTrue((self.root / "config" / "opencode" / "tools" / added).is_file())
 
+    RETIRED_ADAPTER = "native-subtask-refusal.ts"
+
+    def _install_recording_retired_adapter(self) -> Path:
+        """Install v1.0.0 as an installer that still shipped the retired file
+        leaves it: the file sits in the tools directory and the version tree,
+        and the manifest records it in adapter_files and version_files."""
+        self.assertIn(self.RETIRED_ADAPTER, installer.RETIRED_ADAPTER_FILES)
+        self.assertNotIn(self.RETIRED_ADAPTER, installer.ADAPTER_FILES)
+        self.make_release("v1.0.0", "old")
+        self.make_release("v1.1.0", "new")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        content = f"{self.RETIRED_ADAPTER}:old\n".encode()
+        digest = hashlib.sha256(content).hexdigest()
+        (self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / self.RETIRED_ADAPTER).write_bytes(content)
+        retired = self.root / "config" / "opencode" / "tools" / self.RETIRED_ADAPTER
+        retired.write_bytes(content)
+        manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["adapter_files"][self.RETIRED_ADAPTER] = digest
+        manifest["version_files"][f"adapter/opencode/{self.RETIRED_ADAPTER}"] = digest
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        return retired
+
+    def test_upgrade_removes_a_retired_adapter_file_the_manifest_records(self) -> None:
+        retired = self._install_recording_retired_adapter()
+
+        second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertFalse(retired.exists(), "the upgrade left the retired adapter file in the tools directory")
+        manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], "v1.1.0")
+        self.assertNotIn(self.RETIRED_ADAPTER, manifest["adapter_files"])
+        self.assertNotIn(f"adapter/opencode/{self.RETIRED_ADAPTER}", manifest["version_files"])
+        self.assertFalse((self.root / "data" / "concord" / "v1.1.0" / "adapter" / "opencode" / self.RETIRED_ADAPTER).exists())
+        for name in installer.ADAPTER_FILES:
+            self.assertTrue((self.root / "config" / "opencode" / "tools" / name).is_file(), f"{name} was not placed")
+        status = self.run_installer("status")
+        self.assertEqual(status.returncode, 0, status.stderr)
+
+    def test_uninstall_removes_a_retired_adapter_file_the_manifest_records(self) -> None:
+        retired = self._install_recording_retired_adapter()
+
+        result = self.run_installer("uninstall")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(retired.exists())
+
+    def test_upgrade_rollback_restores_a_retired_adapter_file(self) -> None:
+        retired = self._install_recording_retired_adapter()
+        before = retired.read_bytes()
+
+        died = self.run_after_phase("adapter_swapped", "install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(died.returncode, 97, died.stderr)
+        self.assertFalse(retired.exists())
+        recovered = self.run_installer("status")
+
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        self.assertEqual(retired.read_bytes(), before, "rollback did not restore the retired adapter file")
+        manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], "v1.0.0")
+        again = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertFalse(retired.exists())
+
+    def test_upgrade_refuses_to_remove_a_modified_retired_adapter_file(self) -> None:
+        retired = self._install_recording_retired_adapter()
+        retired.write_text("operator edit\n", encoding="utf-8")
+
+        second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertNotEqual(second.returncode, 0)
+        self.assertIn("modified managed adapter file", second.stderr)
+        self.assertEqual(retired.read_text(encoding="utf-8"), "operator edit\n")
+
+    def test_upgrade_leaves_an_unrecorded_retired_adapter_file_alone(self) -> None:
+        self.make_release("v1.0.0", "old")
+        self.make_release("v1.1.0", "new")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        foreign = self.root / "config" / "opencode" / "tools" / self.RETIRED_ADAPTER
+        foreign.write_text("operator authored\n", encoding="utf-8")
+
+        second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(foreign.read_text(encoding="utf-8"), "operator authored\n")
+
+    def test_upgrade_still_refuses_a_recorded_adapter_file_never_shipped(self) -> None:
+        self.make_release("v1.0.0", "old")
+        self.make_release("v1.1.0", "new")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        never = "never-shipped.ts"
+        self.assertNotIn(never, installer.ADAPTER_FILES + installer.RETIRED_ADAPTER_FILES)
+        placed = self.root / "config" / "opencode" / "tools" / never
+        placed.write_text("untouched\n", encoding="utf-8")
+        manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
+        original = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for field, key, refusal in (
+            ("adapter_files", never, "invalid adapter file records"),
+            ("version_files", f"adapter/opencode/{never}", "refusing unknown managed version file"),
+        ):
+            with self.subTest(field=field):
+                manifest = json.loads(json.dumps(original))
+                manifest[field][key] = hashlib.sha256(b"untouched\n").hexdigest()
+                manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+                second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+
+                self.assertNotEqual(second.returncode, 0)
+                self.assertIn(refusal, second.stderr)
+                self.assertEqual(placed.read_text(encoding="utf-8"), "untouched\n")
+        manifest_path.write_text(json.dumps(original), encoding="utf-8")
+
     def test_upgrade_from_a_pre_agents_manifest_refuses_with_the_remedy(self) -> None:
         """An installation predating central agents refuses with instructions.
 

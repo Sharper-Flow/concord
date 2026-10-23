@@ -722,11 +722,18 @@ export async function executeBoundWorkerControl(request: WorkerControlRequest, c
   // This route never retries a possibly executed workload or relabels a native
   // failure as no effect. The lease identifies the existing producer's record.
   const result = await runner.run([concordBinaryPath(), "worker-control"], JSON.stringify({ ...request, assertion: signed }), context.abort, { cwd: directory })
-  if (result.exitCode !== 0) throw new Error(`${result.stderr.slice(-MAX_STDERR).trim() || "native control ingress refused"}; reconcile native lease ${leaseID}`)
-  if (Buffer.byteLength(result.stdout) > maxEnvelopeBytes) throw new Error(`native control response exceeded its transport bound; reconcile native lease ${leaseID}`)
-  const response = singleJSON(result.stdout)
+  const refusal = `${result.stderr.slice(-MAX_STDERR).trim() || "native control result unavailable"}; reconcile native lease ${leaseID}`
+  if (result.exitCode !== 0 && !result.stdout.trim()) throw new Error(refusal)
+  if (Buffer.byteLength(result.stdout) > maxEnvelopeBytes) throw new Error(`native control response exceeded its transport bound; ${refusal}`)
+  let response: any
+  try { response = singleJSON(result.stdout) } catch (error) { throw new Error(`${String(error)}; ${refusal}`) }
   if (response.work_id !== request.work_id || response.project_id !== request.project_id || response.lease_id !== leaseID || !record(response.oracle) || response.oracle.phase !== "execute" || response.oracle.attempt_id !== request.attempt_id || response.oracle.control_id !== request.control_id || response.oracle.worker_packet_digest !== packetDigest) {
-    throw new Error(`native control response differs from its bound request; reconcile native lease ${leaseID}`)
+    throw new Error(`native control response differs from its bound request; ${refusal}`)
+  }
+  if (result.exitCode !== 0) {
+    const disposition = response.lease_disposition
+    const knownDisposition = record(disposition) && (disposition.state === "unknown" && disposition.outcome === undefined || disposition.state === "released" && (disposition.outcome === "completed" || disposition.outcome === "aborted"))
+    if (response.outcome !== "refused" || response.oracle.qualification !== "unavailable" || response.operation_ref !== `worktree_verify:${leaseID}` || typeof response.diagnostic !== "string" || !response.diagnostic || !knownDisposition) throw new Error(refusal)
   }
   return response
 }

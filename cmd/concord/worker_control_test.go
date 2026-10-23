@@ -57,6 +57,48 @@ func TestWorkerControlCLIRejectsCallerAuthoredExecution(t *testing.T) {
 	}
 }
 
+func TestWorkerControlCLIRetainsUnavailableProducerResult(t *testing.T) {
+	raw, _ := json.Marshal(workerControlCLIInput())
+	var out, errOut bytes.Buffer
+	code := runWorkerControl(context.Background(), raw, func(context.Context, store.WorkerControlRequest, agent.WorkerControlAssertion) (store.WorktreeVerifyResult, error) {
+		return store.WorktreeVerifyResult{
+			WorkID: "work-control", OperationRef: "worktree_verify:fixture", LeaseID: "fixture", ExitCode: -1,
+			Oracle: &store.NativeOracleResult{NativeOraclePreparation: store.NativeOraclePreparation{Phase: "execute", Qualification: "unavailable", RunRef: "worktree_verify:fixture"},
+				Stages: []store.NativeOracleStage{{Name: "test", ExitCode: 0}}, Detail: "candidate inputs changed"},
+		}, errors.New("candidate inputs changed")
+	}, &out, &errOut)
+	var response struct {
+		store.WorktreeVerifyResult
+		Outcome          string `json:"outcome"`
+		LeaseDisposition struct {
+			State string `json:"state"`
+		} `json:"lease_disposition"`
+	}
+	if code != 1 || json.Unmarshal(out.Bytes(), &response) != nil || response.Outcome != "refused" || response.OperationRef != "worktree_verify:fixture" || response.Oracle == nil || len(response.Oracle.Stages) != 1 || response.Oracle.Qualification != "unavailable" || response.LeaseDisposition.State != "unknown" || !strings.Contains(errOut.String(), "candidate inputs changed") {
+		t.Fatalf("producer facts lost or refusal qualified: code=%d out=%s stderr=%s", code, out.String(), errOut.String())
+	}
+}
+
+func TestWorkerControlCLIReportsCommittedLeaseWithoutQualifyingPartialPass(t *testing.T) {
+	raw, _ := json.Marshal(workerControlCLIInput())
+	for _, outcome := range []string{"completed", "aborted"} {
+		t.Run(outcome, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			original := &store.NativeOracleResult{NativeOraclePreparation: store.NativeOraclePreparation{Qualification: "pass"}}
+			code := runWorkerControl(context.Background(), raw, func(context.Context, store.WorkerControlRequest, agent.WorkerControlAssertion) (store.WorktreeVerifyResult, error) {
+				return store.WorktreeVerifyResult{Oracle: original, OperationRef: "worktree_verify:fixture", LeaseDisposition: &store.WorktreeVerifyLeaseDisposition{State: "released", Outcome: outcome}}, errors.New("finalization refused")
+			}, &out, &errOut)
+			var response struct {
+				Oracle      *store.NativeOracleResult            `json:"oracle"`
+				Disposition store.WorktreeVerifyLeaseDisposition `json:"lease_disposition"`
+			}
+			if code != 1 || json.Unmarshal(out.Bytes(), &response) != nil || response.Oracle.Qualification != "unavailable" || response.Disposition.State != "released" || response.Disposition.Outcome != outcome || original.Qualification != "pass" {
+				t.Fatalf("partial pass escaped or disposition changed: code=%d out=%s", code, out.String())
+			}
+		})
+	}
+}
+
 func TestWorkerControlCLIPreservesCancellationAndRefusesPartialResults(t *testing.T) {
 	raw, _ := json.Marshal(workerControlCLIInput())
 	ctx, cancel := context.WithCancel(context.Background())

@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp as createDirectory, rm, symlink } from "node:fs/p
 import { createHash, createPublicKey, verify as verifySignature } from "node:crypto"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { contractOperations, hostToolSchemas, manifestDigest, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
+import { contractOperations, hostToolSchemas, manifestDigest, maxEnvelopeBytes, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { configureCoreBinary, workerFailureObservationDigest } from "./dispatch"
 import { dispatchWindows, staleReleaseDispatchRefusal, TASK_TOOL_ID } from "./dispatch-window"
 import { claimHostLease, configureHostLease, hostLeaseFault, releaseDisplayName, releaseStaleness, resolveInstalledReleaseRoot } from "./host-lease"
@@ -232,6 +232,79 @@ test("worker native transport never retries a refusal or a mismatched producer r
       expect(calls).toBe(2)
     } finally { adapter.configureConcordAdapter({ reset: true }) }
   }
+})
+
+test("worker check retains a bound unavailable execution and its released lease without retry", async () => {
+  const f = workerControlTransportFixture()
+  let calls = 0
+  configureHostLease({ reset: true })
+  adapter.configureConcordAdapter({ credentials: { getPrivateKey: async () => new Uint8Array(32).fill(7) }, runner: { run: async (argv, input) => {
+    calls++
+    if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(f.ambient), stderr: "" }
+    const lease = JSON.parse(input).assertion.lease_id
+    return { exitCode: 1, stderr: "candidate inputs changed", stdout: JSON.stringify({ work_id: f.request.work_id, project_id: f.request.project_id, lease_id: lease, operation_ref: `worktree_verify:${lease}`, outcome: "refused", diagnostic: "candidate inputs changed", lease_disposition: { state: "released", outcome: "completed" }, oracle: { phase: "execute", attempt_id: f.request.attempt_id, control_id: f.request.control_id, worker_packet_digest: f.digest, qualification: "unavailable", stages: [{ name: "test", exit_code: 0 }], stdout: { ref: "retained-stdout" } } }) }
+  } } })
+  try {
+    const response: any = await adapter.executeBoundWorkerControl(f.request, f.context, f.digest, f.context.directory)
+    expect(response.outcome).toBe("refused")
+    expect(response.oracle.qualification).toBe("unavailable")
+    expect(response.oracle.stages).toEqual([{ name: "test", exit_code: 0 }])
+    expect(response.oracle.stdout.ref).toBe("retained-stdout")
+    expect(response.lease_disposition).toEqual({ state: "released", outcome: "completed" })
+    expect(response.operation_ref).toBe(`worktree_verify:${response.lease_id}`)
+    expect(calls).toBe(2)
+  } finally { adapter.configureConcordAdapter({ reset: true }) }
+})
+
+test("worker check refuses forged acceptance or disposition on a nonzero native response", async () => {
+  for (const alter of [
+    (r: any) => { r.oracle.qualification = "pass" },
+    (r: any) => { r.outcome = "ok" },
+    (r: any) => { r.operation_ref = "foreign-run" },
+    (r: any) => { r.lease_disposition.state = "held" },
+    (r: any) => { r.lease_disposition.outcome = "running" },
+    (r: any) => { delete r.lease_disposition },
+    (r: any) => { delete r.diagnostic },
+  ]) {
+    const f = workerControlTransportFixture()
+    let calls = 0
+    configureHostLease({ reset: true })
+    adapter.configureConcordAdapter({ credentials: { getPrivateKey: async () => new Uint8Array(32).fill(7) }, runner: { run: async (argv, input) => {
+      calls++
+      if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(f.ambient), stderr: "" }
+      const lease = JSON.parse(input).assertion.lease_id
+      const response = { work_id: f.request.work_id, project_id: f.request.project_id, lease_id: lease, operation_ref: `worktree_verify:${lease}`, outcome: "refused", diagnostic: "candidate inputs changed", lease_disposition: { state: "released", outcome: "completed" }, oracle: { phase: "execute", attempt_id: f.request.attempt_id, control_id: f.request.control_id, worker_packet_digest: f.digest, qualification: "unavailable" } }
+      alter(response)
+      return { exitCode: 1, stderr: "input refusal", stdout: JSON.stringify(response) }
+    } } })
+    try {
+      await expect(adapter.executeBoundWorkerControl(f.request, f.context, f.digest, f.context.directory)).rejects.toThrow("reconcile native lease")
+      expect(calls).toBe(2)
+    } finally { adapter.configureConcordAdapter({ reset: true }) }
+  }
+})
+
+test("worker check preserves recovery context for malformed or oversized nonzero producer stdout", async () => {
+  for (const stdout of ["{partial", '{"work_id":"foreign"}', "x".repeat(maxEnvelopeBytes + 1)]) {
+    const f = workerControlTransportFixture()
+    configureHostLease({ reset: true })
+    adapter.configureConcordAdapter({ credentials: { getPrivateKey: async () => new Uint8Array(32).fill(7) }, runner: { run: async (argv) => argv[1] === "project-resolve" ? { exitCode: 0, stdout: JSON.stringify(f.ambient), stderr: "" } : { exitCode: 1, stdout, stderr: "native producer refused" } } })
+    try {
+      const attempt = adapter.executeBoundWorkerControl(f.request, f.context, f.digest, f.context.directory)
+      await expect(attempt).rejects.toThrow("native producer refused")
+      await expect(attempt).rejects.toThrow("reconcile native lease")
+    } finally { adapter.configureConcordAdapter({ reset: true }) }
+  }
+})
+
+test("worker check does not infer an ingress refusal from a zero-exit malformed response", async () => {
+  const f = workerControlTransportFixture()
+  configureHostLease({ reset: true })
+  adapter.configureConcordAdapter({ credentials: { getPrivateKey: async () => new Uint8Array(32).fill(7) }, runner: { run: async (argv) => ({ exitCode: 0, stdout: argv[1] === "project-resolve" ? JSON.stringify(f.ambient) : "{partial", stderr: "" }) } })
+  try {
+    const attempt = adapter.executeBoundWorkerControl(f.request, f.context, f.digest, f.context.directory)
+    await expect(attempt).rejects.toThrow("native control result unavailable; reconcile native lease")
+  } finally { adapter.configureConcordAdapter({ reset: true }) }
 })
 
 test("exports exactly the generated tool names", () => {

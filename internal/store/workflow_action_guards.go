@@ -879,6 +879,17 @@ func guardDeliveryAdmission(g *workflowActionGuardContext) error {
 		if acceptingErr != nil {
 			return acceptingErr
 		}
+		// The combined action integrates its pending result before delivery.
+		// Judge both proof facets against that output, using the fold's candidate
+		// selection rather than the pre-acceptance candidate cached above.
+		delivery, proofRuns, integrationRuns, err := loadWorkflowDeliveryAdmission(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, workflowFieldStringDefault(fields, "attempt_id", ""))
+		if err != nil {
+			return err
+		}
+		projected := *state
+		projected.Delivery = delivery
+		state = &projected
+		g.deliveryProofRuns, g.deliveryIntegrationRuns = proofRuns, integrationRuns
 		if delivery := workflowAdmitDeliveryForAccept(*state, WorkflowAdmissionDecision{}, accepting); delivery.Failure != nil {
 			return workflowExecutionAdmissionFailure(delivery, g.request.ProjectTooling)
 		}

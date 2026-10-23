@@ -237,7 +237,7 @@ func attemptFailureKind(t *testing.T, s *Store, workID, attemptID string) string
 func TestWorkerFailureAttributionForgedAndSmuggledRefuse(t *testing.T) {
 	t.Parallel()
 	const workID = "attribution-forged"
-	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 27, "repair")
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
 	lane := reviewGateLane(t, "implementation")
@@ -284,7 +284,7 @@ func TestWorkerFailureAttributionForgedAndSmuggledRefuse(t *testing.T) {
 	}
 	// ...and the same bytes on a recorded v3 log row refuse on rebuild: the
 	// recorded source version pins what the store could have carried.
-	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, attempt, "failed-attribution-rebuild", "detail", preferredModelForLane(lane))); err != nil {
+	if err := s2WorkerFailedLive(t, s, attributionWorkerFailedEvent(workID, attempt, "failed-attribution-rebuild", preferredModelForLane(lane), attributionHostObservation())); err != nil {
 		t.Fatalf("the baseline terminal ingest: %v", err)
 	}
 	corruptLoggedFailurePayload(t, s, workID, "failed-attribution-rebuild", 3, `{"origin":"recorded","observation":{"observer":"host_adapter","phase":"host_execution","cause":"unknown","basis":"unknown","sources":[{"kind":"host_event","locator":"evt-1","digest":"`+testDigestA+`"}]}}`)
@@ -374,14 +374,15 @@ func TestWorkerFailureAttributionBornFailedDispatch(t *testing.T) {
 	}
 }
 
-// TestWorkerFailureAttributionAbandonKeepsReleasedOutcome pins the released
-// abandonment semantics beside the new block: the abandoned attempt keeps
-// the dispatched readback model, no extra outcome, and the upcast carries
-// the explicit legacy marker for a pre-boundary source version.
+// TestWorkerFailureAttributionAbandonKeepsReleasedOutcome pins the
+// abandonment semantics beside the block: the abandoned attempt keeps the
+// dispatched readback model and no extra outcome, an ordinary dispatch carries
+// no block, and the upcast stamps the explicit legacy marker on a
+// pre-boundary source version.
 func TestWorkerFailureAttributionAbandonKeepsReleasedOutcome(t *testing.T) {
 	t.Parallel()
 	const workID = "attribution-abandon"
-	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 27, "repair")
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
 	lane := reviewGateLane(t, "implementation")
@@ -393,14 +394,11 @@ func TestWorkerFailureAttributionAbandonKeepsReleasedOutcome(t *testing.T) {
 	if normal.FailureAttribution != nil {
 		t.Fatalf("ordinary dispatch upcast carries %+v, want no attribution block", normal.FailureAttribution)
 	}
-	abandoned := Event{EventID: "failed-attribution-abandon", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(33, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attempt, FailureKind: WorkerFailureAbandoned, Detail: "the host closed the attempt"})}
-	if err := s2WorkerFailedLive(t, s, abandoned); err != nil {
-		t.Fatalf("the abandonment ingest refused: %v", err)
-	}
-	// The log keeps the recorded source bytes; the upcast chain stamps the
-	// explicit legacy marker at the attribution version, and rebuild folds
-	// the marker without inventing content.
-	upcast, err := upcastEvent(abandoned)
+	// A pre-boundary abandonment source carries no block; the upcast chain
+	// stamps the explicit legacy marker at the attribution version without
+	// inventing content.
+	legacy := Event{EventID: "failed-attribution-abandon-legacy", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(33, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attempt, FailureKind: WorkerFailureAbandoned, Detail: "the host closed the attempt"})}
+	upcast, err := upcastEvent(legacy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,8 +409,17 @@ func TestWorkerFailureAttributionAbandonKeepsReleasedOutcome(t *testing.T) {
 	if err := json.Unmarshal(upcast.Payload, &upcastPayload); err != nil {
 		t.Fatal(err)
 	}
-	if upcastPayload.FailureAttribution == nil || upcastPayload.FailureAttribution.Origin != WorkerFailureAttributionLegacyUnavailable {
+	if upcastPayload.FailureAttribution == nil || upcastPayload.FailureAttribution.Origin != WorkerFailureAttributionLegacyUnavailable || upcastPayload.FailureAttribution.Observation != nil {
 		t.Fatalf("abandoned upcast attribution = %+v, want the explicit legacy marker", upcastPayload.FailureAttribution)
+	}
+	// The current definition requires the host's recorded abandonment
+	// observation live; the abandonment keeps its outcome and model.
+	abandoned := Event{EventID: "failed-attribution-abandon", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(33, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attempt, FailureKind: WorkerFailureAbandoned, Detail: "the host closed the attempt", FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: &WorkerFailureObservation{
+		Observer: WorkerFailureObserverHostAdapter, Phase: WorkerFailurePhaseHostExecution, Cause: WorkerFailureCauseUnknown, Basis: WorkerFailureBasisUnknown,
+		Sources: []WorkerFailureSource{workerFailureAbandonmentSourceFixture()},
+	}}})}
+	if err := s2WorkerFailedLive(t, s, abandoned); err != nil {
+		t.Fatalf("the abandonment ingest refused: %v", err)
 	}
 	if err := RebuildFromLog(context.Background(), s); err != nil {
 		t.Fatalf("rebuild with the abandoned terminal: %v", err)
@@ -440,8 +447,8 @@ func attributionTiesPredicateEntry(predicateID string, ordinal int) map[string]a
 }
 
 // dispatchJobBoundAttemptWithPredicates is dispatchJobBoundAttempt with the
-// dispatch packet's own outcome predicate list overridden, so a test controls
-// the parent packet list the released-pin tie behavior resolves from.
+// dispatch packet's own outcome predicate list overridden, so a test can offer
+// a parent packet predicate the dispatched job revision does not own.
 func dispatchJobBoundAttemptWithPredicates(t *testing.T, s *Store, workID, stepID, attemptID string, actor WorkflowActor, key string, job *WorkerJobBinding, predicateIDs []string) {
 	t.Helper()
 	if job.Digest == "" {
@@ -462,10 +469,9 @@ func dispatchJobBoundAttemptWithPredicates(t *testing.T, s *Store, workID, stepI
 }
 
 // TestWorkerPredicateTiesResolveFromTheJobRevisionOnAttributionPins pins
-// A6: on a promoted pin the permitted tie list is the dispatched job
-// revision's own predicate list — tying pB under a job that owns only pA
-// refuses by name — while a released pin keeps the parent packet list and
-// admits the same tie.
+// A6: the permitted tie list is the dispatched job revision's own predicate
+// list — tying pB under a job that owns only pA refuses by name even though
+// the parent packet lists pB.
 func TestWorkerPredicateTiesResolveFromTheJobRevisionOnAttributionPins(t *testing.T) {
 	t.Parallel()
 	const workID = "attribution-job-ties"
@@ -541,15 +547,19 @@ func attemptLifecycle(t *testing.T, s *Store, workID, attemptID string) string {
 // corruptLoggedFailurePayload rewrites one logged worker.failed payload and
 // its recorded source version for a rebuild witness: the log is append-only
 // in production, so the test drops the update guard for one transaction and
-// restores it exactly as the legacy-replay witnesses do.
+// restores it exactly as the legacy-replay witnesses do. An empty attribution
+// omits the member, the shape a pre-attribution source version recorded.
 func corruptLoggedFailurePayload(t *testing.T, s *Store, workID, eventID string, version int, attribution string) {
 	t.Helper()
 	payload := attributionStoredFailurePayload(t, s, workID, eventID)
-	raw, err := json.Marshal(map[string]any{
+	members := map[string]any{
 		"attempt_id": payload.AttemptID, "readback_model": payload.ReadbackModel,
 		"failure_kind": payload.FailureKind, "detail": payload.Detail,
-		"failure_attribution": json.RawMessage(attribution),
-	})
+	}
+	if attribution != "" {
+		members["failure_attribution"] = json.RawMessage(attribution)
+	}
+	raw, err := json.Marshal(members)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -573,33 +583,6 @@ func corruptLoggedFailurePayload(t *testing.T, s *Store, workID, eventID string,
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// TestWorkerPredicateTiesParentListPreservedOnReleasedPins pins the
-// released-pin boundary: an implementation 30 pin resolves the tie list
-// from the parent packet, so the same pB tie stays admitted there.
-func TestWorkerPredicateTiesParentListPreservedOnReleasedPins(t *testing.T) {
-	t.Parallel()
-	const workID = "attribution-job-ties-released"
-	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.implementation", 30, "execution")
-	s := fixture.store
-	defer s.Close()
-	lane := reviewGateLane(t, "implementation")
-	job := &WorkerJobBinding{JobID: "job:ties-released", Revision: 1}
-	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
-	attempt := "attempt:" + workID + ":ties"
-	dispatchJobBoundAttemptWithPredicates(t, s, workID, "execution", attempt, fixture.owner, "attribution-ties-released-dispatch", job, []string{"predicate:return-route", "predicate:pB-tie"})
-	completion := jobBoundCompletionEvent(workID, "ties-released-completed", attempt, lane, time.Unix(16, 0).UTC(), job, workerFixtureDirectory(t, s, workID))
-	var payload WorkerCompletedPayload
-	if err := json.Unmarshal(completion.Payload, &payload); err != nil {
-		t.Fatal(err)
-	}
-	payload.Evidence = laneCoveringEvidence(lane)
-	payload.Evidence[0].PredicateIDs = []string{"predicate:return-route", "predicate:pB-tie"}
-	completion.Payload = mustJSONValue(payload)
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completion}}); err != nil {
-		t.Fatalf("the released pin refused the parent-list tie: %v", err)
 	}
 }
 
@@ -631,7 +614,7 @@ func attributionIntegrationObservation(t *testing.T, s *Store, leaseID string) *
 func TestWorkerFailureAttributionCoordinatorIntegrationCorrection(t *testing.T) {
 	t.Parallel()
 	const workID = "attribution-integration-correction"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := tSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
 	lane := reviewGateLane(t, "implementation")
@@ -649,7 +632,7 @@ func TestWorkerFailureAttributionCoordinatorIntegrationCorrection(t *testing.T) 
 	jobB := &WorkerJobBinding{JobID: "job:integration-correction-b", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, jobB)
 	attemptB := "attempt:" + workID + ":input-b"
-	dispatchJobBoundAttempt(t, s, workID, "repair", attemptB, nil, fixture.owner, 0, "integration-correction-b", jobB)
+	tDispatchJobBoundAttempt(t, s, workID, "repair", attemptB, nil, fixture.owner, "integration-correction-b", jobB)
 	// Attempt B completes but stays unaccepted: it is the completed result
 	// the rejection completes, recorded after the run started.
 	if err := completeJobBoundAttemptForTest(s, workID, attemptB, lane, jobB); err != nil {
@@ -808,7 +791,7 @@ func TestWorkerFailureAttributionCoordinatorIntegrationUnavailablePopulation(t *
 func TestWorkerFailureAttributionCoordinatorIntegrationCorruptPopulationRefuses(t *testing.T) {
 	t.Parallel()
 	const workID = "attribution-integration-corrupt"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := tSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
 	lane := reviewGateLane(t, "implementation")
@@ -821,7 +804,7 @@ func TestWorkerFailureAttributionCoordinatorIntegrationCorruptPopulationRefuses(
 	job := &WorkerJobBinding{JobID: "job:integration-corrupt", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 	attempt := "attempt:" + workID + ":corrupt"
-	dispatchJobBoundAttempt(t, s, workID, "repair", attempt, nil, fixture.owner, 0, "integration-corrupt-dispatch", job)
+	tDispatchJobBoundAttempt(t, s, workID, "repair", attempt, nil, fixture.owner, "integration-corrupt-dispatch", job)
 	if err := completeJobBoundAttemptForTest(s, workID, attempt, lane, job); err != nil {
 		t.Fatalf("complete the reviewed attempt: %v", err)
 	}
@@ -879,7 +862,7 @@ func TestWorkerFailureAttributionCoordinatorIntegrationCorruptPopulationRefuses(
 func TestWorkerFailureAttributionCoordinatorResultReview(t *testing.T) {
 	t.Parallel()
 	const workID = "attribution-result-review"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := tSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
 	lane := reviewGateLane(t, "implementation")
@@ -897,11 +880,9 @@ func TestWorkerFailureAttributionCoordinatorResultReview(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active' LIMIT 1`, WorktreeSetID(workID)).Scan(&sessionPath); err != nil {
 		t.Fatal(err)
 	}
-	probeGit := newFakeWorktreeGit(sessionPath)
-	probeGit.worktrees[sessionPath] = "main"
 	eventID := "completed-" + workID + "-review"
 	completion := jobBoundCompletionEvent(workID, eventID, attempt, lane, time.Unix(25, 0).UTC(), job, sessionPath)
-	prepared, prepErr := PrepareWorkerTerminalDelivery(context.Background(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attempt, EventID: eventID, Runner: probeGit})
+	prepared, prepErr := PrepareWorkerTerminalDelivery(context.Background(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attempt, EventID: eventID})
 	if prepErr != nil {
 		t.Fatalf("the terminal delivery preparation refused: %v", prepErr)
 	}
@@ -1158,7 +1139,7 @@ func corruptLoggedWorkflowPayloadByEventID(t *testing.T, s *Store, eventID strin
 func TestWorkerFailureAttributionReaderResolvesSourceVersion(t *testing.T) {
 	t.Parallel()
 	const workID = "attribution-reader"
-	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 27, "repair")
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
 	lane := reviewGateLane(t, "implementation")
@@ -1180,9 +1161,12 @@ func TestWorkerFailureAttributionReaderResolvesSourceVersion(t *testing.T) {
 		t.Fatal(correctionErr)
 	}
 	dispatchJobBoundAttempt(t, s, workID, "repair", legacy, correction, fixture.owner, 0, "attribution-reader-dispatch-2", &WorkerJobBinding{JobID: "job:" + workID})
-	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, legacy, "failed-attribution-reader-2", "detail", preferredModelForLane(lane))); err != nil {
-		t.Fatalf("the legacy terminal ingest: %v", err)
+	if err := s2WorkerFailedLive(t, s, attributionWorkerFailedEvent(workID, legacy, "failed-attribution-reader-2", preferredModelForLane(lane), attributionHostObservation())); err != nil {
+		t.Fatalf("the second terminal ingest: %v", err)
 	}
+	// The current definition requires the recorded block live, so the
+	// retained pre-attribution row is the logged source version 1 bytes.
+	corruptLoggedFailurePayload(t, s, workID, "failed-attribution-reader-2", 1, "")
 	legacyRecord, err := WorkerFailureAttributionForAttemptTx(context.Background(), s.DatabaseForTesting(), workID, legacy)
 	if err != nil {
 		t.Fatalf("read the legacy terminal attribution: %v", err)
@@ -1208,7 +1192,7 @@ func TestWorkerFailureAttributionReaderResolvesSourceVersion(t *testing.T) {
 func TestWorkerFailureAttributionResultReviewSourceJoins(t *testing.T) {
 	t.Parallel()
 	const workID = "attribution-review-sources"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := tSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
 	lane := reviewGateLane(t, "implementation")
@@ -1236,12 +1220,10 @@ func TestWorkerFailureAttributionResultReviewSourceJoins(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active' LIMIT 1`, WorktreeSetID(workID)).Scan(&sessionPath); err != nil {
 		t.Fatal(err)
 	}
-	probeGit := newFakeWorktreeGit(sessionPath)
-	probeGit.worktrees[sessionPath] = "main"
 	completedEvent := "completed-" + workID + "-review"
 	completion := jobBoundCompletionEvent(workID, completedEvent, attempt, lane, time.Unix(25, 0).UTC(), job, workerFixtureDirectory(t, s, workID))
 	completion = workerCompletionAtClaim(t, s, completion)
-	prepared, prepErr := PrepareWorkerTerminalDelivery(context.Background(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attempt, EventID: completedEvent, Runner: probeGit})
+	prepared, prepErr := PrepareWorkerTerminalDelivery(context.Background(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attempt, EventID: completedEvent})
 	if prepErr != nil {
 		t.Fatalf("the terminal delivery preparation refused: %v", prepErr)
 	}
@@ -1334,7 +1316,7 @@ func TestWorkerFailureAttributionResultReviewSourceJoins(t *testing.T) {
 	if correctionErr != nil {
 		t.Fatal(correctionErr)
 	}
-	dispatchJobBoundAttempt(t, s, workID, "repair", later, correction, fixture.owner, 0, "attribution-sources-dispatch-later", job)
+	tDispatchJobBoundAttempt(t, s, workID, "repair", later, correction, fixture.owner, "attribution-sources-dispatch-later", job)
 	laterCompleted := "completed-" + workID + "-later"
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{withReportedSizeForTest(t, s, jobBoundCompletionEvent(workID, laterCompleted, later, lane, time.Unix(45, 0).UTC(), job, workerFixtureDirectory(t, s, workID)), unobservedTreeForTest)}}); err != nil {
 		t.Fatalf("the later completion refused: %v", err)
@@ -1494,10 +1476,11 @@ func TestWorkerFailureAttributionAbandonmentTagCoupling(t *testing.T) {
 	if bornErr == nil || !strings.Contains(bornErr.Error(), "abandonment observation belongs to the abandoned terminal") {
 		t.Fatalf("abandonment observation on a born-failed terminal err=%v, want the abandoned-terminal coupling refusal", bornErr)
 	}
-	// The abandoned terminal admits its abandonment observation live, and the
-	// rebuild folds the same bytes to the same admission.
-	abandonedAttempt := "attempt:" + workID + ":abandoned"
-	dispatchJobBoundAttempt(t, s, workID, "repair", abandonedAttempt, nil, fixture.owner, 0, "attribution-abandonment-admit-dispatch", &WorkerJobBinding{JobID: "job:" + workID})
+	// The refused born-failed evidence leaves that authorization's launch
+	// outcome unknown, so it is reconciled before any other launch (CD-0242
+	// D6): its abandoned terminal admits the abandonment observation live,
+	// and the rebuild folds the same bytes to the same admission.
+	abandonedAttempt := bornAttempt
 	abandoned := Event{EventID: "failed-abandonment-admitted", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(32, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: abandonedAttempt, FailureKind: WorkerFailureAbandoned, Detail: "the host closed the attempt", FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: abandonmentObservation()}})}
 	if err := s2WorkerFailedLive(t, s, abandoned); err != nil {
 		t.Fatalf("the abandoned terminal refused its abandonment observation: %v", err)
@@ -1519,7 +1502,7 @@ func TestWorkerFailureAttributionAbandonmentTagCoupling(t *testing.T) {
 func TestWorkerFailureAttributionAuthoredMarkerSmuggles(t *testing.T) {
 	t.Parallel()
 	const workID = "attribution-authored-marker"
-	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 27, "repair")
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
 	lane := reviewGateLane(t, "implementation")

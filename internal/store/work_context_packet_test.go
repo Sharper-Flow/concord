@@ -895,6 +895,8 @@ func TestDispatchSubjectFreshnessC1Boundaries(t *testing.T) {
 
 	t.Run("identity drift between the snapshot and the admission refuses with zero effects", func(t *testing.T) {
 		s, workID, driftClaimDir, _, _ := setup(t, "work-c1-drift-ordinary")
+		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+		acceptCurrentReviewForTest(t, workContextFixture{store: s, workID: workID, owner: owner}, driftClaimDir, "continue")
 		preparation, prepErr := PrepareWorkerDispatchFreshness(context.Background(), s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: driftClaimDir})
 		if prepErr != nil {
 			t.Fatalf("preparation refused: %v", prepErr)
@@ -904,7 +906,6 @@ func TestDispatchSubjectFreshnessC1Boundaries(t *testing.T) {
 		if viewErr != nil || view == nil {
 			t.Fatalf("admitted view = %+v err = %v, want a present view", view, viewErr)
 		}
-		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 		// The work version moves after the sealed snapshot, and the packet is
 		// rebuilt from the moved state, so the freshness revalidation itself
 		// is the refusing guard, with zero dispatch effects.

@@ -13,7 +13,7 @@ import (
 // recorded obligation. An unrelated accepted job cannot close it.
 func TestUnrelatedAcceptedJobPreservesCorrectionWindow(t *testing.T) {
 	const workID = "correction-window-unrelated-job"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := oSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
 	lane := reviewGateLane(t, "implementation")
@@ -51,7 +51,7 @@ func TestUnrelatedAcceptedJobPreservesCorrectionWindow(t *testing.T) {
 	attempt2 := "attempt:" + workID + ":2"
 	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)
-	dispatchJobBoundAttempt(t, s, workID, "repair", attempt2, pin.Correction, worker, pin.Version, "job-window-2", unrelatedJob)
+	oDispatchJobBoundAttempt(t, s, workID, "repair", attempt2, pin.Correction, worker, pin.Version, "job-window-2", unrelatedJob)
 	completeAndAcceptAttempt(t, s, workID, attempt2, lane, acceptor)
 	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary != 0 {
 		t.Fatalf("unrelated acceptance closed the unresolved obligation at %d", boundary)
@@ -73,7 +73,7 @@ func TestUnrelatedAcceptedJobPreservesCorrectionWindow(t *testing.T) {
 // the window (CD-0205): a later revision carrying the same obligation satisfies it.
 func TestSatisfyingAcceptedJobResetsCorrectionWindow(t *testing.T) {
 	const workID = "correction-window-satisfying-job"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := oSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
 	lane := reviewGateLane(t, "implementation")
@@ -145,7 +145,7 @@ func TestSatisfyingAcceptedJobResetsCorrectionWindow(t *testing.T) {
 // leaves the other's correction source intact.
 func TestPartialSatisfactionPreservesOtherUnresolvedJobs(t *testing.T) {
 	const workID = "correction-window-partial-satisfaction"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := oSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
@@ -173,7 +173,7 @@ func TestPartialSatisfactionPreservesOtherUnresolvedJobs(t *testing.T) {
 	pin = issue1013Pin(t, s, workID)
 
 	attempt2 := "attempt:" + workID + ":2"
-	dispatchJobBoundAttempt(t, s, workID, "repair", attempt2, pin.Correction, worker, pin.Version, "job-partial-2", jobB)
+	oDispatchJobBoundAttempt(t, s, workID, "repair", attempt2, pin.Correction, worker, pin.Version, "job-partial-2", jobB)
 	s2WorkerFailedAttributedLive(t, s, workID, attempt2, "lane fallback blocked before the model ran")
 
 	// Satisfying job A leaves job B unresolved.
@@ -181,7 +181,7 @@ func TestPartialSatisfactionPreservesOtherUnresolvedJobs(t *testing.T) {
 	pin = issue1013Pin(t, s, workID)
 	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)
-	dispatchJobBoundAttempt(t, s, workID, "repair", attempt3, pin.Correction, worker, pin.Version, "job-partial-3", jobA)
+	oDispatchJobBoundAttempt(t, s, workID, "repair", attempt3, pin.Correction, worker, pin.Version, "job-partial-3", jobA)
 	completeAndAcceptAttempt(t, s, workID, attempt3, reviewGateLane(t, "implementation"), acceptor)
 	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary != 0 {
 		t.Fatalf("partial satisfaction closed another job's obligation at %d", boundary)
@@ -212,7 +212,7 @@ func TestUnrelatedAcceptedJobPreservesDerivedFailureSource(t *testing.T) {
 	if !workflowDerivedWorkerFailureActive(head.Definition) {
 		t.Fatalf("retained head %s@%d does not derive the failure record from the terminal event", head.Definition.Ref, head.Definition.Version)
 	}
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := oSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
 	lane := reviewGateLane(t, "implementation")
@@ -254,7 +254,7 @@ func TestUnrelatedAcceptedJobPreservesDerivedFailureSource(t *testing.T) {
 	attempt2 := "attempt:" + workID + ":2"
 	issue1013StartRepair(t, s, workID, dispatcher, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)
-	dispatchJobBoundAttempt(t, s, workID, "repair", attempt2, pin.Correction, dispatcher, pin.Version, "derived-budget-2", unrelatedJob)
+	oDispatchJobBoundAttempt(t, s, workID, "repair", attempt2, pin.Correction, dispatcher, pin.Version, "derived-budget-2", unrelatedJob)
 	completeAndAcceptAttempt(t, s, workID, attempt2, lane, acceptor)
 	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary != 0 {
 		t.Fatalf("unrelated acceptance closed the unresolved obligation at %d", boundary)
@@ -269,7 +269,7 @@ func TestUnrelatedAcceptedJobPreservesDerivedFailureSource(t *testing.T) {
 	attempt3 := "attempt:" + workID + ":3"
 	issue1013StartRepair(t, s, workID, dispatcher, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)
-	dispatchJobBoundAttempt(t, s, workID, "repair", attempt3, pin.Correction, dispatcher, pin.Version, "derived-budget-3", jobA)
+	oDispatchJobBoundAttempt(t, s, workID, "repair", attempt3, pin.Correction, dispatcher, pin.Version, "derived-budget-3", jobA)
 	retryJob := s2DispatchJobBinding(t, s, workID, attempt3)
 	if retryJob == nil || retryJob.JobID != jobA.JobID || retryJob.Revision != jobA.Revision || retryJob.Digest != jobA.Digest {
 		t.Fatalf("retry dispatch binding = %#v, want A's original recorded revision %s@%d", retryJob, jobA.JobID, jobA.Revision)

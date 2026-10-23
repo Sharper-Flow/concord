@@ -20,7 +20,7 @@ import (
 // discharge the failed job's obligation.
 func TestReviewRejectedJobWindow(t *testing.T) {
 	const id = "review-rejected-job"
-	f := seedWorkflowReturnRouteFixture(t, id, "workflow.break_fix", "repair")
+	f := oSeedReviewRoute(t, id, "workflow.break_fix", "repair")
 	s := f.store
 	defer s.Close()
 	lane := BuiltinLaneDefinitions()[0]
@@ -42,7 +42,7 @@ func TestReviewRejectedJobWindow(t *testing.T) {
 	unrelated := &WorkerJobBinding{JobID: "job:unrelated-success", Revision: 1}
 	issue1013StartRepair(t, s, id, f.owner, pin.Version, epoch+1)
 	pin = issue1013Pin(t, s, id)
-	dispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":2", pin.Correction, f.owner, pin.Version, "review-reject-2", unrelated)
+	oDispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":2", pin.Correction, f.owner, pin.Version, "review-reject-2", unrelated)
 	completeAndAcceptAttempt(t, s, id, "attempt:"+id+":2", lane, acceptor)
 	if boundary := jobWindowAcceptanceBoundary(t, s, id); boundary != 0 {
 		t.Fatalf("unrelated acceptance closed rejected job obligation at %d", boundary)
@@ -91,7 +91,7 @@ func TestReviewJobAuthoritySurvivesSupersession(t *testing.T) {
 	job := &WorkerJobBinding{JobID: "job:old-authority", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, id, f.owner, job)
 	rescanned := driftStaleRegistryFixture(t, s)
-	if err := runIssue933OperatorAction(t, s, id, "supersede_contract", registryRepinSuccessorPayload(2, rescanned, id, 1, "root"), f.owner, f.operator); err != nil {
+	if err := runApprovalActionTx(t, s, BuiltinWorkflowRegistry(), id, "supersede_contract", f.owner, nil, "", "", string(registryRepinSuccessorPayload(2, rescanned, id, 1))); err != nil {
 		t.Fatal(err)
 	}
 	ready, err := readyWorkerJobRevisions(context.Background(), s.db, id)
@@ -155,7 +155,7 @@ func TestReviewRewrittenRevisionResetsFailedJob(t *testing.T) {
 // A held local acceptance of an unrelated job leaves the failed obligation unresolved.
 func TestWitnessUnrelatedLocalAcceptKeepsObligation(t *testing.T) {
 	const id = "witness-unrelated-local-accept-wall"
-	f := seedWorkflowReturnRouteFixture(t, id, "workflow.break_fix", "repair")
+	f := oSeedReviewRoute(t, id, "workflow.break_fix", "repair")
 	s := f.store
 	defer s.Close()
 	job := &WorkerJobBinding{JobID: "job:witness-failed", Revision: 1}
@@ -169,7 +169,7 @@ func TestWitnessUnrelatedLocalAcceptKeepsObligation(t *testing.T) {
 	issue1013StartRepair(t, s, id, f.owner, pin.Version, latestStepStartEpoch(t, s, id, "repair")+1)
 	pin = issue1013Pin(t, s, id)
 	unrelated := &WorkerJobBinding{JobID: "job:witness-unrelated", Revision: 1}
-	dispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":2", pin.Correction, f.owner, pin.Version, "witness-wall-2", unrelated)
+	oDispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":2", pin.Correction, f.owner, pin.Version, "witness-wall-2", unrelated)
 	completeAndAcceptAttempt(t, s, id, "attempt:"+id+":2", BuiltinLaneDefinitions()[0], reviewGateAcceptor(id))
 	after := jobWindowAcceptanceBoundary(t, s, id)
 	if after != before {

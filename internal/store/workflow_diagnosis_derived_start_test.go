@@ -408,7 +408,8 @@ func TestDerivedRepairStartClaimsEpochFromFirstQualifyingCheckpoint(t *testing.T
 	// The derived start admits the step's ordinary route: the repair
 	// step's delivery advances toward the refinement pass, which owns the
 	// refine proof behind its own derived start.
-	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:derived-repair-`+workID+`","delivery_state":"asserted"}`), 0, checkpointer); err != nil {
+	oProveReadyDelivery(t, fixture, workID)
+	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:derived-repair-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
 		t.Fatalf("record_delivery behind the derived start: %v", err)
 	}
 	if step := currentStep(t, s, workID); step != "refine" {
@@ -444,7 +445,8 @@ func TestDerivedRefineStartClaimsEpochFromCheckpointRefine(t *testing.T) {
 			t.Fatalf("%s: refine starts = %+v, want one checkpoint_refine start at epoch 1", family.ref, starts)
 		}
 		refineProofSeedGreenRun(t, s, workID, "derivedrefine"+workID)
-		if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:derived-refine-`+workID+`","delivery_state":"asserted"}`), 0, checkpointer); err != nil {
+		oProveReadyDelivery(t, fixture, workID)
+		if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:derived-refine-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
 			t.Fatalf("%s: record_delivery behind the derived refine start: %v", family.ref, err)
 		}
 		if step := currentStep(t, s, workID); step != "delivery" {
@@ -528,6 +530,7 @@ func TestRepeatedQualifyingActionsDoNotResetTheStartCutoff(t *testing.T) {
 	if startedAt == "" || actorRef == "" {
 		t.Fatal("the derived start lost its fence")
 	}
+	oProveReadyDelivery(t, fixture, workID)
 	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:repeat-`+workID+`","delivery_state":"asserted"}`), 0, actor); err != nil {
 		t.Fatalf("record_delivery after the further step activity: %v", err)
 	}
@@ -1038,6 +1041,7 @@ func TestDerivedDispositionWriterLosesThePenAtTheNextDispatch(t *testing.T) {
 	const workID = "derived-pair-disposer-redispatched"
 	fixture, coordinator, _ := seedDerivedRepairDisposal(t, workID)
 	s := fixture.store
+	oAcceptOracleFixtureReview(t, oracleRepairFixtureFrom(t, workID, fixture), workID, "continue")
 	next := "attempt:" + workID + ":3"
 	diagnosisS1DispatchAttempt(t, s, workID, "repair", next, coordinator, "implement")
 	nextLane := crossAttemptDispatchedLaneActor(t, s, workID, next)

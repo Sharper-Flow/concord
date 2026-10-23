@@ -62,7 +62,7 @@ export default class NativeLaneProvider {
     const ready = new Promise((resolve, reject) => {
       server.stdout.on("data", bytes => {
         stdout += bytes
-        const match = stdout.match(/listening on (http:\/\/[^\s]+)/)
+        const match = stdout.match(/listening on (http:\/\/[^\s]+)\r?\n/)
         if (match) resolve(match[1])
       })
       server.once("error", reject)
@@ -72,15 +72,20 @@ export default class NativeLaneProvider {
     let reader
     try {
       const url = await ready
-      const call = async (route, body) => {
-        const response = await fetch(url + route, { method: body === undefined ? "GET" : "POST", headers: { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal })
-        if (!response.ok) throw new Error(`${route}: ${response.status} ${await response.text()}`)
-        return response.status === 204 ? undefined : response.json()
+      const call = async (route, body, stream = false) => {
+        const method = body === undefined ? "GET" : "POST"
+        try {
+          const response = await fetch(url + route, { method, headers: stream ? undefined : { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal })
+          if (!response.ok) throw new Error(`${route}: ${response.status} ${await response.text()}`)
+          return stream ? response : response.status === 204 ? undefined : await response.json()
+        } catch (cause) {
+          throw new Error(`native eval ${method} ${route} failed`, { cause })
+        }
       }
       const configured = await call("/agent")
       if (!configured.some(agent => agent.name === this.agent && agent.mode === "subagent" && agent.hidden === true)) throw new Error("native eval requires a hidden subagent definition")
       const parent = await call("/session", { title: `Advisory ${this.agent} eval` })
-      const events = await fetch(url + "/event", { signal })
+      const events = await call("/event", undefined, true)
       if (!events.ok || !events.body) throw new Error("native eval event stream is unavailable")
       reader = events.body.getReader()
       await call(`/session/${parent.id}/prompt_async`, {
@@ -91,8 +96,13 @@ export default class NativeLaneProvider {
       let buffer = ""
       let child
       while (true) {
-        const next = await reader.read()
-        if (next.done) throw new Error("native eval event stream ended before the child completed")
+        let next
+        try {
+          next = await reader.read()
+        } catch (cause) {
+          throw new Error("native eval GET /event stream read failed", { cause })
+        }
+        if (next.done) throw new Error("native eval GET /event stream ended before the child completed")
         buffer += decoder.decode(next.value, { stream: true })
         let boundary
         while ((boundary = /\r?\n\r?\n/.exec(buffer))) {

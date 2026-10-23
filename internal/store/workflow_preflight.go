@@ -53,6 +53,14 @@ func resolveCurrentWorkflowDefinition(registry DefinitionRegistry, ref string) (
 	if !validWorkflowRef(ref) {
 		return RegisteredDefinition{}, workflowPinFailure("workflow definition family is incomplete")
 	}
+	// No archived family registers a definition (CD-0242 D14). Its
+	// nonterminal work refuses every public action and read by name until the
+	// cutover migration resolves it (CD-0242 D13).
+	if workflowFamilyArchived(ref) {
+		return RegisteredDefinition{}, newFailure(KindInvariantViolation, "workflow_preflight",
+			"workflow family "+ref+" is archived: no definition is registered, so new public workflow actions are refused", false,
+			"resolve the work through the cutover migration, or start retained-family work")
+	}
 	entry, ok := registry.Current(ref)
 	if !ok {
 		return RegisteredDefinition{}, workflowPinFailure("current workflow definition is unavailable: " + ref)

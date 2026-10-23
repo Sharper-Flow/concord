@@ -4398,6 +4398,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	}
 	var changed []ChangedRef
 	var resultPayload json.RawMessage
+	var retainedPinless []string
 	var result Envelope
 	captureResult := func(tx *store.Transaction) error {
 		pin, available, pinErr := store.ReadMutationWorkPinTxForRegistry(ctx, tx, r.Registry, workID, nil)
@@ -4419,6 +4420,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		if err != nil {
 			return err
 		}
+		retainedPinless = pinless
 		resultBase := base
 		resultBase.Omissions = append(resultBase.Omissions, mutationPinOmissions(pinless)...)
 		result = r.mutationResult(resultBase, resultPayload, changed, intents, pinless...)
@@ -4492,7 +4494,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			return pendingCompaction(base, workID, claim, failedStep, completed, publishErr), nil
 		}
 		changedJSON, _ := json.Marshal(changed[0])
-		complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: opID, AttemptEpoch: claim.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(resultPayload), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
+		complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: opID, AttemptEpoch: claim.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(retainCompactionPinless(resultPayload, retainedPinless)), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
 		if completeErr != nil {
 			return pendingCompaction(base, workID, claim, "operation_complete", completed, completeErr), nil
 		}
@@ -4586,7 +4588,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		return pendingCompaction(base, reconcile.WorkID, step, "sqlite_link", []string{"operation_claimed", "git_proof"}, linkErr), nil
 	}
 	changedJSON, _ := json.Marshal(changed[0])
-	complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: reconcile.OperationID, AttemptEpoch: step.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(resultPayload), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: idempotencyKey(raw) + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
+	complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: reconcile.OperationID, AttemptEpoch: step.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(retainCompactionPinless(resultPayload, retainedPinless)), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: idempotencyKey(raw) + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
 	if completeErr != nil {
 		return pendingCompaction(base, reconcile.WorkID, step, "operation_complete", []string{"operation_claimed", "git_proof", "sqlite_link"}, completeErr), nil
 	}
@@ -4787,17 +4789,62 @@ func (r runtime) enrichMutationPayloadTx(ctx context.Context, tx *store.Transact
 	return enriched, intents, pinless, err
 }
 
-// Compaction replays retain the original transaction's snapshot.
+// compactionPinlessKey retains, inside the completed step's payload, the work
+// items whose pin the original transaction could not read. It never reaches
+// the wire: a replay strips it and reports the same omission.
+const compactionPinlessKey = "retained_pinless_work_ids"
+
+func retainCompactionPinless(payload json.RawMessage, pinless []string) json.RawMessage {
+	if len(pinless) == 0 {
+		return payload
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &object); err != nil || object == nil {
+		return payload
+	}
+	encoded, err := json.Marshal(pinless)
+	if err != nil {
+		return payload
+	}
+	object[compactionPinlessKey] = encoded
+	retained, err := json.Marshal(object)
+	if err != nil {
+		return payload
+	}
+	return retained
+}
+
+// Compaction replays retain the original transaction's snapshot: its pins and
+// its recorded pin omissions. A missing pin with no retained omission is never
+// invented.
 func (r runtime) replayMutationPayload(ctx context.Context, payload json.RawMessage, changed []ChangedRef) (json.RawMessage, []NextIntent, []string, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &object); err != nil {
+		return nil, nil, nil, err
+	}
 	var result struct {
 		Pins []store.WorkPin `json:"work_pins"`
 	}
 	if err := json.Unmarshal(payload, &result); err != nil {
 		return nil, nil, nil, err
 	}
+	var retained []string
+	if raw, ok := object[compactionPinlessKey]; ok {
+		if err := json.Unmarshal(raw, &retained); err != nil {
+			return nil, nil, nil, err
+		}
+		delete(object, compactionPinlessKey)
+		stripped, err := json.Marshal(object)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		payload = stripped
+	}
 	pinless := pinlessMutationWorkIDs(changed, result.Pins)
-	if len(pinless) > 0 {
-		return nil, nil, nil, &store.Failure{Kind: store.KindOperationConflict, Op: "mutation_response", Detail: "committed response has no retained work pin or omission fact; reconcile the retained operation", RecoveryAction: "reconcile_operation", EffectPossible: true}
+	for _, id := range pinless {
+		if !slices.Contains(retained, id) {
+			return nil, nil, nil, &store.Failure{Kind: store.KindOperationConflict, Op: "mutation_response", Detail: "committed response has no retained work pin or omission fact; reconcile the retained operation", RecoveryAction: "reconcile_operation", EffectPossible: true}
+		}
 	}
 	var intents []NextIntent
 	if len(result.Pins) > 0 {

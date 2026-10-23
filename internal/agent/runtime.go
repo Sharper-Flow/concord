@@ -354,7 +354,16 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 			return failureEnvelope(base, availabilityErr), nil
 		}
 		if !available {
-			return coreError(base, "invalid_transition", "workflow action registry is unavailable", "reread_entities", false), nil
+			// The refusal names the unverifiable pin's cause and migration
+			// route (CD-0242 D13).
+			message := "workflow action registry is unavailable"
+			if _, verifyErr := store.VerifyWorkflowInstanceDefinition(ctx, s, registry, strictAction.WorkID); verifyErr != nil {
+				var failure *store.Failure
+				if errors.As(verifyErr, &failure) && failure.Detail != "" {
+					message += ": " + failure.Detail
+				}
+			}
+			return coreError(base, "invalid_transition", message, "reread_entities", false), nil
 		}
 		if strictAction.ActionID == "dispatch_worker" {
 			ctx = store.WithHostLeaseSet(ctx, s.ReadHostLeases())

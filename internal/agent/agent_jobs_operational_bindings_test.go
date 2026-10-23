@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -332,15 +333,13 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 	refuse("record_health", nativeFields("health", "failed"), "aj8-rollback-health")
 	refuse("rollback_run", nativeFields("rollback", "rolled_back"), "aj8-rollback-run")
 
-	// The recorded-history reader survives: the continuity snapshot's
-	// native-run section stays the frozen reader for replayed journals
-	// (CD-0039 D4), so the refusal gates authoring, not the frozen history.
-	snapshot, err := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: "work-1", Limit: 20})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if snapshot.NativeRuns == nil || len(snapshot.NativeRuns) != 0 {
-		t.Fatalf("native-run reader shape changed: %+v", snapshot.NativeRuns)
+	// No replayed journal reader survives (CD-0242 D2), and no archived
+	// definition is registered (D14): the workflow read names the archived
+	// family and its migration route instead of an unexplained absence (D13).
+	_, err = store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: "work-1", Limit: 20})
+	var failure *store.Failure
+	if !errors.As(err, &failure) || failure.Kind != store.KindInvariantViolation || !strings.Contains(failure.Detail, "workflow.ops_runbook is archived") {
+		t.Fatalf("continuity read on the archived instance = %v, want the archived-family answer", err)
 	}
 
 	obs := envelopeToObservation(Envelope{Outcome: OutcomeOK})

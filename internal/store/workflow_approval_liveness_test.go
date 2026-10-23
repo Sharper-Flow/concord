@@ -151,15 +151,10 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		conformanceCheckpoint(t, s, registry, workID, definition, rAcceptanceModel(true), "engineering before the revision")
 		predecessorDigest := approvalDecisionDigest(t, s, workID)
 		// The class revision authors the successor fact through the
-		// registered fold; the supersession stales the judged artifact until
-		// fresh production at its route target.
+		// registered fold. It changes no criterion, so the judged artifact
+		// stays current (CD-0242 D7).
 		rReviseContract(t, s, workID, ownerRefForTest(t, owner), []string{"product"})
-		// The revision stales the judged artifact: a fresh healthy verdict
-		// needs real production at the route target, so the successor's
-		// acceptance obligations stay unmet by design.
-		successor := rAcceptanceModel(false)
-		successor.artifactStale = true
-		conformanceCheckpoint(t, s, registry, workID, definition, successor, "decision successor after the revision")
+		conformanceCheckpoint(t, s, registry, workID, definition, rAcceptanceModel(false), "decision successor after the revision")
 		// The successor's projected question carries its own digest: the
 		// predecessor's recorded digest cannot answer it.
 		successorDigest := approvalDecisionDigest(t, s, workID)
@@ -195,40 +190,28 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		const workID = "approval-liveness-revision-d2e"
 		s, registry, definition, owner, _ := seedApprovalItemAtAcceptance(t, workID, []string{"product"})
 		conformanceCheckpoint(t, s, registry, workID, definition, rAcceptanceModel(false), "decision before the revision")
+		// The revision changes no criterion, so the judged artifact stays
+		// current (CD-0242 D7).
 		rReviseContract(t, s, workID, ownerRefForTest(t, owner), []string{})
-		// The revision stales the judged artifact: a fresh healthy verdict
-		// needs real production at the route target, so the successor's
-		// acceptance obligations stay unmet by design.
-		successor := rAcceptanceModel(true)
-		successor.artifactStale = true
-		conformanceCheckpoint(t, s, registry, workID, definition, successor, "engineering successor after the revision")
+		conformanceCheckpoint(t, s, registry, workID, definition, rAcceptanceModel(true), "engineering successor after the revision")
 		// The work pin projects no operator question for the engineering
 		// successor.
 		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry, definition), workID)
 		if question != nil || withheld != nil {
 			t.Fatalf("the engineering successor projects question %+v withheld %+v, want neither", question, withheld)
 		}
-		// The judged artifact went stale with the revision: the successor's
-		// confirmation refuses on the artifact until fresh production at the
-		// route target, whatever class the successor declares.
-		err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, nil, "confirm", "", `{"selected_choice":"confirm"}`)
-		var staleFailure *Failure
-		if err == nil || !failureAs(err, &staleFailure) || staleFailure.Kind != KindStaleRequiresReview {
-			t.Fatalf("the engineering successor's confirmation folded %v, want the artifact-staleness refusal", err)
+		// The judged artifact stays current through the revision, so the
+		// coordinator confirms the engineering successor with no repeated
+		// production (CD-0242 D7).
+		if err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, nil, "confirm", "", `{"selected_choice":"confirm"}`); err != nil {
+			t.Fatalf("the engineering successor's confirmation: %v", err)
 		}
-		// The successor is unconfirmed and unproduced: completion cannot run
-		// from the acceptance step, and the work stays open.
-		baselineVersion := readWorkVersion(t, s, workID)
-		completeErr := runApprovalActionTx(t, s, registry, workID, "complete", owner, nil, "", "", `{"impact_verdict":"non-breaking"}`)
-		var completeFailure *Failure
-		if completeErr == nil || !failureAs(completeErr, &completeFailure) {
-			t.Fatal("the unconfirmed engineering successor completed")
+		// The confirmed successor reaches its terminal on the preserved proof.
+		if err := runApprovalActionTx(t, s, registry, workID, "complete", owner, nil, "", "", `{"impact_verdict":"non-breaking"}`); err != nil {
+			t.Fatalf("the confirmed engineering successor's completion: %v", err)
 		}
-		if _, instanceState := approvalWorkAndInstanceState(t, s, workID); instanceState == "completed" {
-			t.Fatal("the unconfirmed successor completed the revised work")
-		}
-		if version := readWorkVersion(t, s, workID); version != baselineVersion {
-			t.Fatalf("the refused completion advanced the work version to %d", version)
+		if lifecycle, instanceState := approvalWorkAndInstanceState(t, s, workID); lifecycle != "completed" || instanceState != "completed" {
+			t.Fatalf("the confirmed successor ended lifecycle %q instance %q, want completed", lifecycle, instanceState)
 		}
 		assertNoFoldGuardRows(t, s)
 	})

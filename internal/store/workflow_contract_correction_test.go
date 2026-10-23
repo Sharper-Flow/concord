@@ -148,13 +148,19 @@ func TestIssue933PremiseRevisionUsesTypedContractSupersession(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if issue1013HasIntent(issue1013Pin(t, f.store, id), "confirm_premise") {
-		t.Fatal("preserved proof bypassed successor artifact freshness")
+	// The premise revision changed no criterion digest, so the preserved
+	// proof still answers the successor and needs no repeated production
+	// (CD-0242 D7).
+	if !issue1013HasIntent(issue1013Pin(t, f.store, id), "confirm_premise") {
+		t.Fatal("unchanged-criterion revision withheld premise confirmation")
 	}
 	before := contractCorrectionEffectSnapshot(t, f.store, id)
-	err = WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: id, ActionID: "confirm_premise", Payload: json.RawMessage(`{}`), Actor: f.owner, SelectedChoice: "confirm"})
-	if !hasFailureKind(err, KindStaleRequiresReview) || contractCorrectionEffectSnapshot(t, f.store, id) != before {
-		t.Fatalf("preserved proof bypassed successor artifact freshness: %v", err)
+	err = WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: id, ExpectedVersion: readWorkVersion(t, f.store, id), ActionID: "confirm_premise", Payload: json.RawMessage(`{}`), Actor: f.owner, SelectedChoice: "confirm"})
+	if err != nil {
+		t.Fatalf("premise confirmation on preserved proof: %v", err)
+	}
+	if contractCorrectionEffectSnapshot(t, f.store, id) != before {
+		t.Fatal("confirm_premise preflight changed durable state")
 	}
 }
 
@@ -224,8 +230,11 @@ func TestVerdictOmittingContractVersionResolvesActiveContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := contractCorrectionEffectSnapshot(t, f.store, id)
-	if err := runVerdictActionAs(t, f.store, id, "record_verdict", criterionAssociationPayload(ref, "predicate:added"), 0, f.owner); !hasFailureKind(err, KindStaleRequiresReview) {
-		t.Fatalf("successor association before research production=%v, want stale_requires_review", err)
+	// The supersession stales nothing by itself (CD-0242 D7); a verdict
+	// before research production is refused because investigate does not
+	// declare it.
+	if err := runVerdictActionAs(t, f.store, id, "record_verdict", criterionAssociationPayload(ref, "predicate:added"), 0, f.owner); !hasFailureKind(err, KindIllegalLifecycleTransition) {
+		t.Fatalf("successor association before research production=%v, want the off-step refusal", err)
 	}
 	if contractCorrectionEffectSnapshot(t, f.store, id) != before {
 		t.Fatal("stale successor association changed durable state")

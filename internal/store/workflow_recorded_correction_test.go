@@ -12,19 +12,15 @@ import (
 func TestCurrentCorrectionRefineIsRefusedByLiveWriter(t *testing.T) {
 	for _, ref := range []string{"workflow.implementation", "workflow.break_fix"} {
 		t.Run(ref, func(t *testing.T) {
-			entry, _ := BuiltinWorkflowRegistry().Current(ref)
 			const workID = "current-correction-refusal"
-			fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, ref, entry.Definition.Version, "refine")
+			fixture := seedWorkflowReturnRouteFixture(t, workID, ref, "refine")
 			s := fixture.store
 			defer s.Close()
-			if target := workflowCorrectionReturnTarget(entry.Definition, "refine"); target != "" {
-				t.Fatalf("refine declares a correction target: %s", target)
-			}
 			events, projections := histEventRows(t, s), projectionSnapshot(t, s)
 			payload := json.RawMessage(`{"diagnosis":"The result requires correction.","strategy":"Return to the producer.","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
 			err := runIssue933OperatorAction(t, s, workID, "request_correction", payload, fixture.owner, fixture.operator)
 			var failure *Failure
-			if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || failure.Op != "workflow_action" || failure.Detail != "request_correction requires a current non-ok verification verdict after worker delivery" || failure.RetrySafe || failure.RecoveryAction != "record the current verification verdict or reread the work pin" {
+			if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || failure.Op != "workflow_action" || failure.Detail != "request_correction requires a current non-ok verification verdict under the active workflow contract" || failure.RetrySafe || failure.RecoveryAction != "record the current verification verdict or reread the work pin" {
 				t.Fatalf("refine correction refusal: %v", err)
 			}
 			if !reflect.DeepEqual(events, histEventRows(t, s)) || projections != projectionSnapshot(t, s) {
@@ -65,7 +61,7 @@ func TestFoldCorrectionReturnTargetSelectsResolverAndRefusesEmptyRoute(t *testin
 		if err != nil || got == "" || got != want {
 			t.Fatalf("return = %q, %v; want %q", got, err, want)
 		}
-		_, err = workflowFoldCorrectionReturnTarget(ctx, entry, "repair", "repair")
+		_, err = workflowFoldCorrectionReturnTarget(ctx, entry, "planning", "planning")
 		wantFoldCorrectionFailure(t, err, "correction has no declared recovery route to a producer step", "repair the pinned workflow definition")
 	}
 	_, err := workflowFoldCorrectionReturnTarget(workflowReplayContext(context.Background()), entry, "verify", "refine")

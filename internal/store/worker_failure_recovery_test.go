@@ -7,57 +7,43 @@ import (
 	"time"
 )
 
-func TestFailedWorkerRecoveryIsAvailableForAnOlderPinnedDefinition(t *testing.T) {
+// On the current definitions a live failed terminal derives the
+// attempt's failure record in the same transaction (CD-0198 D5), so the
+// engine's hold-mode record_worker_failure recovery is never offered beside
+// it, and the pinned definition digest stays unchanged.
+func TestFailedWorkerRecoveryIsDerivedOnTheCurrentDefinition(t *testing.T) {
 	t.Parallel()
-	const workID = "worker-failure-recovery-old-definition"
-	s, owner, attemptID, entry := seedOldDefinitionWorker(t, workID)
+	const workID = "worker-failure-recovery-current"
+	f, attemptID, epoch := seedCurrentRepairWorker(t, workID)
+	s, owner := f.store, f.owner
 	defer s.Close()
-	failWorkerAttempt(t, s, workID, attemptID)
-
-	_, action, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "record_worker_failure")
-	if err != nil {
-		t.Fatalf("resolve recovery action: %v", err)
+	entry := mustBuiltinDefinition(t, "workflow.break_fix")
+	event := s2WorkerFailedAttributedEvent(workID, attemptID, "failed-"+workID, preferredModelForLane(laneForID(t)), WorkerFailureWorkerError, "worker failed", time.Unix(30, 0).UTC())
+	if err := s2WorkerFailedLive(t, s, event); err != nil {
+		t.Fatalf("live failed terminal: %v", err)
 	}
-	if action.ExecutionMode != ActionHold || action.RequiredCapability != "work_transition" {
-		t.Fatalf("recovery action = %#v, want hold and work_transition", action)
+	if records := s2DerivedFailureRecords(t, s, workID, attemptID); len(records) != 1 {
+		t.Fatalf("derived failure records = %d, want one from the terminal", len(records))
 	}
 
-	payload := mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1})
-	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-		WorkID: workID, ExpectedVersion: 9, ActionID: "record_worker_failure", Payload: payload, Actor: owner,
-	}); err != nil {
-		t.Fatalf("recovery preflight: %v", err)
+	if resolved, _, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "record_worker_failure"); err == nil || resolved.Definition.Ref != "" {
+		t.Fatalf("the derived failure left a hold-mode recovery resolvable: definition=%#v error=%v", resolved.Definition, err)
 	}
 	pin, err := ReadWorkPin(context.Background(), s, workID)
 	if err != nil {
-		t.Fatalf("read work pin before recovery: %v", err)
-	}
-	if !workPinContainsAction(pin.NextValidIntents, "record_worker_failure") {
-		t.Fatalf("work pin does not advertise record_worker_failure: %#v", pin.NextValidIntents)
-	}
-
-	result := applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, 1, 9, "old-definition-failure-recovery")
-	if result.ResultingVersion != 10 {
-		t.Fatalf("recovery result version=%d, want 10", result.ResultingVersion)
-	}
-	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-		WorkID: workID, ExpectedVersion: 10, ActionID: "record_delivery", Payload: mustJSONValue(map[string]any{}), Actor: owner,
-	}); err != nil {
-		t.Fatalf("record delivery after failure recovery: %v", err)
-	}
-	resolvedEntry, _, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "record_worker_failure")
-	if err == nil || resolvedEntry.Definition.Ref != "" {
-		t.Fatalf("recorded failure remained resolvable: definition=%#v error=%v", resolvedEntry.Definition, err)
-	}
-	pin, err = ReadWorkPin(context.Background(), s, workID)
-	if err != nil {
-		t.Fatalf("read work pin after recovery: %v", err)
+		t.Fatalf("read work pin: %v", err)
 	}
 	if workPinContainsAction(pin.NextValidIntents, "record_worker_failure") {
-		t.Fatal("work pin advertised a duplicate failure recovery")
+		t.Fatal("work pin advertised a recovery beside the derived failure record")
+	}
+	payload := mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch})
+	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
+		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "record_worker_failure", Payload: payload, Actor: owner,
+	}); err == nil {
+		t.Fatal("recovery preflight admitted a second failure record")
 	}
 
-	registered, ok := BuiltinWorkflowRegistry().Lookup(entry.Definition.Ref, entry.Definition.Version)
+	registered, ok := BuiltinWorkflowRegistry().Current(entry.Definition.Ref)
 	if !ok || registered.Digest != entry.Digest {
 		t.Fatalf("pinned definition changed: before=%s after=%s", entry.Digest, registered.Digest)
 	}
@@ -66,15 +52,16 @@ func TestFailedWorkerRecoveryIsAvailableForAnOlderPinnedDefinition(t *testing.T)
 func TestFailedWorkerRecoveryRefusesWithoutTheCurrentFailedAttempt(t *testing.T) {
 	t.Parallel()
 	const workID = "worker-failure-recovery-no-failure"
-	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
+	f, attemptID, epoch := seedCurrentRepairWorker(t, workID)
+	s, owner := f.store, f.owner
 	defer s.Close()
 
 	if _, _, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "record_worker_failure"); err == nil {
 		t.Fatal("recovery action resolved without a failed attempt")
 	}
-	payload := mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1})
+	payload := mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch})
 	err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-		WorkID: workID, ExpectedVersion: 9, ActionID: "record_worker_failure", Payload: payload, Actor: owner,
+		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "record_worker_failure", Payload: payload, Actor: owner,
 	})
 	if err == nil {
 		t.Fatal("recovery preflight admitted an active attempt")

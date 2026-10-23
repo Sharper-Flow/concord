@@ -10,10 +10,6 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestOverlapSupersessionPayloadHistoryRebuild"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/store.TestOverlapReadAndGuardPairPopulationAgree"
     }
   ],

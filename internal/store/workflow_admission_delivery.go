@@ -48,7 +48,9 @@ type workflowVerificationRun struct {
 	Failure      error
 }
 
-func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string) (workflowDeliveryAdmission, []workflowVerificationRun, []workflowVerificationRun, error) {
+// acceptingAttempt projects the same candidate the acceptance fold will install.
+// Standalone delivery leaves it empty and proves the already integrated candidate.
+func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, acceptingAttempt string) (workflowDeliveryAdmission, []workflowVerificationRun, []workflowVerificationRun, error) {
 	state := workflowDeliveryAdmission{ProofRequired: workflowRefineProofGateActive(definition, currentStep)}
 	startStep := currentStep
 	if workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
@@ -64,7 +66,7 @@ func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string
 		return state, nil, nil, err
 	}
 	state.Started = found
-	integrationRuns, err := loadWorkflowDeliveryJobAdmission(ctx, q, workID, definition, &state)
+	integrationRuns, err := loadWorkflowDeliveryJobAdmissionForAccept(ctx, q, workID, definition, &state, acceptingAttempt)
 	if err != nil {
 		return state, nil, nil, err
 	}
@@ -77,7 +79,7 @@ func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string
 	}
 	var runs []workflowVerificationRun
 	for _, ref := range refs {
-		command, _, why, err := workflowCandidateVerificationRun(ctx, q, workID, ref)
+		command, _, why, err := workflowCandidateVerificationRun(ctx, q, workID, ref, acceptingAttempt)
 		if err != nil {
 			var failure *Failure
 			if !failureAs(err, &failure) || failure.Kind == KindUnavailable {
@@ -128,6 +130,10 @@ func workflowRefineProofFailure(why string) *Failure {
 // required job result population. The producer's actual subject must equal the
 // integrated candidate. Acceptance chronology cannot invalidate unchanged proof.
 func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, state *workflowDeliveryAdmission) ([]workflowVerificationRun, error) {
+	return loadWorkflowDeliveryJobAdmissionForAccept(ctx, q, workID, definition, state, "")
+}
+
+func loadWorkflowDeliveryJobAdmissionForAccept(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, state *workflowDeliveryAdmission, acceptingAttempt string) ([]workflowVerificationRun, error) {
 	if !workflowWorkerJobsActive(definition) {
 		return nil, nil
 	}
@@ -190,7 +196,7 @@ func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID str
 	covered := map[string]bool{}
 	runs := make([]workflowVerificationRun, 0, len(refs))
 	for _, ref := range refs {
-		command, project, why, err := workflowCandidateVerificationRun(ctx, q, workID, ref)
+		command, project, why, err := workflowCandidateVerificationRun(ctx, q, workID, ref, acceptingAttempt)
 		if err != nil {
 			var failure *Failure
 			if !failureAs(err, &failure) || failure.Kind == KindUnavailable {
@@ -210,7 +216,7 @@ func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID str
 
 // Proof applicability follows the producer's subject, not its position relative
 // to an acceptance or a stage start. An unchanged candidate needs no rerun.
-func workflowCandidateVerificationRun(ctx context.Context, q queryer, workID, ref string) ([]string, string, string, error) {
+func workflowCandidateVerificationRun(ctx context.Context, q queryer, workID, ref, acceptingAttempt string) ([]string, string, string, error) {
 	producer, err := readOracleVerifySubjectReceipt(ctx, q, workID, ref)
 	if err != nil {
 		return nil, "", "", err
@@ -218,14 +224,51 @@ func workflowCandidateVerificationRun(ctx context.Context, q queryer, workID, re
 	if producer == nil {
 		return nil, "", "no passing unchanged-tree producer receipt", nil
 	}
+	// Only an actual producer needs singular Review dependencies. Inapplicable
+	// delivery and refs without a producer must leave recovery readable.
 	review, err := loadWorkflowReviewState(ctx, q, workID, 0)
 	if err != nil {
 		return nil, "", "", err
 	}
-	if review.Candidate == nil || producer.SubjectRef != "commit:"+review.Candidate.Commit || producer.ProjectID != review.Candidate.ProjectID {
+	candidate := review.Candidate
+	if acceptingAttempt != "" {
+		auth, result, err := readReviewAttempt(ctx, q, workID, acceptingAttempt)
+		if err != nil {
+			return nil, "", "", err
+		}
+		pending, err := workflowAcceptedResultCandidate(ctx, q, workID, auth, result)
+		if err != nil {
+			return nil, "", "", err
+		}
+		if pending != nil {
+			candidate = pending
+		}
+	}
+	if candidate == nil || producer.SubjectRef != "commit:"+candidate.Commit || producer.ProjectID != candidate.ProjectID {
 		return producer.Command, producer.ProjectID, "verification does not cover the current integrated candidate", nil
 	}
 	return producer.Command, producer.ProjectID, "", nil
+}
+
+// The fold and combined delivery admission must select the same candidate.
+// Reading a pending result here projects its acceptance without recording it.
+func workflowAcceptedResultCandidate(ctx context.Context, q queryer, workID string, auth workflowActionCompletedPayload, result WorkerCompletedPayload) (*WorkerReviewCandidate, error) {
+	if result.Review != nil && auth.WorkerCapabilityClass == "review" {
+		candidate := result.Review.OutputCandidate
+		return &candidate, nil
+	}
+	if delivery := result.ObservedDelivery; delivery != nil && delivery.State == "clean" {
+		project := ""
+		if auth.WorkerJob != nil {
+			job, err := readWorkerJobRevisionTx(ctx, q, workID, *auth.WorkerJob)
+			if err != nil {
+				return nil, err
+			}
+			project = job.ProjectScope
+		}
+		return &WorkerReviewCandidate{ProjectID: project, Commit: delivery.Commit, Tree: delivery.Tree}, nil
+	}
+	return nil, nil
 }
 
 // workflowIntegrationCovered decides per-Project coverage: every required
@@ -311,9 +354,9 @@ func workflowAdmitDelivery(state WorkflowAdmissionState, decision WorkflowAdmiss
 // workflowAdmitDeliveryForAccept is the one complete delivery admission
 // (CD-0205 D3/D5): standalone record_delivery and the delivery-asserting
 // accept run the identical derivation — the fenced start, the refine proof,
-// and the worker-job facet with its integration evidence. Only the accepting
-// parameter differs: the accepting attempt's own dispatched revision counts
-// as satisfied for the population check, because one completion records that
+// and the worker-job facet with its integration evidence. The loader qualifies
+// proof against the candidate the route produces. The accepting attempt's own
+// dispatched revision counts as satisfied for the population check, because one completion records that
 // disposition and the delivery assertion together. Its pending satisfaction
 // never supplies integration, so a combined acceptance behind missing
 // integration evidence refuses exactly as record_delivery does.

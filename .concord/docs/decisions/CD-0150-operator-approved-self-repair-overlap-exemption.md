@@ -72,7 +72,6 @@ self-repair authority from prior data
 ## Verification
 
 - Store tests prove the Product and operator restrictions.
-- Store tests prove classified admission and ordinary-work refusal.
 - Agent tests prove signed contract supersession and visible overlap detail.
 - Migration tests prove that existing contracts stay unclassified
   ([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).

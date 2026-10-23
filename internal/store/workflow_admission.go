@@ -356,7 +356,7 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 		return WorkflowAdmissionState{}, nil, nil, contractCorrectionErr
 	}
 	state.ContractCorrectionAvailable = contractCorrection
-	delivery, proofRuns, integrationRuns, deliveryErr := loadWorkflowDeliveryAdmission(ctx, q, workID, definition, currentStep)
+	delivery, proofRuns, integrationRuns, deliveryErr := loadWorkflowDeliveryAdmission(ctx, q, workID, definition, currentStep, "")
 	if deliveryErr != nil {
 		return WorkflowAdmissionState{}, nil, nil, deliveryErr
 	}

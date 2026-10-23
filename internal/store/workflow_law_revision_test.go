@@ -233,7 +233,7 @@ func TestWorkflowLawRevisionRecoveryActionIsStaleOnlyAndApprovalRequired(t *test
 	}
 
 	currentWork := "law-recovery-action-current"
-	currentStore, _ := seedCompletionGateCase(t, currentWork, completionGateCase{requiredEvidence: []string{"verification", "review"}})
+	currentStore := seedLawRevisionPendingReview(t, currentWork)
 	attachWorkflowLawPin(t, currentStore, currentWork, "sha256:"+strings.Repeat("a", 64))
 	if _, _, err := WorkflowActionDefinitionFor(context.Background(), currentStore, BuiltinWorkflowRegistry(), currentWork, "supersede_contract"); err == nil {
 		t.Fatal("non-stale workflow exposed the contract recovery action")

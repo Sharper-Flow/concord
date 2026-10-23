@@ -735,8 +735,7 @@
                 },
                 "report_ref": {
                   "type": "string",
-                  "minLength": 1,
-                  "maxLength": 512
+                  "minLength": 1
                 },
                 "report_digest": {
                   "type": "string",

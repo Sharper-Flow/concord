@@ -50,8 +50,6 @@ func contentSuccessor(t *testing.T, s *Store, actor string, version int64, bindi
 	return pOverlapContractFacts(t, s, contentSuccessorSource(t, s, actor, version, binding, modifies))
 }
 
-// contentSuccessorSource keeps the historical matrix's source payload separate
-// from the facts that current contract construction derives.
 func contentSuccessorSource(t *testing.T, s *Store, actor string, version int64, binding WorkflowArchitectureBinding, modifies []string) Event {
 	t.Helper()
 	mandate := []string{"spec:one"}
@@ -182,52 +180,12 @@ func TestOverlapChangedThenRevertedDoesNotReviveJudgment(t *testing.T) {
 	assertContentStale(t, s)
 }
 
-func TestOverlapSupersessionPayloadHistoryRebuild(t *testing.T) {
-	// The supersession source bytes keep the original v3 shape: the typed
-	// decision_domains fact is optional and stays absent from this
-	// constructor's successor contract, so the same bytes witness every
-	// recorded historical payload version. The historical versions are
-	// named here and never read from the current registration.
-	const historicalSupersessionPayloadVersion = 3
-	for _, payloadVersion := range []int{1, 2, historicalSupersessionPayloadVersion} {
-		t.Run(fmt.Sprint(payloadVersion), func(t *testing.T) {
-			s, binding, actor := overlapContentFixture(t)
-			resolveContentPair(t, s, "content-left", "content-right", ResolutionCompatibleWith)
-			event := contentSuccessorSource(t, s, actor, 2, binding, []string{})
-			event.PayloadVersion = payloadVersion
-			applyContentSuccessor(t, s, event)
-			if payloadVersion == historicalSupersessionPayloadVersion {
-				assertContentCurrent(t, s)
-			} else {
-				assertContentStale(t, s)
-			}
-			before, err := WorkflowProjectionHash(context.Background(), s)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := RebuildFromLog(context.Background(), s); err != nil {
-				t.Fatal(err)
-			}
-			after, err := WorkflowProjectionHash(context.Background(), s)
-			if err != nil || before != after {
-				t.Fatalf("rebuild before=%s after=%s err=%v", before, after, err)
-			}
-			var storedVersion int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM domain_events WHERE event_id=?`, event.EventID).Scan(&storedVersion); err != nil || storedVersion != payloadVersion {
-				t.Fatalf("stored payload version=%d err=%v", storedVersion, err)
-			}
-		})
-	}
-}
-
 func TestOverlapSourceJudgedContentV3ChangedContentInvalidates(t *testing.T) {
-	const sourceJudgedContentPayloadVersion = 3
 	s, original, actor := overlapContentFixture(t)
 	resolveContentPair(t, s, "content-left", "content-right", ResolutionCompatibleWith)
 	changed := original
 	changed.DomainModifies = []string{"child", "root"}
 	event := contentSuccessorSource(t, s, actor, 2, changed, []string{})
-	event.PayloadVersion = sourceJudgedContentPayloadVersion
 	applyContentSuccessor(t, s, event)
 	assertContentStale(t, s)
 }

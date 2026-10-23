@@ -204,11 +204,16 @@ func loadWorkflowReviewState(ctx context.Context, q queryer, workID string, befo
 		if !found {
 			continue
 		}
+		candidate, err := workflowAcceptedResultCandidate(ctx, q, workID, dispatches[result.AttemptID], result)
+		if err != nil {
+			return state, err
+		}
+		if candidate != nil {
+			state.Candidate = candidate
+		}
 		if result.Review != nil && dispatches[result.AttemptID].WorkerCapabilityClass == "review" {
 			reportRow := reports[action.WorkerAttemptID]
 			state.Accepted = &WorkflowAcceptedReview{AttemptID: result.AttemptID, ReportRef: reportRow.ref, ReportDigest: reviewDigest(result.Review), ActorRef: row.actor, Report: *result.Review}
-			candidate := result.Review.OutputCandidate
-			state.Candidate = &candidate
 			state.ContinueConsumed, state.GroupID = false, ""
 			for _, finding := range result.Review.Findings {
 				if finding.Status == "closed" {
@@ -217,16 +222,6 @@ func loadWorkflowReviewState(ctx context.Context, q queryer, workID string, befo
 					findings[finding.FindingID] = previous
 				}
 			}
-		} else if delivery := result.ObservedDelivery; delivery != nil && delivery.State == "clean" {
-			project := ""
-			if auth := dispatches[result.AttemptID]; auth.WorkerJob != nil {
-				job, err := readWorkerJobRevisionTx(ctx, q, workID, *auth.WorkerJob)
-				if err != nil {
-					return state, err
-				}
-				project = job.ProjectScope
-			}
-			state.Candidate = &WorkerReviewCandidate{ProjectID: project, Commit: delivery.Commit, Tree: delivery.Tree}
 		}
 	}
 	ids := make([]string, 0, len(findings))

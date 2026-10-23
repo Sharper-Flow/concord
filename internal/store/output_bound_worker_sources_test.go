@@ -269,15 +269,18 @@ func init() {
 		registerOutputBound(packet+"/properties/inputs/properties/constraints/items/maxLength", proposalConstraintText)
 		registerOutputBound(packet+"/properties/inputs/properties/constraints/maxItems", proposalConstraints)
 	}
-	// Dispatch admission validates every packet against the schema its
-	// definition version declares (validateWorkflowPayloadSchema in
-	// workflow_preflight.go, against the published document whatever the
-	// pin's age), so the admitted caps bound the retry copy whatever the
-	// retained record holds.
+	// Dispatch schema admission bounds task, and recovery preserves the
+	// already-admitted context (new dispatches refuse prose context).
+	// packet2 and packet4 reach only retained output; they carry packet3's
+	// task and legacy prose context, so packet3's admitted input bounds them.
 	for _, packet := range []string{defPacket2, defPacket3, defPacket4, defPacket5} {
+		source := packet
+		if packet == defPacket2 || packet == defPacket4 {
+			source = defPacket3
+		}
 		for _, member := range []string{"context", "task"} {
 			pointer := packet + "/properties/inputs/properties/" + member + "/maxLength"
-			registerOutputBound(pointer, inputBound(pointer))
+			registerOutputBound(pointer, inputBound(source+"/properties/inputs/properties/"+member+"/maxLength"))
 		}
 	}
 
@@ -309,9 +312,14 @@ func init() {
 	// fold, so it rides the recorded derivation bound. The packet5 job def
 	// is the size-capable mirror: the same shape under a versioned name,
 	// with the dispatch-time caller exclusions rows registered beside the
-	// loop below.
+	// loop below. The checks-repair mirror is output-only, but its common
+	// members copy the same packetJobFromView revision as the admitted job.
 	for _, job := range []string{defPacketJob, defRepairJob, defPacket5Job} {
 		registerOutputBound(job+"/properties/digest/maxLength", recordedJobDigest)
+		source := job
+		if job == defRepairJob {
+			source = defPacketJob
+		}
 		for _, member := range []string{
 			"checks/items/maxLength", "checks/maxItems", "job_id/maxLength", "objective/maxLength",
 			"path_scope/items/maxLength", "path_scope/maxItems", "predicate_ids/items/maxLength", "predicate_ids/maxItems",
@@ -320,7 +328,7 @@ func init() {
 			"unresolved_refs/items/maxLength", "unresolved_refs/maxItems",
 		} {
 			pointer := job + "/properties/" + member
-			registerOutputBound(pointer, inputBound(pointer))
+			registerOutputBound(pointer, inputBound(source+"/properties/"+member))
 		}
 	}
 

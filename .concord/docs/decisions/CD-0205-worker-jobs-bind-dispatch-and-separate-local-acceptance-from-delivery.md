@@ -272,12 +272,14 @@ worker jobs — the satisfied required jobs and the integration evidence. Local
 acceptances and their count prove no integration and no delivery:
 `record_delivery` refuses while a required job's latest revision is
 unsatisfied, and refuses without qualifying core-owned worktree verification
-evidence: a green, unchanged-tree verify run of every required Project, bound
-after the required job acceptances, after every required job's recorded
-result population, and after the phase start, in log order. The result
-population anchors the combined route too: a run acquired before the final
-pending job completed did not observe the integrated whole, whatever its
-binding order. A
+evidence: a green, unchanged-tree verify run of every required Project,
+bound to the current integrated candidate that includes every required job's
+accepted result
+([CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it),
+[D8](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d8-evidence-is-captured-by-its-producer-and-bound-to-its-subject)).
+The combined route uses the same rule: a run on an earlier candidate did not
+observe the integrated whole, and a run on the unchanged integrated candidate
+did, whatever its order relative to the final completion. A
 binding that merely mentions an acceptance, the acceptance count, or
 timestamps alone prove nothing. The combined accept counts its own accepting
 revision as satisfied for the population check — its pending disposition
@@ -539,9 +541,10 @@ Scenario: Attribution joins read from current rows
   unsatisfied jobs and unbound integration evidence, stale contract authority
   refuses dispatch, and the predicate grammar admits the report schema's short
   predicate ids.
-- `go test ./internal/store/ -run 'TestWitnessCombinedAcceptRejectsPreResultIntegration'`
-  proves a combined acceptance refuses integration evidence acquired before
-  the final job completed; the same-step wall and rewritten-revision
+- `go test ./internal/store/ -run 'TestWitnessCombinedAcceptBindsIntegrationToTheIntegratedCandidate'`
+  proves a combined acceptance refuses integration evidence bound
+  to a candidate the final job changed, and admits evidence bound to the unchanged
+  integrated candidate. The same-step wall and rewritten-revision
   correction-authority probes bind the CD-0242 D6 anchor: no attempt count,
   correction authority, or window exists.
 - `go test ./internal/store/ -run 'TestReachableAdmissionStateReachesTerminal|TestWellFormedAdmissionStateHasNonContinuityExit|TestAdmissionConformanceLocalJobAcceptHolds'` proves the liveness scenario. The model derives the worker-job readiness, satisfaction, unresolved-obligation and integration dimensions, and the conformance check exercises the real delivery admission from the held state: `record_delivery` refuses without integration evidence and admits behind it.

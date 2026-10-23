@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -33,6 +34,15 @@ func qBuildAcceptancePredicates(t *testing.T, workID, artifact string, associate
 	}
 	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "execution", append([]string{"verification"}, extraRequiredKinds...), []string{"verification", "review", "artifact"}, predicates...)
 	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
+	return qAssociateCurrentProof(t, f, artifact, associate)
+}
+
+// qAssociateCurrentProof keeps the seeded store and contract. The item must
+// declare the current Review and criterion-association routes. It adds a
+// managed claim and clean candidate before capturing the command receipt.
+func qAssociateCurrentProof(t *testing.T, f workContextFixture, artifact string, associate bool) acceptanceRecoveryFixture {
+	t.Helper()
+	workID := f.workID
 	repo, _ := reviewSubjectClaim(t, f.store, workID)
 	var branch string
 	if err := f.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(workID)).Scan(&branch); err != nil {
@@ -58,21 +68,29 @@ func qBuildAcceptancePredicates(t *testing.T, workID, artifact string, associate
 	if err := advanceWorkflowTestInstanceToStep(t.Context(), f.store, workID, "acceptance", actor); err != nil {
 		t.Fatal(err)
 	}
+	fixture := acceptanceRecoveryFixture{store: f.store, workID: workID, owner: f.owner, operator: f.operator, repo: repo, receipt: run.OperationRef}
 	if associate {
-		dependencies, err := workflowReviewDependencies(t.Context(), f.store.db, workID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		ids := []string{}
-		for _, criterion := range dependencies.Criteria {
-			ids = append(ids, criterion.PredicateID)
-		}
-		if err := runVerdictActionAs(t, f.store, workID, "record_verdict", criterionAssociationPayload(run.OperationRef, ids...), 0, f.owner); err != nil {
+		if err := runVerdictActionAs(t, f.store, workID, "record_verdict", qAssociationPayload(t, fixture), 0, f.owner); err != nil {
 			t.Fatalf("associate captured current proof: %v", err)
 		}
 	}
 	seedPremiseDeliverablesInvestigation(t, f.store, workID)
-	return acceptanceRecoveryFixture{store: f.store, workID: workID, owner: f.owner, operator: f.operator, repo: repo, receipt: run.OperationRef}
+	return fixture
+}
+
+// qAssociationPayload associates the fixture's captured receipt with every
+// current Review criterion.
+func qAssociationPayload(t *testing.T, f acceptanceRecoveryFixture) json.RawMessage {
+	t.Helper()
+	dependencies, err := workflowReviewDependencies(t.Context(), f.store.db, f.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{}
+	for _, criterion := range dependencies.Criteria {
+		ids = append(ids, criterion.PredicateID)
+	}
+	return criterionAssociationPayload(f.receipt, ids...)
 }
 
 func qAcceptCriterionReview(t *testing.T, f workContextFixture, repo, receipt string) {
@@ -107,5 +125,41 @@ func qAcceptCriterionReview(t *testing.T, f workContextFixture, repo, receipt st
 	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), prepared), f.store, event)
 	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": window.AttemptEpoch}, f.owner); err != nil {
 		t.Fatalf("accept criterion Review: %v", err)
+	}
+}
+
+func TestQAssociateCurrentProofKeepsSeededContract(t *testing.T) {
+	t.Parallel()
+	const workID = "q-seeded-association"
+	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "execution", []string{"verification"}, []string{"verification", "review", "artifact"})
+	s := route.store
+	var before string
+	if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowContractApproved).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	f := qAssociateCurrentProof(t, workContextFixture{store: s, workID: workID, owner: route.owner, operator: route.operator}, "", true)
+	if f.store != s || f.receipt == "" {
+		t.Fatal("association replaced the seeded store or returned no receipt")
+	}
+	var after string
+	if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowContractApproved).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Fatal("association changed the seeded contract assertion")
+	}
+	var contracts, associations int
+	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contracts); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&associations); err != nil {
+		t.Fatal(err)
+	}
+	if contracts != 1 || associations != 1 {
+		t.Fatalf("seeded contract count=%d, proof association count=%d, want one each", contracts, associations)
 	}
 }

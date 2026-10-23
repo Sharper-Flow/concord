@@ -175,9 +175,9 @@ func TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses(t
 		if decision.Admitted || decision.Failure == nil || decision.Failure.Kind != KindOutsideRepairActive {
 			t.Fatalf("admission %s = %+v", action.ID, decision)
 		}
-		assertFailureKind(t, WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: work, ActionID: action.ID}), KindOutsideRepairActive)
+		assertFailureKind(t, WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: work, ActionID: action.ID, Actor: stepFixtureActor()}), KindOutsideRepairActive)
 		err := s.Transact(context.Background(), func(tx *Transaction) error {
-			_, err := ApplyWorkflowActionTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: work, ActionID: action.ID, ExpectedVersion: 5})
+			_, err := ApplyWorkflowActionTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: work, ActionID: action.ID, ExpectedVersion: 5, Actor: stepFixtureActor()})
 			return err
 		})
 		assertFailureKind(t, err, KindOutsideRepairActive)

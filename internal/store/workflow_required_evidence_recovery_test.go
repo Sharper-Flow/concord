@@ -25,10 +25,10 @@ const (
 	wf04RecoveryRef     = "commit:3333333333333333333333333333333333333333333333333333333333333333"
 )
 
-func TestBreakFixV6VerifyEvidenceRouteIsHoldOnly(t *testing.T) {
-	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 6)
-	if !ok {
-		t.Fatal("break-fix version 6 is not registered")
+func TestBreakFixCurrentVerifyEvidenceRouteIsHoldOnly(t *testing.T) {
+	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
 	}
 	var verify WorkflowStep
 	for _, candidate := range registered.Definition.StepGraph.Steps {

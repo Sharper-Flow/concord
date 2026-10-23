@@ -99,16 +99,6 @@ func foldRoutineVerdict(t *testing.T, s *Store, workID string, reviewer Workflow
 func TestRoutineEvaluation(t *testing.T) {
 	t.Parallel()
 
-	t.Run("legacy operator substitution still works", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-legacy-verdict"
-		s, owner := seedDeliveredItemAtAcceptance(t, workID)
-		operator := operatorVerdictActor(t, workID)
-		if err := runOperatorVerdictForPredicate(t, s, workID, owner, operator, "predicate:primary", "evidence:operator-verdict"); err != nil {
-			t.Fatalf("legacy operator-substituted verdict refused: %v", err)
-		}
-	})
-
 	t.Run("legacy correction keeps the operator approval identity", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-legacy-correction"

@@ -63,59 +63,6 @@ func recordRecoveryWorkerJob(t *testing.T, s *store.Store, service *Service, env
 	recordReadyRetryJobWithChecks(t, s, service, env, jobID, active.Version, []string{"go vet ./..."})
 }
 
-// TestWorkflowRecoveryRoutesFrozenGenericOneOffV13HasUnchangedDigest is
-// the frozen-bound guard (CD-0115 D1): the table-less v13 the
-// quarantined table serves stays the only published digest for the
-// generic_one_off family at that version, no declared table is carried
-// into v13, and the v14 declared table is the only source of the
-// routes the engine resolves. A new author cannot restore the route
-// table on v13 by writing a future v14; the quarantine refuses to
-// leak (ref, version) data the new author does not name.
-func TestWorkflowRecoveryRoutesFrozenGenericOneOffV13HasUnchangedDigest(t *testing.T) {
-	t.Parallel()
-	v13, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.generic_one_off", 13)
-	if !ok {
-		t.Fatal("workflow.generic_one_off v13 is not registered")
-	}
-	if v13.Definition.RecoveryRoutes != nil {
-		t.Fatalf("v13 carries a declared recovery-route table: %+v", v13.Definition.RecoveryRoutes)
-	}
-	// The frozen v14 builder must not alter the v13 digest. The
-	// frozen builders compose the predecessor's content; the only
-	// content change at v14 is the declared recovery_routes field,
-	// which the field's omitempty tag excludes from the canonical
-	// bytes. The pin's digest in
-	// workflow_definition_version_pins_test.go remains the source
-	// of truth; the live computation must match.
-	expected := "sha256:964098ba2681f7fab8e1f67f90478af30ad7fb7442e6af14e9ac232d07825d0f"
-	computed, err := store.WorkflowDefinitionDigest(v13.Definition)
-	if err != nil {
-		t.Fatalf("compute v13 digest: %v", err)
-	}
-	if computed != expected {
-		t.Fatalf("v13 digest %s drifted from the frozen pin %s", computed, expected)
-	}
-	// v14 carries a declared table that the v13 instance never
-	// inherits. The two sources (declared v14 table, quarantined
-	// v13 data) must not carry each other; a v14 instance is never
-	// served the v13 quarantined routes, and a v13 instance is
-	// never served the v14 declared routes. The reader's choice
-	// order (declared before quarantine) and the test in
-	// workflow_recovery_routes_test.go hold the boundary.
-	v14, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.generic_one_off", 14)
-	if !ok {
-		t.Fatal("workflow.generic_one_off v14 is not registered")
-	}
-	if len(v14.Definition.RecoveryRoutes) != 2 {
-		t.Fatalf("v14 declared %d routes, want 2 (the declared table is the only owner)", len(v14.Definition.RecoveryRoutes))
-	}
-	for _, route := range v14.Definition.RecoveryRoutes {
-		if route.Trigger != store.WorkflowRecoveryTriggerUnhealthyVerdict || route.Action != "request_correction" {
-			t.Errorf("v14 route %+v pairs trigger with the wrong action", route)
-		}
-	}
-}
-
 // recoveryProducerLane resolves the producer lane the tuple names.
 // A missing or unregistered lane is a fixture defect, not a test
 // pass.

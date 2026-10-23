@@ -1097,6 +1097,8 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		for _, obligation := range lane.EvidenceObligations {
 			evidence = append(evidence, WorkerReportEvidence{Obligation: obligation, Detail: "discharged " + obligation})
 		}
+		review := reviewBlockFixture()
+		review.Findings = []WorkerReviewFinding{{FindingID: "finding:mixed-count", Severity: "P2", Confidence: "low", Detail: "the ranked mixed-count blocker", Status: "open", Blocking: true, InScope: true, EvidenceRefs: []string{}, ClosureRefs: []string{}}}
 		if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{Event{
 			EventID: "ctx-complete-research-ranked", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID,
 			Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted),
@@ -1104,7 +1106,7 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 				AttemptID: "attempt-ctx-research-ranked", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 				WorkerDirectory: workerFixtureDirectory(t, fixture.store, fixture.workID),
 				EvidenceOrigin:  WorkerEvidenceReported, Evidence: evidence,
-				Review: &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{{Severity: "P2", Confidence: "low", Detail: "the ranked mixed-count blocker"}}},
+				Review: review,
 			}),
 		}}}); err != nil {
 			t.Fatalf("ranked review report refused: %v", err)
@@ -1885,17 +1887,12 @@ func TestWorkContextResearchAdmission(t *testing.T) {
 		}
 	})
 
-	t.Run("the retained version 28 action refuses the research selection field", func(t *testing.T) {
-		// The fence pins the retained workflow.break_fix version 28 through
-		// the registry, so it asserts that old definition's own payload
-		// contract refuses the research selection field. The retained
-		// version stays registered when a promoted head declares the field,
-		// and the fence never answers to whichever head is current.
+	t.Run("the current action declares and retains the research selection field", func(t *testing.T) {
 		registered, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
 		if !ok {
-			t.Fatal("retained workflow.break_fix version 28 is not registered")
+			t.Fatal("current workflow.break_fix is not registered")
 		}
-		fixture := seedWorkContextFixtureWithDefinition(t, "ctx-research-public-v28", registered)
+		fixture := seedWorkContextFixtureWithDefinition(t, "ctx-research-public-current", registered)
 		defer fixture.store.Close()
 		pack := seedResearchContextPack(t, fixture, "public")
 		bindResearchPack(t, fixture, pack.PackID, 1, true)
@@ -1905,11 +1902,15 @@ func TestWorkContextResearchAdmission(t *testing.T) {
 			"context_findings":      []map[string]any{},
 			"research_finding_refs": []map[string]any{researchSelectionEntry(pack.PackID, 1, "f1", workContextTestChild)},
 		})
-		if err == nil || !strings.Contains(err.Error(), `"research_finding_refs" is not declared`) {
-			t.Fatalf("retained version 28 action error = %v, want the undeclared-field refusal of the old definition", err)
+		if err != nil {
+			t.Fatalf("current research selection declaration refused: %v", err)
 		}
-		if got := readWorkVersion(t, fixture.store, fixture.workID); got != versionBefore {
-			t.Fatalf("refused retained-version declaration moved the version to %d, want %d", got, versionBefore)
+		if got := readWorkVersion(t, fixture.store, fixture.workID); got != versionBefore+1 {
+			t.Fatalf("research declaration moved the version to %d, want %d", got, versionBefore+1)
+		}
+		view, err := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID)
+		if err != nil || view == nil || len(view.ResearchFindings) != 1 || view.ResearchFindings[0].State != WorkContextResearchStateResolved {
+			t.Fatalf("current research selection was not retained as resolved: %+v err=%v", view, err)
 		}
 	})
 }

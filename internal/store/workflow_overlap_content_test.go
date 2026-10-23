@@ -14,6 +14,7 @@ import (
 func overlapContentFixture(t *testing.T) (*Store, WorkflowArchitectureBinding, string) {
 	t.Helper()
 	s, _, binding, _, _, _ := architectureValidationFixture(t, "content-left")
+	overlapFixtureExec(t, s, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) SELECT home_project_id,home_locator_id,product_id,'extra','Extra','Synthetic Domain',status,registry_content_hash,scanned_commit_oid FROM domains WHERE domain_id='child'`)
 	seedWork(t, s, "content-right")
 	actor, _ := seedProductChangingContract(t, s, "content-left", binding)
 	seedProductChangingContract(t, s, "content-right", binding)
@@ -45,6 +46,13 @@ func resolveContentPair(t *testing.T, s *Store, from, to, kind string) {
 }
 
 func contentSuccessor(t *testing.T, s *Store, actor string, version int64, binding WorkflowArchitectureBinding, modifies []string) Event {
+	t.Helper()
+	return pOverlapContractFacts(t, s, contentSuccessorSource(t, s, actor, version, binding, modifies))
+}
+
+// contentSuccessorSource keeps the historical matrix's source payload separate
+// from the facts that current contract construction derives.
+func contentSuccessorSource(t *testing.T, s *Store, actor string, version int64, binding WorkflowArchitectureBinding, modifies []string) Event {
 	t.Helper()
 	mandate := []string{"spec:one"}
 	for _, addition := range binding.LawAdditions {
@@ -149,7 +157,6 @@ func TestOverlapJudgedFieldsAndSetOrder(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s, binding, actor := overlapContentFixture(t)
-			overlapFixtureExec(t, s, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) SELECT home_project_id,home_locator_id,product_id,'extra','Extra','Synthetic Domain',status,registry_content_hash,scanned_commit_oid FROM domains WHERE domain_id='child'`)
 			resolveContentPair(t, s, "content-left", "content-right", ResolutionCompatibleWith)
 			modifies := tc.change(&binding)
 			if modifies == nil {
@@ -186,7 +193,7 @@ func TestOverlapSupersessionPayloadHistoryRebuild(t *testing.T) {
 		t.Run(fmt.Sprint(payloadVersion), func(t *testing.T) {
 			s, binding, actor := overlapContentFixture(t)
 			resolveContentPair(t, s, "content-left", "content-right", ResolutionCompatibleWith)
-			event := contentSuccessor(t, s, actor, 2, binding, []string{})
+			event := contentSuccessorSource(t, s, actor, 2, binding, []string{})
 			event.PayloadVersion = payloadVersion
 			applyContentSuccessor(t, s, event)
 			if payloadVersion == historicalSupersessionPayloadVersion {
@@ -219,7 +226,7 @@ func TestOverlapSourceJudgedContentV3ChangedContentInvalidates(t *testing.T) {
 	resolveContentPair(t, s, "content-left", "content-right", ResolutionCompatibleWith)
 	changed := original
 	changed.DomainModifies = []string{"child", "root"}
-	event := contentSuccessor(t, s, actor, 2, changed, []string{})
+	event := contentSuccessorSource(t, s, actor, 2, changed, []string{})
 	event.PayloadVersion = sourceJudgedContentPayloadVersion
 	applyContentSuccessor(t, s, event)
 	assertContentStale(t, s)

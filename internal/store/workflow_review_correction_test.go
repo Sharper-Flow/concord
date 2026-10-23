@@ -225,31 +225,20 @@ func TestPostRejectionReviewGateHoldsBreakFixDelivery(t *testing.T) {
 	}
 }
 
-// TestDeliveryGateDeclaresCorrectiveReturn pins the amended CD-0166 gate
-// shape on both affected families: record_delivery stays the first action and
-// the corrective return sits between it and the continuity holds, while the
-// released closed-gate versions keep their original shape.
 func TestDeliveryGateDeclaresCorrectiveReturn(t *testing.T) {
-	for _, definitionRef := range []string{"workflow.implementation", "workflow.break_fix"} {
-		current, err := BuiltinWorkflowDefinitionForRef(definitionRef)
-		if err != nil {
-			t.Fatal(err)
+	for _, family := range []string{"workflow.implementation", "workflow.break_fix"} {
+		entry := mustBuiltinDefinition(t, family)
+		gate := workflowStep(entry.Definition, "delivery")
+		if !workflowStepIsDeliveryGate(gate) || len(gate.Actions) != 4 || gate.Actions[0] != "record_delivery" || gate.Actions[1] != "request_correction" {
+			t.Fatalf("%s gate actions=%v", family, gate.Actions)
 		}
-		gate := workflowStep(current.Definition, "delivery")
-		if !workflowStepIsDeliveryGate(gate) {
-			t.Fatalf("%s current gate shape = %v, want a delivery gate", definitionRef, gate.Actions)
-		}
-		if len(gate.Actions) != 4 || gate.Actions[0] != "record_delivery" || gate.Actions[1] != "request_correction" {
-			t.Fatalf("%s gate actions = %v, want record_delivery, request_correction, then the continuity holds", definitionRef, gate.Actions)
+		if workflowCorrectionReturnTarget(entry.Definition, "delivery") == "" {
+			t.Fatalf("%s gate has no producer return", family)
 		}
 	}
-	released, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 13)
-	if !ok {
-		t.Fatal("workflow.break_fix v13 is not registered")
-	}
-	releasedGate := workflowStep(released.Definition, "delivery")
-	if !workflowStepIsDeliveryGate(releasedGate) || len(releasedGate.Actions) != 3 {
-		t.Fatalf("released v13 gate shape = %v, want the closed three-action gate", releasedGate.Actions)
+	// The registry exposes only the current gate as executable authority.
+	if _, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 13); ok {
+		t.Fatal("retired closed gate remains registered")
 	}
 }
 
@@ -467,6 +456,68 @@ func TestCurrentDeliveryGateAdmitsEvidenceBearingReturn(t *testing.T) {
 			reviewGateRequireStep(t, s, workID, tc.targetStep)
 			if count := reviewGateCountDeliveries(t, s, workID); count != 0 {
 				t.Fatalf("corrective return recorded %d delivery assertions, want none", count)
+			}
+		})
+	}
+}
+
+// TestCurrentDeliveryGateReturnsWhenSuccessorStalesAcceptedReview: a
+// successor contract that changes a criterion leaves the accepted Review
+// inapplicable, so the parked gate offers only the evidence-bearing return.
+func TestCurrentDeliveryGateReturnsWhenSuccessorStalesAcceptedReview(t *testing.T) {
+	for _, family := range []string{"workflow.break_fix", "workflow.implementation"} {
+		t.Run(family, func(t *testing.T) {
+			j := pReturnReviewFixture(t, "current-gate-return", family, "ready_for_final_proof")
+			owner, err := WorkflowActorRef(j.fixture.owner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Park at the gate, then change the contract through its fold owner.
+			if err := advanceWorkflowTestInstanceToStep(t.Context(), j.s, j.workID, "delivery", owner); err != nil {
+				t.Fatal(err)
+			}
+			successor := pContractSuccessor(t, j.s, j.workID, 2, "changed criterion")
+			delete(successor, "audit_evidence")
+			delete(successor, "supersede_reason")
+			successor["outcome_kind"] = "check"
+			predicates := successor["outcome_predicates"].([]any)
+			predicates[0].(map[string]any)["outcome_payload"].(map[string]any)["expected_result"] = "fail"
+			version := readWorkVersion(t, j.s, j.workID)
+			successor["law_revisions"], successor["law_boundary_version"], successor["consequence_class"] = []WorkflowLawRevision{}, 1, "internal_sqlite"
+			event := workflowEventWithActor("p-gate-successor", WorkflowContractSuperseded, j.workID, owner, map[string]any{"work_id": j.workID, "expected_version": version, "resulting_version": version + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "changed criterion", "audit_evidence": []string{"evidence:return-route-artifact"}, "successor_contract": successor})
+			event.PayloadVersion = 1
+			event = withPinnedDecisionFact(t, pinnedWorkflowDefinitionForTest(t, j.s, j.workID), event)
+			if err := applyWorkflowTestOperation(t.Context(), j.s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, j.workID): version}}); err != nil {
+				t.Fatal(err)
+			}
+			pin := issue1013Pin(t, j.s, j.workID)
+			if pin.Review == nil || pin.Review.DependenciesCurrent || issue1013HasIntent(pin, "record_delivery") {
+				t.Fatalf("stale gate offered delivery: %+v", pin.NextValidIntents)
+			}
+			if !issue1013HasIntent(pin, "request_correction") {
+				t.Fatalf("stale gate hides corrective return: %+v", pin.NextValidIntents)
+			}
+			var reason string
+			for _, intent := range pin.NextValidIntents {
+				if intent.ActionID == "request_correction" {
+					reason = intent.ReasonCode
+				}
+			}
+			if reason != "delivery_gate_correction" {
+				t.Fatalf("gate correction intent=%q, want delivery_gate_correction", reason)
+			}
+			payload := pReviewCorrectionPayload(t, j)
+			deliveries := reviewGateCountDeliveries(t, j.s, j.workID)
+			if err := j.action(t, "request_correction", payload, j.fixture.owner); err != nil {
+				t.Fatalf("evidence-bearing current gate return: %v", err)
+			}
+			effect := "execution"
+			if family == "workflow.break_fix" {
+				effect = "repair"
+			}
+			reviewGateRequireStep(t, j.s, j.workID, effect)
+			if count := reviewGateCountDeliveries(t, j.s, j.workID); count != deliveries {
+				t.Fatalf("corrective return changed asserted deliveries from %d to %d", deliveries, count)
 			}
 		})
 	}

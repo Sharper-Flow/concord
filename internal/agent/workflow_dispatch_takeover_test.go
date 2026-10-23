@@ -118,10 +118,11 @@ func TestDispatchWorkerOverAnotherSessionsInFlightAttemptRequiresBoundApproval(t
 	if first, _ := f.dispatch(t, f.owner, "attempt:work-1:owner", "owner-dispatch"); first.Outcome != OutcomeOK {
 		t.Fatalf("owner dispatch_worker: %+v", first.Error)
 	}
+	laneActor := f.laneDispatch(t, "owner-lane-dispatched", "attempt:work-1:owner")
 	heldEpoch, ownerRef := latestExecutionStart(t, f.s)
 
 	challenge, input := f.dispatch(t, f.other, "attempt:work-1:other", "other-dispatch")
-	requireTakeoverChallenge(t, challenge, ownerRef, heldEpoch)
+	requireTakeoverChallenge(t, challenge, laneActor, heldEpoch)
 	if epoch, actor := latestExecutionStart(t, f.s); epoch != heldEpoch || actor != ownerRef {
 		t.Fatalf("challenge moved the attempt: epoch %d actor %s", epoch, actor)
 	}
@@ -162,6 +163,7 @@ func TestDispatchWorkerTakeoverApprovalRefusesAfterHeldAttemptMoves(t *testing.T
 	if first, _ := f.dispatch(t, f.owner, "attempt:work-1:owner", "owner-dispatch"); first.Outcome != OutcomeOK {
 		t.Fatalf("owner dispatch_worker: %+v", first.Error)
 	}
+	f.laneDispatch(t, "owner-lane-dispatched", "attempt:work-1:owner")
 	challenge, input := f.dispatch(t, f.other, "attempt:work-1:other", "other-dispatch")
 	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("unapproved dispatch takeover = %+v, want approval_required", challenge.Error)
@@ -171,6 +173,7 @@ func TestDispatchWorkerTakeoverApprovalRefusesAfterHeldAttemptMoves(t *testing.T
 	if again, _ := f.dispatch(t, f.owner, "attempt:work-1:owner-again", "owner-redispatch"); again.Outcome != OutcomeOK {
 		t.Fatalf("owner re-dispatch: %+v", again.Error)
 	}
+	f.laneDispatch(t, "owner-lane-redispatched", "attempt:work-1:owner-again")
 	movedEpoch, _ := latestExecutionStart(t, f.s)
 	ref := challenge.Error.Details["approval_ref"].(string)
 	approved := cloneWithApproval(t, input, ref)
@@ -196,7 +199,12 @@ func TestDispatchWorkerAfterHolderVacatesNeedsNoApproval(t *testing.T) {
 	if first, _ := f.dispatch(t, f.owner, "attempt:work-1:owner", "owner-dispatch"); first.Outcome != OutcomeOK {
 		t.Fatalf("owner dispatch_worker: %+v", first.Error)
 	}
-	payload, _ := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1", "session_ref": f.ownerGrant.SessionRef, "source_directory": f.ownerGrant.Worktree, "destination_directory": "/repo"})
+	laneActor := f.laneDispatch(t, "owner-lane-dispatched", "attempt:work-1:owner")
+	var holderSession string
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT session_ref FROM workflow_actors WHERE actor_ref=?`, laneActor).Scan(&holderSession); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1", "session_ref": holderSession, "source_directory": f.ownerGrant.Worktree, "destination_directory": "/repo"})
 	if err := store.ApplyOperation(context.Background(), f.s, store.Operation{Events: []store.Event{{EventID: "owner-vacated", Kind: "work.session_vacated", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: f.ownerGrant.PrincipalRef, OccurredAt: fixedTime(), PayloadVersion: 2, Payload: payload}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +215,7 @@ func TestDispatchWorkerAfterHolderVacatesNeedsNoApproval(t *testing.T) {
 
 // A failed attempt is finished: the next dispatch is a CD-0148 retry, whose
 // challenge binds the failed attempt and never the takeover holder.
-func TestDispatchWorkerAfterFailedAttemptKeepsTheRetryChallenge(t *testing.T) {
+func TestDispatchWorkerAfterFailedAttemptConsumesCorrectionWithoutConsent(t *testing.T) {
 	t.Parallel()
 	f := newDispatchTakeoverFixture(t)
 	const attemptID = "attempt:work-1:owner"
@@ -222,17 +230,21 @@ func TestDispatchWorkerAfterFailedAttemptKeepsTheRetryChallenge(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("fail lane: %v", err)
 	}
-	retry, _ := f.dispatch(t, f.other, "attempt:work-1:other", "other-retry")
-	if retry.Error == nil || retry.Error.Kind != "approval_required" {
-		t.Fatalf("retry after the failure = outcome %s error %+v, want the CD-0148 approval challenge", retry.Outcome, retry.Error)
+	pin, err := store.ReadWorkPin(context.Background(), f.s, "work-1")
+	if err != nil || pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID {
+		t.Fatalf("failed attempt correction = %+v err=%v", pin.Correction, err)
 	}
-	summary := retry.Error.ConsequenceSummary
-	if summary == nil || !slices.Contains(summary.Scope, "failed_attempt_id:"+attemptID) {
-		t.Fatalf("retry challenge does not bind the failed attempt: %#v", summary)
+	input := map[string]any{
+		"work_id": "work-1", "expected_version": pin.Version, "action_id": "dispatch_worker", "idempotency_key": "other-retry",
+		"fields": map[string]any{"attempt_id": "attempt:work-1:other", "worker_packet": retryMutationPacket(t, f.s, "attempt:work-1:other", pin.Correction)},
 	}
-	for _, binding := range summary.Scope {
-		if strings.HasPrefix(binding, "held_attempt_holder:") {
-			t.Fatalf("retry after a failure binds a takeover holder: %#v", summary)
-		}
+	if retry := f.invoke(t, f.other, input); retry.Outcome != OutcomeOK {
+		t.Fatalf("consuming retry after the failure = %+v, want ok without consent", retry.Error)
+	}
+	if challenges := verifyWallChallenges(t, f.s); challenges != 0 {
+		t.Fatalf("retry after a finished attempt minted %d takeover or retry challenges", challenges)
+	}
+	if epoch, actor := latestExecutionStart(t, f.s); epoch != pin.Correction.FailedAttemptEpoch+1 || actor != actorRefOf(f.otherGrant) {
+		t.Fatalf("retry epoch=%d actor=%s, want the next epoch held by the retrying session", epoch, actor)
 	}
 }

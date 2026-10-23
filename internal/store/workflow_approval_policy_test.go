@@ -7,12 +7,9 @@ import (
 	"testing"
 )
 
-// The approval classification owner is one pure policy reader over a verified
-// definition, the action, declared decision domains, and typed consequence
-// facts. The discriminator approval_policy=consequence_v1 is definition-owned:
-// absence selects the released legacy policy, unknown values refuse, and no
-// registered current definition carries the new value, so current authoring is
-// unchanged.
+// The pure policy reader classifies declared decision domains and typed
+// consequences. Synthetic definitions witness the absent-policy contract;
+// current Product families carry consequence_v1.
 
 // approvalPolicyDefinition builds a minimal definition value for the pure
 // reader: the registry owns full definition validation, the reader owns policy
@@ -64,7 +61,7 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 				}
 			}
 		}
-		legacy := legacyApprovalPolicyHeads(t)[0]
+		legacy := approvalPolicyDefinition("", "record_verdict", "complete", "request_correction", "confirm_premise", "dispatch_worker", "approve_contract")
 		overrides := map[string]WorkflowApprovalConsent{}
 		for _, action := range legacy.ActionDefinitions {
 			result, err := ClassifyWorkflowApproval(legacy, action.ID, WorkflowApprovalFacts{OperatorRequired: true})
@@ -347,11 +344,7 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 // newest version that answers consent under the released legacy policy.
 func legacyApprovalPolicyHeads(t *testing.T) []WorkflowDefinition {
 	t.Helper()
-	var heads []WorkflowDefinition
-	for _, head := range BuiltinWorkflowDefinitions() {
-		heads = append(heads, legacyApprovalPolicyDefinitionForRef(t, head.Ref).Definition)
-	}
-	return heads
+	return []WorkflowDefinition{workflowFixtureDefinition(t, 1).Definition, workflowFixtureDefinition(t, 2).Definition}
 }
 
 func headDigestForTest(t *testing.T, definition WorkflowDefinition) string {

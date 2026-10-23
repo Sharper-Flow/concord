@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -10,11 +11,8 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// checkpointFailedReviewCorrectionContext is the correction context the
-// checkpoint failed-review return (amended CD-0143 D1, CD-0193 D1) projects:
-// the failure disposition names the failed review, the bound evidence and
-// affected predicates stay bounded, and the dispositioned attempt identity
-// binds the failed review.
+// The closed read schema retains the failure disposition without claiming
+// that a failed review is an accepted successful result.
 func checkpointFailedReviewCorrectionContext() map[string]any {
 	return map[string]any{
 		"disposition":   "failed",
@@ -26,12 +24,6 @@ func checkpointFailedReviewCorrectionContext() map[string]any {
 	}
 }
 
-// TestFailedReviewCorrectionContextFitsTheClosedSchemas pins the failed-review
-// variant against the closed result schema the work pin and the mutation
-// envelope project, and against the closed request input the exact operator
-// approval authorizes. A failure disposition is the only enum value that can
-// represent it: the accepted-success reading of the dispositioned attempt has
-// no schema shape.
 func TestFailedReviewCorrectionContextFitsTheClosedSchemas(t *testing.T) {
 	context := checkpointFailedReviewCorrectionContext()
 	raw, err := json.Marshal(context)
@@ -41,7 +33,6 @@ func TestFailedReviewCorrectionContextFitsTheClosedSchemas(t *testing.T) {
 	if err := ValidatePayloadSchema("workflow_correction_context", raw); err != nil {
 		t.Fatalf("failed-review correction context rejected by the closed pin schema: %v", err)
 	}
-
 	input := map[string]any{
 		"work_id": "work-1", "expected_version": 7, "action_id": "request_correction", "idempotency_key": "checkpoint-correction-1",
 		"fields": map[string]any{
@@ -57,10 +48,6 @@ func TestFailedReviewCorrectionContextFitsTheClosedSchemas(t *testing.T) {
 	if err := ValidatePayloadSchema("work_transition_action_input", inputRaw); err != nil {
 		t.Fatalf("failed-review request_correction input rejected by the closed input schema: %v", err)
 	}
-
-	// The closed schema stays closed: the failed-review context cannot grow
-	// an undeclared field, and no variant of it claims a schema shape the
-	// projection does not own.
 	padded := checkpointFailedReviewCorrectionContext()
 	padded["accepted_delivery"] = "evidence:return-route-verification"
 	paddedRaw, err := json.Marshal(padded)
@@ -72,247 +59,102 @@ func TestFailedReviewCorrectionContextFitsTheClosedSchemas(t *testing.T) {
 	}
 }
 
-// TestFailedReviewCheckpointCorrectionBoundaryApprovesExactOperatorOnly
-// drives the failed-review checkpoint return through the real mutation
-// boundary: the unbound predicate, unbound evidence, and consumed stale
-// verdict refusals name their gaps, the admitted shape mints the operator
-// challenge, and one exact operator approval returns implementation to
-// execution while request_correction mints no worker attempt.
-func TestFailedReviewCheckpointCorrectionBoundaryApprovesExactOperatorOnly(t *testing.T) {
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	ctx := context.Background()
-	seedCurrentWorkflowDomainFixture(t, s)
-	worktree := t.TempDir()
-	grant.Worktree = worktree
-
-	// The instance is pinned to the released implementation version whose
-	// acceptance step is the human_checkpoint carrying the review dispatch.
-	// The operator-approved checkpoint return is a legacy approval-policy
-	// flow; consequence_v1 takes no operator substitution for it.
-	pinned := legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation")
-	var err error
-	grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-	grantActorRef, err := store.WorkflowActorRef(grantActor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: pinned, Actor: grantActor, Now: fixedTime()})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-		UPDATE workflow_instances SET current_step='execution' WHERE work_id='work-1';
-		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,'approved checkpoint return objective','internal_sqlite','[]','[]','now',?1,'[]','[]',0,'prototype_internal');
-		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-1',1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:checkpoint-return","immutable_subject_ref":"commit:checkpoint-return","expected_result":"pass"}');
-		DELETE FROM fold_guard`, grantActorRef); err != nil {
-		t.Fatalf("seed the checkpoint contract under the fold guard: %v", err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?)`, store.WorktreeSetID("work-1"), "project-1", "claim:checkpoint-return", "checkpoint-return", strings.Repeat("a", 40), worktree, "repo:checkpoint-return", fixedTime().Format(time.RFC3339Nano)); err != nil {
-		t.Fatalf("seed the checkpoint worktree claim: %v", err)
-	}
-	var claims int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worktree_entries WHERE set_id=? AND state='active'`, store.WorktreeSetID("work-1")).Scan(&claims); err != nil || claims != 1 {
-		t.Fatalf("checkpoint worktree claim count=%d err=%v", claims, err)
-	}
-
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	env := mutationEnvelope(grant, scopeVersion)
-	invoke := func(input map[string]any) Envelope {
-		t.Helper()
-		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return response
-	}
-	stepOf := func() string {
-		t.Helper()
-		var step string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
-			t.Fatal(err)
-		}
-		return step
-	}
-
-	// The verification evidence the verdict will cite binds on the execution
-	// step through the boundary, then the instance parks at the acceptance
-	// checkpoint: the checkpoint itself declares no bind_evidence exit.
-	if started := invoke(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "start_execution", "idempotency_key": "checkpoint-execution-start"}); started.Outcome != OutcomeOK {
-		t.Fatalf("checkpoint fixture start_execution: %+v", started.Error)
-	}
-	if bound := invoke(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "verification", "immutable_subject_ref": "evidence:checkpoint-review"}, "idempotency_key": "checkpoint-evidence-bind"}); bound.Outcome != OutcomeOK {
-		t.Fatalf("checkpoint fixture bind_evidence: %+v", bound.Error)
-	}
-
-	// The review gate joins the accepted implementation delivery produced on
-	// this worktree claim, so the accepted prerequisite stands before the
-	// review window under test: one ready job, one implementation dispatch,
-	// its core-observed completed report, and the gate acceptance, all
-	// through the authenticated boundary and the live terminal seam.
-	seedOracleVerifySubjectForWork(t, s, "work-1")
-	recordReadyRetryJob(t, s, service, env, "job:checkpoint-accepted-prereq")
-	acceptedAttempt := "attempt:work-1:accepted-prereq"
-	acceptedPacket := bindPacketToRecordedState(t, s, func() map[string]any {
-		lane := deliveryRecoveryLane(t, "implementation")
-		inputs := map[string]any{"task": "deliver the accepted implementation prerequisite", "constraints": []string{"preserve the approved contract"}}
-		snapshot, snapshotErr := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: "work-1"})
-		if snapshotErr != nil {
-			t.Fatal(snapshotErr)
-		}
-		if len(snapshot.ReadyWorkerJobs) > 0 {
-			selected, selectErr := json.Marshal(snapshot.ReadyWorkerJobs[len(snapshot.ReadyWorkerJobs)-1])
-			if selectErr != nil {
-				t.Fatal(selectErr)
-			}
-			inputs["worker_job"] = json.RawMessage(selected)
-		}
-		return map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": acceptedAttempt, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "execution", "inputs": inputs}
-	}())
-	if dispatched := invoke(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": acceptedAttempt, "worker_packet": acceptedPacket}, "idempotency_key": "checkpoint-accepted-dispatch"}); dispatched.Outcome != OutcomeOK {
-		t.Fatalf("checkpoint accepted-prereq dispatch: %+v", dispatched.Error)
-	}
-	var acceptedDigest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, store.WorkflowActionCompleted, acceptedAttempt).Scan(&acceptedDigest); err != nil {
-		t.Fatal(err)
-	}
-	acceptedLane := deliveryRecoveryLane(t, "implementation")
-	acceptedJob := authorizedWorkerJob(t, s, acceptedAttempt)
-	acceptedDispatch := store.Event{EventID: "checkpoint-accepted-dispatch-" + acceptedAttempt, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: acceptedAttempt, LaneID: acceptedLane.ID, LaneVersion: acceptedLane.Version, LaneDigest: acceptedLane.Digest, CapabilityClass: acceptedLane.CapabilityClass, PacketDigest: acceptedDigest, ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: acceptedJob})}
-	if dispatchErr := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		enriched, enrichErr := store.PrepareLaneActorDispatch(context.Background(), tx, acceptedDispatch, grant.PrincipalRef, grant.ClientRef)
-		if enrichErr != nil {
-			return enrichErr
-		}
-		_, appendErr := store.AppendLaneActorDispatchTx(context.Background(), tx, enriched)
-		return appendErr
-	}); dispatchErr != nil {
-		t.Fatalf("seed the accepted-prereq lane dispatch: %v", dispatchErr)
-	}
-	deliverAgentFixtureChange(t, s, "work-1", acceptedAttempt)
-	agentWorkerCompletedThroughSeam(t, s, acceptedAttempt, "checkpoint-accepted-prereq-completed", store.WorkerCompletedPayload{AttemptID: acceptedAttempt, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: acceptedJob})
-	var acceptedEpoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.step_id')='execution' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&acceptedEpoch); err != nil {
-		t.Fatalf("read the accepted-prereq dispatch epoch: %v", err)
-	}
-	if accepted := invoke(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "accept_worker_result", "fields": map[string]any{"attempt_id": acceptedAttempt, "attempt_epoch": acceptedEpoch}, "idempotency_key": "checkpoint-accepted-accept"}); accepted.Outcome != OutcomeOK {
-		t.Fatalf("checkpoint accepted-prereq accept: %+v", accepted.Error)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-		UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1';
-		DELETE FROM fold_guard`); err != nil {
-		t.Fatalf("park the instance at the acceptance checkpoint: %v", err)
-	}
-
-	// A review-lane attempt dispatches at the acceptance checkpoint, fails,
-	// and the mismatch verdict lands under the active contract: the issue
-	// 1062 shape behind the amended admission.
-	attemptID := "attempt:work-1:failed-review"
-	lane := deliveryRecoveryLane(t, "review")
-	reviewPacket := bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "acceptance", "inputs": map[string]any{"task": "review the delivered subject at the acceptance checkpoint", "constraints": []string{"preserve the approved contract"}}})
-	if dispatched := invoke(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": reviewPacket}, "idempotency_key": "checkpoint-review-dispatch"}); dispatched.Outcome != OutcomeOK {
-		t.Fatalf("checkpoint review dispatch: %+v", dispatched.Error)
-	}
-	// The worker session's lane dispatch precedes its terminal fact; the
-	// canonical head then derives the workflow failure record from the
-	// attempt's own terminal event through the live worker-evidence seam
-	// (CD-0198 D5). The closed live union publishes no record_worker_failure
-	// authoring shape (CD-0218 D2).
-	var packetDigest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, store.WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
-		t.Fatal(err)
-	}
-	laneDispatch := store.Event{EventID: "checkpoint-review-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest, ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion})}
-	// The failed review carries the recorded host observation the promoted
-	// definition requires; the host boundary observed the review lane's
-	// failure with an unknown cause, and the store derives the identity from
-	// the attempt's own dispatch authorization.
-	laneFailure := agentWorkerFailedAttributedEvent("checkpoint-review-failed-"+attemptID, store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "review lane failed"})
-	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		enriched, err := store.PrepareLaneActorDispatch(ctx, tx, laneDispatch, grant.PrincipalRef, grant.ClientRef)
-		if err != nil {
-			return err
-		}
-		if _, err := store.AppendLaneActorDispatchTx(ctx, tx, enriched); err != nil {
-			return err
-		}
-		_, err = store.ApplyWorkerEvidenceOperationTx(ctx, tx, laneFailure)
+func TestFailedReviewCorrectionBoundaryRequiresAcceptedCurrentReview(t *testing.T) {
+	f := newSpineExecutionFixture(t)
+	f.verify(t)
+	f.recordJob(t)
+	f.completeWorker(t)
+	f.proof = f.verify(t)
+	f.recordJob(t)
+	const failedAttempt = "attempt:failed-correction-review"
+	f.startWorker(t, "review", failedAttempt)
+	failure := agentWorkerFailedAttributedEvent("failed-correction-review", store.WorkerFailedPayload{
+		AttemptID: failedAttempt, ReadbackModel: "openai/test-model", FailureKind: store.WorkerFailureWorkerError, Detail: "review lane failed",
+	})
+	failure.SubjectID, failure.OccurredAt = f.work, time.Now().UTC()
+	if err := f.s.Transact(context.Background(), func(tx *store.Transaction) error {
+		_, err := store.ApplyWorkerEvidenceOperationTx(context.Background(), tx, failure)
 		return err
 	}); err != nil {
-		t.Fatalf("seed the failed review lane report: %v", err)
+		t.Fatalf("record failed review through the terminal seam: %v", err)
 	}
-	reviewer := store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/work-1-reviewer", ActorClass: store.ActorAgent}
-	runVerificationStoreAction(t, s, "record_verdict", map[string]any{
-		"contract_version": 1, "verdicts": []map[string]any{{"predicate_id": "predicate:primary", "verdict_kind": "outcome_mismatch",
-			"evaluation_evidence": []string{"evidence:checkpoint-review"}, "incomparable_with_approved": true}},
-	}, reviewer, nil, "checkpoint-mismatch")
-
-	// The payload gates fire before the approval wall: a predicate without a
-	// current non-ok verdict and unbound evidence are refused by name.
-	if unbound := invoke(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "request_correction", "idempotency_key": "checkpoint-unbound-predicate", "fields": map[string]any{"diagnosis": "the review failed", "strategy": "rebuild and re-verify", "predicate_ids": []string{"predicate:elsewhere"}, "evidence_refs": []string{attemptID}}}); unbound.Outcome != OutcomeError || unbound.Error == nil || !strings.Contains(unbound.Error.Message, "without a current non-ok verdict") {
-		t.Fatalf("unbound predicate through the boundary = %+v, want the verdict-class payload refusal", unbound.Error)
+	fields := map[string]any{
+		"diagnosis":     "The review failed before producing an accepted correction disposition.",
+		"strategy":      "Obtain current Review before requesting implementation correction.",
+		"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{f.proof},
 	}
-	if unboundEvidence := invoke(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "request_correction", "idempotency_key": "checkpoint-unbound-evidence", "fields": map[string]any{"diagnosis": "the review failed", "strategy": "rebuild and re-verify", "predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:unbound"}}}); unboundEvidence.Outcome != OutcomeError || unboundEvidence.Error == nil || !strings.Contains(unboundEvidence.Error.Message, "not durably bound") {
-		t.Fatalf("unbound evidence through the boundary = %+v, want the evidence-binding refusal", unboundEvidence.Error)
+	// The failed review lane is not a correction prerequisite: without an
+	// accepted current Review the closed refusal names the missing verdict
+	// class and records nothing.
+	before := premiseConsentSnapshot(t, f.s)
+	refused := f.action(t, "request_correction", fields)
+	if refused.Outcome != OutcomeError || refused.Error == nil || !strings.Contains(refused.Error.Message, "current non-ok verification verdict") || refused.Error.EffectState != EffectNone {
+		t.Fatalf("failed review granted correction authority: %+v", refused.Error)
 	}
-
-	// The admitted shape mints the operator challenge; request_correction
-	// carries the contract version binding the approval consumes.
-	correctionInput := map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "request_correction", "idempotency_key": "checkpoint-correction-return", "fields": map[string]any{
-		"diagnosis": "the checkpoint review attempt failed and the delivered subject still mismatches", "strategy": "return to the execution step and dispatch a fresh attempt",
-		"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:checkpoint-review"},
-	}}
-	challenge := invoke(correctionInput)
-	if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("unauthenticated checkpoint return = %+v, want approval_required", challenge.Error)
+	if !reflect.DeepEqual(before, premiseConsentSnapshot(t, f.s)) {
+		t.Fatal("refused failed-review correction changed workflow authority")
 	}
-	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
-	if len(challengeRef) != 64 {
-		t.Fatalf("checkpoint return challenge carries no approval reference: %+v", challenge.Error.Details)
+	// Current Review, not a caller-authored non-ok verdict or operator
+	// substitution, owns the correction prerequisite.
+	f.recordJob(t)
+	f.review(t, "correction_required", "")
+	accepted := f.read(t)
+	if accepted.Pinned.Pin.Review == nil || accepted.Pinned.Pin.Review.Accepted == nil || accepted.Pinned.Pin.Review.Accepted.Report.Disposition != "correction_required" {
+		t.Fatalf("retry did not accept a current correction disposition: %+v", accepted.Pinned.Pin.Review)
 	}
-	if got, _ := challenge.Error.Details["action_id"].(string); got != "request_correction" {
-		t.Fatalf("checkpoint return challenge action_id = %v", challenge.Error.Details["action_id"])
+	reportRef := accepted.Pinned.Pin.Review.Accepted.ReportRef
+	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": reportRef}))
+	fields["evidence_refs"] = []string{reportRef}
+	for _, vector := range []struct {
+		name, field, message string
+		value                []string
+	}{
+		{"unapproved predicate", "predicate_ids", "predicate", []string{"predicate:elsewhere"}},
+		{"unbound evidence", "evidence_refs", "not durably bound", []string{"evidence:unbound"}},
+	} {
+		t.Run(vector.name, func(t *testing.T) {
+			invalid := map[string]any{}
+			for key, value := range fields {
+				invalid[key] = value
+			}
+			invalid[vector.field] = vector.value
+			before := premiseConsentSnapshot(t, f.s)
+			response := f.action(t, "request_correction", invalid)
+			if response.Outcome != OutcomeError || response.Error == nil || !strings.Contains(response.Error.Message, vector.message) || response.Error.EffectState != EffectNone {
+				t.Fatalf("invalid correction = %+v, want %s refusal", response.Error, vector.name)
+			}
+			if !reflect.DeepEqual(before, premiseConsentSnapshot(t, f.s)) {
+				t.Fatal("invalid correction changed workflow authority")
+			}
+		})
 	}
-
-	// One exact operator approval admits the return: implementation leaves
-	// the checkpoint for execution, and request_correction minted no worker
-	// attempt. The failed review stays the only one.
-	approvedInput := cloneWithApproval(t, correctionInput, challengeRef)
-	approvedRaw, err := json.Marshal(approvedInput)
-	if err != nil {
-		t.Fatal(err)
+	beforeCorrection := f.read(t)
+	attempts := countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`)
+	challenges := countWorkflowApprovalChallenges(t, f.s)
+	input := map[string]any{
+		"work_id": f.work, "expected_version": beforeCorrection.Pinned.Pin.Version, "action_id": "request_correction",
+		"fields": fields, "idempotency_key": "failed-review-current-correction",
 	}
-	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": workVersion(t, s, "work-1"), "contract": int64(1)}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	returned := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
-	if returned.Outcome != OutcomeOK {
-		t.Fatalf("approved checkpoint return = %+v", returned.Error)
+	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", input))
+	current := f.read(t)
+	correction := current.Pinned.Pin.Correction
+	if current.Pinned.Step != "execution" || correction == nil || correction.SourceEventID == "" || !reflect.DeepEqual(correction.PredicateIDs, []string{"predicate:primary"}) || !reflect.DeepEqual(correction.EvidenceRefs, []string{reportRef}) {
+		t.Fatalf("current correction lost its bounded return context: %+v", current.Pinned)
 	}
-	if got := stepOf(); got != "execution" {
-		t.Fatalf("step after the approved checkpoint return = %q, want execution", got)
+	if !reflect.DeepEqual(beforeCorrection.Pinned.Contract, current.Pinned.Contract) || !reflect.DeepEqual(beforeCorrection.Pinned.Pin.Review, current.Pinned.Pin.Review) || countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`) != attempts || countWorkflowApprovalChallenges(t, f.s) != challenges || f.env.HostApproval != nil {
+		t.Fatal("correction changed contract, Review, attempts, or consent state")
 	}
-	// The correction route itself mints no worker attempt: the work holds
-	// the accepted implementation prerequisite beside the failed review, and
-	// nothing else.
-	var attempts int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`).Scan(&attempts); err != nil {
-		t.Fatal(err)
+	before = premiseConsentSnapshot(t, f.s)
+	if replay := spineOK(t, f.call(t, "concord_work_transition", "workflow_action", input)); !replay.Replayed || !reflect.DeepEqual(before, premiseConsentSnapshot(t, f.s)) {
+		t.Fatal("correction replay changed authority")
 	}
-	var correctionMinted int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND attempt_id NOT IN ('attempt:work-1:accepted-prereq','attempt:work-1:failed-review')`).Scan(&correctionMinted); err != nil {
-		t.Fatal(err)
-	}
-	if attempts != 2 || correctionMinted != 0 {
-		t.Fatalf("worker attempts = %d with %d outside the seeded prerequisite and failed review, want the correction to mint none", attempts, correctionMinted)
-	}
-
-	// The consumed stale verdict cannot reopen the return: the second request
-	// names the absent fresh verdict instead of reusing the failed review.
-	if stale := invoke(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "request_correction", "idempotency_key": "checkpoint-correction-stale", "fields": correctionInput["fields"]}); stale.Outcome != OutcomeError || stale.Error == nil || !strings.Contains(stale.Error.Message, "current non-ok verification verdict") {
-		t.Fatalf("stale-verdict re-request through the boundary = %+v, want the verdict-class refusal", stale.Error)
+	f.recordJob(t)
+	f.review(t, "ready_for_final_proof", f.proof)
+	// A ready Review closes the correction prerequisite: the superseded
+	// disposition cannot reopen the return.
+	before = premiseConsentSnapshot(t, f.s)
+	stale := f.action(t, "request_correction", fields)
+	if stale.Outcome != OutcomeError || stale.Error == nil || stale.Error.EffectState != EffectNone || !reflect.DeepEqual(before, premiseConsentSnapshot(t, f.s)) {
+		t.Fatalf("superseded correction disposition reopened the return: %+v", stale.Error)
 	}
 }

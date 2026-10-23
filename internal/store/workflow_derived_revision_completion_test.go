@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 )
 
 // TestDerivedRevisionCompletesOnlyAfterItLands holds CD-0159 D4 from the
@@ -25,14 +24,13 @@ func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	seedDerivedLawExtension(t, s)
+	seedIssue31DomainRegistry(t, s)
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid,declarer_law_id) VALUES('project','workflow-law-locator','spec:legislated','conflicts_with','spec:one','test','spec:one'); DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/researcher", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	// The operator signs the verdict, the premise, and the completion: the
-	// flow a legacy approval-policy pin keeps.
-	version := seedDerivedRevisionWorkflowAt(t, s, workID, owner, legacyApprovalPolicyDefinitionForRef(t, "workflow.research"))
-	approval := json.RawMessage(`{"premise":"Bring the derived law into conformance with the legislated one.","spec_mandate":["spec:legislated","spec:one"],"law_modifies":["spec:one"],"required_evidence":["artifact"],"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["report_recorded"]}}]}`)
+	version := seedDerivedRevisionWorkflow(t, s, workID, owner)
+	approval := json.RawMessage(`{"premise":"Bring the derived law into conformance with the legislated one.","spec_mandate":["spec:legislated","spec:one"],"law_modifies":["spec:one"],"law_change_reason":"Bring the derived record into conformance with its legislated mandate.","law_change_removes_user_visible_behavior":false,"law_change_touches_security_or_data_safety":false,"required_evidence":["artifact"],"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["report_recorded"]}}]}`)
 	if err := runDerivedLawApproval(t, s, workID, version, owner, approval); err != nil {
 		t.Fatalf("the derived revision was not admitted at approval: %v", err)
 	}
@@ -50,43 +48,34 @@ func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
 			t.Fatalf("%s: %v", step.action, err)
 		}
 	}
-	operator := operatorVerdictActor(t, workID)
-	// withOperator runs one action for the owner with the operator identity
-	// attached, as the operator-signed verdict and completion route do.
-	withOperator := func(action, attempt string, payload json.RawMessage) error {
-		t.Helper()
-		version := readWorkVersion(t, s, workID)
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-			WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner, OperatorActor: &operator,
-			AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64) + attempt, IdempotencyIdentity: "derived-lands-" + attempt, OperationID: "derived-lands-" + attempt,
-			PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "derived-lands-" + attempt, RequestID: "request:derived-lands-" + attempt, ContractDigest: testManifestDigest, Now: time.Unix(11, 0).UTC(),
-		})
-		if err != nil {
-			return err
-		}
-		return tx.Commit()
+	f := workContextFixture{store: s, workID: workID, owner: owner}
+	pack := seedResearchContextPack(t, f, "derived-lands-proof")
+	bindResearchPack(t, f, pack.PackID, 1, true)
+	selection := researchSelectionEntry(pack.PackID, 1, "f2", "root")
+	selection["product_wide_rationale"] = "The research supports conformance with the legislated mandate."
+	if err := f.recordWorkContext(t, map[string]any{"research_finding_refs": []map[string]any{selection}}); err != nil {
+		t.Fatal(err)
 	}
-	if err := withOperator("record_verdict", "verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["evidence:research-report"]}]}`)); err != nil {
-		t.Fatalf("operator verdict: %v", err)
+	view, err := readWorkContextView(context.Background(), s.DatabaseForTesting(), workID)
+	if err != nil || view == nil || len(view.ResearchFindings) != 1 {
+		t.Fatalf("selected research proof: %+v err=%v", view, err)
 	}
-	operatorRef, _ := WorkflowActorRef(operator)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", mustJSONValue(map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{view.ResearchFindings[0].ViewID}}}}), 0, owner); err != nil {
+		t.Fatalf("research receipt association: %v", err)
+	}
+	ownerRef, _ := WorkflowActorRef(owner)
 	premiseVersion := readWorkVersion(t, s, workID)
-	operatorRecorded := workflowEvent("derived-lands-operator", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": premiseVersion, "resulting_version": premiseVersion + 1, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
-	premise := workflowEventWithActor("derived-lands-premise", WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": premiseVersion + 1, "resulting_version": premiseVersion + 2, "contract_version": 1, "confirming_actor_ref": operatorRef})
-	premiseCompleted := workflowActionCompletedFixture("derived-lands-premise-done", workID, operatorRef, premiseVersion+2, "conclude", "confirm_premise")
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{operatorRecorded, premise, premiseCompleted}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): premiseVersion}}); err != nil {
+	premise := workflowEventWithActor("derived-lands-premise", WorkflowPremiseConfirmed, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": premiseVersion, "resulting_version": premiseVersion + 1, "contract_version": 1, "confirming_actor_ref": ownerRef, "confirmation_authority": "coordinator"})
+	premise.PayloadVersion = 2
+	premiseCompleted := workflowActionCompletedFixture("derived-lands-premise-done", workID, ownerRef, premiseVersion+1, "conclude", "confirm_premise")
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{premise, premiseCompleted}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): premiseVersion}}); err != nil {
 		t.Fatalf("premise confirmation: %v", err)
 	}
-	complete := func(attempt string) error {
+	complete := func() error {
 		t.Helper()
-		return withOperator("complete", attempt, json.RawMessage(`{"impact_verdict":"non-breaking"}`))
+		return runVerdictActionAs(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), 0, owner)
 	}
-	err := complete("before-landing")
+	err = complete()
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindRelationConflict || failure.Clause != 3 || !strings.Contains(failure.Detail, "unresolved explicit conflict: spec:legislated and spec:one") {
 		t.Fatalf("completion before the revision landed did not meet the clause 3 conflict refusal: %v", err)
@@ -95,7 +84,7 @@ func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM law_relations WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND kind='conflicts_with'; UPDATE law_subjects SET content_hash='sha256:` + strings.Repeat("c", 64) + `',scanned_commit_oid='landed' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'; DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	if err := complete("after-landing"); err != nil {
+	if err := complete(); err != nil {
 		t.Fatalf("completion after the revision landed was refused: %v", err)
 	}
 	var state string

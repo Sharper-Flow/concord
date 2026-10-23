@@ -657,13 +657,15 @@ func TestWorkflowDomainOverlapContractRevisionStalesResolutionAndRebuilds(t *tes
 		"law_revisions": []WorkflowLawRevision{{LawID: "spec:one", ContentHash: "sha256:" + strings.Repeat("a", 64)}}, "law_boundary_version": 1,
 		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": successorBinding,
 	}
+	revisionVersion := readWorkVersion(t, s, "revision-left")
 	supersede := workflowEventWithActor("revision-contract-v2", WorkflowContractSuperseded, "revision-left", leftActorRef, map[string]any{
-		"work_id": "revision-left", "expected_version": int64(10), "resulting_version": int64(11),
+		"work_id": "revision-left", "expected_version": revisionVersion, "resulting_version": revisionVersion + 1,
 		"previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "scope revision",
 		"audit_evidence": []string{"audit:revision-v2"}, "successor_contract": successor,
 	})
 	supersede.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-left"): 10}}); err != nil {
+	supersede = pOverlapContractFacts(t, s, supersede)
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{supersede}, ExpectedVersions: workVersion("revision-left", revisionVersion)}); err != nil {
 		t.Fatalf("contract revision: %v", err)
 	}
 	err = InspectWorkflowDomainOverlap(ctx, s, "revision-left")

@@ -107,6 +107,7 @@ type ContinuitySnapshot struct {
 	BoundaryCount            int64                             `json:"boundary_count"`
 	NextCursor               *string                           `json:"next_cursor"`
 	Watermark                string                            `json:"watermark"`
+	SourceVersionWatermark   int64                             `json:"-"`
 	// NativeRuns carries the attributed native-run reports for this work
 	// item, newest phase per run, with reporter, subject, evidence, and both
 	// times alongside the status (CD-0039 D1/D4).
@@ -208,6 +209,10 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot open a consistent continuity snapshot", true, "retry once the database is readable", err)
 	}
 	defer tx.Rollback()
+	out.SourceVersionWatermark, err = storeRevision(ctx, tx)
+	if err != nil {
+		return out, err
+	}
 	if req.Owner != nil {
 		if err := validateSessionWorktreeOwner(*req.Owner); err != nil {
 			return out, err

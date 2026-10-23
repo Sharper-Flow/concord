@@ -400,8 +400,8 @@ func TestRemoteLocatorUpgradeBackupStagePreservesSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.SchemaVersion != oldSchema || manifest.EventWatermark != oldEvents[len(oldEvents)-1].Seq {
-		t.Fatalf("snapshot did not retain original schema/journal: %+v", manifest)
+	if manifest.SchemaVersion != oldSchema || manifest.EventWatermark != 0 {
+		t.Fatalf("snapshot did not retain original schema and zero pre-revision inventory: %+v", manifest)
 	}
 	stage := filepath.Join(t.TempDir(), "stage.db")
 	if err := runOnlineRestore(ctx, snapshot, stage); err != nil {
@@ -411,8 +411,8 @@ func TestRemoteLocatorUpgradeBackupStagePreservesSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inventory.SchemaVersion != CurrentSchemaVersion() || inventory.EventWatermark != manifest.EventWatermark+2 {
-		t.Fatalf("staging upgrade did not record both corrections: %+v", inventory)
+	if inventory.SchemaVersion != CurrentSchemaVersion() || inventory.EventWatermark != oldEvents[len(oldEvents)-1].Seq+1 {
+		t.Fatalf("staging upgrade did not advance the seeded store revision: %+v", inventory)
 	}
 	restored, err := openUnmigrated(ctx, stage)
 	if err != nil {

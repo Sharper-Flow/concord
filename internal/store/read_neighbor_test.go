@@ -213,8 +213,8 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "DomainEventWatermark", run: func() error {
-			value, err := s.DomainEventWatermark(ctx)
+		{name: "Revision", run: func() error {
+			value, err := s.Revision(ctx)
 			if err != nil {
 				return err
 			}

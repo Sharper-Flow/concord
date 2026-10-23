@@ -432,7 +432,7 @@ func TestRecordedHistoricalPayloadHistoryRebuildsRestoresAndReconstructs(t *test
 		t.Fatalf("backup of the recorded history must pass promotion verification: %v", err)
 	}
 	var watermark int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(seq),0) FROM domain_events`).Scan(&watermark); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT revision FROM store_revision WHERE id=1`).Scan(&watermark); err != nil {
 		t.Fatal(err)
 	}
 	if manifest.EventWatermark != watermark {

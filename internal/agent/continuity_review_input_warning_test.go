@@ -12,7 +12,7 @@ import (
 func TestContinuityReviewInputWarningStaysOutsideProjection(t *testing.T) {
 	for _, kind := range []store.FailureKind{store.KindGitUnreachable, store.KindTimeout} {
 		t.Run(string(kind), func(t *testing.T) {
-			snapshot := store.ContinuitySnapshot{WorkID: "work-warning"}
+			snapshot := store.ContinuitySnapshot{WorkID: "work-warning", SourceVersionWatermark: 41, Watermark: "seq:99"}
 			before, err := json.Marshal(ContinuityPayload(snapshot))
 			if err != nil {
 				t.Fatal(err)
@@ -31,6 +31,9 @@ func TestContinuityReviewInputWarningStaysOutsideProjection(t *testing.T) {
 				t.Fatalf("warning changed snapshot JSON: %v", err)
 			}
 			meta := continuityResultMeta(snapshot, nil)
+			if meta.SourceVersionWatermark != 41 {
+				t.Fatalf("warning changed publication revision: %d", meta.SourceVersionWatermark)
+			}
 			envelope := applyMeta(Envelope{}, meta, nil)
 			if len(envelope.Warnings) != 1 || envelope.Warnings[0].Kind != "review_input_candidate_tree:"+string(kind) {
 				t.Fatalf("warning lost its phase or typed cause: %+v", envelope.Warnings)

@@ -2015,7 +2015,7 @@ func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []
 	}
 	var response Envelope
 	durable := false
-	err = r.executeAdmittedMutation(&ctx, &durable, func(tx *store.Transaction) error {
+	mutation := func(tx *store.Transaction) error {
 		inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
 		if inv.HostAssertionDigest == "" {
 			inv.HostAssertionDigest = digest
@@ -2147,7 +2147,12 @@ func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []
 		authorizedSnapshot["durable_commit"] = durable
 		authorizedScope, _ := json.Marshal(authorizedSnapshot)
 		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: key, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: "[]", ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()})
-	})
+	}
+	if in.DryRun {
+		err = r.Store.ReadTransaction(ctx, mutation)
+	} else {
+		err = r.executeAdmittedMutation(&ctx, &durable, mutation)
+	}
 	if err != nil {
 		if response.Outcome == OutcomeError {
 			return response, nil

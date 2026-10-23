@@ -497,6 +497,10 @@ func TestResearchRetireAuthorizationBeforeBatchEffects(t *testing.T) {
 func TestResearchRetireDryRunAndReplay(t *testing.T) {
 	s, service, grant, all := researchRetireFixture(t, []Capability{"product_read", "research"})
 	candidates := all[:2]
+	revisionBefore, err := s.Revision(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	var changesBefore, changesAfter int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT total_changes()`).Scan(&changesBefore); err != nil {
 		t.Fatal(err)
@@ -514,6 +518,9 @@ func TestResearchRetireDryRunAndReplay(t *testing.T) {
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT total_changes()`).Scan(&changesAfter); err != nil || changesBefore != changesAfter {
 		t.Fatalf("dry run wrote: changes %d -> %d err=%v", changesBefore, changesAfter, err)
+	}
+	if revisionAfter, err := s.Revision(t.Context()); err != nil || revisionAfter != revisionBefore {
+		t.Fatalf("dry run revision %d -> %d err=%v", revisionBefore, revisionAfter, err)
 	}
 	repeatedDry := invokeResearchRetire(t, s, service, grant, "product-1", candidates, true, "dry-retirement")
 	if repeatedDry.Outcome != OutcomeOK || repeatedDry.Replayed || !bytes.Equal(dry.Result, repeatedDry.Result) {

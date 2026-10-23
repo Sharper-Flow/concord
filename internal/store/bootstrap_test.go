@@ -312,7 +312,7 @@ func TestMigration59PreservesPopulatedBootstrapOperation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := ensureInstallationKey(ctx, db); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO agent_installation_keys(key_name,key_bytes,created_at) VALUES('cursor',zeroblob(32),'2026-08-30T00:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
 	repo := initBootstrapStoreRepo(t)
@@ -707,24 +707,28 @@ func TestValidateBootstrapOriginRefusesDirtyLeasedOrDispatchedOrigin(t *testing.
 		}
 	})
 
-	t.Run("dispatched", func(t *testing.T) {
-		repo := initBootstrapStoreRepo(t)
-		s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer s.Close()
-		seedBootstrapStoreAuthority(t, s, repo)
-		origin := liveBootstrapOrigin(t, s, "bootstrap-origin-dispatched-combined")
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt-open-combined','implement',1,?,'implementation','','1.0','1.0','dispatched','2026-01-01T00:00:00Z'); DELETE FROM fold_guard`, origin.WorkID, "sha256:"+strings.Repeat("a", 64)); err != nil {
-			t.Fatal(err)
-		}
-		_, err = s.ValidateBootstrapOrigin(context.Background(), origin.Entry.ProjectID, origin.Entry.Path, nil)
-		var failure *Failure
-		if !errors.As(err, &failure) || failure.Kind != KindResourceBusy || !strings.Contains(failure.Detail, "worker attempt") {
-			t.Fatalf("dispatched origin was not refused: %v", err)
-		}
-	})
+	// Authorization creates the attempt in_flight before the worker is
+	// dispatched; both states hold the origin.
+	for _, state := range []string{"in_flight", "dispatched"} {
+		t.Run(state, func(t *testing.T) {
+			repo := initBootstrapStoreRepo(t)
+			s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			seedBootstrapStoreAuthority(t, s, repo)
+			origin := liveBootstrapOrigin(t, s, "bootstrap-origin-"+state+"-combined")
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt-open-combined','implement',1,?,'implementation','','1.0','1.0',?,'2026-01-01T00:00:00Z'); DELETE FROM fold_guard`, origin.WorkID, "sha256:"+strings.Repeat("a", 64), state); err != nil {
+				t.Fatal(err)
+			}
+			_, err = s.ValidateBootstrapOrigin(context.Background(), origin.Entry.ProjectID, origin.Entry.Path, nil)
+			var failure *Failure
+			if !errors.As(err, &failure) || failure.Kind != KindResourceBusy || !strings.Contains(failure.Detail, "worker attempt") {
+				t.Fatalf("%s origin attempt was not refused: %v", state, err)
+			}
+		})
+	}
 }
 
 func TestValidateBootstrapOriginRefusesHeldVerifyLease(t *testing.T) {

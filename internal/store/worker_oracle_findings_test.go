@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -854,10 +855,6 @@ func TestOwnerOracleFinding(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("out-of-scope P0 follow-up no_ship refused: %v", err)
 	}
-	nonProgress, err := workflowNonProgressAttemptCount(context.Background(), s.DatabaseForTesting(), workID, "worker_oracle_findings_test")
-	if err != nil || nonProgress < 2 {
-		t.Fatalf("non-progress after no_ship reports = (%d, %v), want the two no_ship attempts counted", nonProgress, err)
-	}
 	// A no_ship justified only by sub-P0 follow-ups is inconsistent.
 	if err := report(func(payload *WorkerCompletedPayload) {
 		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{{
@@ -1230,12 +1227,9 @@ func TestOwnerOracleRepairFamily(t *testing.T) {
 	}
 }
 
-// The derived-set equality and the strengthened convergence wall: a
-// rejection must carry exactly the derived set, a proven strict subset buys
-// exactly one findings_shrinking basis, an oracle-defect closure, a
-// replacement identity, and a control-rewritten oracle never buy one, and
-// an accepted no_ship stays non-progress.
-func TestOwnerOracleConvergence(t *testing.T) {
+// A rejection carries the exact derived finding set. Supported closures,
+// replacement identities, and accepted review results preserve its lineage.
+func TestOwnerOracleCorrectionLineage(t *testing.T) {
 	t.Parallel()
 	const workID = "owner-oracle-convergence"
 	f := seedOracleRepairFixture(t, workID)
@@ -1317,12 +1311,9 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	if err := reject(attempt2, []string{open[0]}); err != nil {
 		t.Fatalf("strict-subset rejection refused: %v", err)
 	}
-	convergence, err := workflowRetryConvergenceForRegistry(context.Background(), s.DatabaseForTesting(), workID, "repair", BuiltinWorkflowRegistry())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if convergence.Basis != "findings_shrinking" || convergence.LatestRecordSeq <= convergence.PreviousRecordSeq {
-		t.Fatalf("convergence after a proven strict subset = %#v, want exactly one findings_shrinking basis", convergence)
+	lineage, err = readWorkerOracleFindingLineageTx(context.Background(), s.DatabaseForTesting(), workID)
+	if err != nil || !slices.Equal(lineage.openFindingIDs(), []string{open[0]}) {
+		t.Fatalf("lineage after proven resolution = %#v, %v, want only the unresolved blocker", lineage, err)
 	}
 
 	// A replacement identity earns no shrink credit: closing the remaining
@@ -1354,8 +1345,8 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	if err := reject(attempt3, sibling); err != nil {
 		t.Fatalf("replacement-set rejection refused: %v", err)
 	}
-	if convergence, err = workflowRetryConvergenceForRegistry(context.Background(), s.DatabaseForTesting(), workID, "repair", BuiltinWorkflowRegistry()); err != nil || convergence.Basis != "" {
-		t.Fatalf("convergence after replacement = (%#v, %v), want no basis", convergence, err)
+	if sibling[0] == open[0] || sibling[0] == open[1] {
+		t.Fatalf("replacement reused a closed finding identity: %v", sibling)
 	}
 
 	// An oracle-defect closure never contributes to shrinkage: closing the
@@ -1411,8 +1402,9 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	if err := reject(attempt5, []string{siblingID}); err != nil {
 		t.Fatalf("subset rejection after defect closure refused: %v", err)
 	}
-	if convergence, err = workflowRetryConvergenceForRegistry(context.Background(), s.DatabaseForTesting(), workID, "repair", BuiltinWorkflowRegistry()); err != nil || convergence.Basis != "" {
-		t.Fatalf("convergence after an oracle-defect shrink shape = (%#v, %v), want no basis: the defect closure never buys shrinkage", convergence, err)
+	lineage, err = readWorkerOracleFindingLineageTx(context.Background(), s.DatabaseForTesting(), workID)
+	if err != nil || !slices.Equal(lineage.openFindingIDs(), []string{siblingID}) {
+		t.Fatalf("lineage after defect closure = %#v, %v, want the remaining sibling", lineage, err)
 	}
 
 	// An accepted no_ship stays non-progress and mints no basis family:
@@ -1432,11 +1424,9 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attempt6, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, f.acceptor); err != nil {
 		t.Fatalf("accept the no_ship report: %v", err)
 	}
-	if count, countErr := workflowNonProgressAttemptCount(context.Background(), s.DatabaseForTesting(), workID, "worker_oracle_findings_test"); countErr != nil || count < 1 {
-		t.Fatalf("non-progress after the accepted no_ship = (%d, %v), want the no_ship attempt counted", count, countErr)
-	}
-	if convergence, err = workflowRetryConvergenceForRegistry(context.Background(), s.DatabaseForTesting(), workID, "repair", BuiltinWorkflowRegistry()); err != nil || (convergence.Basis != "" && convergence.Basis != "approach_changed") {
-		t.Fatalf("convergence after an accepted no_ship = (%#v, %v), want no new basis family", convergence, err)
+	lineage, err = readWorkerOracleFindingLineageTx(context.Background(), s.DatabaseForTesting(), workID)
+	if err != nil || !slices.Equal(lineage.openFindingIDs(), []string{siblingID}) {
+		t.Fatalf("accepted no_ship changed unresolved lineage = %#v, %v", lineage, err)
 	}
 }
 
@@ -1461,8 +1451,8 @@ func TestOwnerOracleJobDebt(t *testing.T) {
 	// requires and derives the failure record in the same commit, replacing
 	// the explicit record disposition.
 	s2WorkerFailedAttributedLive(t, s, workID, attempt1, "lane fallback blocked before the model ran")
-	if pin := issue1013Pin(t, s, workID); pin.Correction == nil || pin.Correction.AttemptCount != 1 {
-		t.Fatalf("correction after the first failure = %#v, want one counted attempt", pin.Correction)
+	if pin := issue1013Pin(t, s, workID); pin.Correction == nil || pin.Correction.FailedAttemptID != attempt1 {
+		t.Fatalf("correction after the first failure = %#v, want its exact attempt", pin.Correction)
 	}
 
 	// Revision 2 rewrites a control: same base obligation, changed oracle.
@@ -1470,19 +1460,19 @@ func TestOwnerOracleJobDebt(t *testing.T) {
 		oracle["controls"].([]map[string]any)[0]["argv"] = oracleGoArgv("path-a-v2")
 	})
 	rev2 := recordOracleJobRevision(t, s, workID, f.owner, jobID, rewritten)
-	if count := jobWindowCorrectionCount(t, s, workID); count != 1 {
-		t.Fatalf("recording a revision reset the count to %d", count)
+	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary != 0 {
+		t.Fatalf("recording a revision closed the obligation at %d", boundary)
 	}
 	attempt2 := "attempt:" + workID + ":2"
 	issue1013StartRepair(t, s, workID, f.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
 	oracleDispatchAttempt(t, f, workID, attempt2, nil, &rev2)
 	completeAndAcceptAttempt(t, s, workID, attempt2, reviewGateLane(t, "implementation"), f.acceptor)
-	if count := jobWindowCorrectionCount(t, s, workID); count != 2 {
-		t.Fatalf("count after the rewritten-oracle acceptance = %d, want the preserved window", count)
+	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary != 0 {
+		t.Fatalf("rewritten-oracle acceptance closed the obligation at %d", boundary)
 	}
 	correction, corrErr := workflowCorrectionContextForDispatch(context.Background(), s.DatabaseForTesting(), workID, "repair", "")
-	if corrErr != nil || correction == nil || correction.AttemptCount != 2 {
-		t.Fatalf("window after the rewritten-oracle acceptance = (%#v, %v), want the unresolved debt with both dispatches", correction, corrErr)
+	if corrErr != nil || correction == nil || correction.FailedAttemptID != attempt1 {
+		t.Fatalf("window after the rewritten-oracle acceptance = (%#v, %v), want the unresolved failure source", correction, corrErr)
 	}
 
 	// Revision 3 strengthens the inventory with the old controls retained
@@ -1705,22 +1695,8 @@ func fixturePredicateList(t *testing.T, s *Store, workID string) []string {
 	return []string{fixturePredicate(t, s, workID)}
 }
 
-// The legacy request comparison keeps predicate ids when no open finding set
-// was recorded, and prefers the derived set the moment one was.
-func TestOwnerOracleRequestOpenFindingsComparison(t *testing.T) {
+func TestOwnerOracleRequestOpenFindingsShape(t *testing.T) {
 	t.Parallel()
-	legacy := workflowCorrectionCompletionFields{ActionID: "request_correction", CorrectionPredicates: []string{"predicate:return-route"}}
-	if got := legacy.openFindings(); len(got) != 1 || got[0] != "predicate:return-route" {
-		t.Fatalf("legacy request open findings = %v, want the predicate ids", got)
-	}
-	oracle := workflowCorrectionCompletionFields{ActionID: "request_correction", CorrectionPredicates: []string{"predicate:return-route"}, OpenFindingIDs: []string{"finding:12:3"}}
-	if got := oracle.openFindings(); len(got) != 1 || got[0] != "finding:12:3" {
-		t.Fatalf("oracle request open findings = %v, want the recorded derived set", got)
-	}
-	rejection := workflowCorrectionCompletionFields{ActionID: "reject_worker_result", OpenFindingIDs: []string{"finding:12:3"}}
-	if got := rejection.openFindings(); len(got) != 1 || got[0] != "finding:12:3" {
-		t.Fatalf("rejection open findings = %v, want the recorded set", got)
-	}
 	// The fold admits the serialized set on both correction surfaces and
 	// refuses it everywhere else.
 	completion := func(actionID string, ids []string) workflowActionCompletedPayload {

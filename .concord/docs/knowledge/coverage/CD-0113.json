@@ -110,7 +110,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkPinEscalatedCorrectionAdvertisesApprovalGatedRetry"
+      "value": "internal/agent.TestRepeatedFailedWorkersUseOrdinaryLaunchAuthority"
     },
     {
       "kind": "go_test",

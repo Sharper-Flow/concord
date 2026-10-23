@@ -347,15 +347,9 @@ func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID 
 	if correctionErr != nil {
 		return false, correctionErr
 	}
-	// An escalated correction window keeps the supersession escape open even
-	// after a productive acceptance. The normal post-accept closure assumes
-	// the acceptance discharged the window; on an escalated window whose
-	// supersession-forced re-recorded revision was accepted productively,
-	// the recorded debt survives by design (the reworded revision is a
-	// different obligation), so closing correction here leaves the next
-	// dispatch with no convergence basis — no supersession can follow the
-	// last dispatch, and the work item can never dispatch its next lane.
-	if correction != nil && (correction.Disposition == "rejected" || correction.Escalated) {
+	// A rejected job's unresolved obligations keep contract correction open;
+	// accepting a different revision does not satisfy those obligations.
+	if correction != nil && correction.Disposition == "rejected" {
 		return true, nil
 	}
 	boundary, started, err := workflowStepPassBoundary(ctx, q, definition, workID, currentStep, subject)
@@ -1647,32 +1641,17 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 	if jobErr != nil {
 		return jobErr
 	}
-	// The confirming review's typed admission (CD-0205 D4, CD-0148
-	// amendment): a dispatch whose packet binds an open repair's exact
-	// satisfied repairing revision on a review lane records the admission on
-	// its completion — the exact repairing binding beside the repairing
-	// acceptance it is bound to, funded or an ordinary-authority repeat.
-	// The admission is spent once per repair. At the escalation wall only a
-	// funded admission passes without a convergence basis: the wall stays
-	// basis-gated, and the repair buys no authoring attempt.
+	// A confirming review binds its exact repairing revision and accepted
+	// result. This records the review assignment, not another launch authority.
 	if repairReview != nil {
-		acceptanceSeq, found, acceptanceErr := workerChecksRepairConfirmingAcceptanceSeqTx(in.ctx, in.tx, in.request.WorkID, repairReview.WorkerJob)
+		acceptanceSeq, found, acceptanceErr := workerChecksRepairConfirmingAcceptanceSeqTx(in.ctx, in.tx, in.request.WorkID, *repairReview)
 		if acceptanceErr != nil {
 			return acceptanceErr
 		}
 		if !found || acceptanceSeq == 0 {
 			return newFailure(KindInvariantViolation, "workflow_action", "the confirming review dispatch binds no recorded repairing acceptance", false, "accept the repairing result before dispatching its confirming review")
 		}
-		repairReview.RepairingAcceptanceSeq = acceptanceSeq
-		completionValues["checks_repair_review"] = *repairReview
-	}
-	// Record only the authority this dispatch uses. Funded reviews still
-	// advance the existing convergence freshness boundary like any dispatch.
-	if in.admission != nil && in.admission.retryEscalated() && in.admission.RetryConvergence.valid() && !(repairReview != nil && repairReview.Funded) {
-		completionValues["retry_convergence"] = in.admission.RetryConvergence
-	}
-	if in.admission != nil && in.admission.retryEscalated() && !in.admission.RetryConvergence.valid() && (repairReview == nil || !repairReview.Funded) {
-		return workflowRetryConvergenceFailure(*in.admission)
+		completionValues["checks_repair_review"] = map[string]any{"worker_job": *repairReview, "repairing_acceptance_seq": acceptanceSeq}
 	}
 	if job != nil {
 		completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}

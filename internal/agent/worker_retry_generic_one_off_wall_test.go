@@ -17,19 +17,16 @@ import (
 // seedGenericOneOffVerifyWorkflow initializes an implementation instance for
 // work-1, pins it at the refine checkpoint under an approved contract, and
 // seeds the active worktree claim the fenced dispatch requires, so the
-// review-lane dispatch loop the escalation wall arms can run there. The
-// retained v23 pin predates the worker-job dispatch gate, so the wall's
-// repeated unjobbed dispatches stay admitted, and it keeps the callable
-// record_worker_failure the wall dispositions ride; the archived
+// review-lane dispatch loop can run there. The retained v23 pin predates the
+// worker-job dispatch gate and keeps callable record_worker_failure; the archived
 // generic_one_off authoring left the live catalog (CD-0218 D1).
 func seedGenericOneOffVerifyWorkflow(t *testing.T, s *store.Store, grant Authority) string {
 	t.Helper()
 	return seedGenericOneOffWorkflowAtStep(t, s, grant, "refine")
 }
 
-// seedGenericOneOffWorkflowAtStep seeds the same implementation v28 fixture
-// pinned at the named step, so a journey can spend its non-progress budget at
-// a step and read the wall at a checkpoint step.
+// seedGenericOneOffWorkflowAtStep seeds the same implementation v23 fixture
+// pinned at the named step.
 func seedGenericOneOffWorkflowAtStep(t *testing.T, s *store.Store, grant Authority, step string) string {
 	t.Helper()
 	seedCurrentWorkflowDomainFixture(t, s)
@@ -156,11 +153,8 @@ func seedGenericOneOffAcceptedImplementation(t *testing.T, s *store.Store, grant
 	runGenericOneOffStoreAction(t, s, "accept_worker_result", map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch, "delivery_artifact": "artifact:accepted-impl", "delivery_state": "asserted"}, owner, worktree, "accepted-impl")
 }
 
-// seedGenericOneOffVerifyWall drives three failed review-lane attempts
-// through the verify checkpoint's dispatch action, so the same-step wall is
-// armed with three counted failures and no correction record stands yet. It
-// returns the third attempt's identity and epoch for the failure record the
-// journey records after the wall's own refusal.
+// seedGenericOneOffVerifyWall records three terminal review failures without
+// a correction disposition and returns the last attempt identity and epoch.
 func seedGenericOneOffVerifyWall(t *testing.T, s *store.Store, grant Authority, worktree string) (string, int64) {
 	t.Helper()
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
@@ -301,7 +295,7 @@ func verifyWallAttemptEpochAtStep(t *testing.T, s *store.Store, step string) int
 
 // rejectVerifyWallResult records the rejected disposition for one completed
 // review-lane attempt, carrying the complete open finding set the rejection
-// reports: the population the findings convergence basis compares.
+// reports so the correction retains the rejected result's findings.
 func rejectVerifyWallResult(t *testing.T, s *store.Store, grant Authority, attemptID string, epoch int64, openFindings []string) {
 	t.Helper()
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
@@ -379,7 +373,7 @@ func seedVerifyWallLawDocument(t *testing.T, s *store.Store, path string) {
 }
 
 // supersedeVerifyWallContract runs the operator-approved contract supersession
-// at store level, the changed approach the convergence basis reads. The
+// at store level. The
 // operator actor is the distinct identity the fold's operator guard demands,
 // and the store-level run mints nothing on the agent challenge table.
 func supersedeVerifyWallContract(t *testing.T, s *store.Store, owner store.WorkflowActor, version, next int64, reason string) {
@@ -499,19 +493,19 @@ func verifyWallDispatchCompletions(t *testing.T, s *store.Store, attemptID strin
 	return countRows(t, s.DatabaseForTesting(), fmt.Sprintf(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind='%s' AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')='%s'`, store.WorkflowActionCompleted, attemptID))
 }
 
-// verifyWallRecordedConvergence reads the convergence basis the fold recorded
-// on the dispatch completion for one attempt.
-func verifyWallRecordedConvergence(t *testing.T, s *store.Store, attemptID string) store.WorkflowRetryConvergence {
+func assertDispatchHasNoRetryBudget(t *testing.T, s *store.Store, attemptID string) {
 	t.Helper()
 	var raw []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.retry_convergence') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, store.WorkflowActionCompleted, attemptID).Scan(&raw); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, store.WorkflowActionCompleted, attemptID).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
-	var basis store.WorkflowRetryConvergence
-	if err := json.Unmarshal(raw, &basis); err != nil {
-		t.Fatalf("recorded convergence for %s is malformed: %s", attemptID, raw)
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
 	}
-	return basis
+	if _, ok := payload["retry_convergence"]; ok {
+		t.Fatalf("dispatch %s emitted retry budget authority: %s", attemptID, raw)
+	}
 }
 
 // verifyWallPinCorrection reads the standing correction record from the work
@@ -543,7 +537,7 @@ func TestGenericOneOffBelowWallRetryNeedsNoConsent(t *testing.T) {
 	applyVerifyWallDispatchAndFailure(t, s, grant, failedID)
 	runGenericOneOffStoreAction(t, s, "record_worker_failure", map[string]any{"attempt_id": failedID, "attempt_epoch": failedEpoch}, owner, "", "record-1")
 	correction := verifyWallPinCorrection(t, s)
-	if correction.Escalated || correction.FailedAttemptID != failedID || correction.FailedAttemptEpoch != failedEpoch {
+	if correction.Disposition != "failed" || correction.FailedAttemptID != failedID || correction.FailedAttemptEpoch != failedEpoch {
 		t.Fatalf("failed correction=%+v", correction)
 	}
 	const retryID = "attempt:work-1:verify-2"
@@ -564,17 +558,8 @@ func TestGenericOneOffBelowWallRetryNeedsNoConsent(t *testing.T) {
 	}
 }
 
-// TestGenericOneOffEscalatedWallAdmitsOnlyBehindStoreConvergence pins the
-// amended CD-0148 wall on a generic_one_off verify checkpoint through the
-// mutation boundary. Three counted failures with an escalated correction
-// record refuse the next dispatch with missing_evidence and mint no approval
-// challenge; a supplied operator approval neither bypasses the refusal nor
-// mints one; a superseded contract derives the approach_changed basis and
-// admits one fresh fenced dispatch without any challenge; the interrupted
-// dispatch consumes the basis, so a blind re-dispatch refuses until a fresh
-// supersession derives a new basis.
-func TestGenericOneOffEscalatedWallAdmitsOnlyBehindStoreConvergence(t *testing.T) {
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+func TestGenericOneOffRepeatedFailureKeepsLaunchFenceAndRecovery(t *testing.T) {
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
 	worktree := seedGenericOneOffVerifyWorkflow(t, s, grant)
 	grant.Worktree = worktree
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
@@ -586,117 +571,39 @@ func TestGenericOneOffEscalatedWallAdmitsOnlyBehindStoreConvergence(t *testing.T
 	failedID, failedEpoch := seedGenericOneOffVerifyWall(t, s, grant, worktree)
 	runGenericOneOffStoreAction(t, s, "record_worker_failure", map[string]any{"attempt_id": failedID, "attempt_epoch": failedEpoch}, owner, "", "record-3")
 	correction := verifyWallPinCorrection(t, s)
-	if !correction.Escalated || correction.FailedAttemptID != failedID {
-		t.Fatalf("escalated correction = %+v, want the failed attempt %s", correction, failedID)
+	if correction.Disposition != "failed" || correction.FailedAttemptID != failedID || correction.FailedAttemptEpoch != failedEpoch {
+		t.Fatalf("correction = %+v, want the failed attempt %s at epoch %d", correction, failedID, failedEpoch)
 	}
-
-	// The wall refuses a fresh dispatch without a derivable basis, and the
-	// refusal never becomes an operator approval ask.
-	version := workVersion(t, s, "work-1")
 	retryID := "attempt:work-1:verify-4"
-	input, raw := verifyWallDispatchInput(t, s, retryID, "verify-wall-convergence-1", correction)
-	env.RequestID = "request:verify-wall-convergence-1"
-	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if refused.Error == nil || refused.Error.Kind != "missing_evidence" {
-		t.Fatalf("escalated retry without a basis = %+v, want missing_evidence", refused.Error)
-	}
-	if !strings.Contains(refused.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: both populations block the dispatch — 3 non-progress attempts since the applicable nonprogress anchor (step refine), and the correction window sits at its escalation threshold") {
-		t.Fatalf("escalated refusal does not name the counted population: %q", refused.Error.Message)
-	}
-	if refused.Error.RecoveryAction.Kind != "provide_evidence" {
-		t.Fatalf("escalated refusal recovery = %q, want provide_evidence and never an approval ask", refused.Error.RecoveryAction.Kind)
-	}
-	if refused.Error.ConsequenceSummary != nil {
-		t.Fatal("escalated refusal carries a consequence summary, but no challenge was minted")
-	}
-	if ref, ok := refused.Error.Details["approval_ref"].(string); ok && ref != "" {
-		t.Fatalf("escalated refusal carries approval_ref %q, but no challenge was minted", ref)
-	}
-	if got := verifyWallChallenges(t, s); got != 0 {
-		t.Fatalf("escalated refusal minted %d approval challenges, want 0", got)
-	}
-	if got := verifyWallDispatchCompletions(t, s, retryID); got != 0 {
-		t.Fatalf("refused escalation recorded %d dispatch completions, want 0", got)
-	}
-	if after := workVersion(t, s, "work-1"); after != version {
-		t.Fatalf("refused escalation changed the work version %d -> %d", version, after)
-	}
-
-	// A supplied operator approval has no effect: no challenge exists to
-	// consume, and the fold still refuses without a basis.
-	approvedInput := cloneWithApproval(t, input, strings.Repeat("b", 64))
-	approvedRaw, err := json.Marshal(approvedInput)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": failedID, "scope_version": scopeVersion}
-	versions := map[string]any{"work": version, "contract": int64(1), "failed_attempt_epoch": failedEpoch}
-	env.HostApproval = signedHostApproval(privateKey, strings.Repeat("b", 64), mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "verify-wall-unused-approval")
-	env.RequestID = "request:verify-wall-convergence-2"
-	bypass := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
-	if bypass.Error == nil || bypass.Error.Kind != "missing_evidence" {
-		t.Fatalf("escalated retry behind a supplied approval = %+v, want missing_evidence", bypass.Error)
-	}
-	if got := verifyWallChallenges(t, s); got != 0 {
-		t.Fatalf("supplied approval minted %d approval challenges, want 0", got)
-	}
-	if after := workVersion(t, s, "work-1"); after != version {
-		t.Fatalf("supplied approval changed the work version %d -> %d", version, after)
-	}
-	env.HostApproval = nil
-
-	// A superseded contract after the latest dispatch is a changed
-	// approach: the store derives the basis and the boundary admits the
-	// dispatch with no approval at all.
-	supersedeVerifyWallContract(t, s, owner, workVersion(t, s, "work-1"), 2, "the escalated review wall demanded a changed approach")
-	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	reason := ""
-	for _, intent := range pin.NextValidIntents {
-		if intent.ActionID == "dispatch_worker" {
-			reason = intent.ReasonCode
-		}
-	}
-	if reason != "escalated_retry_convergence_recorded" {
-		t.Fatalf("pin dispatch reason behind a derived basis = %q, want escalated_retry_convergence_recorded", reason)
-	}
-	correction = verifyWallPinCorrection(t, s)
 	_, admittedRaw := verifyWallDispatchInput(t, s, retryID, "verify-wall-convergence-3", correction)
 	env.RequestID = "request:verify-wall-convergence-3"
 	admitted := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: admittedRaw}, env)
 	if admitted.Outcome != OutcomeOK {
-		t.Fatalf("converging escalated retry without any approval = %+v", admitted.Error)
+		t.Fatalf("ordinary retry without any approval = %+v", admitted.Error)
 	}
 	if got := verifyWallChallenges(t, s); got != 0 {
-		t.Fatalf("converging escalated retry minted %d approval challenges, want 0", got)
+		t.Fatalf("ordinary retry minted %d approval challenges, want 0", got)
 	}
 	if got := verifyWallDispatchCompletions(t, s, retryID); got != 1 {
-		t.Fatalf("converging escalated retry recorded %d dispatch completions, want 1", got)
+		t.Fatalf("ordinary retry recorded %d dispatch completions, want 1", got)
 	}
-	basis := verifyWallRecordedConvergence(t, s, retryID)
-	if basis.Basis != "approach_changed" || basis.SupersededSeq == 0 || basis.PreviousRecordSeq != 0 || basis.LatestRecordSeq != 0 {
-		t.Fatalf("recorded convergence = %+v, want the approach_changed basis naming its supersession sequence", basis)
-	}
+	assertDispatchHasNoRetryBudget(t, s, retryID)
 
-	// The session dies before the host dispatches the worker: the
-	// half-materialized dispatch consumed the basis, so a blind
-	// re-dispatch refuses and mints no challenge.
+	// The unknown host launch outcome blocks a second authorization.
 	if got := countRows(t, s.DatabaseForTesting(), fmt.Sprintf(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind='%s' AND json_extract(payload,'$.attempt_id')='%s'`, store.WorkerDispatched, retryID)); got != 0 {
 		t.Fatalf("interrupted retry shows %d lane dispatches, want 0", got)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND attempt_id='`+retryID+`' AND lifecycle_state='in_flight'`); got != 1 {
 		t.Fatalf("interrupted retry left %d in-flight worker attempt rows, want 1", got)
 	}
-	version = workVersion(t, s, "work-1")
+	version := workVersion(t, s, "work-1")
 	secondID := "attempt:work-1:verify-5"
 	correction = verifyWallPinCorrection(t, s)
 	_, blindRaw := verifyWallDispatchInput(t, s, secondID, "verify-wall-convergence-4", correction)
 	env.RequestID = "request:verify-wall-convergence-4"
 	blind := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: blindRaw}, env)
-	if blind.Error == nil || blind.Error.Kind != "missing_evidence" {
-		t.Fatalf("blind re-dispatch after the consumed basis = %+v, want missing_evidence", blind.Error)
+	if blind.Error == nil || blind.Error.Kind != "operation_conflict" || !strings.Contains(blind.Error.Message, "unresolved launch outcome") {
+		t.Fatalf("blind re-dispatch = %+v, want unresolved launch conflict", blind.Error)
 	}
 	if got := verifyWallChallenges(t, s); got != 0 {
 		t.Fatalf("blind re-dispatch minted %d approval challenges, want 0", got)
@@ -713,39 +620,28 @@ func TestGenericOneOffEscalatedWallAdmitsOnlyBehindStoreConvergence(t *testing.T
 	// is what stales the contract for the renewed supersession.
 	recordWorkflowFailureForPin(t, s, grant, retryID, 0, "verify-wall-interrupted")
 
-	// A fresh supersession derives a fresh basis, and each basis buys
-	// exactly one more fresh fenced attempt.
-	supersedeVerifyWallContract(t, s, owner, workVersion(t, s, "work-1"), 3, "the interrupted converging retry needed a renewed approach")
+	// Contract recovery remains available after the terminal failure.
+	supersedeVerifyWallContract(t, s, owner, workVersion(t, s, "work-1"), 2, "the failed retry needs a corrected objective")
 	correction = verifyWallPinCorrection(t, s)
 	_, renewedRaw := verifyWallDispatchInput(t, s, secondID, "verify-wall-convergence-5", correction)
 	env.RequestID = "request:verify-wall-convergence-5"
 	renewed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: renewedRaw}, env)
 	if renewed.Outcome != OutcomeOK {
-		t.Fatalf("renewed converging retry = %+v", renewed.Error)
+		t.Fatalf("retry after contract recovery = %+v", renewed.Error)
 	}
 	if got := verifyWallChallenges(t, s); got != 0 {
 		t.Fatalf("the whole escalated journey minted %d approval challenges, want 0", got)
 	}
-	renewedBasis := verifyWallRecordedConvergence(t, s, secondID)
-	if renewedBasis.Basis != "approach_changed" || renewedBasis.SupersededSeq <= basis.SupersededSeq {
-		t.Fatalf("renewed convergence = %+v, want a fresh supersession after seq %d", renewedBasis, basis.SupersededSeq)
-	}
+	assertDispatchHasNoRetryBudget(t, s, secondID)
 }
 
-// TestGenericOneOffFindingsConvergenceAdmitsOneEscalatedRetry pins the
-// findings basis family on the mutation boundary. Three rejected review
-// results arm the escalated wall; the latest rejection's open finding set
-// decides admission: a strict subset of the previous comparable rejection
-// derives the findings_shrinking basis and admits exactly one fresh dispatch
-// without any challenge, while an unchanged set keeps the wall closed.
-func TestGenericOneOffFindingsConvergenceAdmitsOneEscalatedRetry(t *testing.T) {
+func TestGenericOneOffRepeatedRejectionsKeepCorrectionAndLaunchFence(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		latest []string
-		admit  bool
 	}{
-		{"shrinking open findings admit one retry", []string{"finding:a"}, true},
-		{"unchanged open findings keep the wall closed", []string{"finding:a", "finding:b"}, false},
+		{"shrinking open findings", []string{"finding:a"}},
+		{"unchanged open findings", []string{"finding:a", "finding:b"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
@@ -754,9 +650,7 @@ func TestGenericOneOffFindingsConvergenceAdmitsOneEscalatedRetry(t *testing.T) {
 			owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 			env := mutationEnvelope(grant, mustScopeVersion(t, s))
 
-			// Three review rounds: dispatch, complete, reject with the
-			// reported open findings. The third rejection arms the
-			// escalated wall, whatever the finding sets carried.
+			// Every rejected result retains its reported open findings.
 			findings := [][]string{{"finding:a", "finding:b"}, {"finding:a", "finding:b"}, tc.latest}
 			for cycle := 1; cycle <= 3; cycle++ {
 				attemptID := fmt.Sprintf("attempt:work-1:verify-reject-%d", cycle)
@@ -773,58 +667,33 @@ func TestGenericOneOffFindingsConvergenceAdmitsOneEscalatedRetry(t *testing.T) {
 				rejectVerifyWallResult(t, s, grant, attemptID, epoch, findings[cycle-1])
 			}
 			correction := verifyWallPinCorrection(t, s)
-			if !correction.Escalated {
-				t.Fatalf("correction after three rejections = %+v, want the escalated wall", correction)
+			if correction.Disposition != "rejected" || correction.FailedAttemptID != "attempt:work-1:verify-reject-3" || correction.SourceEventID == "" || correction.SourceEventSeq == 0 {
+				t.Fatalf("correction after three rejections = %+v, want the latest rejection source", correction)
 			}
 			if got := verifyWallChallenges(t, s); got != 0 {
 				t.Fatalf("the rejection fixture minted %d approval challenges, want 0", got)
 			}
 
-			version := workVersion(t, s, "work-1")
 			retryID := "attempt:work-1:verify-converge"
 			_, raw := verifyWallDispatchInput(t, s, retryID, "verify-findings-convergence-1", correction)
 			env.RequestID = "request:verify-findings-convergence-1"
 			attempt := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-			if !tc.admit {
-				if attempt.Error == nil || attempt.Error.Kind != "missing_evidence" {
-					t.Fatalf("retry behind unchanged findings = %+v, want missing_evidence", attempt.Error)
-				}
-				// The rejected rounds are the counted population now, so
-				// the refusal names all three non-progress attempts.
-				if !strings.Contains(attempt.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: both populations block the dispatch — 3 non-progress attempts since the applicable nonprogress anchor (step refine), and the correction window sits at its escalation threshold") {
-					t.Fatalf("refusal does not name the counted population: %q", attempt.Error.Message)
-				}
-				if got := verifyWallChallenges(t, s); got != 0 {
-					t.Fatalf("refusal behind unchanged findings minted %d approval challenges, want 0", got)
-				}
-				if got := verifyWallDispatchCompletions(t, s, retryID); got != 0 {
-					t.Fatalf("refusal behind unchanged findings recorded %d dispatch completions, want 0", got)
-				}
-				if after := workVersion(t, s, "work-1"); after != version {
-					t.Fatalf("refusal behind unchanged findings changed the work version %d -> %d", version, after)
-				}
-				return
-			}
 			if attempt.Outcome != OutcomeOK {
-				t.Fatalf("retry behind shrinking findings = %+v", attempt.Error)
+				t.Fatalf("retry with findings %v = %+v", tc.latest, attempt.Error)
 			}
 			if got := verifyWallChallenges(t, s); got != 0 {
 				t.Fatalf("retry behind shrinking findings minted %d approval challenges, want 0", got)
 			}
-			basis := verifyWallRecordedConvergence(t, s, retryID)
-			if basis.Basis != "findings_shrinking" || basis.PreviousRecordSeq == 0 || basis.LatestRecordSeq <= basis.PreviousRecordSeq || basis.SupersededSeq != 0 {
-				t.Fatalf("recorded convergence = %+v, want the findings_shrinking basis naming both rejection sequences", basis)
-			}
+			assertDispatchHasNoRetryBudget(t, s, retryID)
 
-			// The basis admitted exactly one dispatch: the interrupted
-			// attempt consumed it, so a blind re-dispatch refuses.
+			// The unresolved launch still blocks another authorization.
 			nextID := "attempt:work-1:verify-converge-2"
 			correction = verifyWallPinCorrection(t, s)
 			_, blindRaw := verifyWallDispatchInput(t, s, nextID, "verify-findings-convergence-2", correction)
 			env.RequestID = "request:verify-findings-convergence-2"
 			blind := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: blindRaw}, env)
-			if blind.Error == nil || blind.Error.Kind != "missing_evidence" {
-				t.Fatalf("blind re-dispatch behind the consumed findings basis = %+v, want missing_evidence", blind.Error)
+			if blind.Error == nil || blind.Error.Kind != "operation_conflict" || !strings.Contains(blind.Error.Message, "unresolved launch outcome") {
+				t.Fatalf("blind re-dispatch = %+v, want unresolved launch conflict", blind.Error)
 			}
 			if got := verifyWallChallenges(t, s); got != 0 {
 				t.Fatalf("blind re-dispatch minted %d approval challenges, want 0", got)
@@ -843,23 +712,14 @@ func mustScopeVersion(t *testing.T, s *store.Store) string {
 	return scopeVersion
 }
 
-// TestGenericOneOffNonProgressBudgetSpansStepsAndNoShipAcceptances pins the
-// CD-0164 counting population behind the convergence wall: failed, rejected,
-// and completed no_ship review attempts all spend one work-item budget,
-// counted distinct across steps, and neither the no_ship acceptance nor the
-// step change it advances renews the budget. Only a store-derived basis
-// still admits over the spent budget, with no approval challenge.
-func TestGenericOneOffNonProgressBudgetSpansStepsAndNoShipAcceptances(t *testing.T) {
+func TestGenericOneOffNoShipAcceptanceKeepsStepAndOrdinaryLaunchAuthority(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
 	worktree := seedGenericOneOffWorkflowAtStep(t, s, grant, "execution")
 	grant.Worktree = worktree
 	env := mutationEnvelope(grant, mustScopeVersion(t, s))
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 
-	// Three non-progress attempts at the execute step, one per disposition
-	// class and none dispositioned: a completed no_ship review, a failed
-	// attempt, and another completed no_ship review. The population itself
-	// spends the budget — no correction record stands.
+	// Completed no_ship reviews and failures retain their distinct dispositions.
 	first := "attempt:work-1:execute-noship-1"
 	runGenericOneOffStoreAction(t, s, "dispatch_worker", map[string]any{
 		"attempt_id": first, "worker_packet": verifyWallPacketForStep(t, s, first, nil, "execute"),
@@ -888,35 +748,7 @@ func TestGenericOneOffNonProgressBudgetSpansStepsAndNoShipAcceptances(t *testing
 		t.Fatalf("correction record behind the undispositioned population = %+v, want none", pin.Correction)
 	}
 
-	// The mixed population spent the whole budget: the wall refuses the
-	// next dispatch with the non-progress population text and no challenge.
-	version := workVersion(t, s, "work-1")
-	retryID := "attempt:work-1:execute-wall-4"
-	_, raw := verifyWallDispatchInputForStep(t, s, retryID, "noship-convergence-1", nil, "execute")
-	env.RequestID = "request:noship-convergence-1"
-	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if refused.Error == nil || refused.Error.Kind != "missing_evidence" {
-		t.Fatalf("retry behind the mixed non-progress population = %+v, want missing_evidence", refused.Error)
-	}
-	if !strings.Contains(refused.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the applicable nonprogress anchor (step execution)") {
-		t.Fatalf("refusal does not name the mixed non-progress population: %q", refused.Error.Message)
-	}
-	if refused.Error.RecoveryAction.Kind != "provide_evidence" {
-		t.Fatalf("refusal recovery = %q, want provide_evidence and never an approval ask", refused.Error.RecoveryAction.Kind)
-	}
-	if got := verifyWallChallenges(t, s); got != 0 {
-		t.Fatalf("refusal behind the mixed population minted %d approval challenges, want 0", got)
-	}
-	if got := verifyWallDispatchCompletions(t, s, retryID); got != 0 {
-		t.Fatalf("refusal behind the mixed population recorded %d dispatch completions, want 0", got)
-	}
-	if after := workVersion(t, s, "work-1"); after != version {
-		t.Fatalf("refusal behind the mixed population changed the work version %d -> %d", version, after)
-	}
-
-	// The coordinator accepts the latest no_ship report: the acceptance
-	// binds the findings and advances the step, but renews no budget, and
-	// the step entry it lands on renews none either.
+	// Accepting the latest no_ship report binds findings and advances the step.
 	runGenericOneOffStoreAction(t, s, "accept_worker_result", map[string]any{"attempt_id": third, "attempt_epoch": thirdEpoch}, owner, "", "accept-noship-3")
 	if step := stepOf(t, s); step != "refine" {
 		t.Fatalf("accepted no_ship review left the instance at step %q, want the advanced refine step", step)
@@ -924,44 +756,18 @@ func TestGenericOneOffNonProgressBudgetSpansStepsAndNoShipAcceptances(t *testing
 	if got := verifyWallChallenges(t, s); got != 0 {
 		t.Fatalf("no_ship acceptance minted %d approval challenges, want 0", got)
 	}
-	version = workVersion(t, s, "work-1")
 	fourthID := "attempt:work-1:verify-wall-5"
 	_, spentRaw := verifyWallDispatchInputForStep(t, s, fourthID, "noship-convergence-2", nil, "refine")
 	env.RequestID = "request:noship-convergence-2"
 	spent := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: spentRaw}, env)
-	if spent.Error == nil || spent.Error.Kind != "missing_evidence" {
-		t.Fatalf("retry after the no_ship acceptance and step change = %+v, want missing_evidence", spent.Error)
-	}
-	// The budget was spent at execute and the refusal names it at the new
-	// step: the population counts across steps and nothing renewed it.
-	if !strings.Contains(spent.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the applicable nonprogress anchor (step refine)") {
-		t.Fatalf("refusal after the no_ship acceptance does not name the spent population: %q", spent.Error.Message)
+	if spent.Outcome != OutcomeOK {
+		t.Fatalf("retry after the no_ship acceptance and step change = %+v", spent.Error)
 	}
 	if got := verifyWallChallenges(t, s); got != 0 {
 		t.Fatalf("refusal after the no_ship acceptance minted %d approval challenges, want 0", got)
 	}
-	if got := verifyWallDispatchCompletions(t, s, fourthID); got != 0 {
-		t.Fatalf("refusal after the no_ship acceptance recorded %d dispatch completions, want 0", got)
+	if got := verifyWallDispatchCompletions(t, s, fourthID); got != 1 {
+		t.Fatalf("retry after the no_ship acceptance recorded %d dispatch completions, want 1", got)
 	}
-	if after := workVersion(t, s, "work-1"); after != version {
-		t.Fatalf("refusal after the no_ship acceptance changed the work version %d -> %d", version, after)
-	}
-
-	// The convergence escape still admits over the spent budget: a
-	// superseded approach opens the wall for exactly one fresh attempt
-	// without any approval challenge.
-	supersedeVerifyWallContract(t, s, owner, workVersion(t, s, "work-1"), 2, "the spent non-progress budget demanded a changed approach")
-	_, admittedRaw := verifyWallDispatchInputForStep(t, s, fourthID, "noship-convergence-3", nil, "refine")
-	env.RequestID = "request:noship-convergence-3"
-	admitted := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: admittedRaw}, env)
-	if admitted.Outcome != OutcomeOK {
-		t.Fatalf("converging retry behind the spent budget = %+v", admitted.Error)
-	}
-	if got := verifyWallChallenges(t, s); got != 0 {
-		t.Fatalf("the whole non-progress journey minted %d approval challenges, want 0", got)
-	}
-	basis := verifyWallRecordedConvergence(t, s, fourthID)
-	if basis.Basis != "approach_changed" || basis.SupersededSeq == 0 {
-		t.Fatalf("recorded convergence = %+v, want the approach_changed basis", basis)
-	}
+	assertDispatchHasNoRetryBudget(t, s, fourthID)
 }

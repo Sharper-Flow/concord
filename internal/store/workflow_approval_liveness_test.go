@@ -149,7 +149,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		}
 	})
 
-	t.Run("below-wall retry consent consumes the folded policy", func(t *testing.T) {
+	t.Run("terminal failure retry consumes the folded policy", func(t *testing.T) {
 		t.Parallel()
 		// The failed binding is fold-derived: the fenced dispatch start, its
 		// attempt-binding completion, and the terminal worker.failed event are
@@ -184,18 +184,12 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		if newState.Step != "execution" {
 			t.Fatalf("the retry seed left the step at %q, want execution", newState.Step)
 		}
-		if newState.NonProgressAttempts != 1 {
-			t.Fatalf("the folded nonprogress count = %d, want the one failed attempt", newState.NonProgressAttempts)
-		}
-		if newState.retryEscalated() {
-			t.Fatal("one failed attempt escalated the retry wall")
+		if !newState.WorkerFailureRecovery || newState.AttemptState != "failed" {
+			t.Fatalf("terminal failure recovery = %+v, want the failed attempt recovery route", newState)
 		}
 		newDecision := workflowAdmit(definition, newState, "dispatch_worker")
 		if !newDecision.Admitted {
 			t.Fatalf("consequence_v1 below-wall retry refused at admission: %v", newDecision.Failure)
-		}
-		if newDecision.ConvergenceRequired {
-			t.Fatal("a below-wall retry must not fold the convergence wall")
 		}
 		// The legacy half is a pure legacy twin: the fixture definition over
 		// the same folded history, not an actual legacy pinned fold — the
@@ -207,17 +201,6 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		legacyDecision := workflowAdmit(legacy, legacyState, "dispatch_worker")
 		if !legacyDecision.Admitted {
 			t.Fatalf("terminal failure refused legacy dispatch: %v", legacyDecision.Failure)
-		}
-
-		// At the convergence wall the basis stays the only opener for both
-		// policies: no consent route and no policy route opens it.
-		walled := WorkflowAdmissionState{Step: "execution", NonProgressAttempts: workflowCorrectionAttemptLimit}
-		for name, wallDefinition := range map[string]WorkflowDefinition{"consequence_v1": definition, "legacy": legacy} {
-			decision := workflowAdmit(wallDefinition, walled, "dispatch_worker")
-			var failure *Failure
-			if decision.Admitted || !failureAs(decision.Failure, &failure) || !decision.ConvergenceRequired {
-				t.Fatalf("%s wall retry folded %v (admitted %v), want the convergence refusal", name, decision.Failure, decision.Admitted)
-			}
 		}
 	})
 

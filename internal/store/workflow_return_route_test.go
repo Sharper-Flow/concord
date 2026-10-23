@@ -230,7 +230,7 @@ func TestNonOKVerdictCorrectionReturnsImplementationToExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if correction == nil || correction.AttemptCount != 1 || correction.PredicateIDs[0] != "predicate:return-route" {
+	if correction == nil || correction.PredicateIDs[0] != "predicate:return-route" {
 		t.Fatalf("dispatch correction context = %+v, want the first verdict correction", correction)
 	}
 	if err := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ActionID: "request_correction", Payload: payload, Actor: owner}); err == nil {
@@ -775,7 +775,7 @@ func testWorkflowReturnRoute(t *testing.T, workID, definitionRef, verdictStep, p
 		if err != nil {
 			t.Fatal(err)
 		}
-		if correction == nil || correction.AttemptCount != int64(i+1) || correction.AttemptLimit != 3 || correction.Escalated || len(correction.PredicateIDs) != 1 || correction.PredicateIDs[0] != "predicate:return-route" || len(correction.EvidenceRefs) != 1 || correction.EvidenceRefs[0] != "evidence:return-route-verification" || correction.Diagnosis != "the delivered subject still mismatches the approved predicate" || correction.Strategy != "repeat production at the declared external effect" {
+		if correction == nil || len(correction.PredicateIDs) != 1 || correction.PredicateIDs[0] != "predicate:return-route" || len(correction.EvidenceRefs) != 1 || correction.EvidenceRefs[0] != "evidence:return-route-verification" || correction.Diagnosis != "the delivered subject still mismatches the approved predicate" || correction.Strategy != "repeat production at the declared external effect" {
 			t.Fatalf("producer correction context = %+v, want bound disposition and count %d", correction, i+1)
 		}
 		var correctionActor, correctionSource string

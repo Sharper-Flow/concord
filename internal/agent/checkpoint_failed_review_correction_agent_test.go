@@ -14,10 +14,10 @@ import (
 // checkpoint failed-review return (amended CD-0143 D1, CD-0193 D1) projects:
 // the failure disposition names the failed review, the bound evidence and
 // affected predicates stay bounded, and the dispositioned attempt identity
-// binds the escalated retry wall.
+// binds the failed review.
 func checkpointFailedReviewCorrectionContext() map[string]any {
 	return map[string]any{
-		"disposition": "failed", "attempt_count": 1, "attempt_limit": 3, "escalated": false,
+		"disposition":   "failed",
 		"predicate_ids": []string{"predicate:return-route"}, "evidence_refs": []string{"evidence:return-route-verification"},
 		"diagnosis":         "the checkpoint review attempt failed and the latest verification verdict is not healthy",
 		"strategy":          "return to the repair step and dispatch a fresh attempt",

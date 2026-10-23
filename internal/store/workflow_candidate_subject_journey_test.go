@@ -648,7 +648,7 @@ func TestManagedCandidateSubjectCorrectiveDispatchOnB(t *testing.T) {
 		t.Fatalf("open correction before dispatch = %+v err=%v", before, err)
 	}
 	carried := j.dispatchJob(t, "attempt-corrective-b", "implement", "implementation", jobB)
-	if carried == nil || carried.AttemptCount != before.AttemptCount || carried.AttemptLimit != before.AttemptLimit || carried.AttemptCount < 1 {
+	if carried == nil || carried.Disposition != before.Disposition || carried.FailedAttemptID != before.FailedAttemptID || carried.FailedAttemptEpoch != before.FailedAttemptEpoch || carried.Diagnosis != before.Diagnosis || carried.Strategy != before.Strategy {
 		t.Errorf("corrective dispatch carried %+v, want the open correction %+v with its count kept", carried, before)
 	}
 	if got := j.dispatchedSubject(t, "attempt-corrective-b"); got != j.b {

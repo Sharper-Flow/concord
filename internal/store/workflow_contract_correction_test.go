@@ -364,14 +364,14 @@ func TestEscalatedWindowKeepsContractCorrectionAfterProductiveAccept(t *testing.
 		issue1013StartRepair(t, s, id, f.owner, pin.Version, latestStepStartEpoch(t, s, id, "repair")+1)
 		pin = issue1013Pin(t, s, id)
 		var correction *WorkflowCorrectionContext
-		if pin.Correction != nil && pin.Correction.AttemptCount >= 1 {
+		if pin.Correction != nil {
 			correction = pin.Correction
 		}
 		dispatchJobBoundAttempt(t, s, id, "repair", attempt, correction, f.owner, pin.Version, fmt.Sprintf("escalated-window-%d", i), job)
 		s2WorkerFailedAttributedLive(t, s, id, attempt, "corrective objective remains unsatisfied")
 	}
 	pin := issue1013Pin(t, s, id)
-	if pin.Correction == nil || !pin.Correction.Escalated {
+	if pin.Correction == nil {
 		t.Fatalf("correction after three failed dispatches = %#v, want the escalated window", pin.Correction)
 	}
 

@@ -83,12 +83,12 @@ func serializedRemedyDetail(t *testing.T, encoded []byte) string {
 	return remedy
 }
 
-func TestRetryWallRemedyVisible(t *testing.T) {
-	failure := store.RetryWallRefusalFixture(t)
-	if failure.Kind != store.KindMissingEvidence {
-		t.Fatalf("retry-wall refusal kind changed: %+v", failure)
+func TestPendingWorkerLaunchRemedyVisible(t *testing.T) {
+	failure := store.PendingWorkerLaunchRefusalFixture(t)
+	if failure.Kind != store.KindOperationConflict {
+		t.Fatalf("pending launch refusal kind changed: %+v", failure)
 	}
-	encoded := serializeRemedyRefusal(t, failure, "missing_evidence")
+	encoded := serializeRemedyRefusal(t, failure, "operation_conflict")
 	var wire struct {
 		Error struct {
 			Message string `json:"message"`
@@ -98,16 +98,13 @@ func TestRetryWallRemedyVisible(t *testing.T) {
 		t.Fatal(err)
 	}
 	message := wire.Error.Message
-	if !strings.Contains(message, "(step repair)") {
-		t.Fatalf("refusal does not state the current step: %s", encoded)
-	}
-	if !strings.Contains(message, "historical") {
-		t.Fatalf("refusal does not separate historical corrections from the active window: %s", encoded)
+	if !strings.Contains(message, "unresolved launch outcome") {
+		t.Fatalf("refusal does not state the launch safety cause: %s", encoded)
 	}
 	remedy := serializedRemedyDetail(t, encoded)
-	for _, want := range []string{"supersede_contract", "one fresh fenced attempt", "does not renew the three-attempt budget", "host execution failure"} {
+	for _, want := range []string{"reconcile", "launch outcome", "another attempt"} {
 		if !strings.Contains(remedy, want) {
-			t.Fatalf("serialized retry-wall remedy lost %q: %s", want, encoded)
+			t.Fatalf("serialized pending launch remedy lost %q: %s", want, encoded)
 		}
 	}
 }

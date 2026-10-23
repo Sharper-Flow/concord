@@ -38,32 +38,13 @@ type WorkerJobChecksRepair struct {
 	Revisions []WorkerJobChecksRepairEntry `json:"revisions"`
 }
 
-// WorkerChecksRepairReviewAdmission is the typed marker the one confirming
-// review dispatch records: the exact satisfied repairing revision its packet
-// bound, the repairing acceptance the admission is bound to, and whether the
-// dispatch consumed a funded admission or rode the ordinary CD-0148
-// authority a repeat repair's review needs.
+// WorkerChecksRepairReviewAdmission decodes persisted confirming-review
+// markers. Current dispatches record the repairing binding and acceptance,
+// without funding metadata.
 type WorkerChecksRepairReviewAdmission struct {
 	WorkerJob              WorkerJobBinding `json:"worker_job"`
 	RepairingAcceptanceSeq int64            `json:"repairing_acceptance_seq"`
 	Funded                 bool             `json:"funded"`
-}
-
-// WorkerChecksRepairReviewCandidate is one open accepted exact repairing
-// revision whose one confirming review is still unconsumed. Funded reports
-// whether the wall admits that review without a convergence basis; an
-// unfunded candidate's review rides the ordinary CD-0148 authority and is
-// basis-gated exactly like any other escalated dispatch.
-type WorkerChecksRepairReviewCandidate struct {
-	Repairing WorkerJobBinding
-	Funded    bool
-}
-
-// WorkerChecksRepairReviewFunding is the funded-only filtered view of the
-// awaiting-review candidates: the wall's named admission count reads it,
-// and the continuity snapshot publishes the unfunded candidates beside it.
-type WorkerChecksRepairReviewFunding struct {
-	Repairing WorkerJobBinding
 }
 
 // workflowChecksRepairActive reports whether a pinned definition declares the
@@ -135,32 +116,12 @@ func workerChecksRepairWatermarkTx(ctx context.Context, q queryer, workID string
 	return watermark, nil
 }
 
-// workerChecksRepairCoveredByVoid reports whether any voided repair of the
-// work named one of the given revisions: a new repair of those revisions
-// after a voided repair gains no admission of its own (CD-0205 D4).
-func workerChecksRepairCoveredByVoid(history *workflowCorrectionHistory, named []string) bool {
-	for _, repair := range history.checksRepairs {
-		if !repair.voided {
-			continue
-		}
-		for _, key := range repair.namedKeys {
-			if slices.Contains(named, key) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // workerChecksRepairAwaitingReviewTx derives every awaiting confirming
 // review from one walked pass at the current watermark: an accepted
 // repairing revision whose repair is neither confirmed nor voided nor
-// superseded, whose one confirming review has not dispatched. Funded
-// reports whether the wall admits that review without a convergence basis;
-// a covered candidate's review still exists and still publishes, but its
-// dispatch rides the ordinary CD-0148 authority. Candidates keep
+// superseded, whose one confirming review has not dispatched. Candidates keep
 // deterministic binding order.
-func workerChecksRepairAwaitingReviewTx(ctx context.Context, q queryer, workID string) ([]WorkerChecksRepairReviewCandidate, error) {
+func workerChecksRepairAwaitingReviewTx(ctx context.Context, q queryer, workID string) ([]WorkerJobBinding, error) {
 	watermark, err := workerChecksRepairWatermarkTx(ctx, q, workID)
 	if err != nil {
 		return nil, err
@@ -184,32 +145,12 @@ func workerChecksRepairAwaitingReviewTx(ctx context.Context, q queryer, workID s
 		}
 	}
 	slices.Sort(keys)
-	candidates := make([]WorkerChecksRepairReviewCandidate, 0, len(keys))
+	candidates := make([]WorkerJobBinding, 0, len(keys))
 	for _, key := range keys {
 		repair := history.checksRepairs[key]
-		candidates = append(candidates, WorkerChecksRepairReviewCandidate{
-			Repairing: repair.binding,
-			Funded:    !workerChecksRepairCoveredByVoid(history, repair.namedKeys),
-		})
+		candidates = append(candidates, repair.binding)
 	}
 	return candidates, nil
-}
-
-// workerChecksRepairReviewFundingsTx is the funded-only filtered view of the
-// awaiting-review candidates, keyed by job: the wall's named admission count
-// reads it, so an unfunded candidate never opens the wall.
-func workerChecksRepairReviewFundingsTx(ctx context.Context, q queryer, workID string) (map[string]WorkerChecksRepairReviewFunding, error) {
-	candidates, err := workerChecksRepairAwaitingReviewTx(ctx, q, workID)
-	if err != nil {
-		return nil, err
-	}
-	fundings := make(map[string]WorkerChecksRepairReviewFunding, len(candidates))
-	for _, candidate := range candidates {
-		if candidate.Funded {
-			fundings[candidate.Repairing.JobID] = WorkerChecksRepairReviewFunding{Repairing: candidate.Repairing}
-		}
-	}
-	return fundings, nil
 }
 
 // openUnconfirmed reports whether the repair stands accepted but neither
@@ -404,58 +345,55 @@ func readWorkerJobChecksRepairsTx(ctx context.Context, q queryer, workID string)
 // dispatch of an open unconfirmed repair: a review-capable lane whose packet
 // binds the exact satisfied repairing revision before any confirming dispatch
 // of that repair exists. It verifies the recorded revision, the active parent
-// contract, and the retained native preparations, and reports whether the
-// admission is funded — the one admission the wall admits — or an
-// ordinary-authority repeat whose dispatch still needs the CD-0148
-// authority the wall already requires.
-func admitWorkerChecksRepairReviewDispatchTx(ctx context.Context, q queryer, workID string, lane LaneDefinition, binding WorkerJobBinding) (funded bool, admitted bool, err error) {
+// contract, and the retained native preparations. Launch admission remains
+// with the ordinary dispatch owner.
+func admitWorkerChecksRepairReviewDispatchTx(ctx context.Context, q queryer, workID string, lane LaneDefinition, binding WorkerJobBinding) (admitted bool, err error) {
 	if lane.CapabilityClass != "review" {
-		return false, false, nil
+		return false, nil
 	}
 	candidates, err := workerChecksRepairAwaitingReviewTx(ctx, q, workID)
 	if err != nil {
-		return false, false, err
+		return false, err
 	}
 	for _, candidate := range candidates {
-		if candidate.Repairing != binding {
+		if candidate != binding {
 			continue
 		}
-		funded = candidate.Funded
 		admitted = true
 		break
 	}
 	if !admitted {
-		return false, false, nil
+		return false, nil
 	}
 	var digest, state string
 	var contractVersion int64
 	rowErr := q.QueryRowContext(ctx, `SELECT digest, state, contract_version FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, workID, binding.JobID, binding.Revision).Scan(&digest, &state, &contractVersion)
 	if rowErr == sql.ErrNoRows {
-		return false, false, nil
+		return false, nil
 	}
 	if rowErr != nil {
-		return false, false, wrapFailure(KindUnavailable, "worker_job", "cannot read the repairing revision", true, "retry once the worker-job projection is readable", rowErr)
+		return false, wrapFailure(KindUnavailable, "worker_job", "cannot read the repairing revision", true, "retry once the worker-job projection is readable", rowErr)
 	}
 	if digest != binding.Digest || state != "satisfied" {
-		return false, false, nil
+		return false, nil
 	}
 	active, err := activeWorkflowContractVersion(ctx, q, workID, "worker_job")
 	if err != nil {
-		return false, false, err
+		return false, err
 	}
 	if contractVersion != active {
-		return false, false, nil
+		return false, nil
 	}
 	oracle, err := readWorkerJobOracle(ctx, q, workID, binding)
 	if err != nil {
-		return false, false, err
+		return false, err
 	}
 	if oracle != nil {
 		if err := validateNativeJobPreparations(ctx, q, workID, contractVersion, oracle); err != nil {
-			return false, false, err
+			return false, err
 		}
 	}
-	return funded, true, nil
+	return true, nil
 }
 
 // workerChecksRepairConfirmingAcceptanceSeqTx reads the walked repairing

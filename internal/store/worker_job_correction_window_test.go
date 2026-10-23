@@ -9,11 +9,8 @@ import (
 	"time"
 )
 
-// The correction window keeps its anchor when an unrelated accepted job
-// arrives (CD-0205 refining CD-0164 D2): a job-bound failed attempt leaves
-// the window open until an acceptance whose own attempt was dispatched under
-// the same job identity. An acceptance under a different job_id never opens
-// a new window, so the counted dispatches and the retry budget stay intact.
+// A failed job's correction stays open until an acceptance satisfies that
+// recorded obligation. An unrelated accepted job cannot close it.
 func TestUnrelatedAcceptedJobPreservesCorrectionWindow(t *testing.T) {
 	const workID = "correction-window-unrelated-job"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
@@ -46,45 +43,34 @@ func TestUnrelatedAcceptedJobPreservesCorrectionWindow(t *testing.T) {
 	// replaced, never duplicated.
 	s2WorkerFailedAttributedLive(t, s, workID, attempt1, "lane fallback blocked before the model ran")
 	pin := issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.AttemptCount != 1 || pin.Correction.Escalated {
-		t.Fatalf("correction after one failed job-bound attempt = %#v, want one counted attempt", pin.Correction)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != attempt1 {
+		t.Fatalf("correction after failed job-bound attempt = %#v, want %s", pin.Correction, attempt1)
 	}
 
-	// An accepted result under a different job identity must not open a new
-	// counting window: the failed job stays unresolved, so the boundary and
-	// the counted dispatches stay. Both dispatches sit in the preserved
-	// window (CD-0164 D1 counts every dispatch), and the unrelated
-	// acceptance resets nothing.
+	// An unrelated job's acceptance leaves the failed obligation unresolved.
 	attempt2 := "attempt:" + workID + ":2"
 	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt2, pin.Correction, worker, pin.Version, "job-window-2", unrelatedJob)
 	completeAndAcceptAttempt(t, s, workID, attempt2, lane, acceptor)
-	if count := jobWindowCorrectionCount(t, s, workID); count != 2 {
-		t.Fatalf("correction count after the unrelated acceptance = %d, want 2 dispatches in the preserved window", count)
+	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary != 0 {
+		t.Fatalf("unrelated acceptance closed the unresolved obligation at %d", boundary)
 	}
 
 	// The pin-level anchor keeps the failed job's window open: the unrelated
 	// job's dispatch does not consume the correction record, so the owning
-	// derivation the pin reads still returns the corrective retry binding,
-	// its counted dispatches, and the escalation state the boundary walk
-	// derived. The pin's step-scoped view may have advanced with the accept,
+	// derivation the pin reads still returns the corrective retry binding.
+	// The pin's step-scoped view may have advanced with the accept,
 	// so the witness reads the anchor at the record's own step.
 	anchor, anchorErr := workflowCorrectionContextForDispatch(context.Background(), s.DatabaseForTesting(), workID, "repair", "")
-	if anchorErr != nil || anchor == nil || anchor.Escalated || anchor.FailedAttemptID != attempt1 {
+	if anchorErr != nil || anchor == nil || anchor.FailedAttemptID != attempt1 {
 		t.Fatalf("anchor correction after the unrelated acceptance = (%#v, %v), want the open window on %s", anchor, anchorErr, attempt1)
 	}
 
-	// The preserved budget is real: the third dispatch in the same window
-	// would reach the unchanged three-attempt escalation comparator with
-	// the count this window carries, not a reset one. The comparator itself
-	// is CD-0164 law this change does not touch, so the count is the
-	// witness the wall reads.
 }
 
 // Only an accepted result under the recorded corrective job identity closes
-// the window (CD-0205): a later revision of the same job_id satisfies it,
-// and the next failure counts from one in a fresh window.
+// the window (CD-0205): a later revision carrying the same obligation satisfies it.
 func TestSatisfyingAcceptedJobResetsCorrectionWindow(t *testing.T) {
 	const workID = "correction-window-satisfying-job"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
@@ -119,8 +105,8 @@ func TestSatisfyingAcceptedJobResetsCorrectionWindow(t *testing.T) {
 	// disposition.
 	s2WorkerFailedAttributedLive(t, s, workID, attempt1, "lane fallback blocked before the model ran")
 	pin := issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.AttemptCount != 1 {
-		t.Fatalf("correction after one failed job-bound attempt = %#v, want one counted attempt", pin.Correction)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != attempt1 {
+		t.Fatalf("correction after failed job-bound attempt = %#v, want %s", pin.Correction, attempt1)
 	}
 	prefixAfterFirstFailure := maxEventSeq(t, s, workID)
 
@@ -136,12 +122,11 @@ func TestSatisfyingAcceptedJobResetsCorrectionWindow(t *testing.T) {
 	if pin.Correction != nil {
 		t.Fatalf("satisfying acceptance left the correction context: %#v", pin.Correction)
 	}
-	// CD-0201 parity: the boundary derivation reads only the walked prefix,
-	// so recounting at the historical prefix captured after the first
-	// failure must return the count the live derivation returned then, not
-	// a value contaminated by the later failed dispatch.
-	if count := jobWindowCorrectionCount(t, s, workID, prefixAfterFirstFailure); count != 1 {
-		t.Fatalf("prefix recount after later failures = %d, want the 1 dispatch the prefix holds", count)
+	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary <= prefixAfterFirstFailure {
+		t.Fatalf("satisfying acceptance boundary = %d, want after the failed obligation at %d", boundary, prefixAfterFirstFailure)
+	}
+	if boundary := jobWindowAcceptanceBoundary(t, s, workID, prefixAfterFirstFailure+1); boundary != 0 {
+		t.Fatalf("historical prefix borrowed a later satisfying acceptance at %d", boundary)
 	}
 
 	attempt3 := "attempt:" + workID + ":3"
@@ -150,14 +135,14 @@ func TestSatisfyingAcceptedJobResetsCorrectionWindow(t *testing.T) {
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt3, nil, worker, pin.Version, "job-satisfy-3", correctiveJobRevision3)
 	s2WorkerFailedAttributedLive(t, s, workID, attempt3, "lane fallback blocked before the model ran")
 	pin = issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.AttemptCount != 1 || pin.Correction.Escalated {
-		t.Fatalf("correction after the satisfying acceptance = %#v, want one counted attempt in a fresh window", pin.Correction)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != attempt3 {
+		t.Fatalf("correction after the satisfying acceptance = %#v, want the new failed attempt", pin.Correction)
 	}
 }
 
 // Several job-bound failures each stay unresolved until their own recorded
 // disposition names them (CD-0205): satisfying one of two unresolved jobs
-// leaves the other's window — and the counted dispatches — exactly intact.
+// leaves the other's correction source intact.
 func TestPartialSatisfactionPreservesOtherUnresolvedJobs(t *testing.T) {
 	const workID = "correction-window-partial-satisfaction"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
@@ -191,37 +176,30 @@ func TestPartialSatisfactionPreservesOtherUnresolvedJobs(t *testing.T) {
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt2, pin.Correction, worker, pin.Version, "job-partial-2", jobB)
 	s2WorkerFailedAttributedLive(t, s, workID, attempt2, "lane fallback blocked before the model ran")
 
-	// Satisfying job A leaves job B unresolved, so the window keeps every
-	// counted dispatch: the two failures and the satisfying dispatch.
+	// Satisfying job A leaves job B unresolved.
 	attempt3 := "attempt:" + workID + ":3"
 	pin = issue1013Pin(t, s, workID)
 	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt3, pin.Correction, worker, pin.Version, "job-partial-3", jobA)
 	completeAndAcceptAttempt(t, s, workID, attempt3, reviewGateLane(t, "implementation"), acceptor)
-	if count := jobWindowCorrectionCount(t, s, workID); count != 3 {
-		t.Fatalf("correction count after partially satisfying acceptance = %d, want 3 dispatches in the preserved window", count)
+	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary != 0 {
+		t.Fatalf("partial satisfaction closed another job's obligation at %d", boundary)
 	}
-	// The pin-level anchor carries the window by unresolved job identity:
-	// job B's failure record is not consumed by job A's dispatch, so the pin
-	// still holds the open correction with every counted dispatch — the two
-	// failures and the satisfying dispatch.
 	// The pin-level anchor carries the window by unresolved job identity:
 	// job B's failure record is not consumed by job A's dispatch or its
 	// acceptance, so the owning derivation still returns the open correction
-	// with every counted dispatch — the two failures and the satisfying
-	// dispatch. The pin's step-scoped view advanced past repair with the
+	// source. The pin's step-scoped view advanced past repair with the
 	// accept, so the witness reads the anchor the pin reads at its step.
 	correction, corrErr := workflowCorrectionContextForDispatch(context.Background(), s.DatabaseForTesting(), workID, "repair", "")
-	if corrErr != nil || correction == nil || correction.AttemptCount != 3 || correction.FailedAttemptID != attempt2 {
-		t.Fatalf("anchor correction after partially satisfying acceptance = (%#v, %v), want the open window on %s with 3 counted dispatches", correction, corrErr, attempt2)
+	if corrErr != nil || correction == nil || correction.FailedAttemptID != attempt2 {
+		t.Fatalf("anchor correction after partially satisfying acceptance = (%#v, %v), want the open source on %s", correction, corrErr, attempt2)
 	}
 }
 
-// TestUnrelatedAcceptedJobPreservesDerivedFailureBudget keeps the unresolved
-// job's budget across live terminal failures, unrelated local acceptance,
+// The unresolved job's source survives live terminal failures, unrelated local acceptance,
 // duplicate terminal reports, and rebuild (CD-0205 D4, CD-0198 D5).
-func TestUnrelatedAcceptedJobPreservesDerivedFailureBudget(t *testing.T) {
+func TestUnrelatedAcceptedJobPreservesDerivedFailureSource(t *testing.T) {
 	const workID = "correction-window-derived-budget"
 	// The scenario pins the current registered retained head through the same
 	// lookup the fixture resolves, and refuses to run when that head no longer
@@ -268,25 +246,22 @@ func TestUnrelatedAcceptedJobPreservesDerivedFailureBudget(t *testing.T) {
 		t.Fatalf("derived records for %s = %+v, want exactly one derived pair from the original terminal event", attempt1, records1)
 	}
 	pin := issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.AttemptCount != 1 || pin.Correction.Escalated || pin.Correction.Disposition != "failed" || pin.Correction.FailedAttemptID != attempt1 || pin.Correction.Diagnosis != detailA {
-		t.Fatalf("correction after the derived failure = %#v, want the failed window on %s with one counted dispatch", pin.Correction, attempt1)
+	if pin.Correction == nil || pin.Correction.Disposition != "failed" || pin.Correction.FailedAttemptID != attempt1 || pin.Correction.Diagnosis != detailA {
+		t.Fatalf("correction after the derived failure = %#v, want the failed source on %s", pin.Correction, attempt1)
 	}
 
-	// An accepted result under a different job identity must not open a new
-	// counting window: both dispatches sit in the preserved window (CD-0164
-	// D1 counts every dispatch), and the unrelated acceptance resets nothing.
-	// The record is job-bound, so the anchor's count reads the full prefix.
+	// An accepted result under a different job identity cannot close this obligation.
 	attempt2 := "attempt:" + workID + ":2"
 	issue1013StartRepair(t, s, workID, dispatcher, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt2, pin.Correction, dispatcher, pin.Version, "derived-budget-2", unrelatedJob)
 	completeAndAcceptAttempt(t, s, workID, attempt2, lane, acceptor)
-	if count := jobWindowCorrectionCount(t, s, workID); count != 2 {
-		t.Fatalf("correction count after the unrelated acceptance = %d, want 2 dispatches in the preserved window", count)
+	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary != 0 {
+		t.Fatalf("unrelated acceptance closed the unresolved obligation at %d", boundary)
 	}
 	anchor, anchorErr := workflowCorrectionContextForDispatch(context.Background(), s.DatabaseForTesting(), workID, "repair", "")
-	if anchorErr != nil || anchor == nil || anchor.Escalated || anchor.FailedAttemptID != attempt1 || anchor.AttemptCount != 2 {
-		t.Fatalf("anchor correction after the unrelated acceptance = (%#v, %v), want the open window on %s with 2 counted dispatches", anchor, anchorErr, attempt1)
+	if anchorErr != nil || anchor == nil || anchor.FailedAttemptID != attempt1 {
+		t.Fatalf("anchor correction after the unrelated acceptance = (%#v, %v), want the open source on %s", anchor, anchorErr, attempt1)
 	}
 
 	// A's retry is dispatched under A's original recorded revision and fails
@@ -308,36 +283,31 @@ func TestUnrelatedAcceptedJobPreservesDerivedFailureBudget(t *testing.T) {
 		t.Fatalf("derived records for %s = %+v, want exactly one at the retry's own epoch", attempt3, records3)
 	}
 
-	// The budget stays keyed to A's original revision: the retry failure
-	// resets nothing, so the preserved window counts all three dispatches,
-	// and the failed anchor is the retry's own record under the same
-	// unresolved job revision — A's first failure record is not consumed.
+	// The failed anchor is the retry's own record under A's original revision.
 	pin = issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.AttemptCount != 3 || !pin.Correction.Escalated || pin.Correction.FailedAttemptID != attempt3 || pin.Correction.Diagnosis != detailRetry {
-		t.Fatalf("correction after the retry failure = %#v, want the escalated window on %s carrying all 3 counted dispatches with no reset", pin.Correction, attempt3)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != attempt3 || pin.Correction.Diagnosis != detailRetry {
+		t.Fatalf("correction after the retry failure = %#v, want the latest failed source on %s", pin.Correction, attempt3)
 	}
-	if count := jobWindowCorrectionCount(t, s, workID); count != 3 {
-		t.Fatalf("correction count after the retry failure = %d, want the 3 dispatches the preserved window holds", count)
+	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary != 0 {
+		t.Fatalf("retry failure closed the unresolved obligation at %d", boundary)
 	}
 
 	// A duplicate terminal report derives nothing: the retry attempt's
-	// terminal fact is already recorded, and neither the records, the
-	// budget, nor the anchor move.
+	// terminal fact is already recorded, and neither the records nor the anchor move.
 	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, attempt3, "failed-"+workID+"-3-duplicate", detailRetry, preferredModelForLane(lane))); err == nil {
 		t.Fatal("a duplicate terminal worker.failed report for the failed retry attempt was admitted")
 	}
 	if got := s2DerivedFailureRecords(t, s, workID, attempt3); len(got) != 1 {
 		t.Fatalf("derived records after the duplicate terminal report = %+v, want the one original", got)
 	}
-	if count := jobWindowCorrectionCount(t, s, workID); count != 3 {
-		t.Fatalf("correction count after the duplicate terminal report = %d, want the unchanged budget", count)
+	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary != 0 {
+		t.Fatalf("duplicate terminal report closed the unresolved obligation at %d", boundary)
 	}
-	if pin := issue1013Pin(t, s, workID); pin.Correction == nil || pin.Correction.FailedAttemptID != attempt3 || pin.Correction.AttemptCount != 3 {
+	if pin := issue1013Pin(t, s, workID); pin.Correction == nil || pin.Correction.FailedAttemptID != attempt3 {
 		t.Fatalf("correction after the duplicate terminal report = %#v, want the unchanged window on %s", pin.Correction, attempt3)
 	}
 
-	// The rebuild folds the stored derivation to the same records and the
-	// same keyed budget.
+	// The rebuild folds the stored derivation to the same records and source.
 	if err := RebuildFromLog(context.Background(), s); err != nil {
 		t.Fatalf("rebuild from the log: %v", err)
 	}
@@ -346,31 +316,28 @@ func TestUnrelatedAcceptedJobPreservesDerivedFailureBudget(t *testing.T) {
 			t.Fatalf("rebuilt records for %s = %+v, want the one derived record rebuilt identically", attempt, got)
 		}
 	}
-	if count := jobWindowCorrectionCount(t, s, workID); count != 3 {
-		t.Fatalf("correction count after the rebuild = %d, want the same preserved budget", count)
+	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary != 0 {
+		t.Fatalf("rebuild closed the unresolved obligation at %d", boundary)
 	}
 	pin = issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.AttemptCount != 3 || !pin.Correction.Escalated || pin.Correction.Disposition != "failed" || pin.Correction.FailedAttemptID != attempt3 || pin.Correction.Diagnosis != detailRetry {
-		t.Fatalf("rebuilt correction = %#v, want the same escalated failed window on %s with 3 counted dispatches", pin.Correction, attempt3)
+	if pin.Correction == nil || pin.Correction.Disposition != "failed" || pin.Correction.FailedAttemptID != attempt3 || pin.Correction.Diagnosis != detailRetry {
+		t.Fatalf("rebuilt correction = %#v, want the same failed source on %s", pin.Correction, attempt3)
 	}
 }
 
-// jobWindowCorrectionCount reads the correction counting window through the
-// real derivation, so a test can assert the boundary itself and not only the
-// pin view built on it. The optional seq pins the walked prefix: deriving the
-// count at a historical prefix must match what the live derivation returned
-// at that point in the log (CD-0201 parity).
-func jobWindowCorrectionCount(t *testing.T, s *Store, workID string, prefix ...int64) int64 {
+// jobWindowAcceptanceBoundary reads the satisfied-obligation cutoff. A supplied
+// sequence excludes that event and everything after it.
+func jobWindowAcceptanceBoundary(t *testing.T, s *Store, workID string, prefix ...int64) int64 {
 	t.Helper()
-	seq := int64(1) << 62
+	seq := int64(0)
 	if len(prefix) > 0 {
 		seq = prefix[0]
 	}
-	count, err := workflowCorrectionAttemptCount(context.Background(), s.DatabaseForTesting(), workID, seq, "workflow_correction")
+	boundary, err := workflowCorrectionAcceptanceBefore(context.Background(), s.DatabaseForTesting(), workID, seq, "workflow_correction")
 	if err != nil {
-		t.Fatalf("count correction attempts for %s: %v", workID, err)
+		t.Fatalf("read satisfying acceptance for %s: %v", workID, err)
 	}
-	return count
+	return boundary
 }
 
 // maxEventSeq returns the current last sequence of the work item's event

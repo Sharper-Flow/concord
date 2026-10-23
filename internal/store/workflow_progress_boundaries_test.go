@@ -186,26 +186,14 @@ func TestCoordinatorFactsPreserveChecksRepairDebtUntilConfirmation(t *testing.T)
 	}
 }
 
-// TestArmedProgressWallWallsOnlyWorkerDispatch proves the armed wall's reach
-// on a real walled history: the wall refuses the next worker dispatch with
-// the convergence refusal, folds its populations into the readable window,
-// and refuses no coordinator-only action the parked step declares — the wall
-// implies nothing about coordinator-only actions, so a satisfaction path can
-// finish the work without another dispatch.
-func TestArmedProgressWallWallsOnlyWorkerDispatch(t *testing.T) {
+// A repeated correction leaves dispatch and coordinator-only routes available.
+func TestRepeatedCorrectionKeepsCoordinatorRoutes(t *testing.T) {
 	t.Parallel()
 	const workID = "progress-armed-wall-coordinator-only"
 	f := seedResearchWalledCorrection(t, workID)
 	s := f.s
 	defer s.Close()
 
-	// The next worker dispatch refuses at the wall and records nothing.
-	counters := walledResearchReadCounters(t, f)
-	walledResearchAssertRefused(t, f, dispatchCorrectionAuthorize(t, f, "attempt:"+workID+":5", f.researchLane, f.dispatcher), counters, "the dispatch behind the armed wall")
-
-	// The wall walls dispatch alone. Every other declared action answers the
-	// folded admission state without the convergence refusal, so the
-	// coordinator-only satisfaction path stays open beside the armed wall.
 	entry, err := VerifyWorkflowInstanceDefinition(context.Background(), s, BuiltinWorkflowRegistry(), workID)
 	if err != nil {
 		t.Fatal(err)
@@ -215,12 +203,9 @@ func TestArmedProgressWallWallsOnlyWorkerDispatch(t *testing.T) {
 	if loadErr != nil {
 		t.Fatal(loadErr)
 	}
-	if !state.retryEscalated() {
-		t.Fatalf("folded state behind the walled correction = %+v, want the wall armed", state)
-	}
 	decided := workflowAdmit(entry.Definition, state, "dispatch_worker")
-	if decided.Admitted || !decided.ConvergenceRequired || decided.Failure == nil || decided.Failure.Kind != KindMissingEvidence {
-		t.Fatalf("dispatch decision = %+v, want the convergence refusal", decided)
+	if !decided.Admitted {
+		t.Fatalf("dispatch decision = %+v, want the correction route available", decided)
 	}
 	walled := 0
 	for _, action := range entry.Definition.AvailableActions {
@@ -228,9 +213,6 @@ func TestArmedProgressWallWallsOnlyWorkerDispatch(t *testing.T) {
 			continue
 		}
 		decision := workflowAdmit(entry.Definition, state, action)
-		if decision.ConvergenceRequired || (decision.Failure != nil && strings.Contains(decision.Failure.Detail, "three-attempt limit")) {
-			t.Fatalf("action %s behind the armed wall = %+v, want no convergence refusal on a coordinator-only action", action, decision)
-		}
 		if decision.Admitted {
 			walled++
 		}

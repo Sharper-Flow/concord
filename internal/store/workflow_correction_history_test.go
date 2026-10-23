@@ -41,13 +41,13 @@ func correctionHistoryAction(action, attempt, job string, revision int64) map[st
 
 func correctionHistoryBoundary(t *testing.T, db *sql.DB, seq, want int64) {
 	t.Helper()
-	got, err := workflowCorrectionWindowBoundary(context.Background(), db, "work-history", seq, "history_test")
+	got, err := workflowCorrectionAcceptanceBefore(context.Background(), db, "work-history", seq, "history_test")
 	if err != nil || got != want {
 		t.Fatalf("boundary at %d = (%d, %v), want %d", seq, got, err, want)
 	}
 }
 
-func correctionHistoryRecord(t *testing.T, db *sql.DB, exclude string, wantSeq, wantCountThrough int64) {
+func correctionHistoryRecord(t *testing.T, db *sql.DB, exclude string, wantSeq int64) {
 	t.Helper()
 	got, err := workflowCorrectionOpenRecord(context.Background(), db, "work-history", exclude, "history_test")
 	if err != nil {
@@ -59,8 +59,8 @@ func correctionHistoryRecord(t *testing.T, db *sql.DB, exclude string, wantSeq, 
 		}
 		return
 	}
-	if got == nil || got.seq != wantSeq || got.countThrough != wantCountThrough {
-		t.Fatalf("open record = %#v, want seq %d counting through %d", got, wantSeq, wantCountThrough)
+	if got == nil || got.seq != wantSeq {
+		t.Fatalf("open record = %#v, want seq %d", got, wantSeq)
 	}
 }
 
@@ -71,13 +71,13 @@ func TestCorrectionHistoryAcceptanceCutoffs(t *testing.T) {
 	appendEvent(WorkflowActionCompleted, correctionHistoryAction("dispatch_worker", "attempt:failed", job.JobID, 1))
 	appendEvent(WorkerFailed, map[string]any{"attempt_id": "attempt:failed"})
 	failureSeq := appendEvent(WorkflowActionCompleted, correctionHistoryAction("record_worker_failure", "attempt:failed", "", 0))
-	correctionHistoryRecord(t, db, "", failureSeq, failureSeq)
+	correctionHistoryRecord(t, db, "", failureSeq)
 	job.Revision = 2
 	appendEvent(WorkerJobRecorded, job)
 	acceptedSeq := appendEvent(WorkflowActionCompleted, correctionHistoryAction("accept_worker_result", "attempt:accepted", job.JobID, 2))
 	correctionHistoryBoundary(t, db, acceptedSeq, 0)
 	correctionHistoryBoundary(t, db, acceptedSeq+1, acceptedSeq)
-	correctionHistoryRecord(t, db, "", 0, 0)
+	correctionHistoryRecord(t, db, "", 0)
 
 	// A later acceptance must not alter the historical prefix's open record.
 	history, err := workflowCorrectionWalkWorkerSatisfaction(context.Background(), db, "work-history", acceptedSeq-1, "history_test")
@@ -85,7 +85,7 @@ func TestCorrectionHistoryAcceptanceCutoffs(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := history.openRecord("")
-	if record == nil || record.seq != failureSeq || record.countThrough != acceptedSeq-1 || history.boundary != 0 {
+	if record == nil || record.seq != failureSeq || history.boundary != 0 {
 		t.Fatalf("historical record = %#v, boundary %d; want the unresolved failure", record, history.boundary)
 	}
 }
@@ -98,15 +98,15 @@ func TestCorrectionHistoryLatestUnresolvedRecord(t *testing.T) {
 		appendEvent(WorkflowActionCompleted, correctionHistoryAction("dispatch_worker", "attempt:"+jobID, jobID, 1))
 		failureSeqs = append(failureSeqs, appendEvent(WorkflowActionCompleted, correctionHistoryAction("reject_worker_result", "attempt:"+jobID, "", 0)))
 	}
-	correctionHistoryRecord(t, db, "", failureSeqs[1], failureSeqs[1])
+	correctionHistoryRecord(t, db, "", failureSeqs[1])
 	partialSeq := appendEvent(WorkflowActionCompleted, correctionHistoryAction("accept_worker_result", "attempt:accepted-newer", "job:newer", 1))
-	correctionHistoryRecord(t, db, "", failureSeqs[0], partialSeq)
+	correctionHistoryRecord(t, db, "", failureSeqs[0])
 	correctionHistoryBoundary(t, db, partialSeq+1, 0)
 	acceptedSeq := appendEvent(WorkflowActionCompleted, correctionHistoryAction("accept_worker_result", "attempt:accepted-older", "job:older", 1))
-	correctionHistoryRecord(t, db, "", 0, 0)
+	correctionHistoryRecord(t, db, "", 0)
 	correctionHistoryBoundary(t, db, acceptedSeq+1, acceptedSeq)
 	requestSeq := appendEvent(WorkflowActionCompleted, correctionHistoryAction("request_correction", "", "", 0))
-	correctionHistoryRecord(t, db, "", requestSeq, requestSeq)
+	correctionHistoryRecord(t, db, "", requestSeq)
 }
 
 func TestCorrectionHistoryFailureDebtBeforeDisposition(t *testing.T) {
@@ -137,7 +137,7 @@ func TestCorrectionHistoryFailureDebtBeforeDisposition(t *testing.T) {
 				seq := appendEvent(WorkflowActionCompleted, correctionHistoryAction("accept_worker_result", "attempt:unrelated", acceptedJob, 2))
 				correctionHistoryBoundary(t, db, seq+1, 0)
 			}
-			correctionHistoryRecord(t, db, "", 0, 0)
+			correctionHistoryRecord(t, db, "", 0)
 			job.Revision = 3
 			appendEvent(WorkerJobRecorded, job)
 			seq := appendEvent(WorkflowActionCompleted, correctionHistoryAction("accept_worker_result", "attempt:satisfying", job.JobID, 3))
@@ -151,10 +151,10 @@ func TestCorrectionHistoryLegacyMaterializedConsumption(t *testing.T) {
 	requestSeq := appendEvent(WorkflowActionCompleted, correctionHistoryAction("request_correction", "", "", 0))
 	appendEvent(WorkerDispatched, map[string]any{"attempt_id": "attempt:evidence-only"})
 	appendEvent(WorkflowActionCompleted, correctionHistoryAction("dispatch_worker", "attempt:half", "", 0))
-	correctionHistoryRecord(t, db, "", requestSeq, requestSeq)
+	correctionHistoryRecord(t, db, "", requestSeq)
 	appendEvent(WorkerDispatched, map[string]any{"attempt_id": "attempt:half"})
-	correctionHistoryRecord(t, db, "", 0, 0)
-	correctionHistoryRecord(t, db, "attempt:half", requestSeq, requestSeq)
+	correctionHistoryRecord(t, db, "", 0)
+	correctionHistoryRecord(t, db, "attempt:half", requestSeq)
 	acceptedSeq := appendEvent(WorkflowActionCompleted, correctionHistoryAction("accept_worker_result", "attempt:half", "", 0))
 	correctionHistoryBoundary(t, db, acceptedSeq, 0)
 	correctionHistoryBoundary(t, db, acceptedSeq+1, acceptedSeq)
@@ -163,7 +163,7 @@ func TestCorrectionHistoryLegacyMaterializedConsumption(t *testing.T) {
 	appendEvent(WorkflowActionCompleted, correctionHistoryAction("dispatch_worker", "attempt:late", "", 0))
 	requestSeq = appendEvent(WorkflowActionCompleted, correctionHistoryAction("request_correction", "", "", 0))
 	appendEvent(WorkerDispatched, map[string]any{"attempt_id": "attempt:late"})
-	correctionHistoryRecord(t, db, "", requestSeq, requestSeq)
+	correctionHistoryRecord(t, db, "", requestSeq)
 	requestSeq = appendEvent(WorkflowActionCompleted, correctionHistoryAction("request_correction", "", "", 0))
-	correctionHistoryRecord(t, db, "", requestSeq, requestSeq)
+	correctionHistoryRecord(t, db, "", requestSeq)
 }

@@ -131,26 +131,9 @@ type WorkflowAdmissionState struct {
 	// payloads against it instead of re-entering the loader. It is nil when
 	// the step admits no correction request.
 	CorrectionRequestContext *WorkflowCorrectionContext
-	// CorrectionEscalated reports a recorded worker correction that reached
-	// the attempt limit.
-	CorrectionEscalated bool
 	// UnconsumedUnboundRejection reports an unbound rejection at the
 	// current step no materialized dispatch has consumed yet.
 	UnconsumedUnboundRejection bool
-	// RetryConvergence is derived from recorded finding sets or a contract
-	// supersession. An escalated retry needs this basis, not an approval.
-	RetryConvergence WorkflowRetryConvergence
-	// FundedChecksRepairReviews counts the jobs whose accepted, unconfirmed
-	// checks repair holds an unconsumed confirming-review funding (CD-0205
-	// D4, CD-0148 amendment). It is the wall's one named admission: the pure
-	// admission passes so the payload guard can bind the dispatch to the
-	// exact funded repairing revision on a review lane, and the completion
-	// that consumes the funding records it. The state stays comparable; the
-	// guard derives the funded jobs themselves from the same derivation.
-	FundedChecksRepairReviews int
-	// NonProgressAttempts counts failed, rejected, and no_ship attempts across
-	// the work item since the last productive acceptance.
-	NonProgressAttempts int64
 	// OracleOpenFindings is the count of the derived open ranked findings
 	// of an oracle-capable pin: the folded admission state stays
 	// a comparable value, so it carries the bound the dispatch refusal
@@ -220,10 +203,8 @@ type WorkflowAdmissionState struct {
 // rechecks, the ready review the calling guard may bind the request's
 // attempt identity against, and the typed refusal when the advance refuses.
 type WorkflowAdmissionDecision struct {
-	Admitted bool
-	// ConvergenceRequired keeps the refused retry visible on the work pin.
-	ConvergenceRequired bool
-	RecoveryRoute       bool
+	Admitted      bool
+	RecoveryRoute bool
 	// OffStep marks the structural step-legality refusal. The callers apply
 	// it at the engine's late position — after the payload and guard checks
 	// whose specific refusals precede the generic off-step one — instead of
@@ -289,9 +270,8 @@ func workflowFailureOf(err error) *Failure {
 }
 
 // loadWorkflowAdmissionStateTxForRegistry folds the same admission state with
-// the caller's authoritative registry: the historical progress
-// qualification, the retry convergence, and the correction routes resolve
-// their pins through it, never through a builtin retry. A nil registry
+// the caller's authoritative registry: correction routes resolve
+// their pins through it. A nil registry
 // selects the builtin registry.
 func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, registry DefinitionRegistry) (WorkflowAdmissionState, []workflowVerificationRun, []workflowVerificationRun, error) {
 	state := WorkflowAdmissionState{
@@ -344,7 +324,7 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 	if err != nil {
 		return WorkflowAdmissionState{}, nil, nil, err
 	}
-	if err := l.retryAndHolds(&state); err != nil {
+	if err := l.holdsAndRecovery(&state); err != nil {
 		return WorkflowAdmissionState{}, nil, nil, err
 	}
 	if err := loadWorkflowAcceptanceAdmission(ctx, q, workID, definition, &state); err != nil {
@@ -510,10 +490,9 @@ func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) (bo
 	return correctionRoute, nil
 }
 
-// retryAndHolds folds the rejection hold, the non-progress wall, oracle
-// admission, correction escalation, retry convergence, the failed-worker
-// dispatch hold and the evidence-binding recovery.
-func (l workflowAdmissionLoad) retryAndHolds(state *WorkflowAdmissionState) error {
+// holdsAndRecovery folds rejection and dispatch holds, oracle admission,
+// and evidence-binding recovery.
+func (l workflowAdmissionLoad) holdsAndRecovery(state *WorkflowAdmissionState) error {
 	// A current-step advance condition from the history's consumption answer.
 	if workflowStepCarriesRejectionHold(l.definition, l.currentStep) {
 		rejectionHold, rejectionHoldErr := workflowUnconsumedUnboundRejection(l.ctx, l.q, l.workID, l.currentStep, l.subject, 0)
@@ -522,40 +501,8 @@ func (l workflowAdmissionLoad) retryAndHolds(state *WorkflowAdmissionState) erro
 		}
 		state.UnconsumedUnboundRejection = rejectionHold
 	}
-	nonProgress, wallErr := workflowNonProgressAttemptCount(l.ctx, l.q, l.workID, l.subject)
-	if wallErr != nil {
-		return wallErr
-	}
-	state.NonProgressAttempts = nonProgress
 	if err := loadWorkflowOracleAdmissionTx(l.ctx, l.q, l.workID, l.definition, state); err != nil {
 		return err
-	}
-	// The one escalation derivation the fold, the pin's retry window, and
-	// the read projection share: an open correction record's counted window
-	// at or past its comparator, or a converged retry that already crossed
-	// the current one.
-	escalated, escalatedErr := workflowCorrectionWindowEscalated(l.ctx, l.q, l.workID, l.currentStep, l.subject)
-	if escalatedErr != nil {
-		return escalatedErr
-	}
-	state.CorrectionEscalated = escalated
-	if state.retryEscalated() {
-		convergence, err := workflowRetryConvergenceForRegistry(l.ctx, l.q, l.workID, l.currentStep, l.registry)
-		if err != nil {
-			return err
-		}
-		state.RetryConvergence = convergence
-		if !convergence.valid() {
-			// The wall's one named admission: an accepted, unconfirmed
-			// checks repair funds exactly one confirming review without a
-			// convergence basis (CD-0148 amendment). The payload guard
-			// binds the admitted dispatch to the funded revision.
-			fundings, fundingErr := workerChecksRepairReviewFundingsTx(l.ctx, l.q, l.workID)
-			if fundingErr != nil {
-				return fundingErr
-			}
-			state.FundedChecksRepairReviews = len(fundings)
-		}
 	}
 	dispatchHold, holdErr := workflowDispatchHoldsStepAdvance(l.ctx, l.q, l.definition, l.workID, l.currentStep, 0)
 	if holdErr != nil {
@@ -716,57 +663,16 @@ func foldWorkflowConfirmationTx(ctx context.Context, q queryer, workID string, d
 	return fold, nil
 }
 
-// workflowCorrectionWindowEscalated is the one derivation of the correction
-// wall behind a worker dispatch (CD-0164 D4/D5): an open correction record's
-// counted window at or past its comparator, or a converged retry that already
-// crossed the current window. The admission fold, the CD-0164 D5 window read,
-// and the dispatched packet all read it. Under a duplicated projection the
-// singular active-contract read inside the correction context raises the
-// duplicate invariant the supersede recovery owns, and the derivation
-// degrades instead of refusing.
-func workflowCorrectionWindowEscalated(ctx context.Context, q queryer, workID, step, subject string) (bool, error) {
-	correction, err := workflowCorrectionContextForDispatch(ctx, q, workID, step, "")
-	if err != nil {
-		if workflowDuplicateContractProjection(err) {
-			correction = nil
-		} else {
-			return false, err
-		}
-	}
-	if correction != nil && correction.Escalated {
-		return true, nil
-	}
-	return workflowCorrectionWindowContinued(ctx, q, workID, subject)
-}
-
-// workflowCorrectionWindowContinued reports whether a converged retry already
-// crossed the current non-progress window. Materialization closes an unbound
-// correction record, not the wall its converging retry crossed. Only
-// productive acceptance opens a new window; another retry needs another basis
-// in this window.
-func workflowCorrectionWindowContinued(ctx context.Context, q queryer, workID, subject string) (bool, error) {
-	anchor, err := workflowNonProgressWindowAnchor(ctx, q, workID, subject, 0)
-	if err != nil {
-		return false, err
-	}
-	var continued bool
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.retry_convergence') IS NOT NULL AND seq>?)`, string(SubjectWorkItem), workID, WorkflowActionCompleted, anchor).Scan(&continued); err != nil {
-		return false, workflowProjectionError(err, "cannot read the continued convergence window")
-	}
-	return continued, nil
-}
-
 // workflowAdmit decides one action's admission over one folded admission
 // state. It is pure and total: no store access, no clock, no request payload,
 // and a defined answer for every action the definitions declare. It decides
 // the terminal immutability, the breaking-impact and consequential-condition
 // boundaries, the supersede classification, the dispatch hold behind a stale
-// design, an escalated correction, or the non-progress wall, the staleness
+// design, the staleness
 // classes, the review-debt advances, the recovery routes, and the step
 // legality. The folded conditions hide only the advances they name — the
 // recorded delivery at a review step and the refinement-step accept under
-// review debt, a dispatch behind a stale design, the non-progress wall, or an
-// escalated correction, and a consequential action behind a breaking impact
+// review debt, a dispatch behind a stale design, and a consequential action behind a breaking impact
 // notice or an open external condition — because each condition blocks a
 // result, not the work: dispatch, recovery, and continuity actions stay
 // admitted so a parked item always keeps a route. The payload and identity
@@ -904,7 +810,7 @@ func workflowAdmitInstanceRefused(definition WorkflowDefinition, state WorkflowA
 }
 
 // workflowAdmitDispatchRefused answers dispatch_worker's own bounds: a stale
-// design, the open oracle blocker bound, and the retry convergence wall.
+// design and the open oracle blocker bound.
 func workflowAdmitDispatchRefused(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
 	if actionID == "dispatch_worker" {
 		if state.PendingWorkerAuthorization {
@@ -921,11 +827,6 @@ func workflowAdmitDispatchRefused(definition WorkflowDefinition, state WorkflowA
 		// contract revision, or stopping the work.
 		if state.OracleOpenFindings > WorkflowOpenOracleFindingsLimit {
 			decision.Failure = newFailure(KindLimitExceeded, "worker_dispatch", fmt.Sprintf("the work holds %d open oracle blockers above the %d-ID bound; dispatch is refused rather than truncating the set", state.OracleOpenFindings, WorkflowOpenOracleFindingsLimit), false, "close findings through supported closures or an approved scope/contract revision, or stop the work")
-			return true
-		}
-		if state.retryEscalated() && !state.RetryConvergence.valid() && state.FundedChecksRepairReviews == 0 {
-			decision.Failure = workflowRetryConvergenceFailure(state)
-			decision.ConvergenceRequired = true
 			return true
 		}
 	}

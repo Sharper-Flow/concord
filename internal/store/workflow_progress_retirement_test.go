@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestCoordinatorEvidenceDoesNotRenewAttemptCredit(t *testing.T) {
+func TestCoordinatorEvidenceDoesNotMoveAcceptanceBoundary(t *testing.T) {
 	db, appendEvent, read := progressHistory(t)
 	if _, err := db.Exec(`CREATE TABLE worker_attempts(work_id TEXT, attempt_id TEXT, lifecycle_state TEXT)`); err != nil {
 		t.Fatal(err)
@@ -22,22 +21,7 @@ func TestCoordinatorEvidenceDoesNotRenewAttemptCredit(t *testing.T) {
 		appendEvent(WorkflowActionCompleted, correctionHistoryAction("dispatch_worker", attempt, "", 0))
 		appendEvent(WorkerFailed, map[string]any{"attempt_id": attempt})
 	}
-	count := func() int64 {
-		t.Helper()
-		got, err := workflowNonProgressAttemptCount(context.Background(), db, "work-history", "credit_retirement")
-		if err != nil {
-			t.Fatal(err)
-		}
-		return got
-	}
-	before := count()
-	if before != 3 {
-		t.Fatalf("failed attempt population = %d, want 3", before)
-	}
 	progressQualifiedEvidence(t, db, appendEvent, "evidence:qualified")
-	if after := count(); after != before {
-		t.Fatalf("coordinator evidence renewed attempt credit: before=%d after=%d", before, after)
-	}
 	if history := read(); history.boundary != 0 {
 		t.Fatalf("evidence binding moved worker acceptance boundary to %d", history.boundary)
 	}

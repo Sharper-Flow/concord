@@ -2,11 +2,11 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestOwnerOracleConvergence"
+      "value": "internal/store.TestOwnerOracleCorrectionLineage"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestOwnerOracleRequestOpenFindingsComparison"
+      "value": "internal/store.TestOwnerOracleRequestOpenFindingsShape"
     },
     {
       "kind": "go_test",
@@ -14,7 +14,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired"
+      "value": "internal/agent.TestRepeatedFailedWorkersUseOrdinaryLaunchAuthority"
     }
   ],
   "id": "CD-0137",

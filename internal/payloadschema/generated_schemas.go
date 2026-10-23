@@ -8033,7 +8033,7 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "reject_retry": {
       "additionalProperties": false,
-      "description": "CD-0198 D5: the retry dispatch intent a rejected result can carry on a definition that derives the worker failure record. It names only the lane; the store mints the fresh fenced attempt and derives the lane packet from the recorded state the rejection commits, through the dispatch admission every dispatch answers to. The host launch stays the post-commit dispatch boundary; a refusal, including the escalation wall, leaves the rejection unwritten and the rejection-only escape available.",
+      "description": "CD-0198 D5: the retry dispatch intent a rejected result can carry on a definition that derives the worker failure record. It names only the lane; the store mints the fresh fenced attempt and derives the lane packet from the recorded state the rejection commits, through the dispatch admission every dispatch answers to. The host launch stays the post-commit dispatch boundary; a refusal leaves the rejection unwritten and the rejection-only escape available.",
       "properties": {
         "lane_id": {
           "$ref": "#/$defs/id",
@@ -10512,14 +10512,6 @@ const GeneratedPayloadSchemaDocument = `{
     "retained_workflow_correction_context": {
       "additionalProperties": false,
       "properties": {
-        "attempt_count": {
-          "maximum": 2147483647,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "attempt_limit": {
-          "$ref": "#/$defs/version"
-        },
         "diagnosis": {
           "type": "string"
         },
@@ -10530,9 +10522,6 @@ const GeneratedPayloadSchemaDocument = `{
             "verification"
           ],
           "type": "string"
-        },
-        "escalated": {
-          "type": "boolean"
         },
         "evidence_refs": {
           "items": {
@@ -10579,9 +10568,6 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "required": [
         "disposition",
-        "attempt_count",
-        "attempt_limit",
-        "escalated",
         "predicate_ids",
         "evidence_refs",
         "source_event_id",
@@ -27795,14 +27781,6 @@ const GeneratedPayloadSchemaDocument = `{
     "workflow_correction_context": {
       "additionalProperties": false,
       "properties": {
-        "attempt_count": {
-          "maximum": 2147483647,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "attempt_limit": {
-          "$ref": "#/$defs/version"
-        },
         "diagnosis": {
           "maxLength": 4096,
           "type": "string"
@@ -27814,9 +27792,6 @@ const GeneratedPayloadSchemaDocument = `{
             "verification"
           ],
           "type": "string"
-        },
-        "escalated": {
-          "type": "boolean"
         },
         "evidence_refs": {
           "items": {
@@ -27864,9 +27839,6 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "required": [
         "disposition",
-        "attempt_count",
-        "attempt_limit",
-        "escalated",
         "predicate_ids",
         "evidence_refs",
         "source_event_id",

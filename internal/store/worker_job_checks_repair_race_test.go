@@ -64,12 +64,8 @@ func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) 
 	oneOpenRepairA := func(stage string) {
 		t.Helper()
 		candidates, err := workerChecksRepairAwaitingReviewTx(ctx, s.DatabaseForTesting(), workID)
-		if err != nil || len(candidates) != 1 || candidates[0].Repairing != *revA || !candidates[0].Funded {
-			t.Fatalf("candidates %s = (%#v, %v), want exactly the one funded repair A %s@%d", stage, candidates, err, revA.JobID, revA.Revision)
-		}
-		fundings, err := workerChecksRepairReviewFundingsTx(ctx, s.DatabaseForTesting(), workID)
-		if err != nil || len(fundings) != 1 || fundings[jobID].Repairing != *revA {
-			t.Fatalf("fundings %s = (%#v, %v), want the one funded repair A", stage, fundings, err)
+		if err != nil || len(candidates) != 1 || candidates[0] != *revA {
+			t.Fatalf("candidates %s = (%#v, %v), want exactly repair A %s@%d", stage, candidates, err, revA.JobID, revA.Revision)
 		}
 	}
 
@@ -102,7 +98,7 @@ func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) 
 		t.Fatalf("repair B = %s@%d, want the revision beside %d", revB.JobID, revB.Revision, revA.Revision)
 	}
 
-	// A accepts and opens: exactly one funded candidate stands for the job.
+	// A accepts and opens: exactly one candidate stands for the job.
 	acceptChecksRepairAttempt(t, s, workID, attemptA, acceptor)
 	oneOpenRepairA("behind the accepted repair A")
 

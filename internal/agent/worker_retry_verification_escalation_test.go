@@ -12,14 +12,11 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// Four verification corrections arm the convergence wall. Oracle-free pins
-// compare requested predicates; oracle pins require a proven smaller finding
-// set. Approval never substitutes for either basis or permits its reuse.
-func TestEscalatedVerificationCorrectionWallGatesOnFindingsConvergence(t *testing.T) {
+func TestRepeatedVerificationCorrectionsKeepOrdinaryLaunchAuthority(t *testing.T) {
 	runVerificationCorrectionWall(t, 26)
 }
 
-func TestWorkerRetryVerificationOracleRequiresFindingClosure(t *testing.T) {
+func TestWorkerRetryVerificationOracleKeepsOrdinaryLaunchAuthority(t *testing.T) {
 	runVerificationCorrectionWall(t, 27)
 }
 
@@ -28,13 +25,12 @@ func runVerificationCorrectionWall(t *testing.T, definitionVersion int64) {
 	for _, tc := range []struct {
 		name           string
 		finalPredicate []string
-		admit          bool
 	}{
-		{"unchanged request predicates keep the wall closed", []string{"predicate:primary", "predicate:secondary"}, false},
-		{"shrinking request predicates require a comparable basis", []string{"predicate:primary"}, definitionVersion == 26},
+		{"unchanged request predicates", []string{"predicate:primary", "predicate:secondary"}},
+		{"shrinking request predicates", []string{"predicate:primary"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
 			version, worktree := seedEscalatedVerificationWorkerMutation(t, s, service, grant, definitionVersion, tc.finalPredicate)
 			grant.Worktree = worktree
 			scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
@@ -61,79 +57,22 @@ func runVerificationCorrectionWall(t *testing.T, definitionVersion int64) {
 			}
 			env.RequestID = "request:verification-convergence-1"
 			attempt := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-			if !tc.admit {
-				if attempt.Error == nil || attempt.Error.Kind != "missing_evidence" {
-					t.Fatalf("escalated verification retry without a basis = %+v, want missing_evidence", attempt.Error)
-				}
-				if !strings.Contains(attempt.Error.Message, "worker correction reached the three-attempt limit without a convergence basis") {
-					t.Fatalf("verification refusal does not name the convergence limit: %q", attempt.Error.Message)
-				}
-				if attempt.Error.RecoveryAction.Kind != "provide_evidence" {
-					t.Fatalf("verification refusal recovery = %q, want provide_evidence and never an approval ask", attempt.Error.RecoveryAction.Kind)
-				}
-				if attempt.Error.ConsequenceSummary != nil {
-					t.Fatal("verification refusal carries a consequence summary, but no challenge was minted")
-				}
-				if ref, ok := attempt.Error.Details["approval_ref"].(string); ok && ref != "" {
-					t.Fatalf("verification refusal carries approval_ref %q, but no challenge was minted", ref)
-				}
-				if got := verifyWallChallenges(t, s); got != 0 {
-					t.Fatalf("verification refusal minted %d approval challenges, want 0", got)
-				}
-				if got := verifyWallDispatchCompletions(t, s, retryID); got != 0 {
-					t.Fatalf("refused verification retry recorded %d dispatch completions, want 0", got)
-				}
-				if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND attempt_id='`+retryID+`'`); got != 0 {
-					t.Fatalf("refused verification retry created %d worker attempt rows, want 0", got)
-				}
-				if after := workVersion(t, s, "work-1"); after != version {
-					t.Fatalf("refused verification retry changed the work version %d -> %d", version, after)
-				}
-
-				// No approval challenge exists behind the convergence wall.
-				approvedInput := cloneWithApproval(t, input, strings.Repeat("e", 64))
-				approvedRaw, err := json.Marshal(approvedInput)
-				if err != nil {
-					t.Fatal(err)
-				}
-				scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-				approvedVersions := map[string]any{"work": version, "contract": int64(1), "correction_attempts": int64(4)}
-				env.HostApproval = signedHostApproval(privateKey, strings.Repeat("e", 64), mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, approvedVersions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "verification-convergence-unused-approval")
-				env.RequestID = "request:verification-convergence-2"
-				bypass := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
-				if bypass.Error == nil || bypass.Error.Kind != "missing_evidence" {
-					t.Fatalf("escalated verification retry behind a supplied approval = %+v, want missing_evidence", bypass.Error)
-				}
-				if got := verifyWallChallenges(t, s); got != 0 {
-					t.Fatalf("supplied approval minted %d approval challenges, want 0", got)
-				}
-				if after := workVersion(t, s, "work-1"); after != version {
-					t.Fatalf("supplied approval changed the work version %d -> %d", version, after)
-				}
-				return
-			}
-
-			// The shrinking predicate set derives the findings basis: the
-			// boundary admits one fresh fenced attempt with no approval.
+			// Predicate selection remains context, not a retry credit.
 			if attempt.Outcome != OutcomeOK {
-				t.Fatalf("verification retry behind shrinking findings = %+v", attempt.Error)
+				t.Fatalf("verification retry with predicates %v = %+v", tc.finalPredicate, attempt.Error)
 			}
 			if got := verifyWallChallenges(t, s); got != 0 {
-				t.Fatalf("verification retry behind shrinking findings minted %d approval challenges, want 0", got)
+				t.Fatalf("verification retry minted %d approval challenges, want 0", got)
 			}
 			if got := verifyWallDispatchCompletions(t, s, retryID); got != 1 {
-				t.Fatalf("verification retry behind shrinking findings recorded %d dispatch completions, want 1", got)
+				t.Fatalf("verification retry recorded %d dispatch completions, want 1", got)
 			}
 			if epoch := escalatedDispatchEpoch(t, s); epoch != seedEpoch+1 {
-				t.Fatalf("verification retry behind shrinking findings epoch=%d, want %d", epoch, seedEpoch+1)
+				t.Fatalf("verification retry epoch=%d, want %d", epoch, seedEpoch+1)
 			}
-			basis := verifyWallRecordedConvergence(t, s, retryID)
-			if basis.Basis != "findings_shrinking" || basis.PreviousRecordSeq == 0 || basis.LatestRecordSeq <= basis.PreviousRecordSeq || basis.SupersededSeq != 0 {
-				t.Fatalf("recorded convergence = %+v, want the findings_shrinking basis naming both correction request sequences", basis)
-			}
+			assertDispatchHasNoRetryBudget(t, s, retryID)
 
-			// The basis admitted exactly one dispatch: the interrupted
-			// attempt consumed it, so a blind re-dispatch refuses.
+			// An unresolved launch blocks another authorization.
 			nextID := "attempt:work-1:verification-6"
 			blindInput := map[string]any{
 				"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "dispatch_worker",
@@ -145,8 +84,8 @@ func runVerificationCorrectionWall(t *testing.T, definitionVersion int64) {
 			}
 			env.RequestID = "request:verification-convergence-3"
 			blind := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: blindRaw}, env)
-			if blind.Error == nil || blind.Error.Kind != "missing_evidence" {
-				t.Fatalf("blind re-dispatch behind the consumed findings basis = %+v, want missing_evidence", blind.Error)
+			if blind.Error == nil || blind.Error.Kind != "operation_conflict" || !strings.Contains(blind.Error.Message, "unresolved launch outcome") {
+				t.Fatalf("blind re-dispatch = %+v, want unresolved launch conflict", blind.Error)
 			}
 			if got := verifyWallChallenges(t, s); got != 0 {
 				t.Fatalf("blind re-dispatch minted %d approval challenges, want 0", got)
@@ -155,17 +94,11 @@ func runVerificationCorrectionWall(t *testing.T, definitionVersion int64) {
 				t.Fatalf("blind re-dispatch recorded %d dispatch completions, want 0", got)
 			}
 
-			// The admitted attempt fails and the failure records. The
-			// materialization closes the unbound correction record — its
-			// count resets and the failed attempt owns the record — but the
-			// wall the converging retry crossed stays armed, so the findings
-			// route is closed: the latest record is now the failure, and no
-			// request pair can derive a basis. The next dispatch refuses, and
-			// no ordinary approval route appears either.
+			// The terminal failure owns the correction source and opens ordinary retry.
 			recordWorkflowFailureForPin(t, s, grant, retryID, seedEpoch+1, "escalated-retry-"+strconv.FormatInt(seedEpoch+1, 10))
 			rearmed := verifyWallPinCorrection(t, s)
-			if rearmed.Disposition != "failed" || rearmed.Escalated || rearmed.AttemptCount != 1 || rearmed.FailedAttemptID != retryID || rearmed.FailedAttemptEpoch != seedEpoch+1 {
-				t.Fatalf("correction after the converging retry failed = %+v, want the unescalated failed record bound to %s at epoch %d", rearmed, retryID, seedEpoch+1)
+			if rearmed.Disposition != "failed" || rearmed.FailedAttemptID != retryID || rearmed.FailedAttemptEpoch != seedEpoch+1 {
+				t.Fatalf("correction after retry failure = %+v, want failed attempt %s at epoch %d", rearmed, retryID, seedEpoch+1)
 			}
 			afterID := "attempt:work-1:verification-7"
 			afterInput := map[string]any{
@@ -178,22 +111,23 @@ func runVerificationCorrectionWall(t *testing.T, definitionVersion int64) {
 			}
 			env.RequestID = "request:verification-convergence-4"
 			after := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: afterRaw}, env)
-			if after.Error == nil || after.Error.Kind != "missing_evidence" {
-				t.Fatalf("dispatch after the converging retry failed = %+v, want the convergence refusal", after.Error)
+			if after.Outcome != OutcomeOK {
+				t.Fatalf("dispatch after retry failure = %+v", after.Error)
 			}
 			if got := verifyWallChallenges(t, s); got != 0 {
 				t.Fatalf("the whole verification journey minted %d approval challenges, want 0", got)
 			}
-			if got := verifyWallDispatchCompletions(t, s, afterID); got != 0 {
-				t.Fatalf("dispatch after the converging retry failed recorded %d dispatch completions, want 0", got)
+			if got := verifyWallDispatchCompletions(t, s, afterID); got != 1 {
+				t.Fatalf("dispatch after retry failure recorded %d dispatch completions, want 1", got)
 			}
+			assertDispatchHasNoRetryBudget(t, s, afterID)
 		})
 	}
 }
 
 // seedEscalatedVerificationWorkerMutation records four correction cycles
-// under the selected definition. No healthy verdict resets the window; the
-// fourth request selects predicates without claiming any finding closure.
+// under the selected definition. The fourth request selects predicates
+// without claiming any finding closure.
 func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, service *Service, grant Authority, definitionVersion int64, finalPredicates []string) (int64, string) {
 	t.Helper()
 	seedCurrentWorkflowDomainFixture(t, s)
@@ -324,9 +258,7 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 				t.Fatalf("seed verification delivery %s %d: %+v", deliveryStep, cycle, delivery.Error)
 			}
 		}
-		// Both contract predicates carry a non-ok verdict, so no healthy
-		// verdict set resets the correction window and every recorded
-		// correction request stays comparable.
+		// Both contract predicates carry a non-ok verdict for the corrective return.
 		for _, predicate := range []string{"predicate:primary", "predicate:secondary"} {
 			runVerificationStoreAction(t, s, "record_verdict", map[string]any{
 				"contract_version": 1, "predicate_id": predicate, "verdict_kind": "outcome_mismatch",
@@ -347,7 +279,7 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 		if err != nil {
 			t.Fatal(err)
 		}
-		if pin.Correction == nil || pin.Correction.Disposition != "verification" || pin.Correction.AttemptCount != cycle || pin.Correction.Escalated != (cycle > 3) {
+		if pin.Correction == nil || pin.Correction.Disposition != "verification" || pin.Correction.SourceEventID == "" || pin.Correction.SourceEventSeq == 0 {
 			t.Fatalf("verification correction after cycle %d = %#v", cycle, pin.Correction)
 		}
 	}
@@ -357,8 +289,8 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pin.Correction == nil || pin.Correction.Disposition != "verification" || pin.Correction.AttemptCount != 4 || !pin.Correction.Escalated {
-		t.Fatalf("escalated verification correction after the fourth request = %#v", pin.Correction)
+	if pin.Correction == nil || pin.Correction.Disposition != "verification" || strings.Join(pin.Correction.PredicateIDs, ",") != strings.Join(finalPredicates, ",") {
+		t.Fatalf("verification correction after the fourth request = %#v, want predicates %v", pin.Correction, finalPredicates)
 	}
 	return workVersion(t, s, "work-1"), path
 }

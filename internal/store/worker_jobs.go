@@ -1005,10 +1005,9 @@ func packetJobFromView(view WorkerJobRevisionView) WorkerPacketJob {
 // the member is refused, so historical instances keep their legacy shape and
 // no job is ever inferred from a task string. The one satisfied revision a
 // dispatch admits is the confirming review of an open unconfirmed checks
-// repair; the typed admission rides back non-nil for that dispatch, funded
-// or an ordinary-authority repeat.
-func validateWorkerPacketJob(ctx context.Context, q queryer, definition WorkflowDefinition, workID string, lane LaneDefinition, packetRaw json.RawMessage) (*WorkerJobBinding, *WorkerChecksRepairReviewAdmission, error) {
-	refuse := func(message, remedy string) (*WorkerJobBinding, *WorkerChecksRepairReviewAdmission, error) {
+// repair; its exact binding rides back non-nil for that dispatch.
+func validateWorkerPacketJob(ctx context.Context, q queryer, definition WorkflowDefinition, workID string, lane LaneDefinition, packetRaw json.RawMessage) (*WorkerJobBinding, *WorkerJobBinding, error) {
+	refuse := func(message, remedy string) (*WorkerJobBinding, *WorkerJobBinding, error) {
 		return nil, nil, newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet "+message, false, remedy)
 	}
 	var packet struct {
@@ -1037,23 +1036,21 @@ func validateWorkerPacketJob(ctx context.Context, q queryer, definition Workflow
 		return refuse("inputs.worker_job is not one closed worker-job object", "build the worker job from the recorded revision")
 	}
 	binding := WorkerJobBinding{JobID: claimed.JobID, Revision: claimed.Revision, Digest: claimed.Digest}
-	var repairReview *WorkerChecksRepairReviewAdmission
+	var repairReview *WorkerJobBinding
 	if err := requireWorkerJobRevisionReadyTx(ctx, q, workID, binding); err != nil {
 		// The one dispatch a satisfied revision admits is the confirming
 		// review of an open unconfirmed checks repair (CD-0205 D4): a
 		// review-capable lane whose packet binds the exact satisfied
 		// repairing revision, before that repair's one confirming dispatch
-		// exists. Funded rides whether the admission was the wall's funded
-		// one or an ordinary-authority repeat. Every other refusal keeps
-		// its text.
-		funded, admitted, admitErr := admitWorkerChecksRepairReviewDispatchTx(ctx, q, workID, lane, binding)
+		// exists. Every other refusal keeps its text.
+		admitted, admitErr := admitWorkerChecksRepairReviewDispatchTx(ctx, q, workID, lane, binding)
 		if admitErr != nil {
 			return nil, nil, admitErr
 		}
 		if !admitted {
 			return nil, nil, err
 		}
-		repairReview = &WorkerChecksRepairReviewAdmission{WorkerJob: binding, Funded: funded}
+		repairReview = &binding
 	}
 	views, err := readWorkerJobRevisions(ctx, q, workID)
 	if err != nil {

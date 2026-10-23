@@ -614,7 +614,7 @@ func attributionIntegrationObservation(t *testing.T, s *Store, leaseID string) *
 func TestWorkerFailureAttributionCoordinatorIntegrationCorrection(t *testing.T) {
 	t.Parallel()
 	const workID = "attribution-integration-correction"
-	fixture := tSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
+	fixture := tSeedReviewRoute(t, workID)
 	s := fixture.store
 	defer s.Close()
 	lane := reviewGateLane(t, "implementation")
@@ -791,7 +791,7 @@ func TestWorkerFailureAttributionCoordinatorIntegrationUnavailablePopulation(t *
 func TestWorkerFailureAttributionCoordinatorIntegrationCorruptPopulationRefuses(t *testing.T) {
 	t.Parallel()
 	const workID = "attribution-integration-corrupt"
-	fixture := tSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
+	fixture := tSeedReviewRoute(t, workID)
 	s := fixture.store
 	defer s.Close()
 	lane := reviewGateLane(t, "implementation")
@@ -862,7 +862,7 @@ func TestWorkerFailureAttributionCoordinatorIntegrationCorruptPopulationRefuses(
 func TestWorkerFailureAttributionCoordinatorResultReview(t *testing.T) {
 	t.Parallel()
 	const workID = "attribution-result-review"
-	fixture := tSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
+	fixture := tSeedReviewRoute(t, workID)
 	s := fixture.store
 	defer s.Close()
 	lane := reviewGateLane(t, "implementation")
@@ -1192,7 +1192,7 @@ func TestWorkerFailureAttributionReaderResolvesSourceVersion(t *testing.T) {
 func TestWorkerFailureAttributionResultReviewSourceJoins(t *testing.T) {
 	t.Parallel()
 	const workID = "attribution-review-sources"
-	fixture := tSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
+	fixture := tSeedReviewRoute(t, workID)
 	s := fixture.store
 	defer s.Close()
 	lane := reviewGateLane(t, "implementation")

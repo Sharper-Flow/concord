@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"regexp"
 	"strings"
 	"testing"
@@ -91,7 +92,12 @@ func TestReviewJobAuthoritySurvivesSupersession(t *testing.T) {
 	job := &WorkerJobBinding{JobID: "job:old-authority", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, id, f.owner, job)
 	rescanned := driftStaleRegistryFixture(t, s)
-	if err := runIssue933OperatorAction(t, s, id, "supersede_contract", registryRepinSuccessorPayload(2, rescanned, id, 1, "root"), f.owner, f.operator); err != nil {
+	var successor map[string]any
+	if err := json.Unmarshal(registryRepinSuccessorPayload(2, rescanned, id, 1), &successor); err != nil {
+		t.Fatal(err)
+	}
+	successor["decision_domains"] = []string{}
+	if err := runApprovalActionTx(t, s, BuiltinWorkflowRegistry(), id, "supersede_contract", f.owner, nil, "", "", string(mustJSONValue(successor))); err != nil {
 		t.Fatal(err)
 	}
 	ready, err := readyWorkerJobRevisions(context.Background(), s.db, id)

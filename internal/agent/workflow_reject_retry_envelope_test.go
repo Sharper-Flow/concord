@@ -68,27 +68,13 @@ func seedDerivedFailureWorkerForCombinedReject(t *testing.T, s *store.Store, ser
 	if start.Outcome != OutcomeOK {
 		t.Fatalf("seed combined-reject start: %+v", start.Error)
 	}
-	recordReadyRetryJob(t, s, service, env, "job:combined-reject")
-	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	fixture := oAgentFixture(t, s, service, env, "work-1")
+	oAgentNativeJob(t, fixture)
 	attemptID := "attempt:work-1:combined-reject-1"
-	version = workVersion(t, s, "work-1")
-	input := map[string]any{
-		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "combined-reject-dispatch-1", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": retryMutationPacket(t, s, attemptID, pin.Correction)},
-	}
-	raw, err := json.Marshal(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	env.RequestID = "request:combined-reject-dispatch-1"
-	dispatch := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if dispatch.Outcome != OutcomeOK {
-		t.Fatalf("seed combined-reject dispatch: %+v", dispatch.Error)
-	}
-	applyVerificationWorkerDispatchAndCompletion(t, s, grant, attemptID, "combined-reject")
+	lane, job, _ := fixture.startWorker(t, "implement", attemptID)
+	// A rejected result need not edit the candidate. Keeping it unchanged
+	// lets the retry consume the same qualified native preparation.
+	fixture.finishWorker(t, lane, attemptID, job, nil)
 	return workVersion(t, s, "work-1"), path
 }
 
@@ -182,7 +168,7 @@ func combinedRejectRefusalEvents(t *testing.T, s *store.Store) int {
 // identical fixture commits the same combined call.
 func TestCombinedRejectOversizedResultRefusesZeroWrite(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_transition", "worker_dispatch"})
 	_, worktree := seedDerivedFailureWorkerForCombinedReject(t, s, service, grant)
 	grant.Worktree = worktree
 	recordOversizedWorkContext(t, s, service, grant)
@@ -240,7 +226,7 @@ func TestCombinedRejectOversizedResultRefusesZeroWrite(t *testing.T) {
 // rejection, one retry attempt, the ok envelope with the derived dispatch.
 func TestCombinedRejectNormalSizeCommits(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_transition", "worker_dispatch"})
 	version, worktree := seedDerivedFailureWorkerForCombinedReject(t, s, service, grant)
 	grant.Worktree = worktree
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -395,7 +381,7 @@ func assertCombinedRejectRetryTransport(t *testing.T, s *store.Store, committed 
 // authorization.
 func TestCombinedRejectResearchHeadTransportsAdmittedPacket3(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_transition", "worker_dispatch"})
 	_, worktree := seedDerivedFailureWorkerForCombinedReject(t, s, service, grant)
 	grant.Worktree = worktree
 	seedCombinedRejectResearchPack(t, s, "pack-combined-reject-rc")
@@ -445,7 +431,7 @@ func TestCombinedRejectResearchHeadTransportsAdmittedPacket3(t *testing.T) {
 // invents no research member.
 func TestCombinedRejectResearchHeadPlainPacketCommits(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_transition", "worker_dispatch"})
 	version, worktree := seedDerivedFailureWorkerForCombinedReject(t, s, service, grant)
 	grant.Worktree = worktree
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")

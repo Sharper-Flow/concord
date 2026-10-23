@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -303,4 +304,128 @@ func checkpointReviewReviewer(t *testing.T, s *Store, workID string) WorkflowAct
 		t.Fatal(err)
 	}
 	return reviewer
+}
+
+// TestAcceptanceReviewRoundTrip drives the CD-0187 route on the current
+// break-fix definition: a contract that requires review evidence refuses the
+// confirmation, the review lane dispatches at the confirmation step, its
+// report binds as review evidence without advancing the step, and the
+// operator's own gate then passes.
+func TestAcceptanceReviewRoundTrip(t *testing.T) {
+	const workID = "join-checkpoint-review"
+	fixture := seedWorkflowReturnRouteFixtureRequiring(t, workID, "workflow.break_fix", "verify", []string{"verification", "review"}, []string{"verification", "artifact"})
+	s := fixture.store
+
+	// The verdict is in, and the confirmation still refuses: the
+	// contract-required review kind is unbound, the wedge CON-517 recorded.
+	reviewer := checkpointReviewReviewer(t, s, workID)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}]}`), 0, reviewer); err != nil {
+		t.Fatalf("record_verdict refused: %v", err)
+	}
+	err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator)
+	if err == nil {
+		t.Fatal("confirm_premise was admitted without the required review evidence")
+	}
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "missing review") {
+		t.Fatalf("confirm_premise refusal = %v, want a missing-review refusal", err)
+	}
+
+	// The amended join admits the review lane at the confirmation step. The
+	// review gate joins the accepted implementation delivery first.
+	seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, "repair", "verify")
+	lane := reviewGateLane(t, "review")
+	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
+	attemptID := "attempt:" + workID + ":checkpoint-review"
+	packet := joinPacketFor(t, s, workID, "verify", attemptID, "review", laneVersion, laneDigest)
+	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
+		t.Fatalf("review dispatch at the verify checkpoint refused: %v", err)
+	}
+
+	// The lane dispatch authorizes the attempt against the window the
+	// action opened, carrying the packet digest that action recorded, and
+	// the review report lands.
+	var packetDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted).Scan(&packetDigest); err != nil {
+		t.Fatal(err)
+	}
+	laneDispatch := Event{EventID: "join-checkpoint-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest})}
+	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
+		prepared, err := PrepareLaneActorDispatch(context.Background(), transaction, laneDispatch, fixture.owner.PrincipalRef, fixture.owner.ClientRef)
+		if err != nil {
+			return err
+		}
+		_, err = AppendLaneActorDispatchTx(context.Background(), transaction, prepared)
+		return err
+	}); err != nil {
+		t.Fatalf("lane actor dispatch: %v", err)
+	}
+	completed := workerCompleteEventForLane(workID, "join-checkpoint-completed-"+workID, attemptID, lane, time.Unix(40, 0).UTC(), workerFixtureDirectory(t, s, workID))
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The unsettled attempt keeps the confirmation closed: the report is
+	// not evidence until the checkpoint accept binds it.
+	err = runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator)
+	if err == nil || !failureAs(err, &failure) || !strings.Contains(failure.Detail, "missing review") {
+		t.Fatalf("confirm_premise over the unbound report = %v, want the missing-review refusal", err)
+	}
+
+	// The checkpoint accept binds the report and holds the step.
+	var epoch int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&epoch); err != nil {
+		t.Fatal(err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(epoch)+`}`), 0, fixture.owner); err != nil {
+		t.Fatalf("accept_worker_evidence refused: %v", err)
+	}
+	if step := currentStep(t, s, workID); step != "verify" {
+		t.Fatalf("step after accept_worker_evidence = %q, want verify", step)
+	}
+	var bound int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')='review' AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, attemptID).Scan(&bound); err != nil {
+		t.Fatal(err)
+	}
+	if bound != 1 {
+		t.Fatalf("review evidence bindings for the accepted report = %d, want 1", bound)
+	}
+
+	// The operator's own gate passes on the bound review evidence.
+	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("confirm_premise refused after the bound review: %v", err)
+	}
+	if step := currentStep(t, s, workID); step != "complete" {
+		t.Fatalf("step after premise confirmation = %q, want complete", step)
+	}
+}
+
+// TestRepinReachesTheCheckpointReviewDefinition carries an instance pinned to
+// the pre-CD-0187 break-fix definition forward through the existing repin
+// route, and the amended verify step then admits the review lane.
+func TestRepinReachesTheCheckpointReviewDefinition(t *testing.T) {
+	const workID = "join-checkpoint-repin"
+	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 14, "verify")
+	s := fixture.store
+	current, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := builtinWorkflowCurrentVersions["workflow.break_fix"]; current.Definition.Version != want {
+		t.Fatalf("current break-fix version = %d, want %d", current.Definition.Version, want)
+	}
+	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
+		return RepinWorkflowTx(context.Background(), transaction, WorkflowRepinRequest{WorkID: workID, EventID: workID + "-repin", Definition: current, Actor: fixture.owner, Now: time.Unix(50, 0).UTC()})
+	}); err != nil {
+		t.Fatalf("repin to the amended definition refused: %v", err)
+	}
+	if step := currentStep(t, s, workID); step != "verify" {
+		t.Fatalf("step after repin = %q, want verify", step)
+	}
+	seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, "repair", "verify")
+	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
+	packet := joinPacketFor(t, s, workID, "verify", "attempt:"+workID+":repin-review", "review", laneVersion, laneDigest)
+	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
+		t.Fatalf("review dispatch after repin refused: %v", err)
+	}
 }

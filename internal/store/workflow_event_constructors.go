@@ -41,7 +41,7 @@ func workflowContractProductGuard(ctx context.Context, tx *sql.Tx, workID string
 		return binding, nil
 	}
 	if bindingPresent && string(bindingRaw) != "null" {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "non-Product-changing "+role+" cannot carry architecture_binding", false, "select a registered Product-changing workflow")
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "non-Product-changing "+role+" cannot carry architecture_binding", false, "correct_request")
 	}
 	if err := validateDerivedLawModification(ctx, tx, workID, lawModifies); err != nil {
 		return nil, err

@@ -94,12 +94,13 @@ func TestFirstWorkflowActionStartsLifecycle(t *testing.T) {
 }
 
 // TestExecutionStartStepSetMatchesRegistry pins the migration backfill's
-// frozen external-effect step-id set: it holds exactly the step ids the
-// current definitions declare external-effect, plus the retired-family step
-// ids the migration still replays for effects recorded under archived pins.
-// The registry no longer carries those retired definitions, so the test names
-// their ids; a registry change that moves a step kind must revisit the
-// migration decision.
+// external-effect step-id set to the registered definitions: the set holds
+// exactly the step ids the registered history declares external-effect,
+// across every registered version of every family. The migration freezes the
+// set and still replays effects recorded under retired families, so the
+// comparison universe is the registered history — the narrowed live heads
+// would silently drop steps only archived pins declare. A registry change
+// that moves a step kind must revisit the migration decision.
 func TestExecutionStartStepSetMatchesRegistry(t *testing.T) {
 	t.Parallel()
 	var migrationSQL string
@@ -128,7 +129,6 @@ func TestExecutionStartStepSetMatchesRegistry(t *testing.T) {
 			migrationSet[id] = true
 		}
 	}
-	retiredSet := map[string]bool{"analyze": true, "execute": true, "poc_optional": true, "rollback_optional": true}
 	registrySet := map[string]bool{}
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		for _, step := range definition.StepGraph.Steps {
@@ -142,17 +142,9 @@ func TestExecutionStartStepSetMatchesRegistry(t *testing.T) {
 			t.Errorf("registered external-effect step %q is missing from the migration set", id)
 		}
 	}
-	for id := range retiredSet {
-		if registrySet[id] {
-			t.Errorf("retired step %q is a current external-effect step", id)
-		}
-		if !migrationSet[id] {
-			t.Errorf("retired step %q is missing from the migration set", id)
-		}
-	}
 	for id := range migrationSet {
-		if !registrySet[id] && !retiredSet[id] {
-			t.Errorf("migration set names %q, which neither a current definition nor the retired set declares external-effect", id)
+		if !registrySet[id] {
+			t.Errorf("migration set names %q, which no registered version declares external-effect", id)
 		}
 	}
 }

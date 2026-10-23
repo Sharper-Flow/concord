@@ -127,7 +127,12 @@ func (f *spineFixture) verify(t *testing.T) string {
 
 func newSpineFixture(t *testing.T) *spineFixture {
 	t.Helper()
-	f := newSpineExecutionFixture(t)
+	return newSpineFixtureForFamily(t, "workflow.implementation")
+}
+
+func newSpineFixtureForFamily(t *testing.T, family string) *spineFixture {
+	t.Helper()
+	f := newSpineExecutionFixtureForFamily(t, family)
 	f.verify(t)
 	f.recordJob(t)
 	f.completeWorker(t)
@@ -140,6 +145,14 @@ func newSpineFixture(t *testing.T) *spineFixture {
 
 func newSpineExecutionFixture(t *testing.T) *spineFixture {
 	t.Helper()
+	return newSpineExecutionFixtureForFamily(t, "workflow.implementation")
+}
+
+func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixture {
+	t.Helper()
+	if family != "workflow.implementation" && family != "workflow.break_fix" {
+		t.Fatalf("unsupported execution fixture family: %s", family)
+	}
 	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -179,11 +192,19 @@ func newSpineExecutionFixture(t *testing.T) *spineFixture {
 		t.Fatal(err)
 	}
 	f := &spineFixture{s: s, service: service, env: mutationEnvelope(grant, scope), base: base}
-	captured := spineOK(t, f.call(t, "concord_work_define", "capture", map[string]any{
+	capture := map[string]any{
 		"title": "Resume a checked value change", "value_statement": "Fresh sessions must recover actionable checked work.",
 		"task": "The synthetic value needs a checked implementation; close when its predicate passes.",
-		"kind": "task", "project_ids": []string{"project-1"}, "workflow_type_ref": "workflow.implementation", "idempotency_key": "spine-capture",
-	}))
+		"kind": "task", "project_ids": []string{"project-1"}, "workflow_type_ref": family, "idempotency_key": "spine-capture",
+	}
+	if family == "workflow.break_fix" {
+		capture["kind"] = "bug"
+		capture["defect_intake"] = map[string]any{
+			"failure_shape": "spine-value", "reproduction": "The declared value check needs a verified repair.",
+			"searched": "The isolated fixture has no earlier defect of this shape.", "related_defect_ids": []string{},
+		}
+	}
+	captured := spineOK(t, f.call(t, "concord_work_define", "capture", capture))
 	if captured.ChangedRefs == nil || len(*captured.ChangedRefs) != 1 {
 		t.Fatal("capture omitted its work identity")
 	}
@@ -204,13 +225,24 @@ func newSpineExecutionFixture(t *testing.T) *spineFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	advanceCapturedWorkToContract(t, s, service, f.env, f.work, "spine")
+	if family == "workflow.break_fix" {
+		spineOK(t, f.action(t, "record_diagnosis", map[string]any{
+			"reproduction": "Run the declared value check.", "root_cause": "The value implementation needs a checked repair.",
+			"searched": "The isolated fixture has no related repair.", "outcome": "none_found",
+		}))
+	} else {
+		advanceCapturedWorkToContract(t, s, service, f.env, f.work, "spine")
+	}
 	spineOK(t, f.call(t, "concord_domain", "list", map[string]any{"product_id": "product-1"}))
 	fields := workflowContractFieldsFixture()
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 	fields["required_evidence"] = []string{"verification"}
 	spineOK(t, f.action(t, "approve_contract", fields))
-	spineOK(t, f.action(t, "start_execution", map[string]any{}))
+	entry := "start_execution"
+	if family == "workflow.break_fix" {
+		entry = "checkpoint_repair"
+	}
+	spineOK(t, f.action(t, entry, map[string]any{}))
 	return f
 }
 

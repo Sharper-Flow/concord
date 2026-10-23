@@ -620,9 +620,9 @@ verification supplies this evidence, not a fabricated workflow record.
   preflight/mutation agreement, scoped current-Review correction, no-effect
   refusals and replay, and checked corrective execution before accepted ready
   Review permits delivery.
-- `internal/agent.TestWorkflowRecoveryRoutesCompleteStepSupersedeAdmitsEveryDeclaredRoute`
-  proves both supported complete-step supersessions through fresh
-  production and completion without moving the step through fixture SQL.
+- `internal/agent.TestSpineCompleteStepContractRecovery` proves both current
+  complete-step returns, no-effect refusals and replay, and successor
+  completion on unchanged applicable proof without fixture step switches.
 - `python3 scripts/check-doc-contract.py` proves this record
   carries the current decision outline and passes the writing
   rules.

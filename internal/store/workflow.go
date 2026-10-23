@@ -3479,9 +3479,6 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		}
 	}
 	if capability == "review" && (payload.ActionID == "accept_worker_evidence" || payload.ActionID == "accept_worker_result") {
-		if payload.ActionID != "accept_worker_result" {
-			return reviewFailure(KindUnauthorized, "Review dispositions are accepted only through accept_worker_result", "have Main accept the exact Review report through accept_worker_result")
-		}
 		return validateReviewAcceptance(ctx, tx, event.SubjectID, payload.WorkerAttemptID, payload.ActorRef, event.Seq)
 	}
 	return nil

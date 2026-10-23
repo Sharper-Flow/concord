@@ -3461,28 +3461,28 @@ func sessionHoldsOccupancyTx(ctx context.Context, tx *sql.Tx, worktreeID, sessio
 	return held > 0, nil
 }
 
-// countSessionClaimLandingsTx returns how many landing events the projection
-// already records for one work item and session. It runs inside the caller's
+// countSessionClaimLandingsTx returns how many claim landings stand recorded
+// for one work item and session. It runs inside the caller's
 // transaction so the read observes the caller's own uncommitted events, and
 // the count is the ordinal of the next transfer event.
 func countSessionClaimLandingsTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) (int, error) {
 	var count int
-	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=? AND json_extract(payload,'$.session_ref')=?`, workID, sessionRef).Scan(&count)
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT claim_landing_count FROM session_relocations WHERE work_id=? AND session_ref=?),0)`, workID, sessionRef).Scan(&count)
 	if err != nil {
 		return 0, wrapFailure(KindUnavailable, "claim-landing", "cannot count the recorded landing events", true, "retry once the database is readable", err)
 	}
 	return count, nil
 }
 
-// countSessionClaimLandingsForClaimTx returns how many landing events the
-// projection already records for one claim generation — the claim op the
+// countSessionClaimLandingsForClaimTx returns how many claim landings stand
+// recorded for one claim generation — the claim op the
 // landed entry carries. A landing recorded for a superseded claim proves
 // nothing about the current claim, so this count, not the work-wide count,
 // decides whether a landing replays. It runs inside the caller's
 // transaction.
 func countSessionClaimLandingsForClaimTx(ctx context.Context, tx *sql.Tx, workID, sessionRef, claimOpID string) (int, error) {
 	var count int
-	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=? AND json_extract(payload,'$.session_ref')=? AND json_extract(payload,'$.claim_op_id')=?`, workID, sessionRef, claimOpID).Scan(&count)
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE(sum(landing_count),0) FROM session_claim_landings WHERE work_id=? AND session_ref=? AND claim_op_id=?`, workID, sessionRef, claimOpID).Scan(&count)
 	if err != nil {
 		return 0, wrapFailure(KindUnavailable, "claim-landing", "cannot count the claim's recorded landing events", true, "retry once the database is readable", err)
 	}
@@ -3548,7 +3548,10 @@ func foldSessionClaimLanded(ctx context.Context, tx *sql.Tx, event Event) error 
 	// this shape, so the current fold below keeps refusing a landing without
 	// a host pid.
 	if event.recordedPayloadShape == recordedShapeLegacyClaimLanding {
-		return foldLegacySessionClaimLanded(ctx, tx, event)
+		if err := foldLegacySessionClaimLanded(ctx, tx, event); err != nil {
+			return err
+		}
+		return writeSessionClaimLandingTx(ctx, tx, event)
 	}
 	var p sessionClaimLandedPayload
 	if err := decodePayload(event, &p); err != nil {
@@ -3560,7 +3563,10 @@ func foldSessionClaimLanded(ctx context.Context, tx *sql.Tx, event Event) error 
 	if p.HostPID <= 0 {
 		return newFailure(KindInvalidPayload, "fold_event", "session claim landed payload is missing host_pid", false, "supply the host process pid the adapter recorded")
 	}
-	return transferSessionClaimOccupancyTx(ctx, tx, event, p.ClaimOpID, p.ProjectID, p.SessionRef, p.LandedDirectory, p.HostPID, p.HostPIDStart)
+	if err := transferSessionClaimOccupancyTx(ctx, tx, event, p.ClaimOpID, p.ProjectID, p.SessionRef, p.LandedDirectory, p.HostPID, p.HostPIDStart); err != nil {
+		return err
+	}
+	return writeSessionClaimLandingTx(ctx, tx, event)
 }
 
 // foldLegacySessionClaimLanded re-applies a landing recorded before host

@@ -120,7 +120,7 @@ func integrationWorkflowWorktree(t *testing.T, s *Store, workID string) *fakeWor
 func TestDeriveWorkerFailureIntegrationComposesWatermarkPopulation(t *testing.T) {
 	t.Parallel()
 	const workID = "integration-attribution-witness"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := oSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
 	ctx := context.Background()
@@ -143,7 +143,7 @@ func TestDeriveWorkerFailureIntegrationComposesWatermarkPopulation(t *testing.T)
 	jobB := &WorkerJobBinding{JobID: "job:integration-input-b", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, jobB)
 	attemptB := "attempt:" + workID + ":input-b"
-	dispatchJobBoundAttempt(t, s, workID, "repair", attemptB, nil, fixture.owner, 0, "integration-input-b-"+workID, jobB)
+	oDispatchJobBoundAttempt(t, s, workID, "repair", attemptB, nil, fixture.owner, 0, "integration-input-b-"+workID, jobB)
 	completeAndAcceptAttempt(t, s, workID, attemptB, lane, acceptor)
 
 	identity, err := deriveWorkerFailureIntegration(ctx, s.db, workID, integrationAttributionObservation(failed.LeaseID))

@@ -74,7 +74,7 @@ func sequenceWitnessRecordJob(t *testing.T, s *Store, workID string, actor Workf
 func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *testing.T) {
 	t.Parallel()
 	const workID = "job-sequence-witness-prereq-chain"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := oSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
 	ctx := context.Background()
@@ -171,14 +171,14 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *test
 	// plain local acceptance satisfies its revision, keeps the effect step
 	// held, and writes no delivery assertion and no correction disposition.
 	attemptB := "attempt:" + workID + ":second"
-	dispatchJobBoundAttempt(t, s, workID, "repair", attemptB, nil, fixture.owner, 0, "sequence-b-"+workID, jobB)
+	oDispatchJobBoundAttempt(t, s, workID, "repair", attemptB, nil, fixture.owner, 0, "sequence-b-"+workID, jobB)
 	completeAndAcceptAttempt(t, s, workID, attemptB, lane, acceptor)
 	views, err = readWorkerJobRevisions(ctx, s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(views) != 2 || views[0].State != "satisfied" || views[1].State != "satisfied" {
-		t.Fatalf("revisions after the second local accept = %#v, want both revisions satisfied", views)
+	if len(views) != 3 || views[0].Binding != *jobA || views[1].Binding != *jobB || views[0].State != "satisfied" || views[1].State != "satisfied" || views[2].State != "satisfied" {
+		t.Fatalf("revisions after the second local accept = %#v, want both implementation revisions and their continuation Review satisfied", views)
 	}
 	if views[1].SatisfiedResultRef == "" || views[1].SatisfiedResultRef == views[0].SatisfiedResultRef || views[1].SatisfiedResultRef != sequenceWitnessAcceptEventID(t, s, workID, attemptB) {
 		t.Fatalf("second satisfied result ref = %q, want the second acceptance's own distinct event id", views[1].SatisfiedResultRef)

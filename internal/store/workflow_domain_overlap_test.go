@@ -497,33 +497,28 @@ func seedProductChangingContract(t *testing.T, s *Store, workID string, binding 
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The retained break-fix graph records execution start in the log, so
-	// rebuilding derives the same active claim.
-	for i, action := range []struct{ step, id string }{
-		{"reproduce", "record_reproduction"},
-		{"diagnose", "record_root_cause"},
-		{"planning", "approve_contract"},
-	} {
-		event := workflowActionCompletedFixture("overlap-phase-"+action.step+"-"+workID, workID, actorRef, int64(4+i), action.step, action.id)
-		if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): int64(4 + i)}}); err != nil {
-			t.Fatalf("advance onto repair: %v", err)
-		}
+	// The current graph records diagnosis and the derived execution start in
+	// the log, so rebuilding derives the same active overlap claim.
+	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "repair", actorRef); err != nil {
+		t.Fatalf("advance onto repair: %v", err)
 	}
+	version := readWorkVersion(t, s, workID)
 	started := workflowEventWithActor("overlap-start-execution-"+workID, WorkflowActionStarted, workID, actorRef, map[string]any{
-		"work_id": workID, "expected_version": int64(7), "resulting_version": int64(8),
-		"step_id": "repair", "action_id": "start_repair", "attempt_epoch": int64(1),
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"step_id": "repair", "action_id": "checkpoint_repair", "attempt_epoch": int64(1),
 		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "overlap-start-" + workID,
 		"actor_ref": actorRef,
 	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{started}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 7}}); err != nil {
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{started}, ExpectedVersions: workVersion(workID, version)}); err != nil {
 		t.Fatalf("record the execution start: %v", err)
 	}
+	version = readWorkVersion(t, s, workID)
 	mandate := []string{"spec:one"}
 	for _, addition := range binding.LawAdditions {
 		mandate = append(mandate, addition.LawID)
 	}
 	contract := workflowEventWithActor("overlap-contract-"+workID, WorkflowContractApproved, workID, actorRef, map[string]any{
-		"work_id": workID, "expected_version": int64(8), "resulting_version": int64(9), "contract_version": int64(1),
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1),
 		"premise": "coordinate Product-changing overlap", "outcome_kind": "check",
 		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:" + workID, "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
 		"required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": []string{},
@@ -531,10 +526,11 @@ func seedProductChangingContract(t *testing.T, s *Store, workID string, binding 
 		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
 	contract.PayloadVersion = 3
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 8}}); err != nil {
+	contract = pOverlapContractFacts(t, s, contract)
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contract}, ExpectedVersions: workVersion(workID, version)}); err != nil {
 		t.Fatal(err)
 	}
-	return actor, 9
+	return actor, readWorkVersion(t, s, workID)
 }
 
 // setWorkLifecycleForTesting places a work item in a lifecycle without moving

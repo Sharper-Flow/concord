@@ -885,8 +885,13 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireWorkPinOutstandingKinds(t, &debtPin, []string{"artifact", "review", "verification"})
+	wf := workContextFixture{store: s, workID: workID, owner: fixture.owner, operator: fixture.operator}
+	var repo string
+	if err := s.db.QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(workID)).Scan(&repo); err != nil {
+		t.Fatal(err)
+	}
 	var failure *Failure
-	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), fixture.owner, fixture.operator); err == nil {
+	if err := pConfirmReceiptPremise(t, wf, repo); err == nil {
 		t.Fatal("confirm_premise passed with only predecessor evidence")
 	} else if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
 		t.Fatalf("confirm_premise with only predecessor evidence = %v, want missing-evidence", err)
@@ -911,11 +916,22 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 		t.Fatalf("completion with only predecessor evidence = %v, want the clause-1 evidence refusal", err)
 	}
 
-	// The fresh verdict under the successor is born bound: its minted
-	// bindings land after the cutoff, one per required kind, and they are the
-	// fresh evidence the path back to completion requires.
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":2,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok"}]}`), 0, reviewer); err != nil {
-		t.Fatalf("record the fresh verdict under the successor: %v", err)
+	// Fresh proof under the successor is a new producer receipt on the
+	// current candidate, a fresh accepted Review, its association, and fresh
+	// required-kind bindings, all recorded after the cutoff: that is the fresh
+	// evidence the path back to completion requires (CD-0172 D4, CD-0242 D8).
+	journey := &candidateJourney{fixture: wf, s: s, workID: workID, repo: repo, acceptor: fixture.owner}
+	run, runErr := s.VerifyWorktree(ctx, journey.request("q-proof-successor", nil))
+	if runErr != nil || run.ExitCode != 0 {
+		t.Fatalf("capture the successor's candidate receipt: %+v, %v", run, runErr)
+	}
+	qAcceptCriterionReview(t, wf, repo, run.OperationRef)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", qAssociationPayload(t, acceptanceRecoveryFixture{store: s, workID: workID, receipt: run.OperationRef}), 0, fixture.owner); err != nil {
+		t.Fatalf("associate the successor's fresh proof: %v", err)
+	}
+	journey.bindVerification(t, run)
+	if err := runVerdictActionAs(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"evidence:complete-correction-`+workID+`"}`), 0, fixture.owner); err != nil {
+		t.Fatalf("bind the successor's fresh artifact: %v", err)
 	}
 	outstanding, outstandingErr = outstandingWorkflowEvidenceRequirementsForWork(ctx, s.db, workID, pinned.Definition)
 	if outstandingErr != nil {
@@ -936,7 +952,7 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	if len(satisfied) != 1 || satisfied[0].ContractVersion != 2 {
 		t.Fatalf("fresh verdicts = %#v, want one successor verdict", satisfied)
 	}
-	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), fixture.owner, fixture.operator); err != nil {
+	if err := pConfirmReceiptPremise(t, wf, repo); err != nil {
 		t.Fatalf("confirm the successor premise after the fresh bindings: %v", err)
 	}
 	if step, _, _, _, _ := completeStepInstancePin(t, s, workID); step != "complete" {

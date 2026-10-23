@@ -59,9 +59,21 @@ func approvalRouteDefinition(t *testing.T) WorkflowDefinition {
 // transaction is the store's own Transact scope and the action commits or
 // rolls back as one unit. It returns the refusal so negative callers can
 // assert it.
+//
+// A terminal action consumes the sealed subject preparation of the item's
+// active claimed worktree, the same preparation the host seals before the
+// boundary call.
 func runApprovalActionTx(t *testing.T, s *Store, registry DefinitionRegistry, workID, actionID string, actor WorkflowActor, operator *WorkflowActor, choice, digest, payload string) error {
 	t.Helper()
 	ctx := context.Background()
+	var worktree string
+	if WorkflowActionRequiresSubjectFreshness(actionID) && s.DatabaseForTesting().QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active' LIMIT 1`, WorktreeSetID(workID)).Scan(&worktree) == nil {
+		prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: worktree})
+		if err != nil {
+			return err
+		}
+		ctx = WithWorkerDispatchPreparation(ctx, prepared)
+	}
 	version := readWorkVersion(t, s, workID)
 	request := WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: actionID,
@@ -263,21 +275,16 @@ func recordApprovalActors(t *testing.T, s *Store, workID string) reviewerOperato
 	}
 }
 
-// seedApprovalItemAtAcceptance seeds the local consequence_v1 pin through the
-// constructor/fold path up to the acceptance step, records the actor triple,
-// and records the investigation observation. domains is the contract's
-// explicit decision fact. The owner it returns is the executing coordinator
-// the seeded start and delivery history name.
+// seedApprovalItemAtAcceptance parks a builtin workflow.implementation item at
+// acceptance through rAcceptance, with Main's criterion association and the
+// recorded investigation, then records the actor triple. domains is the
+// active contract's decision fact. The owner it returns is the executing
+// coordinator.
 func seedApprovalItemAtAcceptance(t *testing.T, workID string, domains []string) (*Store, DefinitionRegistry, WorkflowDefinition, WorkflowActor, reviewerOperatorCoordinator) {
 	t.Helper()
-	definition := approvalRouteDefinition(t)
-	registry, registered := newResolutionRegistry(t, definition)
-	s, owner := seedResolutionSelection(t, workID, registry, registered)
-	actors := recordApprovalActors(t, s, workID)
-	advanceResolutionToExecution(t, s, registry, workID, owner, domains)
-	advanceResolutionDelivery(t, s, registry, workID, owner)
-	seedResolutionInvestigation(t, s, workID)
-	return s, registry, definition, owner, actors
+	f := rAcceptance(t, workID, domains, true)
+	actors := recordApprovalActors(t, f.store, workID)
+	return f.store, BuiltinWorkflowRegistry(), mustBuiltinDefinition(t, "workflow.implementation").Definition, f.owner, actors
 }
 
 // seedApprovalAbsentFactAtAcceptance seeds the consequence_v1 pin to the

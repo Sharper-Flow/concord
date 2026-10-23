@@ -134,9 +134,8 @@ func TestReadWorkClosureDegradesToThePinAlone(t *testing.T) {
 	}
 }
 
-// CD-0202: the current implementation definition declares the optional
-// out_of_scope prose list on record_proposal, a released pin refuses the
-// undeclared field, and a recorded out_of_scope list survives a rebuild.
+// The current implementation definition admits bounded out_of_scope prose and
+// preserves it on rebuild. Retired definitions are not executable pins.
 func TestRecordProposalOutOfScopeAcrossPinnedAndCurrentVersions(t *testing.T) {
 	t.Parallel()
 	current, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
@@ -158,12 +157,8 @@ func TestRecordProposalOutOfScopeAcrossPinnedAndCurrentVersions(t *testing.T) {
 	if err := validateWorkflowActionPayload(current.Definition, "record_proposal", tooWide); err == nil {
 		t.Fatal("the current version admitted more than sixteen out_of_scope entries")
 	}
-	pinned, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 21)
-	if !ok {
-		t.Fatal("workflow.implementation v21 is not registered")
-	}
-	if err := validateWorkflowActionPayload(pinned.Definition, "record_proposal", payload); err == nil {
-		t.Fatal("the released pin admitted the out_of_scope field; pinned instances would change behavior")
+	if _, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 21); ok {
+		t.Fatal("retired implementation definition remains executable")
 	}
 
 	s := openTemp(t)

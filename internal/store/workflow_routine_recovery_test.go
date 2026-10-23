@@ -30,12 +30,7 @@ import (
 // routineRecoveryPolicyDefinition copies a registered definition and declares
 // consequence_v1 on the copy. The registry keeps the legacy version; only the
 // definition-consuming owners under test see the declared policy.
-func routineRecoveryPolicyDefinition(t *testing.T, ref string, version int64) WorkflowDefinition {
-	t.Helper()
-	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
-	if !ok {
-		t.Fatalf("definition %s v%d is not registered", ref, version)
-	}
+func routineRecoveryPolicyDefinition(registered RegisteredDefinition) WorkflowDefinition {
 	definition := registered.Definition
 	definition.ApprovalPolicy = WorkflowApprovalPolicyConsequenceV1
 	return definition
@@ -181,7 +176,7 @@ func TestRoutineRecovery(t *testing.T) {
 		defer tx.Rollback()
 		// consequence_v1 supersedes routinely: the unsigned attributed event
 		// passes the authorization branch the live fold delegates to.
-		if err := requireWorkflowDuplicateRecoveryApprovalTx(ctx, tx, event, payload, routineRecoveryPolicyDefinition(t, workflowFixtureRef, 2)); err != nil {
+		if err := requireWorkflowDuplicateRecoveryApprovalTx(ctx, tx, event, payload, routineRecoveryPolicyDefinition(workflowFixtureDefinition(t, 2))); err != nil {
 			t.Fatalf("unsigned consequence_v1 duplicate recovery authorization refused: %v", err)
 		}
 		// The legacy pin keeps the recorded operator approval requirement on
@@ -259,22 +254,22 @@ func TestRoutineRecovery(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-recovery-complete-step-gate"
 		ctx := context.Background()
-		fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
+		fixture := routineRecoveryAtCompleteStep(t, workID)
 		s := fixture.store
-		registered := mustBuiltinDefinition(t, "workflow.break_fix")
+		registered := mustBuiltinDefinition(t, "workflow.implementation")
 		definition := registered.Definition
-		policyDefinition := routineRecoveryPolicyDefinition(t, "workflow.break_fix", registered.Definition.Version)
+		policyDefinition := routineRecoveryPolicyDefinition(registered)
 		// Without the contradiction record the route is closed for both
 		// policies: the gate is state, never consent.
 		for name, candidate := range map[string]WorkflowDefinition{"legacy": definition, "consequence_v1": policyDefinition} {
-			available, err := workflowCompleteStepCorrectionAvailable(ctx, s.DatabaseForTesting(), workID, candidate, "complete", "test", 0)
+			available, err := workflowCompleteStepCorrectionAvailable(ctx, s.DatabaseForTesting(), workID, candidate, "release", "test", 0)
 			if err != nil || available {
 				t.Fatalf("%s complete-step gate before the contradiction record = %t, %v, want closed", name, available, err)
 			}
 		}
 		recordCompleteStepContradictionObservation(t, s, workID, fixture.owner)
 		for name, candidate := range map[string]WorkflowDefinition{"legacy": definition, "consequence_v1": policyDefinition} {
-			available, err := workflowCompleteStepCorrectionAvailable(ctx, s.DatabaseForTesting(), workID, candidate, "complete", "test", 0)
+			available, err := workflowCompleteStepCorrectionAvailable(ctx, s.DatabaseForTesting(), workID, candidate, "release", "test", 0)
 			if err != nil || !available {
 				t.Fatalf("%s complete-step gate after the contradiction record = %t, %v, want open", name, available, err)
 			}
@@ -285,7 +280,7 @@ func TestRoutineRecovery(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-recovery-stale-law"
 		ctx := context.Background()
-		fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
+		fixture := routineRecoveryAtCompleteStep(t, workID)
 		s := fixture.store
 		// The shared stale-law fixture: contract 1 mandates spec:one, and the
 		// Git-derived law projection supersedes it with accepted spec:two.
@@ -369,35 +364,24 @@ func TestRoutineRecovery(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-retry-race"
 		ctx := context.Background()
-		s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
-		ownerRef, err := WorkflowActorRef(owner)
-		if err != nil {
-			t.Fatal(err)
+		f, attemptID, epoch := seedCurrentRepairWorker(t, workID)
+		s := f.store
+		// The attributed terminal derives the failure record in the same
+		// commit (CD-0198 D5).
+		lane := laneForID(t)
+		if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, attemptID, "failed-"+workID, preferredModelForLane(lane), WorkerFailureWorkerError, "the repair attempt failed", time.Unix(40, 0).UTC())); err != nil {
+			t.Fatalf("failed repair terminal: %v", err)
 		}
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'failed worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); DELETE FROM fold_guard`, workID, ownerRef); err != nil {
-			t.Fatal(err)
-		}
-		failAbandonedWorkerAttempt(t, s, workID, attemptID)
 		pin := issue1013Pin(t, s, workID)
-		applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, 1, pin.Version, "routine-race-record-1-"+workID)
-		worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-		pin = issue1013Pin(t, s, workID)
-		issue1013StartRepair(t, s, workID, worker, pin.Version, 2)
-		nextAttempt := "attempt:" + workID + ":race2"
-		issue1013RecordWorkerDispatch(t, s, workID, nextAttempt)
-		failWorkerAttempt(t, s, workID, nextAttempt)
-		pin = issue1013Pin(t, s, workID)
-		applyRecordWorkerFailureForTest(t, s, workID, owner, nextAttempt, 2, pin.Version, "routine-race-record-2-"+workID)
-		pin = issue1013Pin(t, s, workID)
-		if pin.Correction == nil || pin.Correction.FailedAttemptID != nextAttempt || pin.Correction.FailedAttemptEpoch != 2 {
-			t.Fatalf("correction = %+v, want the latest failed attempt and epoch", pin.Correction)
+		if pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID || pin.Correction.FailedAttemptEpoch != epoch {
+			t.Fatalf("correction = %+v, want the failed attempt %s at epoch %d", pin.Correction, attemptID, epoch)
 		}
 		var step string
 		if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 			t.Fatal(err)
 		}
-		stalePayload := json.RawMessage(`{"attempt_id":"` + nextAttempt + `","worker_packet":{}}`)
-		err = validateFailedWorkerRetryIdentity(ctx, s.DatabaseForTesting(), workID, step, stalePayload)
+		stalePayload := json.RawMessage(`{"attempt_id":"` + attemptID + `","worker_packet":{}}`)
+		err := validateFailedWorkerRetryIdentity(ctx, s.DatabaseForTesting(), workID, step, stalePayload)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindStaleAttempt {
 			t.Fatalf("retry reusing the failed identity returned %v, want the stale-attempt refusal", err)
@@ -434,7 +418,7 @@ func TestRoutineRecovery(t *testing.T) {
 		}}}); err != nil {
 			t.Fatal(err)
 		}
-		policyDefinition := routineRecoveryPolicyDefinition(t, workflowFixtureRef, 2)
+		policyDefinition := routineRecoveryPolicyDefinition(workflowFixtureDefinition(t, 2))
 		legacyDefinition := workflowFixtureDefinition(t, 2).Definition
 		classify := func(actorRef string, definition WorkflowDefinition) error {
 			tx, txErr := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -595,4 +579,20 @@ func TestRoutineRecovery(t *testing.T) {
 			t.Fatalf("refused recovery changed the work version from %d to %d", version, got)
 		}
 	})
+}
+
+// routineRecoveryAtCompleteStep parks a current implementation item on its
+// release step: a reviewed candidate with associated current proof and Main's
+// premise confirmation, the state the complete-step recovery routes read.
+func routineRecoveryAtCompleteStep(t *testing.T, workID string) acceptanceRecoveryFixture {
+	t.Helper()
+	ctx := context.Background()
+	fixture := qCurrentAcceptance(t, workID)
+	if err := fixture.run(ctx, "confirm_premise", "confirm", fixture.version(ctx, t), nil, nil); err != nil {
+		t.Fatalf("confirm the premise: %v", err)
+	}
+	if step := currentStep(t, fixture.store, workID); step != "release" {
+		t.Fatalf("step after confirmation = %q, want release", step)
+	}
+	return fixture
 }

@@ -514,21 +514,21 @@ func TestRootCauseDisqualificationsRefuse(t *testing.T) {
 		t.Fatalf("unpinned research capture refused: %v", err)
 	}
 	forceWorkLifecycleTransition(t, s, unpinned, "completed", "completed without a pinned family")
-	// A research item pinned to the generic workflow family rather than the
+	// A research item pinned to the implementation workflow family rather than the
 	// research family its kind defaults to.
-	if err := captureDefectWork(t, s, "work-rca-generic", "research", defectIntakeJSON("upload-checksum-mismatch", []string{"work-bug-one", "work-bug-two"}, "")); err != nil {
-		t.Fatalf("generic research capture refused: %v", err)
+	if err := captureDefectWork(t, s, "work-rca-wrongfamily", "research", defectIntakeJSON("upload-checksum-mismatch", []string{"work-bug-one", "work-bug-two"}, "")); err != nil {
+		t.Fatalf("wrong-family research capture refused: %v", err)
 	}
 	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		definition, err := BuiltinWorkflowDefinitionForRef("workflow.generic_one_off")
+		definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 		if err != nil {
 			return err
 		}
-		return InitializeWorkflowTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: "work-rca-generic", Definition: definition, Actor: WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord", AgentRef: "agent/concord", SessionRef: "session/work-rca-generic", ActorClass: ActorOperator}, Now: time.Unix(3, 0).UTC()})
+		return InitializeWorkflowTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: "work-rca-wrongfamily", Definition: definition, Actor: WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord", AgentRef: "agent/concord", SessionRef: "session/work-rca-wrongfamily", ActorClass: ActorOperator}, Now: time.Unix(3, 0).UTC()})
 	}); err != nil {
-		t.Fatalf("initialize generic workflow: %v", err)
+		t.Fatalf("initialize the implementation workflow: %v", err)
 	}
-	forceWorkLifecycleTransition(t, s, "work-rca-generic", "completed", "completed on the wrong family")
+	forceWorkLifecycleTransition(t, s, "work-rca-wrongfamily", "completed", "completed on the wrong family")
 	// A completed research RCA in the other Product.
 	if err := captureDefectWork(t, s, "work-rca-otherproduct", "research", defectIntakeJSON("upload-checksum-mismatch", nil, ""), "project-b"); err != nil {
 		t.Fatalf("cross-product research capture refused: %v", err)
@@ -566,7 +566,7 @@ func TestRootCauseDisqualificationsRefuse(t *testing.T) {
 		{"wrong kind", taskCause, KindInvalidPayload, "root cause work item " + taskCause + " is kind task, not research"},
 		{"wrong shape", wrongShape, KindInvalidPayload, "root cause work item " + wrongShape + " carries failure_shape login-token-expiry, not upload-checksum-mismatch"},
 		{"absent workflow family", unpinned, KindInvalidPayload, "root cause work item " + unpinned + " pins no workflow family, not workflow.research"},
-		{"wrong workflow family", "work-rca-generic", KindInvalidPayload, "root cause work item work-rca-generic pins workflow family workflow.generic_one_off, not workflow.research"},
+		{"wrong workflow family", "work-rca-wrongfamily", KindInvalidPayload, "root cause work item work-rca-wrongfamily pins workflow family workflow.implementation, not workflow.research"},
 		{"cross product", "work-rca-otherproduct", KindInvalidPayload, "root cause work item work-rca-otherproduct is not in this capture's Product"},
 		{"in progress", inProgress, KindInvalidPayload, "root cause work item " + inProgress + " is lifecycle needed, not completed"},
 		{"cancelled", cancelled, KindInvalidPayload, "root cause work item " + cancelled + " is lifecycle cancelled, not completed"},

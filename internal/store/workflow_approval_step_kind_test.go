@@ -17,10 +17,11 @@ import (
 // action offers a route no caller can take.
 //
 // request_correction is the one exception. Its approval is never served by a
-// step question: the boundary that applies it consumes the operator identity
-// of the request, backed on the tool surface by a durable approval challenge,
-// so the CD-0166 delivery gate can declare the evidence-bearing corrective
-// return and stay reachable while its kind is internal_sqlite.
+// step question: the guard admits it from the folded correction route and,
+// under the consequence_v1 policy, as a routine repair request with no
+// operator identity. A step may therefore declare it where the step owns the
+// route that admits it: the CD-0166 delivery gate, or a step whose
+// unhealthy_verdict recovery route names it (CD-0143).
 //
 // The scope is every registered version, frozen ones included, because
 // stranded items run on old pins (CD-0115 D2).
@@ -38,7 +39,7 @@ func TestRegisteredStepsAdmitTheirApprovalRequiredActions(t *testing.T) {
 			}
 			served, _ := workflowOperatorQuestionAction(definition, step.ID)
 			for _, id := range step.Actions {
-				if id == "request_correction" && workflowStepIsDeliveryGate(&step) {
+				if id == "request_correction" && (workflowStepIsDeliveryGate(&step) || workflowUnhealthyVerdictRouteTarget(definition, step.ID) != "") {
 					continue
 				}
 				if approvalRequired[id] && id != served {

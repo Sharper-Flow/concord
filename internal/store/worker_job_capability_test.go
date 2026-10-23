@@ -181,32 +181,24 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 	}
 }
 
-func TestWorkerJobLegacyPinsNeverRequireOrSynthesizeJobs(t *testing.T) {
-	for _, pin := range []struct {
-		ref     string
-		version int64
-	}{
-		{"workflow.implementation", 23},
-		{"workflow.break_fix", 20},
-	} {
-		t.Run(pin.ref, func(t *testing.T) {
-			registered, ok := BuiltinWorkflowRegistry().Lookup(pin.ref, pin.version)
-			if !ok {
-				t.Fatalf("historical pin %s@%d is missing", pin.ref, pin.version)
-			}
-			for _, lane := range BuiltinLaneDefinitions() {
-				// Legacy admission needs no job projection read. Parent prose
-				// cannot become a recorded job, even for a verification lane.
-				packet := map[string]any{"inputs": map[string]any{"task": "Run all parent integration checks"}}
-				bound, _, err := validateWorkerPacketJob(context.Background(), nil, registered.Definition, "legacy-work", lane, mustJSONValue(packet))
-				if err != nil || bound != nil {
-					t.Fatalf("legacy %s dispatch job = %#v, error = %v, want no binding", lane.ID, bound, err)
-				}
-				packet["inputs"].(map[string]any)["worker_job"] = map[string]any{"job_id": "job:forbidden"}
-				if _, _, err := validateWorkerPacketJob(context.Background(), nil, registered.Definition, "legacy-work", lane, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "does not admit") {
-					t.Fatalf("legacy %s bound-job error = %v, want refusal", lane.ID, err)
-				}
-			}
-		})
+// TestJobIncapableDefinitionNeverRequiresOrSynthesizesJobs holds the
+// job-incapable side of worker admission on the live research family, whose
+// parts declare no worker-job capability: admission reads no job projection,
+// parent prose never becomes a recorded job, and a bound job refuses.
+func TestJobIncapableDefinitionNeverRequiresOrSynthesizesJobs(t *testing.T) {
+	definition := mustBuiltinDefinition(t, "workflow.research").Definition
+	if workflowWorkerJobsActive(definition) {
+		t.Fatal("workflow.research declares the worker-job capability; this witness needs a job-incapable live family")
+	}
+	for _, lane := range BuiltinLaneDefinitions() {
+		packet := map[string]any{"inputs": map[string]any{"task": "Run all parent integration checks"}}
+		bound, _, err := validateWorkerPacketJob(context.Background(), nil, definition, "job-incapable-work", lane, mustJSONValue(packet))
+		if err != nil || bound != nil {
+			t.Fatalf("job-incapable %s dispatch job = %#v, error = %v, want no binding", lane.ID, bound, err)
+		}
+		packet["inputs"].(map[string]any)["worker_job"] = map[string]any{"job_id": "job:forbidden"}
+		if _, _, err := validateWorkerPacketJob(context.Background(), nil, definition, "job-incapable-work", lane, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "does not admit") {
+			t.Fatalf("job-incapable %s bound-job error = %v, want refusal", lane.ID, err)
+		}
 	}
 }

@@ -39,7 +39,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 	t.Run("engine-owned recovery declarations classify under both policies", func(t *testing.T) {
 		t.Parallel()
 		legacy := workflowFixtureDefinition(t, 1).Definition
-		newPolicy := routineRecoveryPolicyDefinition(t, workflowFixtureRef, 1)
+		newPolicy := routineRecoveryPolicyDefinition(workflowFixtureDefinition(t, 1))
 		declared := func(definition WorkflowDefinition, actionID string) (WorkflowActionDefinition, bool) {
 			for _, action := range definition.ActionDefinitions {
 				if action.ID == actionID {

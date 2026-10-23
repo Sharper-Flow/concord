@@ -214,32 +214,8 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 		if resolved.Definition.Version != registered.Definition.Version || resolved.Digest != registered.Digest {
 			t.Fatalf("resolver for %s = v%d %s, want v%d %s", latest.Ref, resolved.Definition.Version, resolved.Digest, registered.Definition.Version, registered.Digest)
 		}
-		// The lane-step dispatch join (#892) composes the worker pair onto
-		// every non-terminal step whose kind a binding admits, except
-		// approval-gated steps, whose only advancing exit is the operator
-		// action. The CD-0156 alignment step is also exempt: record_alignment
-		// must be its only advance exit, so no dispatched attempt can accept
-		// its way past the search.
-		for _, step := range latest.StepGraph.Steps {
-			admitted := slices.Contains(step.Actions, "accept_worker_result")
-			terminalStep := slices.Contains(latest.StepGraph.TerminalSteps, step.ID)
-			gated := false
-			for _, actionID := range step.Actions {
-				for _, action := range latest.ActionDefinitions {
-					if action.ID == actionID && action.Approval == ActionApprovalRequired {
-						gated = true
-					}
-				}
-			}
-			kindAdmits := step.Kind == WorkflowStepInternalSQLite || step.Kind == WorkflowStepCrossAuthority || step.Kind == WorkflowStepExternalEffect
-			// The merged break_fix diagnosis step joins the alignment
-			// exemption: its only advance exit is record_diagnosis, so a
-			// dispatched attempt cannot accept its way past the sections
-			// (CD-0198 D2).
-			if admitted != (kindAdmits && !terminalStep && !gated && step.ID != "alignment" && step.ID != "delivery" && step.ID != "diagnosis") {
-				t.Fatalf("%s step %s acceptance declaration=%t for kind %s", latest.Ref, step.ID, admitted, step.Kind)
-			}
-		}
+		// TestCurrentJoinComposesTheWorkerFailureRecordWithTheDispatchPair
+		// owns which steps compose the worker pair (CD-0242 D5).
 		for _, action := range latest.ActionDefinitions {
 			if action.ID != "accept_worker_result" {
 				continue
@@ -431,19 +407,17 @@ func TestWorkflowActorValidationAndDistinctness(t *testing.T) {
 }
 
 // The pinned definition, not the generic outcome union, decides which outcome
-// tokens a predicate may carry: research refuses the architecture-spike token,
-// and the spike definition admits it without an inline decision record because
-// the bound record lives in workflow_decision_records.
-func TestWorkflowPredicateForDefinitionBindsSpikeTokensToTheSpikeFamily(t *testing.T) {
+// tokens a predicate may carry: live research refuses the retired
+// architecture-spike token.
+func TestResearchPredicateRefusesTheArchitectureSpikeToken(t *testing.T) {
 	t.Parallel()
-	spikeToken := OutcomePredicate{Kind: PredicateOutcome, Allowed: []string{"accepted_decision"}}
-	researchDefinition := phaseBDefinition(t, "workflow.research", 17)
-	if err := ValidateWorkflowPredicateForDefinition(researchDefinition, spikeToken); err == nil {
-		t.Fatal("research definition accepted an architecture-spike token")
+	research, err := BuiltinWorkflowDefinitionForRef("workflow.research")
+	if err != nil {
+		t.Fatal(err)
 	}
-	spikeDefinition := phaseBDefinition(t, "workflow.architecture_spike", 17)
-	if err := ValidateWorkflowPredicateForDefinition(spikeDefinition, spikeToken); err != nil {
-		t.Fatalf("spike outcome predicate without an inline decision record was refused: %v", err)
+	spikeToken := OutcomePredicate{Kind: PredicateOutcome, Allowed: []string{"accepted_decision"}}
+	if err := ValidateWorkflowPredicateForDefinition(research.Definition, spikeToken); err == nil {
+		t.Fatal("research definition accepted an architecture-spike token")
 	}
 }
 
@@ -528,18 +502,9 @@ func TestWorkflowActionAuthorizationPreflightsBeforeCallbackOnRegistryDrift(t *t
 	}
 }
 
-func phaseBDefinition(t *testing.T, ref string, version int64) WorkflowDefinition {
-	t.Helper()
-	entry, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
-	if !ok {
-		t.Fatalf("%s v%d is not registered", ref, version)
-	}
-	return entry.Definition
-}
-
 // spikeWorkflowFixture seeds one Product, Project, and task work item the way
-// the fail-closed completion fixture does, so the approval and completion
-// tests below measure only the decision-record boundary.
+// the fail-closed completion fixture does, so the completion test below
+// measures only the decision-record boundary.
 func spikeWorkflowFixture(t *testing.T, s *Store, workID string, actor WorkflowActor) {
 	t.Helper()
 	ctx := context.Background()
@@ -560,53 +525,6 @@ func spikeWorkflowFixture(t *testing.T, s *Store, workID string, actor WorkflowA
 // be varied per case.
 func spikeDecisionRecordEnvelope(decision string) json.RawMessage {
 	return mustJSONValue(map[string]any{"action_id": "record_decision", "fields": map[string]any{"question": "Which mechanism binds state?", "options_considered": []string{"one"}, "decision": decision, "rationale": "rationale", "consequences": []string{"effect"}, "inputs": []string{"input"}, "poc_findings": "findings"}})
-}
-
-// CD-0013 D4 binds the architecture-spike record at evaluation and completion
-// through the row record_decision writes, so contract approval admits an
-// outcome predicate without an inline record and still validates a record
-// when one is supplied.
-func TestSpikeContractApprovalAdmitsOutcomeWithoutInlineRecord(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	const workID = "spike-approval-no-record"
-	owner := WorkflowActor{PrincipalRef: "principal/phase-b", ClientRef: "client/phase-b", AgentRef: "agent/architect", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	spikeWorkflowFixture(t, s, workID, owner)
-	actorRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	approval := func(eventID string, outcome map[string]any) Event {
-		return workflowEventWithActor(eventID, WorkflowContractApproved, workID, actorRef, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "contract_version": 1, "premise": "spike the binding mechanism", "outcome_kind": "outcome", "outcome_payload": outcome, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:spike-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": outcome}}, "required_evidence": []string{"review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"})
-	}
-	event := approval("approval-contract-"+workID, map[string]any{"kind": "outcome", "allowed": []string{"accepted_decision"}})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
-		t.Fatalf("spike contract without an inline decision record was refused: %v", err)
-	}
-}
-
-// An inline record, when supplied, is still validated: its decision token must
-// sit inside the predicate's allowed set, so approval refuses the mismatch.
-func TestSpikeContractApprovalValidatesASuppliedInlineRecord(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	const workID = "spike-approval-mismatched-record"
-	owner := WorkflowActor{PrincipalRef: "principal/phase-b", ClientRef: "client/phase-b", AgentRef: "agent/architect", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	spikeWorkflowFixture(t, s, workID, owner)
-	actorRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	record := map[string]any{"question": "q", "options_considered": []string{"one"}, "decision": "insufficient_evidence", "rationale": "r", "consequences": []string{"c"}, "inputs": []string{"i"}, "poc_findings": "none", "supersedes": nil, "superseded_by": nil, "unknowns": []string{"u"}, "required_to_decide": []string{"d"}, "reviewer_actor_ref": "actor:" + strings.Repeat("a", 64), "operator_approval_ref": "approval:spike"}
-	outcome := map[string]any{"kind": "outcome", "allowed": []string{"accepted_decision"}, "decision_record": record}
-	event := workflowEventWithActor("approval-contract-"+workID, WorkflowContractApproved, workID, actorRef, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "contract_version": 1, "premise": "spike the binding mechanism", "outcome_kind": "outcome", "outcome_payload": outcome, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:spike-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": outcome}}, "required_evidence": []string{"review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err == nil {
-		t.Fatal("spike contract accepted an inline record outside the approved token set")
-	} else {
-		// The generic outcome union refuses the mismatch before the pinned
-		// definition is consulted, so the fold reports invalid_payload.
-		assertFailureKind(t, err, KindInvalidPayload)
-	}
 }
 
 // Completion binds to the recorded row: without one the fold refuses, with

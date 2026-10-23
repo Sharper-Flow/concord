@@ -254,7 +254,7 @@ func workflowWorkerFailureRecovery(ctx context.Context, q queryer, workID string
 	}
 	recorded, err := workerRecordedFailureCountTx(ctx, q, workID, attemptID)
 	if err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot inspect recorded worker failures", true, "retry once the workflow event log is readable", err)
+		return false, wrapFailure(KindUnavailable, subject, "cannot inspect recorded worker failures", true, "retry once the worker attempt projection is readable", err)
 	}
 	return recorded == 0, nil
 }

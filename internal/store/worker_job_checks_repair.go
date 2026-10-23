@@ -304,7 +304,7 @@ func workerJobRecordedEventTx(ctx context.Context, q queryer, workID, jobID stri
 		return newFailure(KindInvalidPayload, "worker_job", fmt.Sprintf("the checks repair names revision %d of the job, which holds no recorded event", revision), false, "name recorded unresolved revisions of the job")
 	}
 	if err != nil {
-		return wrapFailure(KindUnavailable, "worker_job", "cannot read a named revision's recorded event", true, "retry once the event log is readable", err)
+		return wrapFailure(KindUnavailable, "worker_job", "cannot read a named revision's recorded event", true, "retry once the worker-job descriptors are readable", err)
 	}
 	if err := json.Unmarshal([]byte(raw), payload); err != nil {
 		return newFailure(KindInvariantViolation, "worker_job", "a named revision's recorded payload is malformed", false, "rebuild the worker-job events from the authoritative log")
@@ -318,7 +318,7 @@ func workerJobRecordedEventTx(ctx context.Context, q queryer, workID, jobID stri
 func readWorkerJobChecksRepairsTx(ctx context.Context, q queryer, workID string) (map[WorkerJobBinding]*WorkerJobChecksRepair, error) {
 	rows, err := q.QueryContext(ctx, `SELECT job_id,revision,digest,json_extract(recorded_payload,'$.checks_repair') FROM worker_job_revisions WHERE work_id=? AND json_extract(recorded_payload,'$.checks_repair') IS NOT NULL`, workID)
 	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "worker_job", "cannot read the recorded checks repairs", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "worker_job", "cannot read the recorded checks repairs", true, "retry once the worker-job descriptors are readable", err)
 	}
 	defer rows.Close()
 	repairs := map[WorkerJobBinding]*WorkerJobChecksRepair{}
@@ -326,7 +326,7 @@ func readWorkerJobChecksRepairsTx(ctx context.Context, q queryer, workID string)
 		var jobID, digest, raw string
 		var revision int64
 		if err := rows.Scan(&jobID, &revision, &digest, &raw); err != nil {
-			return nil, wrapFailure(KindUnavailable, "worker_job", "cannot scan the recorded checks repairs", true, "retry once the event log is readable", err)
+			return nil, wrapFailure(KindUnavailable, "worker_job", "cannot scan the recorded checks repairs", true, "retry once the worker-job descriptors are readable", err)
 		}
 		var metadata WorkerJobChecksRepair
 		if err := json.Unmarshal([]byte(raw), &metadata); err != nil {
@@ -335,7 +335,7 @@ func readWorkerJobChecksRepairsTx(ctx context.Context, q queryer, workID string)
 		repairs[WorkerJobBinding{JobID: jobID, Revision: revision, Digest: digest}] = &metadata
 	}
 	if err := rows.Err(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "worker_job", "cannot scan the recorded checks repairs", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "worker_job", "cannot scan the recorded checks repairs", true, "retry once the worker-job descriptors are readable", err)
 	}
 	return repairs, nil
 }

@@ -101,7 +101,7 @@ func TestWorkerCurrentAttemptFactsWithoutLog(t *testing.T) {
 				repairs, delivery, err := readWorkerCompletedDeliveryTx(ctx, tx, f.workID, f.attemptR)
 				return struct {
 					Repairs  []WorkerDirectCallerRepair
-					Delivery *WorkerObservedDelivery
+					Delivery *workerDeliveredDelta
 				}{repairs, delivery}, err
 			})
 		},

@@ -777,7 +777,7 @@ func validateOracleDomainTx(ctx context.Context, tx *sql.Tx, workID string, cont
 func readWorkerJobOraclesTx(ctx context.Context, q queryer, workID string) (map[WorkerJobBinding]*AcceptanceOracle, error) {
 	rows, err := q.QueryContext(ctx, `SELECT job_id,revision,digest,json_extract(recorded_payload,'$.acceptance_oracle') FROM worker_job_revisions WHERE work_id=? AND recorded_payload IS NOT NULL`, workID)
 	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot read recorded acceptance oracles", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot read recorded acceptance oracles", true, "retry once the worker-job descriptors are readable", err)
 	}
 	oracles := map[WorkerJobBinding]*AcceptanceOracle{}
 	for rows.Next() {
@@ -786,7 +786,7 @@ func readWorkerJobOraclesTx(ctx context.Context, q queryer, workID string) (map[
 		var rawOracle sql.NullString
 		if err := rows.Scan(&jobID, &revision, &digest, &rawOracle); err != nil {
 			_ = rows.Close()
-			return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot scan recorded acceptance oracles", true, "retry once the event log is readable", err)
+			return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot scan recorded acceptance oracles", true, "retry once the worker-job descriptors are readable", err)
 		}
 		binding := WorkerJobBinding{JobID: jobID, Revision: revision, Digest: digest}
 		if !rawOracle.Valid || rawOracle.String == "null" || strings.TrimSpace(rawOracle.String) == "" {
@@ -802,10 +802,10 @@ func readWorkerJobOraclesTx(ctx context.Context, q queryer, workID string) (map[
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
-		return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot scan recorded acceptance oracles", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot scan recorded acceptance oracles", true, "retry once the worker-job descriptors are readable", err)
 	}
 	if err := rows.Close(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot close the recorded acceptance oracle read", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot close the recorded acceptance oracle read", true, "retry once the worker-job descriptors are readable", err)
 	}
 	return oracles, nil
 }

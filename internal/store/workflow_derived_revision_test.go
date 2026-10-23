@@ -151,7 +151,7 @@ func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 
 func TestWorkflowContractProductGuardRequiresBinding(t *testing.T) {
 	t.Parallel()
-	for _, role := range []string{"approval", "successor contract"} {
+	for _, role := range []string{"approval", "successor"} {
 		for _, raw := range []json.RawMessage{nil, json.RawMessage(`null`)} {
 			fields := map[string]json.RawMessage{}
 			if raw != nil {

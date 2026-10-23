@@ -6,22 +6,13 @@ import (
 	"strings"
 )
 
-// Artifact staleness (CD-0201 D5) is the folded truth the designStale field
-// models: while the artifact an evaluator judges has gone stale — a bad
-// verdict or a successor contract landed after the artifact was last
-// produced — the evaluator cannot record the artifact healthy again and the
-// premise confirmation cannot step past the verdict. Only actual fresh
-// production at the declared recovery-route target clears the bit; a dispatch,
-// a fenced start, an evidence rebinding, an unrelated step advance, or a
-// re-recorded ok verdict never does.
-//
-// The fold derives both frontiers from the owning event history: the
-// staleness frontier is the latest non-ok verdict or contract supersession,
-// and the production frontier is the latest accepted worker delivery or
-// artifact-action completion at the current step's unhealthy_verdict route
-// target. The step that produces the artifact is the route target, so the
-// causal question "was the artifact re-produced after it went stale?" has one
-// owner: the declared table.
+// Artifact staleness holds an unhealthy judgment until production at the
+// declared recovery-route target. Contract revisions instead invalidate the
+// exact Review and proof dependencies they change (CD-0242 D7). Those owners
+// compare WorkerReviewBlock.Dependencies and the association's CriterionDigest
+// in workflow_review.go; a supersession sequence is not a dependency digest.
+// Keeping that comparison there permits reassessing an unchanged candidate
+// without demanding another implementation delivery.
 
 // workflowArtifactStale folds whether the artifact the current step owes or
 // judges is stale. Ownership is span-resolved from the declared routes: a
@@ -54,21 +45,13 @@ func workflowArtifactStale(ctx context.Context, q queryer, workID string, defini
 	return false, nil
 }
 
-// workflowArtifactStaleFrontier reads the latest staleness-causing event: a
-// recorded verdict that is not ok or is incomparable with the approved
-// result, or a contract supersession that changed the objective the artifact
-// must satisfy (CD-0201 D6). Zero when neither stands in the history.
+// workflowArtifactStaleFrontier reads the latest unhealthy artifact judgment.
+// Dependency changes are checked when Review or criterion proof is reused,
+// not converted into a demand for repeated production (CD-0242 D7).
 func workflowArtifactStaleFrontier(ctx context.Context, q queryer, workID, subject string) (int64, error) {
 	var verdictSeq int64
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(v.seq),0) FROM domain_events v WHERE v.subject_type=? AND v.subject_id=? AND v.kind=? AND (COALESCE(json_extract(v.payload,'$.verdict_kind'),'')<>'ok' OR COALESCE(json_extract(v.payload,'$.incomparable_with_approved'),0)=1)`, string(SubjectWorkItem), workID, WorkflowVerdictRecorded).Scan(&verdictSeq); err != nil {
 		return 0, wrapFailure(KindUnavailable, subject, "cannot read the artifact-staleness verdict frontier", true, "retry once the workflow verdict projection is readable", err)
-	}
-	var supersedeSeq int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(s.seq),0) FROM domain_events s WHERE s.subject_type=? AND s.subject_id=? AND s.kind=?`, string(SubjectWorkItem), workID, WorkflowContractSuperseded).Scan(&supersedeSeq); err != nil {
-		return 0, wrapFailure(KindUnavailable, subject, "cannot read the artifact-staleness supersession frontier", true, "retry once the workflow contract projection is readable", err)
-	}
-	if supersedeSeq > verdictSeq {
-		return supersedeSeq, nil
 	}
 	return verdictSeq, nil
 }

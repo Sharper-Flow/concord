@@ -211,10 +211,9 @@ func TestBadVerdictStalesArtifactUntilReproduced(t *testing.T) {
 	}
 }
 
-// TestSupersessionStalesArtifactUntilReproduced holds the successor-contract
-// cause: an approved supersession at the evaluator changes the objective and
-// stales the artifact until it is re-produced.
-func TestSupersessionStalesArtifactUntilReproduced(t *testing.T) {
+// CD-0242 D7 retires version-only invalidation. A supersession without a
+// changed depended-on digest must not require repeated artifact production.
+func TestSupersessionAlonePreservesArtifact(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
@@ -227,8 +226,8 @@ func TestSupersessionStalesArtifactUntilReproduced(t *testing.T) {
 		t.Fatal("production without a staleness cause folded stale")
 	}
 	stalenessEvent(t, s, workID, string(WorkflowContractSuperseded), `{"new_contract_version":2}`)
-	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
-		t.Fatal("successor contract did not stale the artifact")
+	if state := foldStalenessState(t, s, workID, definition); state.ArtifactStale {
+		t.Fatal("version-only successor staled the artifact without a changed dependency")
 	}
 	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("repair", "record_delivery"))
 	if state := foldStalenessState(t, s, workID, definition); state.ArtifactStale {
@@ -334,10 +333,8 @@ func TestCompleteStepReturnReadsTheRouteTable(t *testing.T) {
 	}
 }
 
-// TestStaleOkVerdictReopensDeclaredRoute closes the liveness edge the
-// exhaustive exit check found: an ok verdict the staleness frontier predates
-// cannot close verification, so the declared route carries the continuation
-// at a premise step with no failure edge.
+// A version-only supersession opens no unhealthy-verdict route (CD-0242 D7).
+// A subsequent unhealthy judgment opens the producer's declared return.
 func TestStaleOkVerdictNeedsUnhealthyVerdictForDeclaredRoute(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -354,11 +351,11 @@ func TestStaleOkVerdictNeedsUnhealthyVerdictForDeclaredRoute(t *testing.T) {
 	}
 	stalenessEvent(t, s, workID, string(WorkflowContractSuperseded), `{"new_contract_version":2}`)
 	state := foldStalenessState(t, s, workID, definition)
-	if !state.ArtifactStale {
-		t.Fatal("successor contract after the ok verdict did not stale the artifact")
+	if state.ArtifactStale {
+		t.Fatal("version-only successor invalidated the artifact; CD-0242 D7 requires a changed depended-on digest")
 	}
 	if confirm := workflowAdmit(definition, state, "confirm_premise"); confirm.Admitted {
-		t.Fatal("confirm_premise admitted past a staled ok verdict")
+		t.Fatal("confirm_premise bypassed its other admission requirements")
 	}
 	if state.CorrectionRequestRecovery {
 		t.Fatal("an old ok verdict opened correction without an unhealthy verdict")
@@ -497,10 +494,9 @@ func TestNonProducingCompletionsNeverClearStaleness(t *testing.T) {
 	}
 }
 
-// TestSupersessionWithoutSuccessorStalesUntilReproduced pins the no-successor
-// reset: the superseded contract is a staleness cause exactly like a
-// successor, and only fresh production at the route target clears it.
-func TestSupersessionWithoutSuccessorStalesUntilReproduced(t *testing.T) {
+// CD-0242 D7: removing contract authority does not change the artifact's
+// dependencies. Admission still separately requires an active contract.
+func TestSupersessionWithoutSuccessorDoesNotInventArtifactChange(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
@@ -510,8 +506,8 @@ func TestSupersessionWithoutSuccessorStalesUntilReproduced(t *testing.T) {
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("repair", "record_delivery"))
 	stalenessEvent(t, s, workID, string(WorkflowContractSuperseded), `{}`)
-	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
-		t.Fatal("supersession without a successor did not stale the artifact")
+	if state := foldStalenessState(t, s, workID, definition); state.ArtifactStale {
+		t.Fatal("supersession without a successor invented a changed artifact dependency")
 	}
 	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("repair", "record_delivery"))
 	if state := foldStalenessState(t, s, workID, definition); state.ArtifactStale {

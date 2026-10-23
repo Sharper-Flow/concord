@@ -110,7 +110,7 @@ not the merged contract.
 | Direct shared correction mechanism | CON-704, CON-757 | `workflowAcceptedWorkerDelivery`, `workflowCheckpointFailedReviewCorrection`, and `workflowUnhealthyVerdictRouteTarget`; `TestVerdictCorrectionAdmitsReviewEvidenceAccept`, `TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair` |
 | Failed-review return only, not failed-review disposition or unspawned-window hold | CON-708 | `TestCheckpointUnspawnedDispatchKeepsTheFailedReviewHold` retains its separate owner |
 | Generic evaluator return and whitelist removal, not consume-before-spawn semantics | CON-748 | `TestCorrectionRoutesDeriveFromNoWorkKind`, `TestGenericOneOffVerifyWallKeepsTheEscalationOperatorApprovable` |
-| Supersession staleness and declared artifact return, not design-revision admission | CON-721, CON-794 | `TestSupersessionStalesArtifactUntilReproduced`; design admission remains in `internal/store/workflow_design.go` |
+| Dependency-bound supersession staleness (CD-0242 D7), not design-revision admission | CON-721, CON-794 | `TestArtifactSupersessionUsesRecordedProofDependencies`; design admission remains in `internal/store/workflow_design.go` |
 | Delivery-gate return target, not accepted no-ship disposition | CON-796 | `internal/store/workflow_review.go` owns accepted dispositions; `internal/agent/spine_correction_admission_test.go` checks correction inside execution |
 | Not owned by the two-trigger recovery contract | CON-705, CON-711, CON-714, CON-728, CON-731, CON-764, CON-770, CON-788, CON-791, CON-795 | Registry overlap, law allocation, historical delivery exits, execution contract correction, retry-wall approval, design revision, removal, abandonment, and packet capacity retain separate owners |
 

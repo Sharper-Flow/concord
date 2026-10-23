@@ -235,8 +235,8 @@ def test_utf8_prose_after_a_closing_word_is_refused_with_rewording_guidance() ->
     body = "Related to CON-427\n\nThe decoder reads complete UTF-8 sequences.\n"
     ok, detail = guard.check_pr_link("work/work-abc", "feat: add a thing", body)
     assert not ok, "UTF-8 has the shape of an issue key, so it must refuse"
-    assert "body" in detail and "UTF-8" in detail, detail
-    assert "'complete UTF-8'" in detail, "the refusal must quote the exact phrase it found"
+    assert detail.startswith("the body has the closing phrase 'complete UTF-8',"), detail
+    assert "closing UTF-8 if such an issue exists" in detail, "the refusal must not claim UTF-8 is an issue"
     assert REWORD in detail, detail
     assert "Related to <TEAM>-<n>" in detail, detail
 

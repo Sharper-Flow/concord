@@ -89,13 +89,14 @@ def closing_refusal(where: str, phrases: list[tuple[str, str]]) -> tuple[bool, s
     keys = sorted({key for _, key in phrases})
     quoted = ", ".join(f"'{phrase}'" for phrase, _ in phrases)
     return False, (
-        f"the {where} closes Linear issue{'' if len(keys) == 1 else 's'} {' and '.join(keys)} "
-        f"with the closing phrase{'' if len(phrases) == 1 else 's'} {quoted}; "
+        f"the {where} has the closing phrase{'' if len(phrases) == 1 else 's'} {quoted}, "
+        f"which Linear treats as closing {' and '.join(keys)} if such an issue exists; "
         "CD-0213 D5 leaves issue status changes to the Linear MCP server or the operator. "
-        "This check cannot see which Linear teams exist, so it treats any <TEAM>-<n> token "
-        "directly after a closing word as an issue key. If the token is ordinary text, put another word between the closing word and "
-        "the token, or drop the closing word; name the issue with 'Related to <TEAM>-<n>' "
-        "in the body"
+        "This check cannot see which Linear teams and issues exist, so it treats any "
+        "<TEAM>-<n> token directly after a closing word as an issue key. If the token is "
+        "ordinary text, put another word between the closing word and the token, or drop "
+        "the closing word. If it names an issue, link it with a 'Related to <TEAM>-<n>' "
+        "line in the body instead"
     )
 
 

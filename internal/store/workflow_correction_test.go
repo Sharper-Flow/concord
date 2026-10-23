@@ -1245,17 +1245,6 @@ func TestRejectWorkerResultRefusesSchemaBreakingCorrectionRefs(t *testing.T) {
 	}
 }
 
-// failWorkerAttemptWithKind records a worker.failed event with an explicit
-// failure kind. The counting journeys use it to prove the attempt bound
-// consumes every dispatch whatever the attempt returned.
-func failWorkerAttemptWithKind(t *testing.T, s *Store, workID, attemptID, detail string) {
-	t.Helper()
-	fail := Event{EventID: "failed-" + workID + "-" + attemptID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(BuiltinLaneDefinitions()[0]), FailureKind: WorkerFailureFallbackBlocked, Detail: detail})}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{fail}}); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestInfrastructureFailuresRetainCorrectionSource(t *testing.T) {
 	const workID = "correction-count-infra"
 	s, owner, pin := seedIssue1013EscalatedCorrection(t, workID)

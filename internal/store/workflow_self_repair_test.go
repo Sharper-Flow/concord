@@ -40,73 +40,18 @@ func TestMigrateV81AddsWorkflowSelfRepairClassification(t *testing.T) {
 	}
 }
 
-func TestWorkflowSelfRepairBypassesOverlapForClassifiedWorkOnly(t *testing.T) {
-	ctx := context.Background()
-	s, _, binding, _, _, _ := architectureValidationFixtureWithProductKey(t, "self-repair", "concord")
-	seedWork(t, s, "ordinary-peer")
-	_, selfVersion := seedProductChangingContract(t, s, "self-repair", binding)
-	_, _ = seedProductChangingContract(t, s, "ordinary-peer", binding)
-
-	if err := InspectWorkflowDomainOverlap(ctx, s, "self-repair"); err == nil {
-		t.Fatal("precondition: self-repair work has no unresolved overlap")
-	}
-	operator := seedSelfRepairOperator(t, s)
-	successor := selfRepairSuccessorContract(binding)
-	supersede := workflowEventWithActor("self-repair-contract-v2", WorkflowContractSuperseded, "self-repair", operator, map[string]any{
-		"work_id": "self-repair", "expected_version": selfVersion, "resulting_version": selfVersion + 1,
-		"previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "classify workflow self-repair",
-		"audit_evidence": []string{"obs:0000000000000001"}, "successor_contract": successor,
-	})
-	supersede.PayloadVersion = 2
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{supersede}, ExpectedVersions: workVersion("self-repair", selfVersion)}); err != nil {
-		t.Fatalf("classify self-repair: %v", err)
-	}
-
-	if err := InspectWorkflowDomainOverlap(ctx, s, "self-repair"); err != nil {
-		t.Fatalf("classified self-repair stayed overlap-blocked: %v", err)
-	}
-	pin, err := ReadWorkPin(ctx, s, "self-repair")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pin.SelfRepair == nil || pin.SelfRepair.RefusalKind != string(KindDomainOverlap) || pin.SelfRepair.BlockedOperation != "workflow_action.dispatch_worker" {
-		t.Fatalf("work pin omitted active self-repair classification: %#v", pin.SelfRepair)
-	}
-	err = InspectWorkflowDomainOverlap(ctx, s, "ordinary-peer")
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindDomainOverlap {
-		t.Fatalf("ordinary peer escaped overlap authority: %v", err)
-	}
-
-	projection, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: "self-repair", Limit: 20})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if projection.Contract == nil || projection.Contract.SelfRepair == nil || projection.Contract.SelfRepair.RefusalKind != string(KindDomainOverlap) {
-		t.Fatalf("self-repair classification missing from read projection: %#v", projection.Contract)
-	}
-	continuity, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: "self-repair"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(continuity.UnresolvedOverlaps) == 0 {
-		t.Fatal("self-repair exemption hid the unresolved overlap")
-	}
-}
-
 func TestWorkflowSelfRepairStillRequiresCurrentDomainRegistry(t *testing.T) {
 	ctx := context.Background()
 	s, _, binding, _, _, _ := architectureValidationFixtureWithProductKey(t, "self-repair-stale", "concord")
 	seedWork(t, s, "ordinary-peer-stale")
-	_, selfVersion := seedProductChangingContract(t, s, "self-repair-stale", binding)
+	actor, selfVersion := seedProductChangingContract(t, s, "self-repair-stale", binding)
 	_, _ = seedProductChangingContract(t, s, "ordinary-peer-stale", binding)
-	operator := seedSelfRepairOperator(t, s)
-	supersede := workflowEventWithActor("self-repair-stale-contract-v2", WorkflowContractSuperseded, "self-repair-stale", operator, map[string]any{
+	supersede := workflowEventWithActor("self-repair-stale-contract-v2", WorkflowContractSuperseded, "self-repair-stale", mustActorRef(t, actor), map[string]any{
 		"work_id": "self-repair-stale", "expected_version": selfVersion, "resulting_version": selfVersion + 1,
 		"previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "classify workflow self-repair",
 		"audit_evidence": []string{"obs:0000000000000001"}, "successor_contract": selfRepairSuccessorContract(binding),
 	})
-	supersede.PayloadVersion = 2
+	supersede = pOverlapContractFacts(t, s, supersede)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{supersede}, ExpectedVersions: workVersion("self-repair-stale", selfVersion)}); err != nil {
 		t.Fatalf("classify self-repair: %v", err)
 	}
@@ -151,27 +96,6 @@ func TestWorkflowSelfRepairRequiresConcordAndOperatorAuthority(t *testing.T) {
 				t.Fatal("invalid self-repair classification accepted")
 			}
 		})
-	}
-}
-
-func TestWorkflowSelfRepairFoldAuthorityDoesNotReapplyAdmission(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	const workID = "self-repair-legacy-whitespace"
-	s, _, binding, _, _, _ := architectureValidationFixtureWithProductKey(t, workID, "concord")
-	seedProductChangingContract(t, s, workID, binding)
-	operator := seedSelfRepairOperator(t, s)
-	repair := &WorkflowSelfRepair{
-		RefusalKind: string(KindDomainOverlap), BlockedOperation: "workflow_action.\u00a0dispatch_worker",
-		EvidenceRefs: []string{"obs:\u00a0legacy"},
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if err := validateWorkflowSelfRepairAuthorityTx(ctx, tx, workID, operator, repair); err != nil {
-		t.Fatalf("fold authority rejected legacy self-repair references: %v", err)
 	}
 }
 

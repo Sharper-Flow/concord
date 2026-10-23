@@ -862,6 +862,24 @@ func livenessBindRecordedState(ctx context.Context, s *Store, workID, actionID s
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return raw, nil
 	}
+	if _, declared := fields["open_finding_ids"]; declared {
+		lineage, err := readWorkerOracleFindingLineageTx(ctx, s.db, workID)
+		if err != nil {
+			return nil, err
+		}
+		if ids := lineage.openFindingIDs(); len(ids) == 0 {
+			delete(fields, "open_finding_ids")
+		} else {
+			fields["open_finding_ids"], err = json.Marshal(ids)
+			if err != nil {
+				return nil, err
+			}
+		}
+		raw, err = json.Marshal(fields)
+		if err != nil {
+			return nil, err
+		}
+	}
 	bound := map[string]any{}
 	if _, declared := fields["contract_version"]; declared {
 		var version int64

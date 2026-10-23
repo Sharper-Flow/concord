@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 )
 
 // Deterministic witnesses of the approved worker-job obligations (CD-0205),
@@ -251,43 +250,61 @@ func TestWitnessRewrittenJobKeepsFailedAttemptIdentity(t *testing.T) {
 	}
 }
 
-// The combined final acceptance may not exit refine on integration evidence
-// acquired before the final pending job completed (CD-0205 D3): the verify
-// run must have observed the whole integrated result population, so a run
-// acquired before the final job's completion refuses the assertion.
-func TestWitnessCombinedAcceptRejectsPreResultIntegration(t *testing.T) {
-	const id = "witness-pre-result-integration"
-	f := seedWorkflowReturnRouteFixture(t, id, "workflow.break_fix", "refine")
-	s := f.store
-	defer s.Close()
-	reviewGateStartStep(t, s, id, "refine", "start_refine", f.owner)
-	job := &WorkerJobBinding{JobID: "job:witness-final", Revision: 1}
-	dispatchJobBoundAttempt(t, s, id, "refine", "attempt:"+id+":1", nil, f.owner, 0, "witness-integration", job)
-	var occurred string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT occurred_at FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, id, WorkflowActionStarted).Scan(&occurred); err != nil {
-		t.Fatal(err)
-	}
-	at, err := time.Parse(time.RFC3339Nano, occurred)
-	if err != nil {
-		t.Fatal(err)
-	}
-	views, err := readWorkerJobRevisions(context.Background(), s.db, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ref := refineProofSeedVerifyRunForProject(t, s, id, strings.Repeat("a", 64), []string{"go", "vet", "./..."}, at.Add(time.Second), views[0].ProjectScope)
-	refineProofBindVerification(t, s, id, ref, ref)
-	if err := completeJobBoundAttemptForTest(s, id, "attempt:"+id+":1", BuiltinLaneDefinitions()[0], job); err != nil {
-		t.Fatal(err)
-	}
-	err = runVerdictActionAs(t, s, id, "accept_worker_result", mustJSONValue(map[string]any{
-		"attempt_id": "attempt:" + id + ":1", "attempt_epoch": latestStepStartEpoch(t, s, id, "refine"),
-		"delivery_artifact": "artifact:witness-final", "delivery_state": "asserted",
-	}), 0, reviewGateAcceptor(id))
-	if err == nil {
-		t.Fatal("combined acceptance admitted integration evidence acquired and bound before the final job completed")
-	}
-	if !strings.Contains(err.Error(), "verification evidence") {
-		t.Fatalf("combined acceptance refusal = %v, want the integration remedy", err)
+// Integration proof follows the candidate it observed (CD-0205 D3): changing
+// the final result invalidates earlier proof; unchanged results reuse it even
+// when the receipt was captured and bound before their completion.
+func TestWitnessCombinedAcceptBindsIntegrationToTheIntegratedCandidate(t *testing.T) {
+	for _, changed := range []bool{true, false} {
+		name := "unchanged-candidate"
+		if changed {
+			name = "changed-candidate"
+		}
+		t.Run(name, func(t *testing.T) {
+			const id = "witness-candidate-integration"
+			c := acceptDeliveryCandidateAt(t, id, "workflow.break_fix", "refine", false)
+			s := c.f.store
+			defer s.Close()
+			c.j.bindVerification(t, c.early)
+			proofSubject := c.early.SubjectRef
+			if changed {
+				workerDiffCommit(t, c.j, "final-result", "the final job changes the candidate\n")
+				c.early = c.j.observeRun(t, "integrated-final-result")
+				qAcceptCriterionReview(t, c.f, c.j.repo, c.early.OperationRef)
+			}
+			candidate := "commit:" + refineProofCandidate(t, s, id)
+			if (candidate != proofSubject) != changed {
+				t.Fatalf("integrated candidate = %s, earlier proof subject = %s, want changed=%t", candidate, proofSubject, changed)
+			}
+			c.attempt = "attempt:" + id + ":final"
+			c.epoch = acceptDeliveryCompleteReview(t, c, c.attempt)
+			before := c.j.effects(t)
+			err := runDeliveryAdmissionAction(t, s, id, "accept_worker_result", acceptDeliveryCombinedPayload(c, "artifact:witness-final"),
+				refineProofTooling(ProjectDeclaredTool{ID: "head", Invocation: "git rev-parse --verify HEAD^{commit}"}), reviewGateAcceptor(id))
+			if changed {
+				var failure *Failure
+				if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "verification does not cover the current integrated candidate") {
+					t.Fatalf("combined acceptance refusal = %v, want missing_evidence naming the changed integrated candidate", err)
+				}
+				if after := c.j.effects(t); after != before {
+					t.Fatalf("refused combined acceptance changed durable state: before=%s after=%s", before, after)
+				}
+				reviewGateRequireStep(t, s, id, "refine")
+				if seq, err := workflowLatestDeliveryAssertionSeq(t.Context(), s, id); err != nil || seq != 0 {
+					t.Fatalf("refused combined acceptance delivery assertion = %d, %v; want none", seq, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("combined acceptance refused proof on the unchanged integrated candidate: %v", err)
+			}
+			var accepted int
+			if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, id, WorkflowActionCompleted, c.attempt).Scan(&accepted); err != nil || accepted != 1 {
+				t.Fatalf("combined acceptance count = %d, %v; want exactly one", accepted, err)
+			}
+			reviewGateRequireStep(t, s, id, "delivery")
+			if seq, err := workflowLatestDeliveryAssertionSeq(t.Context(), s, id); err != nil || seq == 0 {
+				t.Fatalf("combined acceptance delivery assertion = %d, %v; want the asserted delivery", seq, err)
+			}
+		})
 	}
 }

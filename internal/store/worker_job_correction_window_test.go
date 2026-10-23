@@ -865,16 +865,11 @@ func TestWorkerJobRecordingAuthorityAndReadinessGates(t *testing.T) {
 // delivery admission: it refuses without the green refine run and advances
 // to the delivery gate with it.
 func TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery(t *testing.T) {
-	for _, family := range []struct {
-		ref     string
-		version int64
-	}{
-		{"workflow.implementation", 24},
-		{"workflow.break_fix", 21},
-	} {
-		t.Run(family.ref, func(t *testing.T) {
+	for _, family := range []string{"workflow.implementation", "workflow.break_fix"} {
+		t.Run(family, func(t *testing.T) {
 			const workID = "worker-job-refine-local-accept"
-			f := acceptDeliveryFixtureFor(t, workID, family.ref, family.version, "refine", "start_refine")
+			definition := mustBuiltinDefinition(t, family)
+			f := acceptDeliveryFixtureFor(t, workID, family, definition.Definition.Version, "refine", "start_refine")
 			s := f.fixture.store
 			defer s.Close()
 			owner := f.fixture.owner
@@ -908,12 +903,13 @@ func TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			unbound := "attempt:" + workID + ":unbound-review"
-			reviewGateRunAttempt(t, s, workID, unbound, "refine", reviewGateLane(t, "review"), ownerRef, 200)
+			unbound := "attempt:" + workID + ":unbound-implementation"
+			reviewGateRunAttempt(t, s, workID, unbound, "refine", lane, ownerRef, 200)
 			if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": unbound, "attempt_epoch": epoch()}), 0, acceptor); err == nil || !strings.Contains(err.Error(), "exits only through an admitted delivery assertion") {
 				t.Fatalf("plain accept of an unbound attempt at refine error = %v, want the delivery-assertion refusal", err)
 			}
 
+			oAcceptOracleFixtureReview(t, oracleRepairFixtureFrom(t, workID, f.fixture), workID, "continue")
 			final := &WorkerJobBinding{JobID: "job:refine-final", Revision: 1}
 			finalAttempt := "attempt:" + workID + ":final"
 			dispatchJobBoundAttempt(t, s, workID, "refine", finalAttempt, nil, owner, 0, "refine-final", final)
@@ -925,7 +921,8 @@ func TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery(t *testing.T) {
 				t.Fatal("delivery-asserting accept admitted without the green refine run")
 			}
 			reviewGateRequireStep(t, s, workID, "refine")
-			if err := acceptRefineResult(t, s, workID, finalAttempt, epoch(), acceptor); err != nil {
+			refineProofCandidateRun(t, s, workID, "refine-final", refineProofCandidate(t, s, workID), []string{"true"})
+			if err := runVerdictActionAs(t, s, workID, "accept_worker_result", asserted, 0, acceptor); err != nil {
 				t.Fatalf("delivery-asserting accept with the green refine run: %v", err)
 			}
 			reviewGateRequireStep(t, s, workID, "delivery")

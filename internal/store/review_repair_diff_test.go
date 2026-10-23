@@ -33,8 +33,16 @@ func TestReviewRepairDiffKeepsInputBWhileCheckoutChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	j.laneDispatch(t, "repair-diff-implementation", "implementation", &job)
-	b := workerDiffCommit(t, j, "input-b", "input B\n")
+	dir := filepath.Join(j.repo, "internal", "store")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "change.txt"), []byte("input B\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	b := j.commit(t, "worker@example.invalid", "input-b")
 	j.completeLane(t, "repair-diff-implementation", "implementation", &job, nil)
+	j.observeRun(t, "input-b")
 	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": "repair-diff-implementation", "attempt_epoch": j.dispatchEpoch(t, "repair-diff-implementation")}, j.fixture.owner); err != nil {
 		t.Fatal(err)
 	}
@@ -43,12 +51,15 @@ func TestReviewRepairDiffKeepsInputBWhileCheckoutChanges(t *testing.T) {
 	if err != nil || before.SubjectCommit != b {
 		t.Fatalf("input diff: %+v %v", before, err)
 	}
-	if err := os.WriteFile(filepath.Join(j.repo, "internal", "store", "change.txt"), []byte("uncommitted repair\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "change.txt"), []byte("uncommitted repair\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	for _, commit := range []bool{false, true} {
 		if commit {
-			workerDiffCommit(t, j, "output-c", "output C\n")
+			if err := os.WriteFile(filepath.Join(dir, "change.txt"), []byte("output C\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			j.commit(t, "reviewer@example.invalid", "output-c")
 		}
 		after, err := j.s.ReadWorkerDiff(context.Background(), req)
 		if err != nil || after.SubjectCommit != b || after.ContentHash != before.ContentHash || !bytes.Equal(after.Data, before.Data) {

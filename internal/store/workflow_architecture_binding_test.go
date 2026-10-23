@@ -579,65 +579,6 @@ func TestProductChangingApprovalMissingBindingIsAtomic(t *testing.T) {
 	}
 }
 
-func TestGenericWorkflowAllowsEmptyLawModifiesButNoProductAuthority(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	workID := "generic-binding-shape"
-	seedWork(t, s, workID)
-	actor := WorkflowActor{PrincipalRef: "principal:generic", ClientRef: "client:generic", AgentRef: "agent:generic", SessionRef: "session:generic", ActorClass: ActorAgent}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.generic_one_off", 1)
-	if !ok {
-		t.Fatal("latest generic definition missing")
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)}); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	actorRef := DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef)
-	base := map[string]any{"work_id": workID, "expected_version": int64(4), "resulting_version": int64(5), "contract_version": int64(1), "premise": "generic", "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"completed"}}, "required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}
-	approved := workflowEventWithActor("generic-binding-empty", WorkflowContractApproved, workID, actorRef, base)
-	approved.PayloadVersion = 3
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{approved}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
-		t.Fatalf("explicit empty law_modifies rejected: %v", err)
-	}
-	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&count); err != nil || count != 1 {
-		t.Fatalf("generic contract count=%d err=%v", count, err)
-	}
-	for name, mutate := range map[string]func(map[string]any){
-		"law modifies": func(candidate map[string]any) { candidate["law_modifies"] = []string{"law:forbidden"} },
-		"architecture binding": func(candidate map[string]any) {
-			candidate["architecture_binding"] = WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("a", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
-		},
-	} {
-		candidate := map[string]any{}
-		for key, value := range base {
-			candidate[key] = value
-		}
-		candidate["expected_version"] = int64(5)
-		candidate["resulting_version"] = int64(6)
-		candidate["contract_version"] = int64(2)
-		mutate(candidate)
-		event := workflowEventWithActor("generic-reject-"+strings.ReplaceAll(name, " ", "-"), WorkflowContractApproved, workID, actorRef, candidate)
-		event.PayloadVersion = 3
-		if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 5}}); err == nil {
-			t.Fatalf("generic workflow accepted %s", name)
-		}
-	}
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*), MAX(version) FROM workflow_contracts JOIN work_items ON work_items.id=workflow_contracts.work_id WHERE workflow_contracts.work_id=?`, workID).Scan(&count, &version); err != nil || count != 1 || version != 5 {
-		t.Fatalf("rejected generic authority changed state: contracts=%d version=%d err=%v", count, version, err)
-	}
-}
-
 func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

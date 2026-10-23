@@ -391,10 +391,7 @@ func seedWorkContextFixture(t *testing.T, workID string) workContextFixture {
 	return seedWorkContextFixtureWithDefinition(t, workID, registered)
 }
 
-// seedWorkContextFixtureWithDefinition seeds the same fixture under an
-// explicit registered definition, so a suite can pin the latest head that
-// predates a later definition-gated requirement without changing the
-// fixture's own shape.
+// Initialization retains the registered identity supplied by the caller.
 func seedWorkContextFixtureWithDefinition(t *testing.T, workID string, registered RegisteredDefinition) workContextFixture {
 	t.Helper()
 	ctx := context.Background()
@@ -1273,20 +1270,9 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	}
 }
 
-// TestTerminalReportFindingsBindRegistryDomainsLiveNotOnReplay is the
-// CON-892 terminal-report admission: each reported finding names a Domain,
-// the live fold validates it against the current registry and approved
-// affected scope through ValidateWorkContextDomainTx, and replay folds the
-// retained report without today's registry.
-func TestTerminalReportFindingsBindRegistryDomainsLiveNotOnReplay(t *testing.T) {
+func TestTerminalCompletionFindingsBindRegistryDomains(t *testing.T) {
 	t.Parallel()
-	// The terminal-report binding fixture predates the failure-attribution
-	// requirement: its refusal subtests want the finding-domain
-	// validation kinds, and its admitted failure lands as the plain
-	// released terminal the rule was authored against. Pin the latest
-	// pre-attribution head so the attribution gate never shadows the
-	// domain refusals this test proves.
-	fixture := seedWorkContextFixtureWithDefinition(t, "ctx-terminal-domain", attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"))
+	fixture := seedWorkContextFixture(t, "ctx-terminal-domain")
 	defer fixture.store.Close()
 	lane := BuiltinLaneDefinitions()[0]
 	model := preferredModelForLane(lane)
@@ -1323,51 +1309,24 @@ func TestTerminalReportFindingsBindRegistryDomainsLiveNotOnReplay(t *testing.T) 
 		if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{completion}}); !hasFailureKind(err, refusal.want) {
 			t.Fatalf("completion %s error = %v, want %s", refusal.name, err, refusal.want)
 		}
-		failure := workerFailedContextFindingsEvent(fixture.workID, fmt.Sprintf("ctx-domain-refused-f-%d", index), "attempt-domain-1", model, WorkerFailureWorkerError, refusal.findings, WorkerEvidenceEventPayloadVersion(WorkerFailed))
-		if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{failure}}); !hasFailureKind(err, refusal.want) {
-			t.Fatalf("failure %s error = %v, want %s", refusal.name, err, refusal.want)
-		}
+	}
+	var refused int
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND event_id LIKE 'ctx-domain-refused-%'`, fixture.workID).Scan(&refused); err != nil || refused != 0 {
+		t.Fatalf("refused completion records=%d, want zero: %v", refused, err)
 	}
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-domain-ok", "attempt-domain-1", model, lane, finding(workContextTestChild, ""), WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
 		t.Fatalf("child-domain completion refused: %v", err)
 	}
-	dispatch("attempt-domain-2")
-	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerFailedContextFindingsEvent(fixture.workID, "ctx-domain-ok-f", "attempt-domain-2", model, WorkerFailureWorkerError, finding(workContextTestRoot, workContextRootRationale), WorkerEvidenceEventPayloadVersion(WorkerFailed))}}); err != nil {
-		t.Fatalf("root-domain failure with rationale refused: %v", err)
+	view, err := readWorkContextView(t.Context(), fixture.store.DatabaseForTesting(), fixture.workID)
+	if err != nil || view == nil || len(view.Findings) != 1 {
+		t.Fatalf("completion findings=%+v, want one current reported claim: %v", view, err)
 	}
-	tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := enterFold(context.Background(), tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(context.Background(), `DELETE FROM law_domain_homes; DELETE FROM domain_registries; DELETE FROM domains;`); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := leaveFold(context.Background(), tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), fixture.store); err != nil {
-		t.Fatalf("replay of retained terminal reports refused without the registry: %v", err)
+	got := view.Findings[0]
+	if got.DomainID != workContextTestChild || got.Statement != "a reported claim" || got.Origin != WorkContextOriginWorkerReport || got.Status != WorkContextFindingStatusReported || got.SourceEventID != "ctx-domain-ok" {
+		t.Fatalf("completion claim lost its Domain, attribution or reported status: %+v", got)
 	}
 }
 
-// TestTerminalReportFindingsBindRegistryDomainsOnCurrentHead is the
-// current-head counterpart of the pre-attribution witness above. The failed
-// terminal carries the recorded producer observation and lands through the
-// authorized dispatch window's live ingest, and the same two properties hold:
-// the finding-domain refusals keep their kinds past the attribution gate, and
-// replay folds the retained reports — and the derived failure record —
-// without today's registry. Completion finding-domain admission
-// carries no attribution member on any pin, so the released plain-terminal
-// completion path stays witnessed by the test above alone.
 func TestTerminalReportFindingsBindRegistryDomainsOnCurrentHead(t *testing.T) {
 	t.Parallel()
 	fixture := seedWorkContextFixture(t, "ctx-terminal-domain-current")

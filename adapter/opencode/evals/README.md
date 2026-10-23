@@ -77,9 +77,10 @@ and establishes host compatibility, not lane behavioral acceptance.
 ## Recording a baseline
 
 `baselines/lane-baseline.v1.json` is the measured record (issue #212): the
-lane registry digests it ran against, one run per packet, and the
-`readback_model` each attempt reported. Re-record it after a deliberate lane
-change by running the eval above, then rewriting the file from the results.
+lane registry digests it ran against, one run per packet, and the host-recorded
+`readback_model` from each result's `response.metadata`. Never copy a worker's
+model claim into the baseline. Re-record it after a deliberate lane change by
+running the eval above, then rewriting the file from the actual results.
 
 ## What CI enforces
 

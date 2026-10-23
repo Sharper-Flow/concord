@@ -732,7 +732,7 @@ func issue1013Pin(t *testing.T, s *Store, workID string) WorkPin {
 // refuses completion until each kind is freshly bound after the supersession.
 func completeStepSuccessorPayload(workID string) json.RawMessage {
 	binding := `{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
-	return json.RawMessage(`{"contract_version":2,"premise":"the delivered subject the durable evidence names","outcome_predicates":[{"predicate_id":"predicate:return-route","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:return-route","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification","review","artifact"],"route_conventions":["complete_step_correction"],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","supersede_reason":"durable evidence contradicted the approved premise","audit_evidence":["evidence:complete-correction-` + workID + `"],"architecture_binding":` + binding + `}`)
+	return json.RawMessage(`{"contract_version":2,"premise":"the delivered subject the durable evidence names","outcome_predicates":[{"predicate_id":"predicate:return-route","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:return-route","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification","review","artifact"],"route_conventions":["complete_step_correction"],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","decision_domains":[],"supersede_reason":"durable evidence contradicted the approved premise","audit_evidence":["evidence:complete-correction-` + workID + `"],"architecture_binding":` + binding + `}`)
 }
 
 // seedCompleteStepCorrection drives a real pinned workflow instance to its
@@ -751,16 +751,17 @@ func seedCompleteStepCorrection(t *testing.T, workID, definitionRef, verdictStep
 // fixtures can supply exactly the conditions under test.
 func seedCompleteStep(t *testing.T, workID, definitionRef, verdictStep, completeStep string) (workflowReturnRouteFixture, WorkflowActor) {
 	t.Helper()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, definitionRef, verdictStep)
-	reviewer := completeCompleteStepReview(t, fixture, workID, completeStep)
+	effectStep := workflowUnhealthyVerdictRouteTarget(mustBuiltinDefinition(t, definitionRef).Definition, verdictStep)
+	fixture := seedWorkflowReturnRouteFixture(t, workID, definitionRef, effectStep)
+	reviewer := completeCompleteStepReview(t, fixture, workID, verdictStep, completeStep)
 	return fixture, reviewer
 }
 
-// completeCompleteStepReview records the reviewer actor, the healthy verdict
-// under the active contract, and the premise confirmation that parks the
-// instance on the pinned completion step, and returns the reviewer for later
-// verdict actions.
-func completeCompleteStepReview(t *testing.T, fixture workflowReturnRouteFixture, workID, completeStep string) WorkflowActor {
+// completeCompleteStepReview records the reviewer actor, the current proof
+// association under the active contract, and the premise confirmation that
+// parks the instance on the pinned completion step, and returns the reviewer
+// for later verdict actions.
+func completeCompleteStepReview(t *testing.T, fixture workflowReturnRouteFixture, workID, verdictStep, completeStep string) WorkflowActor {
 	t.Helper()
 	s := fixture.store
 	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
@@ -777,12 +778,9 @@ func completeCompleteStepReview(t *testing.T, fixture workflowReturnRouteFixture
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{reviewerEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("record the reviewer actor: %v", err)
 	}
-	// The canonical heads author the batched verdict alone, so the gate
-	// fixture's healthy verdict rides the one-entry batch.
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok"}]}`), 0, reviewer); err != nil {
-		t.Fatalf("record the healthy verdict: %v", err)
-	}
-	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator); err != nil {
+	wf := workContextFixture{store: s, workID: workID, owner: fixture.owner, operator: fixture.operator}
+	proof := qAssociateCurrentProofAt(t, wf, verdictStep, "", true)
+	if err := pConfirmReceiptPremise(t, wf, proof.repo); err != nil {
 		t.Fatalf("confirm the premise: %v", err)
 	}
 	var step string
@@ -1117,9 +1115,9 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 	t.Run("observation before the verdict", func(t *testing.T) {
 		t.Parallel()
 		const workID = "complete-correction-pre-verdict-observation"
-		fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "verify")
+		fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 		recordCompleteStepContradictionObservation(t, fixture.store, workID, fixture.owner)
-		completeCompleteStepReview(t, fixture, workID, "complete")
+		completeCompleteStepReview(t, fixture, workID, "verify", "complete")
 		err := issue1013Preflight(t, fixture.store, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner)
 		var failure *Failure
 		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "contract recovery is available only for a stale workflow contract" {

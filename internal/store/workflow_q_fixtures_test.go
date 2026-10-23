@@ -44,6 +44,13 @@ func qBuildAcceptancePredicates(t *testing.T, workID, artifact string, associate
 // Investigation is seeded by default; pass false to leave that gate unmet.
 func qAssociateCurrentProof(t *testing.T, f workContextFixture, artifact string, associate bool, investigation ...bool) acceptanceRecoveryFixture {
 	t.Helper()
+	return qAssociateCurrentProofAt(t, f, "acceptance", artifact, associate, investigation...)
+}
+
+// qAssociateCurrentProofAt associates the proof at the family's named
+// verdict step.
+func qAssociateCurrentProofAt(t *testing.T, f workContextFixture, verdictStep, artifact string, associate bool, investigation ...bool) acceptanceRecoveryFixture {
+	t.Helper()
 	workID := f.workID
 	repo, _ := reviewSubjectClaim(t, f.store, workID)
 	var branch string
@@ -67,7 +74,7 @@ func qAssociateCurrentProof(t *testing.T, f workContextFixture, artifact string,
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := advanceWorkflowTestInstanceToStep(t.Context(), f.store, workID, "acceptance", actor); err != nil {
+	if err := advanceWorkflowTestInstanceToStep(t.Context(), f.store, workID, verdictStep, actor); err != nil {
 		t.Fatal(err)
 	}
 	fixture := acceptanceRecoveryFixture{store: f.store, workID: workID, owner: f.owner, operator: f.operator, repo: repo, receipt: run.OperationRef}

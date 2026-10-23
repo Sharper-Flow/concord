@@ -10,6 +10,11 @@ schema is `1.3` and carries explicit authority tiers. The companion
 [`concord-knowledge-index.v1.schema.json`](../../contracts/concord-knowledge-index.v1.schema.json)
 is the closed JSON Schema contract.
 
+**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## Contract
 
 The manifest has `schema_version`, `supported_kinds`, `indexed_kinds`, optional

@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:94853d21857f9c1985e2fb07680b06cef466b5883f5483b0d04db657d8415aa0",
+  "sha256": "sha256:bf8228c59a8612d9f40cdda2cdedaafc06056a9a3256ca667e22d14a373e8ad8",
   "status": "published",
   "summary": "Describes the three retained execution families, shared-part workflow composition, model-selected size, and exact historical definition pins under CD-0218 and CD-0229.",
   "tags": [

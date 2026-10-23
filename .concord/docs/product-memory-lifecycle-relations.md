@@ -19,6 +19,10 @@
 > Issues #196/#197 replace obsolete pre-go-live forms directly, without aliases,
 > upcasters, or compatibility windows.
 
+**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies CD-0142's operator-directed removal clauses. Removal remains
+per-item, scoped, fenced, and subject to the existing planning handoff.
+
 ## Context
 
 Work items need one lifecycle and relation semantics shared by every PM1

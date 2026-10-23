@@ -13,6 +13,11 @@
 - **Approval:** The operator approved this decision in contract version 1 of
   work item `work-77b5c1691911819c7d94abcd`.
 
+**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## Context
 
 A squash merge rewrites the branch's commits into one new commit on the

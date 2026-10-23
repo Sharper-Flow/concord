@@ -11,6 +11,11 @@
 - **Amends:** CD-0039 native-run records before their implementation
 - **Supersedes:** nothing
 
+**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies D7's freshness-policy approval requirement. D9's operator-only
+exception for an unverifiable source, and all other admission, safety,
+evidence, and historical-pin requirements remain unchanged.
+
 ## Context
 
 Concord records facts about state it does not own: Git positions, worktrees,

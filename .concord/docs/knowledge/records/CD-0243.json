@@ -94,7 +94,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:56cd20903fa2c5a2e0dee5fb1c4de65375930373a6a859fad048a83b5553be63",
+  "sha256": "sha256:20779e457424d70efc528312c51a2eb91c74996f2e99af880826cb60f9ec6f33",
   "status": "accepted",
   "summary": "Four roles separate operator approval, self-sufficient item delivery, optional RTE coordination, and optional Planner assistance as Product Owner. Six approval classes cover product direction, UI/UX, production application data and irreversible customer-data loss, security decisions, increased spending, and legal obligations. Routine engineering and work management remain agent-owned. Approval-boundary changes require exact-text operator approval; seriousness, Domain count, crucial size, and lack of recovery alone do not create an approval requirement. Runtime consent alignment remains unproved.",
   "tags": [

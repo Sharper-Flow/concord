@@ -9,6 +9,10 @@
   [CD-0217](decisions/CD-0217-publication-and-retention-boundaries.md),
   [CD-0142](decisions/CD-0142-operator-directed-execution-removal.md), PM1, PM3–PM6, and PM8–PM10
 
+**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies CD-0142's operator-directed removal clauses. Removal remains
+per-item, scoped, fenced, and subject to the existing planning handoff.
+
 ## Context
 
 This complete successor preserves work-history authority, canonical note proof, historical scope, query populations, and deferred terminal projection pruning.

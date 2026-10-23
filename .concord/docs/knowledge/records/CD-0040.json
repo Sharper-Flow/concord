@@ -28,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d24c5659a7cd4c39bf5be8b1582145eaf3b504b69ff2dc2ed3a0d3c58f932692",
+  "sha256": "sha256:e15d77afb6383ac5b56311ea5469494b06e387ba001e0d3b235a1cc77b09a7b7",
   "status": "accepted",
   "summary": "External observations share typed provenance and append-only verification; presence is broad, while absence and consequential use require pinned completeness and current proof.",
   "tags": [

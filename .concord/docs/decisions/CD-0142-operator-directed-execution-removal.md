@@ -11,6 +11,11 @@
 - **Preserves:** The five-state lifecycle, exact event history, Product and Project
   identity, accepted law, Linear issue identity, and the no-polling boundary
 
+**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## Context
 
 Shelving execution does not mean cancellation. Both actions must preserve the

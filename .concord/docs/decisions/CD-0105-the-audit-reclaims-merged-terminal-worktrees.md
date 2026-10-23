@@ -18,6 +18,11 @@
   tree, the merged head by tree identity, the observed-session stranding
   refusal, and operator approval for non-terminal or destructive removal
 
+**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+qualifies every operator-consent clause in this record, including tables and
+acceptance criteria. Other admission, safety, evidence, and historical-pin
+requirements remain unchanged.
+
 ## Context
 
 CD-0096 D3 Destroy defines what may remove a worktree and under which gates.

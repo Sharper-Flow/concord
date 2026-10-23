@@ -71,18 +71,31 @@ def related_key(body: str) -> str | None:
     return match.group(1) if match else None
 
 
-def closing_keys(body: str) -> list[str]:
-    """Return every issue key a closing phrase names, from a bare key or a Linear issue URL."""
-    return [key for pair in CLOSING_LINE.findall(body or "") for key in pair if key]
+def closing_phrases(text: str) -> list[tuple[str, str]]:
+    """Return (phrase, key) for every closing phrase, from a bare key or a Linear issue URL.
+
+    Any <TEAM>-<n> token counts. Whether Linear acts on one depends on the
+    teams and issues its workspace holds, which this check does not read, so
+    prose of the same shape such as `complete UTF-8` refuses as well.
+    """
+    return [
+        (match.group(0), match.group(1) or match.group(2))
+        for match in CLOSING_LINE.finditer(text or "")
+    ]
 
 
-def closing_refusal(where: str, keys: list[str]) -> tuple[bool, str]:
-    """Build the refusal for a closing phrase found on one pull request surface."""
+def closing_refusal(where: str, phrases: list[tuple[str, str]]) -> tuple[bool, str]:
+    """Build the refusal for the closing phrases found on one pull request surface."""
+    keys = sorted({key for _, key in phrases})
+    quoted = ", ".join(f"'{phrase}'" for phrase, _ in phrases)
     return False, (
-        f"the {where} closes Linear issue"
-        f"{'' if len(keys) == 1 else 's'} {' and '.join(sorted(set(keys)))} with a closing "
-        "phrase; CD-0213 D5 leaves issue status changes to the Linear MCP server "
-        "or the operator, so use 'Related to <TEAM>-<n>' in the body"
+        f"the {where} closes Linear issue{'' if len(keys) == 1 else 's'} {' and '.join(keys)} "
+        f"with the closing phrase{'' if len(phrases) == 1 else 's'} {quoted}; "
+        "CD-0213 D5 leaves issue status changes to the Linear MCP server or the operator. "
+        "This check cannot see which Linear teams exist, so it treats any <TEAM>-<n> token "
+        "directly after a closing word as an issue key. If the token is ordinary text, put another word between the closing word and "
+        "the token, or drop the closing word; name the issue with 'Related to <TEAM>-<n>' "
+        "in the body"
     )
 
 
@@ -94,7 +107,7 @@ def check_pr_link(head_ref: str, title: str, body: str) -> tuple[bool, str]:
     # so a work-branch PR titled 'Fixes ENG-123' would change issue status without
     # the Linear MCP server or the operator. Both surfaces get the same refusal.
     for where, text in (("title", title), ("body", body)):
-        closing = closing_keys(text)
+        closing = closing_phrases(text)
         if closing:
             return closing_refusal(where, closing)
     key = related_key(body)

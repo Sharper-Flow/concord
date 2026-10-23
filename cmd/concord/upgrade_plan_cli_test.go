@@ -322,6 +322,9 @@ var migrationTailReversals = map[int][]string{
 		`ALTER TABLE worker_job_revisions DROP COLUMN group_review_ref`,
 		`ALTER TABLE worker_job_revisions DROP COLUMN group_permission`,
 	},
+	138: {
+		`DROP TABLE store_revision`,
+	},
 	128: {
 		`ALTER TABLE project_locators DROP COLUMN normalization_version`,
 	},

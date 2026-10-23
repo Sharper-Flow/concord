@@ -322,11 +322,12 @@ func manifestVersions(ctx context.Context, db *sql.DB) (map[int]appliedMigration
 // applies, and the column's default marks every recorded row breaking, which
 // is the conservative read the manifest check expects.
 func repairManifestBreakingColumn(ctx context.Context, db *sql.DB) error {
-	tx, err := beginOrdinaryTx(ctx, db)
+	write, err := beginWriteTx(ctx, db, nil, schemaWriteAdmission)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "upgrade", "cannot begin the manifest repair", true,
 			"retry once the database is writable", err)
 	}
+	tx := write.Tx
 	if _, err := tx.ExecContext(ctx, schemaManifestDDL); err != nil {
 		_ = tx.Rollback()
 		return wrapFailure(KindUnavailable, "upgrade", "cannot create the schema manifest", true,
@@ -445,9 +446,31 @@ func ensureInstallationKey(ctx context.Context, db *sql.DB, createdAt ...time.Ti
 		return wrapFailure(KindUnavailable, "open", "cannot create the installation cursor key", true,
 			"retry once the operating system random source is available", err)
 	}
-	_, err := db.ExecContext(ctx, `INSERT OR IGNORE INTO agent_installation_keys(key_name,key_bytes,created_at) VALUES('cursor',?,?)`, key, when.UTC().Format(time.RFC3339Nano))
+	tx, err := beginOrdinaryTx(ctx, db)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "open", "cannot begin installation cursor key creation", true,
+			"retry once the database is writable", err)
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO agent_installation_keys(key_name,key_bytes,created_at) VALUES('cursor',?,?)`, key, when.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return wrapFailure(KindUnavailable, "open", "cannot persist the installation cursor key", true,
+			"retry once the database is writable", err)
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return wrapFailure(KindUnavailable, "open", "cannot confirm installation cursor key creation", true,
+			"retry once the database is readable", err)
+	}
+	if inserted == 0 {
+		if err := tx.Rollback(); err != nil {
+			return wrapFailure(KindUnavailable, "open", "cannot roll back ignored installation cursor key creation", true,
+				"retry once the database is writable", err)
+		}
+		return nil
+	}
+	if err := tx.Commit(); err != nil {
+		return wrapFailure(KindUnavailable, "open", "cannot commit the installation cursor key", true,
 			"retry once the database is writable", err)
 	}
 	return nil

@@ -255,7 +255,7 @@ func TestBackupEventWatermarkIsInventoryOnly(t *testing.T) {
 	defer s.Close()
 	seedBackupCurrentState(t, s)
 	var want int64
-	if err := s.db.QueryRow(`SELECT MAX(seq) FROM domain_events`).Scan(&want); err != nil {
+	if err := s.db.QueryRow(`SELECT revision FROM store_revision WHERE id=1`).Scan(&want); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := filepath.Join(t.TempDir(), "snapshot.db")

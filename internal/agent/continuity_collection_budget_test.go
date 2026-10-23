@@ -249,7 +249,7 @@ func TestContinuityFortyObservationsWindowAndContinuation(t *testing.T) {
 		}
 	}
 	r := runtime{Store: s, Authority: service, Tool: "concord_work_trace", Operation: "continuity", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
-	before, err := s.DomainEventWatermark(ctx)
+	before, err := s.Revision(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +343,7 @@ func TestContinuityFortyObservationsWindowAndContinuation(t *testing.T) {
 	if len(seen) != 40 || pages < 2 {
 		t.Fatalf("enumerated %d observations in %d pages", len(seen), pages)
 	}
-	after, err := s.DomainEventWatermark(ctx)
+	after, err := s.Revision(ctx)
 	if err != nil || before != after {
 		t.Fatalf("read changed durable state: %d -> %d, %v", before, after, err)
 	}
@@ -528,7 +528,7 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 			if limit.value != 0 {
 				request["limit"] = limit.value
 			}
-			before, err := s.DomainEventWatermark(ctx)
+			before, err := s.Revision(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -665,7 +665,7 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 			if len(observed) != 40 {
 				t.Fatalf("observation continuation reconstructed %d of 40 observations", len(observed))
 			}
-			after, err := s.DomainEventWatermark(ctx)
+			after, err := s.Revision(ctx)
 			if err != nil || before != after {
 				t.Fatalf("read changed durable state: %d -> %d, %v", before, after, err)
 			}
@@ -1121,7 +1121,7 @@ func TestContinuityProjectionContinuationContract(t *testing.T) {
 	})
 
 	t.Run("changed_digest_refuses_before_emit", func(t *testing.T) {
-		before, err := s.DomainEventWatermark(ctx)
+		before, err := s.Revision(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1131,9 +1131,9 @@ func TestContinuityProjectionContinuationContract(t *testing.T) {
 			t.Fatal("fixture produced no projection continuation to continue")
 		}
 		// The held verify lease rides the reading session's view (CD-0096
-		// D5). Direct projection seeding writes no domain event, so the
-		// source watermark stays put while the projection changes — exactly
-		// the case the digest binding owns.
+		// D5). Direct projection seeding bypasses write admission, so the
+		// revision stays put while the projection changes — exactly the
+		// case the digest binding owns.
 		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES('lease:continuation-digest','work-1','project-1','worktree-continuation-digest','held','client-continuation-aa','agent-continuation','session-continuation-aa','principal-continuation','["go","test"]','2026-10-14T00:00:00Z','running')`); err != nil {
 			t.Fatal(err)
 		}
@@ -1157,7 +1157,7 @@ func TestContinuityProjectionContinuationContract(t *testing.T) {
 				t.Fatal("the changed-digest refusal must detect before any fragment is emitted")
 			}
 		}
-		after, err := s.DomainEventWatermark(ctx)
+		after, err := s.Revision(ctx)
 		if err != nil || before != after {
 			t.Fatalf("the digest test moved the watermark: %d -> %d, %v", before, after, err)
 		}

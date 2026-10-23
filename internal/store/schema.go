@@ -6535,6 +6535,18 @@ ALTER TABLE worker_job_revisions ADD COLUMN group_review_ref TEXT NOT NULL DEFAU
 ALTER TABLE worker_job_revisions ADD COLUMN correction_ref TEXT NOT NULL DEFAULT '';
 `,
 	},
+	{
+		Version:  138,
+		Name:     "store_revision",
+		Breaking: false,
+		SQL: `
+CREATE TABLE store_revision (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    revision INTEGER NOT NULL CHECK(typeof(revision)='integer' AND revision>=0)
+);
+INSERT INTO store_revision(id,revision) SELECT 1,COALESCE(MAX(seq),0) FROM domain_events;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any
@@ -6889,11 +6901,12 @@ func upgradeRequired(m migration) *Failure {
 }
 
 func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ...func() time.Time) error {
-	tx, err := beginOrdinaryTx(ctx, db)
+	write, err := beginWriteTx(ctx, db, nil, schemaWriteAdmission)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "migrate", "cannot begin schema migration", true,
 			"retry once the database is writable", err)
 	}
+	tx := write.Tx
 	rollback := func(cause error) error {
 		_ = tx.Rollback()
 		return cause
@@ -6971,6 +6984,11 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		}
 		if err := applyMigration(ctx, tx, m); err != nil {
 			return rollback(err)
+		}
+		if m.Version >= 138 {
+			if err := advanceStoreRevision(ctx, tx); err != nil {
+				return rollback(err)
+			}
 		}
 		remoteUpgrade = remoteUpgrade || m.Name == remoteLocatorUpgradeName
 		if _, err := tx.ExecContext(ctx,

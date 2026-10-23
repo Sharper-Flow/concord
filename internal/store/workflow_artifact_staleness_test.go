@@ -10,9 +10,8 @@ import (
 
 // The artifact-staleness fold and its admission halves (CD-0201 D5/D6),
 // exercised over real folded history: the staleness causes, the production
-// frontier at the declared route target, the ok-verdict refusal, the premise
-// refusal, and the CON-846 revised-contract shape on a quarantined released
-// pin whose correction the route table now admits.
+// frontier at the declared route target, the healthy-association refusal, and
+// the premise refusal.
 
 // pinWorkflowAtStep pins a work item to a registered definition version and
 // walks it to step, so the fold reads a real instance row.
@@ -165,27 +164,6 @@ func foldStalenessState(t *testing.T, s *Store, workID string, definition Workfl
 	return state
 }
 
-func TestDirectProducerArtifactOpensDeclaredCorrection(t *testing.T) {
-	s := openTemp(t)
-	defer s.Close()
-	const workID = "laneless-artifact-correction"
-	entry, ok := BuiltinWorkflowRegistry().Lookup("workflow.research", 1)
-	if !ok {
-		t.Fatal("released research v1 is missing")
-	}
-	pinWorkflowAtStep(t, s, workID, entry.Definition.Ref, entry.Definition.Version, "conclude")
-	stalenessSeedContract(t, s, workID)
-	stalenessEvent(t, s, workID, WorkflowActionCompleted, stalenessActionPayload("investigate", "record_finding"))
-	stalenessEvent(t, s, workID, WorkflowVerdictRecorded, stalenessVerdictPayload("outcome_mismatch"))
-	state, err := workflowCorrectionVerdictState(context.Background(), s.db, workID, entry.Definition, "conclude", "direct_production_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if state == nil || !state.accepted {
-		t.Fatal("the declared direct producer has no correction ground without a worker")
-	}
-}
-
 // TestBadVerdictStalesArtifactUntilReproduced holds the causal core: a bad
 // verdict sets the bit, neither a fenced start, a dispatch, nor an evidence
 // binding clears it, and only an accepted worker delivery at the declared
@@ -302,11 +280,10 @@ func TestResearchAndSpikeProducersClearStaleness(t *testing.T) {
 }
 
 // TestStaleArtifactRefusesOkVerdictAndPremise holds both admission halves:
-// while stale, record_verdict refuses a single ok entry and a batch
-// containing ok, admits the non-ok verdict, and confirm_premise refuses with
-// the declared route as the remedy — the retained break_fix shape whose
-// verify step confirms the premise with no forward escape past the stale
-// artifact.
+// while stale, record_verdict refuses a criterion-to-receipt batch, every
+// entry of which associates passing proof, and confirm_premise refuses with
+// the declared route as the remedy — the break_fix shape whose verify step
+// confirms the premise with no forward escape past the stale artifact.
 func TestStaleArtifactRefusesOkVerdictAndPremise(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -324,80 +301,38 @@ func TestStaleArtifactRefusesOkVerdictAndPremise(t *testing.T) {
 	if confirm.Admitted || confirm.Failure == nil || !strings.Contains(confirm.Failure.RecoveryAction, "request_correction") {
 		t.Fatalf("confirm_premise while stale = %+v, want the declared-route refusal", confirm)
 	}
-	// The guard refuses the single ok verdict (one canonical batch entry)
-	// and a batch containing one ok, and admits the non-ok verdict, through
+	// The guard refuses a one-entry and a two-entry receipt batch through
 	// the folded state it consumes.
+	receipts := func(predicates ...string) json.RawMessage {
+		entries := make([]map[string]any, 0, len(predicates))
+		for _, predicate := range predicates {
+			entries = append(entries, map[string]any{"predicate_id": predicate, "receipt_refs": []string{"worktree_verify:stale-refusals"}})
+		}
+		return mustJSONValue(map[string]any{"verdicts": entries})
+	}
 	guard := &workflowActionGuardContext{
 		ctx: context.Background(), entry: mustBuiltinDefinition(t, "workflow.break_fix"),
 		currentStep: "verify", admissionState: &state,
-		request: WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_verdict", Payload: json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:primary","verdict_kind":"ok"}]}`)},
+		request: WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_verdict", Payload: receipts("predicate:primary")},
 	}
 	if err := guardRecordVerdictArtifactFreshness(guard); err == nil || !strings.Contains(err.Error(), "stale") {
-		t.Fatalf("single ok verdict while stale = %v, want the staleness refusal", err)
+		t.Fatalf("receipt association while stale = %v, want the staleness refusal", err)
 	}
-	batch := WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_verdict", Payload: json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:primary","verdict_kind":"bad"},{"predicate_id":"predicate:other","verdict_kind":"ok"}]}`)}
-	guard.request = batch
+	guard.request = WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_verdict", Payload: receipts("predicate:primary", "predicate:other")}
 	if err := guardRecordVerdictArtifactFreshness(guard); err == nil {
-		t.Fatal("batch containing an ok verdict while stale admitted")
+		t.Fatal("receipt batch while stale admitted")
 	}
-	nonOK := WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_verdict", Payload: json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:primary","verdict_kind":"bad"}]}`)}
-	guard.request = nonOK
-	if err := guardRecordVerdictArtifactFreshness(guard); err != nil {
-		t.Fatalf("non-ok verdict while stale refused: %v", err)
-	}
-	// After re-production the same ok verdict records: the refusal is the
-	// staleness alone, not the verdict shape.
+	// After re-production the same association passes the guard: the
+	// refusal is the staleness alone, not the batch shape.
 	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("repair", "record_delivery"))
 	fresh := foldStalenessState(t, s, workID, definition)
 	if fresh.ArtifactStale {
 		t.Fatal("reproduction did not clear staleness")
 	}
 	guard.admissionState = &fresh
-	guard.request = WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_verdict", Payload: json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:primary","verdict_kind":"ok"}]}`)}
+	guard.request = WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_verdict", Payload: receipts("predicate:primary")}
 	if err := guardRecordVerdictArtifactFreshness(guard); err != nil {
-		t.Fatalf("ok verdict after reproduction refused: %v", err)
-	}
-}
-
-// TestRevisedContractOnReleasedPinNamesTheRoute proves a released research
-// pin resolves an unhealthy verdict under an approved successor contract
-// through the quarantined route table.
-func TestRevisedContractOnReleasedPinNamesTheRoute(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	defer s.Close()
-	const workID = "stale-con861"
-	// A released table-less version: the quarantine owns its routes.
-	entry, ok := BuiltinWorkflowRegistry().Lookup("workflow.research", 13)
-	if !ok {
-		t.Fatal("workflow.research v13 is not registered")
-	}
-	definition := entry.Definition
-	if len(definition.RecoveryRoutes) != 0 {
-		t.Fatal("research v13 declares a table; the fixture needs the quarantined shape")
-	}
-	pinWorkflowAtStep(t, s, workID, "workflow.research", 13, "conclude")
-	stalenessSeedContract(t, s, workID)
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("investigate", "record_finding"))
-	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
-	stalenessEvent(t, s, workID, string(WorkflowContractSuperseded), `{"new_contract_version":2}`)
-	state := foldStalenessState(t, s, workID, definition)
-	if !state.ArtifactStale {
-		t.Fatal("revised contract with a bad verdict did not fold stale")
-	}
-	if !state.CorrectionRequestRecovery || state.CorrectionRequestContext == nil {
-		t.Fatalf("correction request on the released pin = recovered %v context %v, want the declared route admitted", state.CorrectionRequestRecovery, state.CorrectionRequestContext)
-	}
-	if !strings.Contains(state.CorrectionRequestContext.Strategy, "investigate") {
-		t.Fatalf("correction strategy = %q, want the route target investigate", state.CorrectionRequestContext.Strategy)
-	}
-	decision := workflowAdmit(definition, state, "request_correction")
-	if !decision.Admitted {
-		t.Fatalf("request_correction on the released pin refused: %v", decision.Failure)
-	}
-	// The fold's return target is the same declared producer step.
-	if target := workflowCorrectionReturnTarget(definition, "conclude"); target != "investigate" {
-		t.Fatalf("correction return target = %q, want investigate", target)
+		t.Fatalf("receipt association after reproduction refused: %v", err)
 	}
 }
 
@@ -414,9 +349,9 @@ func TestCompleteStepReturnReadsTheRouteTable(t *testing.T) {
 	if target := workflowDisprovedPremiseAtCompleteRouteTarget(breakFix, "complete"); target != "repair" {
 		t.Fatalf("break_fix complete-step target = %q, want repair", target)
 	}
-	generic := mustBuiltinDefinition(t, "workflow.generic_one_off").Definition
-	if target := workflowDisprovedPremiseAtCompleteRouteTarget(generic, "complete"); target != "" {
-		t.Fatalf("generic complete-step target = %q, want none: the route is not broadened to other families", target)
+	research := mustBuiltinDefinition(t, "workflow.research").Definition
+	if target := workflowDisprovedPremiseAtCompleteRouteTarget(research, "complete"); target != "" {
+		t.Fatalf("research complete-step target = %q, want none: the route is not broadened to other families", target)
 	}
 }
 

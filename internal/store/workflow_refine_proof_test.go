@@ -30,6 +30,60 @@ func refineProofStartRefine(t *testing.T, fixture workflowReturnRouteFixture, wo
 	reviewGateStartStep(t, fixture.store, workID, "refine", "start_refine", fixture.owner)
 }
 
+// refineProofCurrentFixture seeds the refine-proof work on the family's
+// current definition with the same pre-bound evidence refineProofFixture binds.
+func refineProofCurrentFixture(t *testing.T, workID, definitionRef string) workflowReturnRouteFixture {
+	t.Helper()
+	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, definitionRef), "refine", []string{"verification"}, []string{"verification", "review", "artifact"})
+}
+
+// refineProofAcceptReadyReview records Main's accepted ready Review of the
+// claimed candidate through the real dispatch, terminal, and acceptance
+// owners. Leaving execution needs it before any refine proof is read
+// (CD-0242 D5).
+func refineProofAcceptReadyReview(t *testing.T, fixture workflowReturnRouteFixture, workID string) {
+	t.Helper()
+	reviewSubjectClaim(t, fixture.store, workID)
+	f := workContextFixture{store: fixture.store, workID: workID, owner: fixture.owner, operator: fixture.operator}
+	acceptCurrentReviewForTest(t, f, workerFixtureDirectory(t, fixture.store, workID), "ready_for_final_proof")
+}
+
+// refineProofCandidateFixture seeds the refine-proof work without a
+// pre-bound verification, so every bound verification a test reads is one it
+// produced.
+func refineProofCandidateFixture(t *testing.T, workID, definitionRef string) workflowReturnRouteFixture {
+	t.Helper()
+	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, definitionRef), "refine", []string{"verification"}, []string{"review", "artifact"})
+}
+
+// refineProofCandidateRun runs one green worktree_verify through the real
+// producer on the claimed worktree at head and binds its receipt through
+// bind_evidence.
+func refineProofCandidateRun(t *testing.T, s *Store, workID, name, head string, command []string) WorktreeVerifyResult {
+	t.Helper()
+	git := checksRepairClaimGit(t, s, workID, workerFixtureDirectory(t, s, workID), head)
+	req := verifyRequest(git, "refine-proof-"+name+"-"+workID, command, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil })
+	req.WorkID, req.ProjectID, req.PrincipalRef = workID, "project", "principal/operator"
+	run, err := s.VerifyWorktree(t.Context(), req)
+	if err != nil || run.SubjectRef != "commit:"+head {
+		t.Fatalf("verify %s: %+v err=%v", name, run, err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "verification", "evidence_ref": run.OperationRef}), 0, reviewGateAcceptor(workID)); err != nil {
+		t.Fatalf("bind verify %s: %v", name, err)
+	}
+	return run
+}
+
+// refineProofCandidate is the accepted Review's integrated candidate commit.
+func refineProofCandidate(t *testing.T, s *Store, workID string) string {
+	t.Helper()
+	candidate := issue1013Pin(t, s, workID).Review.Candidate
+	if candidate == nil {
+		t.Fatal("no integrated candidate after the accepted Review")
+	}
+	return candidate.Commit
+}
+
 func refineProofDelivery(t *testing.T, s *Store, workID string, tooling *ProjectToolingManifest) error {
 	t.Helper()
 	version := readWorkVersion(t, s, workID)
@@ -314,23 +368,9 @@ func TestProjectWithoutManifestPassesOnGreenRunRefusesWithoutRun(t *testing.T) {
 	reviewGateRequireStep(t, fixture.store, workID, "delivery")
 }
 
-func TestRefineProofGateKeepsEarlierVersionsOpen(t *testing.T) {
-	const workID = "refine-proof-earlier-version"
-	fixture := refineProofFixture(t, workID, "workflow.break_fix", 14)
-	refineProofStartRefine(t, fixture, workID)
-
-	// v14 carries no refine-exit proof: an unrefined exit advances as it
-	// always did, and the passed manifest changes nothing.
-	declared := refineProofTooling(ProjectDeclaredTool{ID: "go-vet", Invocation: "go vet ./..."})
-	if err := refineProofDelivery(t, fixture.store, workID, declared); err != nil {
-		t.Fatalf("record_delivery on v14 without a run: %v", err)
-	}
-	reviewGateRequireStep(t, fixture.store, workID, "delivery")
-}
-
 func TestRefineProofStartRecorded(t *testing.T) {
 	const workID = "refine-proof-start-recorded"
-	fixture := refineProofFixture(t, workID, "workflow.implementation", 18)
+	fixture := refineProofCurrentFixture(t, workID, "workflow.implementation")
 	refineProofStartRefine(t, fixture, workID)
 
 	// The current refine start bounds the epoch in event history: the start
@@ -435,46 +475,26 @@ func TestParseProjectToolingManifest(t *testing.T) {
 }
 
 func TestRefineProofManifestRequiredTracksTheGate(t *testing.T) {
-	const workID = "refine-proof-required"
-	fixture := refineProofFixture(t, workID, "workflow.implementation", 21)
+	for _, ref := range []string{"workflow.implementation", "workflow.break_fix"} {
+		workID := "refine-proof-required-" + strings.TrimPrefix(ref, "workflow.")
+		fixture := refineProofCurrentFixture(t, workID, ref)
 
-	// Before refine starts, the instance sits on refine but the gate asks
-	// nothing: the resolution requirement follows the pinned shape and step.
-	// Both entry routes resolve at the admitting refinement step (CD-0198 D4).
-	for _, action := range []string{"record_delivery", "accept_worker_result"} {
-		required, err := RefineProofManifestRequired(context.Background(), fixture.store, workID, action)
-		if err != nil {
-			t.Fatal(err)
+		// The instance sits on refine: both entry routes resolve the
+		// manifest at the admitting refinement step (CD-0198 D4), and
+		// bind_evidence resolves nothing.
+		for _, action := range []string{"record_delivery", "accept_worker_result"} {
+			required, err := RefineProofManifestRequired(context.Background(), fixture.store, workID, action)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !required {
+				t.Fatalf("a %s instance at refine must resolve the tooling manifest for %s", ref, action)
+			}
 		}
-		if !required {
-			t.Fatalf("a v21 instance at refine must resolve the tooling manifest for %s", action)
+		other, err := RefineProofManifestRequired(context.Background(), fixture.store, workID, "bind_evidence")
+		if err != nil || other {
+			t.Fatalf("%s bind_evidence tooling requirement = (%v, %v), want (false, nil)", ref, other, err)
 		}
-	}
-	other, err := RefineProofManifestRequired(context.Background(), fixture.store, workID, "bind_evidence")
-	if err != nil || other {
-		t.Fatalf("bind_evidence tooling requirement = (%v, %v), want (false, nil)", other, err)
-	}
-
-	// An earlier pinned version resolves nothing for either action.
-	const earlierID = "refine-proof-required-earlier"
-	earlier := refineProofFixture(t, earlierID, "workflow.implementation", 17)
-	for _, action := range []string{"record_delivery", "accept_worker_result"} {
-		requiredEarlier, err := RefineProofManifestRequired(context.Background(), earlier.store, earlierID, action)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if requiredEarlier {
-			t.Fatalf("a v17 instance must not resolve the tooling manifest for %s", action)
-		}
-	}
-
-	// The plain accept at the admitting step resolves the manifest, because
-	// its refusal runs the same admission machinery the delivery exit runs.
-	const breakFixID = "refine-proof-required-break-fix"
-	breakFix := refineProofFixture(t, breakFixID, "workflow.break_fix", 19)
-	requiredBreakFix, err := RefineProofManifestRequired(context.Background(), breakFix.store, breakFixID, "accept_worker_result")
-	if err != nil || !requiredBreakFix {
-		t.Fatalf("break_fix v19 accept_worker_result tooling requirement = (%v, %v), want (true, nil)", requiredBreakFix, err)
 	}
 }
 

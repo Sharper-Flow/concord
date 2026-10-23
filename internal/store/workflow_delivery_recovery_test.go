@@ -8,10 +8,10 @@ import (
 	"time"
 )
 
-// Recovery of an already pinned, nonterminal work item parked on a released
-// closed-gate delivery step with an outstanding post-rejection review. The
-// released definition content and the recorded event history stay untouched;
-// the evidence-bearing corrective return is the only route off the gate.
+// Delivery-gate correction support shared with the Review correction suite.
+// The current gate's corrective return answers to an outstanding
+// post-rejection Review or an accepted Review that no longer covers the
+// current candidate; an applicable accepted Review opens none.
 
 // reviewGateSeedAcceptAtRefine replays the refine-crossing route: it records an
 // accepted implement repair whose accept advances the refinement step into
@@ -170,36 +170,18 @@ func TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn(t *testing.T) {
 }
 
 // TestDeliveryGateCorrectionNeedsOutstandingReview proves the gate correction
-// is unsupported without the post-rejection shape: a normally reviewed change
-// parked on the gate offers record_delivery, not a corrective return.
+// is unsupported while Main's accepted Review still covers the delivered
+// candidate: the reviewed change parked on the gate offers its delivery exit,
+// not a corrective return.
 func TestDeliveryGateCorrectionNeedsOutstandingReview(t *testing.T) {
 	const workID = "pinned-delivery-no-debt"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := refineProofCandidateFixture(t, workID, "workflow.break_fix")
 	s := fixture.store
-	ownerRef, err := WorkflowActorRef(fixture.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	acceptor := reviewGateAcceptor(workID)
-	review := reviewGateLane(t, "review")
-	at := int64(100)
-
-	reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
-	repairAttempt := "attempt:" + workID + ":repair"
-	repairEpoch := reviewGateRunAttempt(t, s, workID, repairAttempt, "repair", reviewGateLane(t, "implementation"), ownerRef, at)
-	at += 2
-	if err := reviewGateAcceptResult(t, s, workID, repairAttempt, repairEpoch, acceptor); err != nil {
-		t.Fatalf("accept repair: %v", err)
-	}
-
-	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
-	reviewAttempt := "attempt:" + workID + ":review"
-	reviewEpoch := reviewGateRunAttempt(t, s, workID, reviewAttempt, "refine", review, ownerRef, at)
-	// The reviewed change exits refine through the combined accept the
-	// current version admits (CD-0198 D4), which asserts the delivery and
-	// advances into the gate with no review debt outstanding.
-	if err := acceptRefineResult(t, s, workID, reviewAttempt, reviewEpoch, acceptor); err != nil {
-		t.Fatalf("accept review: %v", err)
+	refineProofStartRefine(t, fixture, workID)
+	refineProofAcceptReadyReview(t, fixture, workID)
+	refineProofCandidateRun(t, s, workID, "gate", refineProofCandidate(t, s, workID), []string{"go", "vet", "./..."})
+	if err := refineProofDelivery(t, s, workID, nil); err != nil {
+		t.Fatalf("record_delivery with the reviewed candidate: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "delivery")
 
@@ -209,13 +191,13 @@ func TestDeliveryGateCorrectionNeedsOutstandingReview(t *testing.T) {
 	}
 	for _, intent := range pin.NextValidIntents {
 		if intent.ActionID == "request_correction" {
-			t.Fatalf("gate without a post-rejection review offered request_correction: %#v", pin.NextValidIntents)
+			t.Fatalf("gate under an applicable Review offered request_correction: %#v", pin.NextValidIntents)
 		}
 	}
 	if !workPinContainsAction(pin.NextValidIntents, "record_delivery") {
 		t.Fatalf("reviewed gate lost its delivery exit: %#v", pin.NextValidIntents)
 	}
-	err = runIssue933OperatorAction(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), fixture.owner, fixture.operator)
+	err := runIssue933OperatorAction(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), fixture.owner, fixture.operator)
 	var failure *Failure
 	if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "outstanding post-rejection review") {
 		t.Fatalf("unsupported gate return = %v, want the outstanding-review refusal", err)

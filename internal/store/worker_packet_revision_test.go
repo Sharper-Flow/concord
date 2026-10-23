@@ -200,22 +200,13 @@ func TestWorkerJobBindingBindsRecordedJobCapableVersion(t *testing.T) {
 	if err := dispatchJobPacketForTest(t, s, workID, historicAttempt, worker, "job-revision-historic", historicPacket); err != nil {
 		t.Fatalf("authorize the historic attempt: %v", err)
 	}
-	// The live producer path: the real dispatch_worker authorization at the
-	// current pair, then the evidence event the current host records.
-	attempt2 := "attempt:" + workID + ":2"
-	dispatchJobBoundAttempt(t, s, workID, "repair", attempt2, nil, worker, issue1013Pin(t, s, workID).Version, "job-revision-live", job)
-	var livePacket, liveReport string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT packet_schema_version,report_schema_version FROM worker_attempts WHERE attempt_id=?`, attempt2).Scan(&livePacket, &liveReport); err != nil {
-		t.Fatal(err)
-	}
-	if livePacket != WorkerPacketSchemaVersion || liveReport != WorkerReportSchemaVersion {
-		t.Fatalf("live job-bound dispatch pair = %s/%s, want the current pair %s/%s", livePacket, liveReport, WorkerPacketSchemaVersion, WorkerReportSchemaVersion)
-	}
-	// The recorded pre-cutover shape: the same authorized job binding on an
+	// The recorded pre-cutover shape: the authorized job binding on an
 	// evidence event that carried the released 1.1 pair folds under the
 	// replay context and keeps the pair on the attempt row across rebuild.
+	// It resolves the historic authorization's launch before the live
+	// dispatch, which admits one unresolved authorization at a time.
 	var jobDigest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_job.digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attempt2).Scan(&jobDigest); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_job.digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, historicAttempt).Scan(&jobDigest); err != nil {
 		t.Fatal(err)
 	}
 	lane := reviewGateLane(t, "implementation")
@@ -244,6 +235,17 @@ func TestWorkerJobBindingBindsRecordedJobCapableVersion(t *testing.T) {
 	}
 	if historicRowPacket != "1.1" || historicRowReport != "1.1" {
 		t.Fatalf("recorded job-bound attempt pair = %s/%s, want 1.1/1.1", historicRowPacket, historicRowReport)
+	}
+	// The live producer path: the real dispatch_worker authorization at the
+	// current pair, then the evidence event the current host records.
+	attempt2 := "attempt:" + workID + ":2"
+	dispatchJobBoundAttempt(t, s, workID, "repair", attempt2, nil, worker, issue1013Pin(t, s, workID).Version, "job-revision-live", job)
+	var livePacket, liveReport string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT packet_schema_version,report_schema_version FROM worker_attempts WHERE attempt_id=?`, attempt2).Scan(&livePacket, &liveReport); err != nil {
+		t.Fatal(err)
+	}
+	if livePacket != WorkerPacketSchemaVersion || liveReport != WorkerReportSchemaVersion {
+		t.Fatalf("live job-bound dispatch pair = %s/%s, want the current pair %s/%s", livePacket, liveReport, WorkerPacketSchemaVersion, WorkerReportSchemaVersion)
 	}
 	before := workerProjectionSnapshot(t, s)
 	if err := RebuildFromLog(context.Background(), s); err != nil {

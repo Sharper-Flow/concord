@@ -263,11 +263,22 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 
-	registered := mustOpsRunbookDefinition(t)
+	// No archived family registers a definition (CD-0242 D14), so the
+	// nonterminal archived instance is the recorded projection a pre-cutover
+	// store carries: a current instance whose pin names the archived family.
+	registered, err := store.BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
-		t.Fatalf("initialize ops runbook: %v", err)
+		t.Fatalf("initialize the instance: %v", err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		UPDATE workflow_instances SET definition_ref='workflow.ops_runbook' WHERE work_id='work-1';
+		DELETE FROM fold_guard`); err != nil {
+		t.Fatalf("pin the archived family: %v", err)
 	}
 	version := int64(0)
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
@@ -338,15 +349,4 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 		Evidence: "the retired authoring refuses before any write; no adapter inference path exists to probe because no native action is authorable",
 	}
 	return obs
-}
-
-// mustOpsRunbookDefinition returns the registered ops-runbook definition the
-// instance pins.
-func mustOpsRunbookDefinition(t *testing.T) store.RegisteredDefinition {
-	t.Helper()
-	registered, err := store.BuiltinWorkflowDefinitionForRef("workflow.ops_runbook")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return registered
 }

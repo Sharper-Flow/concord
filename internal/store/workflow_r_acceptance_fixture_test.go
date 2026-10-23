@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -11,25 +12,30 @@ import (
 // current owners: a current integrated candidate, a captured receipt, Main's
 // accepted Review, Main's criterion association when associate is set, and the
 // recorded investigation. domains is the active contract's decision fact; a
+// investigation false leaves the investigation unrecorded. A
 // non-empty fact supersedes the seeded engineering contract through the
 // registered fold before the candidate is reviewed, so every proof binds the
 // decision-bearing successor.
-func rAcceptance(t *testing.T, workID string, domains []string, associate bool) acceptanceRecoveryFixture {
+func rAcceptance(t *testing.T, workID string, domains []string, associate, investigation bool) acceptanceRecoveryFixture {
 	t.Helper()
 	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.implementation"), "execution", []string{"verification"}, []string{"verification", "review", "artifact"})
 	t.Cleanup(func() { _ = route.store.Close() })
 	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
 	if len(domains) > 0 {
-		rReclassifyContract(t, f, domains)
+		rReviseContract(t, f.store, workID, ownerRefForTest(t, f.owner), domains)
 	}
-	return qAssociateCurrentProof(t, f, "", associate)
+	return qAssociateCurrentProof(t, f, "", associate, investigation)
 }
 
-// rReclassifyContract supersedes contract 1 with a successor that keeps its
-// predicates and declares domains as the decision fact.
-func rReclassifyContract(t *testing.T, f workContextFixture, domains []string) {
+// rReviseContract supersedes the active contract with a successor that keeps
+// its predicates and declares domains as the decision fact.
+func rReviseContract(t *testing.T, s *Store, workID, actorRef string, domains []string) {
 	t.Helper()
-	predicates, err := readWorkflowContractPredicates(t.Context(), f.store.db, f.workID, 1)
+	var active int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&active); err != nil {
+		t.Fatal(err)
+	}
+	predicates, err := readWorkflowContractPredicates(t.Context(), s.db, workID, active)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,9 +43,9 @@ func rReclassifyContract(t *testing.T, f workContextFixture, domains []string) {
 	for ordinal, predicate := range predicates {
 		successorPredicates = append(successorPredicates, map[string]any{"predicate_id": predicate.PredicateID, "ordinal": ordinal, "outcome_kind": predicate.OutcomeKind, "outcome_payload": json.RawMessage(predicate.OutcomePayload)})
 	}
-	version := readWorkVersion(t, f.store, f.workID)
+	version := readWorkVersion(t, s, workID)
 	successor := map[string]any{
-		"contract_version": 2, "premise": "deliver the checked decision-bearing change",
+		"contract_version": active + 1, "premise": "deliver the checked change under its revised decision fact",
 		"outcome_predicates": successorPredicates,
 		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
@@ -52,14 +58,15 @@ func rReclassifyContract(t *testing.T, f workContextFixture, domains []string) {
 			VerificationObligations: []WorkflowVerificationObligation{},
 		},
 	}
-	event := workflowTypedEvent("r-reclassify-"+f.workID, WorkflowContractSuperseded, f.workID, ownerRefForTest(t, f.owner), time.Unix(14, 0).UTC(), version, map[string]any{
-		"previous_contract_version": 1, "predecessor_contract_versions": []int64{1}, "new_contract_version": 2,
-		"supersede_reason": "declare the decision the delivered work carries", "audit_evidence": []string{"audit:r-reclassify-" + f.workID},
+	id := fmt.Sprintf("r-revise-%s-%d", workID, active+1)
+	event := workflowTypedEvent(id, WorkflowContractSuperseded, workID, actorRef, time.Unix(14, 0).UTC(), version, map[string]any{
+		"previous_contract_version": active, "predecessor_contract_versions": []int64{active}, "new_contract_version": active + 1,
+		"supersede_reason": "revise the decision the delivered work carries", "audit_evidence": []string{"audit:" + id},
 		"successor_contract": successor,
 	})
-	appendWorkflowEventsWithRegistry(t, f.store, BuiltinWorkflowRegistry(), Operation{
+	appendWorkflowEventsWithRegistry(t, s, BuiltinWorkflowRegistry(), Operation{
 		Events:           []Event{withPinnedDecisionFact(t, mustBuiltinDefinition(t, "workflow.implementation").Definition, event)},
-		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.workID): version},
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version},
 	})
 }
 
@@ -74,4 +81,16 @@ func rConfirmPremise(t *testing.T, f acceptanceRecoveryFixture, actor WorkflowAc
 func rComplete(t *testing.T, f acceptanceRecoveryFixture) error {
 	t.Helper()
 	return runApprovalActionTx(t, f.store, BuiltinWorkflowRegistry(), f.workID, "complete", f.owner, nil, "", "", `{"impact_verdict":"non-breaking"}`)
+}
+
+// rAcceptanceModel is the abstract admission state of an rAcceptance item:
+// one active contract, the satisfied worker job in the Project, Main's
+// accepted Review of the current candidate with its criterion association
+// (the model's ok verdict), and the recorded investigation.
+func rAcceptanceModel(engineering bool) admissionModelState {
+	return admissionModelState{
+		step: "acceptance", debt: ReviewDebtNone, contracts: 1, verdict: "ok", artifact: true, engineering: engineering,
+		jobs: "satisfied", jobsScope: "project",
+		review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
+	}
 }

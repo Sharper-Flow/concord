@@ -358,9 +358,9 @@ func TestDeliveryAdmissionRefusalsMatchAcrossEntryRoutes(t *testing.T) {
 				{name: "no-verification-run", seed: func(*testing.T, acceptDeliveryCandidate) *ProjectToolingManifest { return nil },
 					wantKind: KindMissingEvidence, wantDetail: "no verification evidence is bound in the current refine epoch"},
 				{name: "stale-run", seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
-					c.j.bindVerification(t, c.early)
+					refineProofCandidateRun(t, c.f.store, c.f.workID, "other-candidate", strings.Repeat("b", 40), []string{"go", "vet", "./..."})
 					return nil
-				}, wantKind: KindMissingEvidence, wantDetail: "refine start"},
+				}, wantKind: KindMissingEvidence, wantDetail: "verification does not cover the current integrated candidate"},
 				{name: "failed-run", seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
 					acceptDeliveryUnbindableRun(t, c, "failed", []string{"false"})
 					return nil
@@ -435,6 +435,26 @@ func TestDeliveryAdmissionRefusalsMatchAcrossEntryRoutes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDeliveryReusesPreRefineReceiptAcrossEntryRoutes(t *testing.T) {
+	for _, family := range acceptDeliveryFamilies {
+		for _, route := range []string{"record_delivery", "accept_worker_result"} {
+			t.Run(family.ref+"/"+route, func(t *testing.T) {
+				const workID = "accept-delivery-reuse"
+				c := acceptDeliveryCandidateAt(t, workID, family.ref, "refine", route == "accept_worker_result")
+				c.j.bindVerification(t, c.early)
+				payload := mustJSONValue(map[string]any{"delivery_artifact": "artifact:reused-proof", "delivery_state": "asserted"})
+				if route == "accept_worker_result" {
+					payload = acceptDeliveryCombinedPayload(c, "artifact:reused-proof")
+				}
+				if err := runDeliveryAdmissionAction(t, c.f.store, workID, route, payload, nil, reviewGateAcceptor(workID)); err != nil {
+					t.Fatalf("unchanged proof captured before refine refused: %v", err)
+				}
+				reviewGateRequireStep(t, c.f.store, workID, "delivery")
+			})
+		}
 	}
 }
 

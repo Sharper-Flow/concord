@@ -70,6 +70,9 @@ func bindPacketToRecordedState(t *testing.T, s *store.Store, packet map[string]a
 		if err != nil {
 			t.Fatal(err)
 		}
+		if lane.CapabilityClass == "review" && snapshot.ReviewInput != nil {
+			inputs["review_input"] = snapshot.ReviewInput
+		}
 		if len(snapshot.ReadyWorkerJobs) == 1 {
 			job := snapshot.ReadyWorkerJobs[0]
 			// As the adapter does, only an implementation lane keeps the

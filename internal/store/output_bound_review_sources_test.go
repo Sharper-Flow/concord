@@ -103,6 +103,24 @@ func init() {
 		goInlineBound(lanes, "validateWorkerReviewFinding", "len(finding.ClosureRefs)", boundItems),
 	))
 
+	// currentWorkerReviewInput copies the claimed Project and native clean
+	// commit/tree observations, not report claims. Its dependency reader emits
+	// one criterion per admitted contract predicate and hashes the criterion
+	// and current design through reviewDigest/nativeDigest.
+	const packetCandidate = "/$defs/worker_packet_review_candidate/properties/"
+	const packetDependencies = "/$defs/worker_packet_review_dependencies/properties/"
+	registerOutputBound(packetCandidate+"project_id/maxLength", reference)
+	registerOutputBound(packetCandidate+"commit/maxLength", sha)
+	registerOutputBound(packetCandidate+"tree/maxLength", sha)
+	registerOutputBound(packetDependencies+"criteria/maxItems",
+		goInlineBound("internal/store/workflow.go", "foldWorkflowContractApproved", "len(p.OutcomePredicates)", boundItems))
+	registerOutputBound(packetDependencies+"criteria/items/properties/predicate_id/maxLength",
+		inputBound("/$defs/id/maxLength")) // every approved outcome predicate's predicate_id uses id
+	for _, member := range []string{"criteria/items/properties/content_digest", "architecture_digest"} {
+		registerOutputBound(packetDependencies+member+"/maxLength",
+			nativeDigestDerived("internal/store/workflow_review.go", "reviewDigest"))
+	}
+
 	// The action fold requires its actor to equal the recorded actor identity.
 	// report_ref instead copies the terminal event id; Event.validate checks
 	// presence only, so no finite producer bound can justify its output cap.

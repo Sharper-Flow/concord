@@ -38,8 +38,8 @@ func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID str
 		if err != nil {
 			t.Fatal(err)
 		}
-		if snapshot.ReviewInput != nil {
-			inputs["review_input"] = snapshot.ReviewInput
+		if reviewInput := reviewInputForPacketFixture(t, s, snapshot); reviewInput != nil {
+			inputs["review_input"] = reviewInput
 		}
 	}
 	packet := map[string]any{

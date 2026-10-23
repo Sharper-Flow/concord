@@ -170,8 +170,8 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 		}
 		return []byte(strings.Repeat("f", 40) + "\n"), nil
 	case strings.HasSuffix(join, "^{tree}") && strings.HasPrefix(join, "rev-parse "):
-		ref := strings.TrimSuffix(strings.TrimPrefix(join, "rev-parse "), "^{tree}")
-		if g.resolveRef(ref) == ref {
+		ref := strings.TrimSuffix(args[len(args)-1], "^{tree}")
+		if _, known := g.branches[g.revisionBranch(ref)]; !known {
 			return nil, fmt.Errorf("unknown ref")
 		}
 		return []byte(g.treeOf(ref) + "\n"), nil

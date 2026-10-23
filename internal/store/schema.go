@@ -6536,94 +6536,58 @@ ALTER TABLE worker_job_revisions ADD COLUMN correction_ref TEXT NOT NULL DEFAULT
 `,
 	},
 	{
-		// Migration 138 holds the current relocation facts of each
-		// session as fold-only rows, so no live reader consults the event log:
-		//
-		//   - session_relocations: per work item and session, the vacate request and
-		//     vacate landing counts that number the next event of each kind, the
-		//     claim-landing count that numbers the next transfer, and the stamp of
-		//     the latest vacate landing.
-		//   - session_vacate_requests: the latest vacate request per work item,
-		//     session, Project, and source directory, with its recorded payload
-		//     version and stamp.
-		//   - session_claim_landings: the claim landings recorded per work item,
-		//     session, Project, and claim generation. A landing recorded before claim
-		//     generations existed names no claim and has no row here.
-		//
-		// A stamp orders one session's vacate requests and vacate landings: it is the
-		// position of the event among that session's vacate events, allocated by the
-		// fold, so "a landing after this request" compares two stamps. The tables
-		// carry no foreign key: work removal keeps a removed item's relocation facts
-		// exactly as it keeps its events.
+		// Migration 138 holds the relocation state live readers need, so none
+		// consults the event log. session_vacate_requests keeps the latest
+		// landing-verified vacate request per work item, session, Project,
+		// and source directory: whether a verified landing completed it, and
+		// its ordinal among the session's requests. session_claim_landings
+		// records each claim generation a session verifiably landed in.
+		// Requests recorded before the landing-verified release, and claim
+		// landings recorded before claim generations, leave no row: they
+		// prove no pending request and no current placement. The tables carry
+		// no foreign key, so work removal leaves them as it leaves the log.
 		Version:  138,
 		Name:     "session_relocation_facts",
 		Breaking: false,
 		SQL: `
 INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
-CREATE TABLE session_relocations (
- work_id TEXT NOT NULL,
- session_ref TEXT NOT NULL,
- request_count INTEGER NOT NULL DEFAULT 0 CHECK(request_count>=0),
- landing_count INTEGER NOT NULL DEFAULT 0 CHECK(landing_count>=0),
- landing_stamp INTEGER NOT NULL DEFAULT 0 CHECK(landing_stamp>=0),
- claim_landing_count INTEGER NOT NULL DEFAULT 0 CHECK(claim_landing_count>=0),
- PRIMARY KEY(work_id,session_ref)
-);
-CREATE INDEX session_relocations_session ON session_relocations(session_ref,landing_stamp);
 CREATE TABLE session_vacate_requests (
  work_id TEXT NOT NULL,
  session_ref TEXT NOT NULL,
  project_id TEXT NOT NULL,
  source_directory TEXT NOT NULL,
- destination_directory TEXT,
- payload_version INTEGER NOT NULL CHECK(payload_version>0),
- stamp INTEGER NOT NULL CHECK(stamp>0),
+ destination_directory TEXT NOT NULL,
+ request_ordinal INTEGER NOT NULL CHECK(request_ordinal>0),
+ landed INTEGER NOT NULL CHECK(landed IN (0,1)),
  PRIMARY KEY(work_id,session_ref,project_id,source_directory)
 );
-CREATE INDEX session_vacate_requests_session ON session_vacate_requests(session_ref,project_id,stamp);
+CREATE INDEX session_vacate_requests_session ON session_vacate_requests(session_ref,project_id,request_ordinal);
 CREATE TABLE session_claim_landings (
  work_id TEXT NOT NULL,
  session_ref TEXT NOT NULL,
  project_id TEXT NOT NULL,
  claim_op_id TEXT NOT NULL,
- landing_count INTEGER NOT NULL CHECK(landing_count>0),
  PRIMARY KEY(work_id,session_ref,project_id,claim_op_id)
 );
 CREATE TEMP TABLE session_vacate_history AS
- SELECT seq, kind, subject_id AS work_id, payload_version,
+ SELECT seq, subject_id AS work_id,
   json_extract(payload,'$.session_ref') AS session_ref,
   json_extract(payload,'$.project_id') AS project_id,
   json_extract(payload,'$.source_directory') AS source_directory,
-  json_extract(payload,'$.destination_directory') AS destination_directory,
-  ROW_NUMBER() OVER (PARTITION BY json_extract(payload,'$.session_ref') ORDER BY seq) AS stamp
+  COALESCE(json_extract(payload,'$.destination_directory'),'') AS destination_directory,
+  ROW_NUMBER() OVER (PARTITION BY json_extract(payload,'$.session_ref') ORDER BY seq) AS request_ordinal
  FROM domain_events
- WHERE kind IN ('work.session_vacated','work.session_vacate_landed') AND json_extract(payload,'$.session_ref') IS NOT NULL;
-INSERT INTO session_vacate_requests(work_id,session_ref,project_id,source_directory,destination_directory,payload_version,stamp)
- SELECT h.work_id, h.session_ref, h.project_id, h.source_directory, h.destination_directory, h.payload_version, h.stamp
+ WHERE kind='work.session_vacated' AND payload_version=2;
+INSERT INTO session_vacate_requests(work_id,session_ref,project_id,source_directory,destination_directory,request_ordinal,landed)
+ SELECT h.work_id, h.session_ref, h.project_id, h.source_directory, h.destination_directory, h.request_ordinal,
+  EXISTS(SELECT 1 FROM domain_events l WHERE l.kind='work.session_vacate_landed' AND l.subject_id=h.work_id AND json_extract(l.payload,'$.session_ref')=h.session_ref AND l.seq>h.seq)
  FROM session_vacate_history h
- WHERE h.kind='work.session_vacated' AND h.project_id IS NOT NULL AND h.source_directory IS NOT NULL
- AND h.seq=(SELECT max(o.seq) FROM session_vacate_history o WHERE o.kind='work.session_vacated' AND o.work_id=h.work_id AND o.session_ref=h.session_ref AND o.project_id=h.project_id AND o.source_directory=h.source_directory);
-INSERT INTO session_relocations(work_id,session_ref,request_count,landing_count,landing_stamp)
- SELECT work_id, session_ref,
-  sum(kind='work.session_vacated'),
-  sum(kind='work.session_vacate_landed'),
-  COALESCE(max(CASE WHEN kind='work.session_vacate_landed' THEN stamp END),0)
- FROM session_vacate_history GROUP BY work_id, session_ref;
+ WHERE h.seq=(SELECT max(o.seq) FROM session_vacate_history o WHERE o.work_id=h.work_id AND o.session_ref=h.session_ref AND o.project_id=h.project_id AND o.source_directory=h.source_directory);
 DROP TABLE session_vacate_history;
-INSERT INTO session_relocations(work_id,session_ref,claim_landing_count)
- SELECT subject_id, json_extract(payload,'$.session_ref'), count(*) FROM domain_events
- WHERE kind='work.session_claim_landed' AND json_extract(payload,'$.session_ref') IS NOT NULL
- GROUP BY subject_id, json_extract(payload,'$.session_ref')
- ON CONFLICT(work_id,session_ref) DO UPDATE SET claim_landing_count=excluded.claim_landing_count;
-INSERT INTO session_claim_landings(work_id,session_ref,project_id,claim_op_id,landing_count)
- SELECT subject_id, json_extract(payload,'$.session_ref'), json_extract(payload,'$.project_id'), json_extract(payload,'$.claim_op_id'), count(*)
+INSERT OR IGNORE INTO session_claim_landings(work_id,session_ref,project_id,claim_op_id)
+ SELECT subject_id, json_extract(payload,'$.session_ref'), json_extract(payload,'$.project_id'), json_extract(payload,'$.claim_op_id')
  FROM domain_events
- WHERE kind='work.session_claim_landed' AND json_extract(payload,'$.session_ref') IS NOT NULL
- AND json_extract(payload,'$.project_id') IS NOT NULL AND json_extract(payload,'$.claim_op_id') IS NOT NULL
- GROUP BY subject_id, json_extract(payload,'$.session_ref'), json_extract(payload,'$.project_id'), json_extract(payload,'$.claim_op_id');
-CREATE TRIGGER session_relocations_guard_insert BEFORE INSERT ON session_relocations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'session_relocations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER session_relocations_guard_update BEFORE UPDATE ON session_relocations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'session_relocations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER session_relocations_guard_delete BEFORE DELETE ON session_relocations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'session_relocations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+ WHERE kind='work.session_claim_landed' AND json_extract(payload,'$.claim_op_id') IS NOT NULL;
 CREATE TRIGGER session_vacate_requests_guard_insert BEFORE INSERT ON session_vacate_requests FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'session_vacate_requests is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER session_vacate_requests_guard_update BEFORE UPDATE ON session_vacate_requests FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'session_vacate_requests is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER session_vacate_requests_guard_delete BEFORE DELETE ON session_vacate_requests FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'session_vacate_requests is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;

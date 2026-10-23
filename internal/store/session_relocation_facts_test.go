@@ -39,9 +39,9 @@ func inRelocationTx(t *testing.T, s *Store, fn func(*Transaction, *sql.Tx) error
 	})
 }
 
-// A pending relocation request is answered from current state: the request
-// count, the pending source request, the replay target, and the landing
-// state all hold with the event log unreachable. A second request on the
+// A pending relocation request is answered from current state: the pending
+// source request, the replay target, and the landing state all hold with the
+// event log unreachable. A second request on the
 // same work item reopens the request its landing completed.
 func TestSessionRelocationRequestReadersIgnoreTheLog(t *testing.T) {
 	t.Parallel()
@@ -59,10 +59,6 @@ func TestSessionRelocationRequestReadersIgnoreTheLog(t *testing.T) {
 
 	hideDomainEvents(t, s)
 	if err := inRelocationTx(t, s, func(transaction *Transaction, tx *sql.Tx) error {
-		count, err := CountWorkSessionVacatesTx(ctx, transaction, "work-w", "ses-x")
-		if err != nil || count != 1 {
-			t.Fatalf("request count=%d err=%v, want 1", count, err)
-		}
 		pending, err := PendingSessionVacateSourceRequestTx(ctx, transaction, "project-w", source, "ses-x")
 		if err != nil || pending.WorkID != "work-w" || pending.DestinationDirectory != "/data/repo-main" {
 			t.Fatalf("pending request=%+v err=%v", pending, err)
@@ -95,10 +91,6 @@ func TestSessionRelocationRequestReadersIgnoreTheLog(t *testing.T) {
 		if _, err := ResolveSessionVacateReplayTargetTx(ctx, transaction, "project-w", "/data/repo-main", "ses-x"); err != nil {
 			t.Fatalf("completed replay err=%v, want the committed target", err)
 		}
-		landings, err := countSessionVacateLandingsTx(ctx, tx, "work-w", "ses-x")
-		if err != nil || landings != 1 {
-			t.Fatalf("landing count=%d err=%v, want 1", landings, err)
-		}
 		landed, blocker, err := sessionVacateLandingStateTx(ctx, tx, "work-w", "ses-x")
 		if err != nil || !landed {
 			t.Fatalf("landing state landed=%v blocker=%q err=%v, want landed", landed, blocker, err)
@@ -115,10 +107,6 @@ func TestSessionRelocationRequestReadersIgnoreTheLog(t *testing.T) {
 
 	hideDomainEvents(t, s)
 	if err := inRelocationTx(t, s, func(transaction *Transaction, tx *sql.Tx) error {
-		count, err := CountWorkSessionVacatesTx(ctx, transaction, "work-w", "ses-x")
-		if err != nil || count != 2 {
-			t.Fatalf("request count=%d err=%v, want 2", count, err)
-		}
 		if _, err := PendingSessionVacateSourceRequestTx(ctx, transaction, "project-w", source, "ses-x"); err != nil {
 			t.Fatalf("second request err=%v, want it pending: the earlier landing does not complete it", err)
 		}
@@ -132,11 +120,11 @@ func TestSessionRelocationRequestReadersIgnoreTheLog(t *testing.T) {
 	}
 }
 
-// A verified placement and the claim-landing ordinals come from current
-// state: after a vacate and a re-claim, the old claim generation's landing
-// still counts toward the work item and session, the re-claim holds its own
-// landing, and the placement names the re-claimed Project, all with the
-// event log unreachable.
+// A verified placement and per-claim landings come from current
+// state: after a vacate and a re-claim, each claim generation holds its own
+// landing, the placement names the re-claimed Project only once the
+// re-claim lands, and the retirement gate sees the re-claim's rows, all with
+// the event log unreachable.
 func TestSessionClaimLandingReadersIgnoreTheLog(t *testing.T) {
 	t.Parallel()
 	f := setupProjectHandoffFixture(t)
@@ -202,14 +190,10 @@ func TestSessionClaimLandingReadersIgnoreTheLog(t *testing.T) {
 		if err != nil || placement != f.targetProject {
 			t.Fatalf("placement=%q err=%v, want %s", placement, err, f.targetProject)
 		}
-		total, err := countSessionClaimLandingsTx(ctx, tx, f.workID, f.targetSession)
-		if err != nil || total != 2 {
-			t.Fatalf("claim landings=%d err=%v, want 2", total, err)
-		}
 		for _, claim := range []string{firstClaim, reclaimed.Entry.ClaimOpID} {
-			count, err := countSessionClaimLandingsForClaimTx(ctx, tx, f.workID, f.targetSession, claim)
-			if err != nil || count != 1 {
-				t.Fatalf("claim %s landings=%d err=%v, want 1", claim, count, err)
+			landed, err := sessionLandedInClaimTx(ctx, tx, f.workID, f.targetSession, claim)
+			if err != nil || !landed {
+				t.Fatalf("claim %s landed=%v err=%v, want its own recorded landing", claim, landed, err)
 			}
 		}
 		landed, blocker, err := sessionVacateLandingStateTx(ctx, tx, f.workID, f.targetSession)
@@ -222,14 +206,13 @@ func TestSessionClaimLandingReadersIgnoreTheLog(t *testing.T) {
 	}
 }
 
-// relocationFactRows renders the three relocation fact tables in key order.
+// relocationFactRows renders the relocation state tables in key order.
 func relocationFactRows(t *testing.T, s *Store) []string {
 	t.Helper()
 	var out []string
 	for _, query := range []string{
-		`SELECT 'r|'||work_id||'|'||session_ref||'|'||request_count||'|'||landing_count||'|'||landing_stamp||'|'||claim_landing_count FROM session_relocations ORDER BY work_id, session_ref`,
-		`SELECT 'v|'||work_id||'|'||session_ref||'|'||project_id||'|'||source_directory||'|'||COALESCE(destination_directory,'<null>')||'|'||payload_version||'|'||stamp FROM session_vacate_requests ORDER BY work_id, session_ref, project_id, source_directory`,
-		`SELECT 'c|'||work_id||'|'||session_ref||'|'||project_id||'|'||claim_op_id||'|'||landing_count FROM session_claim_landings ORDER BY work_id, session_ref, project_id, claim_op_id`,
+		`SELECT 'v|'||work_id||'|'||session_ref||'|'||project_id||'|'||source_directory||'|'||destination_directory||'|'||request_ordinal||'|'||landed FROM session_vacate_requests ORDER BY work_id, session_ref, project_id, source_directory`,
+		`SELECT 'c|'||work_id||'|'||session_ref||'|'||project_id||'|'||claim_op_id FROM session_claim_landings ORDER BY work_id, session_ref, project_id, claim_op_id`,
 	} {
 		rows, err := s.DatabaseForTesting().Query(query)
 		if err != nil {
@@ -250,10 +233,10 @@ func relocationFactRows(t *testing.T, s *Store) []string {
 	return out
 }
 
-// Migration 138's backfill derives from the log exactly the rows the folds
-// wrote: counts, the latest request per key with its recorded version, and
-// stamps in each session's event order, including a version 1 request, an
-// interleaved second session, and claim landings.
+// Migration 138 carries existing stores' relocation state: the backfill
+// derives exactly the rows the writers record, so a pending request, a
+// completed one, and a claim landing keep their meaning across the upgrade.
+// A request recorded before the landing-verified release leaves no row.
 func TestSessionRelocationBackfillMatchesTheFolds(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -284,10 +267,10 @@ func TestSessionRelocationBackfillMatchesTheFolds(t *testing.T) {
 		t.Fatal(err)
 	}
 	folded := relocationFactRows(t, s)
-	if len(folded) != 5 {
-		t.Fatalf("folded rows=%v, want two relocation rows, two request rows and one claim landing", folded)
+	if len(folded) != 2 || !strings.HasSuffix(folded[0], "|2|0") {
+		t.Fatalf("folded rows=%v, want the pending second request and one claim landing", folded)
 	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DROP TABLE session_relocations; DROP TABLE session_vacate_requests; DROP TABLE session_claim_landings; DELETE FROM schema_migrations WHERE version=138`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DROP TABLE session_vacate_requests; DROP TABLE session_claim_landings; DELETE FROM schema_migrations WHERE version=138`); err != nil {
 		t.Fatal(err)
 	}
 	if err := Migrate(ctx, s.DatabaseForTesting()); err != nil {

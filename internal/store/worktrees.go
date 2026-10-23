@@ -3405,11 +3405,11 @@ func recordWorktreeClaimLandingTx(ctx context.Context, tx *sql.Tx, req WorktreeC
 	// the destination row, no other row of this work item, and a recorded
 	// landing for this claim stands, the projection already holds the
 	// landing and the same landing replays idempotently with no event.
-	claimRecorded, err := countSessionClaimLandingsForClaimTx(ctx, tx, req.WorkID, req.SessionRef, claimOpID)
+	claimLanded, err := sessionLandedInClaimTx(ctx, tx, req.WorkID, req.SessionRef, claimOpID)
 	if err != nil {
 		return out, err
 	}
-	if held && len(sources) == 0 && claimRecorded > 0 {
+	if held && len(sources) == 0 && claimLanded {
 		var sameProcess bool
 		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_occupancy WHERE worktree_id=? AND session_ref=? AND has_process_identity=1 AND host_pid=? AND host_pid_start=?)`, worktreeOccupancyID(WorktreeSetID(req.WorkID), projectID, claimOpID), req.SessionRef, req.HostPID, pidStart).Scan(&sameProcess); err != nil {
 			return out, wrapFailure(KindUnavailable, "claim-landing", "cannot read the recorded host process identity", true, "retry once the database is readable", err)
@@ -3461,32 +3461,31 @@ func sessionHoldsOccupancyTx(ctx context.Context, tx *sql.Tx, worktreeID, sessio
 	return held > 0, nil
 }
 
-// countSessionClaimLandingsTx returns how many claim landings stand recorded
+// countSessionClaimLandingsTx returns how many landing events the log records
 // for one work item and session. It runs inside the caller's
 // transaction so the read observes the caller's own uncommitted events, and
 // the count is the ordinal of the next transfer event.
 func countSessionClaimLandingsTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) (int, error) {
 	var count int
-	err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT claim_landing_count FROM session_relocations WHERE work_id=? AND session_ref=?),0)`, workID, sessionRef).Scan(&count)
+	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=? AND json_extract(payload,'$.session_ref')=?`, workID, sessionRef).Scan(&count)
 	if err != nil {
 		return 0, wrapFailure(KindUnavailable, "claim-landing", "cannot count the recorded landing events", true, "retry once the database is readable", err)
 	}
 	return count, nil
 }
 
-// countSessionClaimLandingsForClaimTx returns how many claim landings stand
-// recorded for one claim generation — the claim op the
-// landed entry carries. A landing recorded for a superseded claim proves
-// nothing about the current claim, so this count, not the work-wide count,
-// decides whether a landing replays. It runs inside the caller's
-// transaction.
-func countSessionClaimLandingsForClaimTx(ctx context.Context, tx *sql.Tx, workID, sessionRef, claimOpID string) (int, error) {
-	var count int
-	err := tx.QueryRowContext(ctx, `SELECT COALESCE(sum(landing_count),0) FROM session_claim_landings WHERE work_id=? AND session_ref=? AND claim_op_id=?`, workID, sessionRef, claimOpID).Scan(&count)
+// sessionLandedInClaimTx reports whether the session verifiably landed in
+// one claim generation — the claim op the landed entry carries. A landing
+// recorded for a superseded claim proves nothing about the current claim, so
+// this generation, not the work item, decides whether a landing replays. It
+// runs inside the caller's transaction.
+func sessionLandedInClaimTx(ctx context.Context, tx *sql.Tx, workID, sessionRef, claimOpID string) (bool, error) {
+	var landed bool
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM session_claim_landings WHERE work_id=? AND session_ref=? AND claim_op_id=?)`, workID, sessionRef, claimOpID).Scan(&landed)
 	if err != nil {
-		return 0, wrapFailure(KindUnavailable, "claim-landing", "cannot count the claim's recorded landing events", true, "retry once the database is readable", err)
+		return false, wrapFailure(KindUnavailable, "claim-landing", "cannot read the claim's recorded landing", true, "retry once the database is readable", err)
 	}
-	return count, nil
+	return landed, nil
 }
 
 // sessionOccupiedSourcesTx lists the active rows the session occupies outside

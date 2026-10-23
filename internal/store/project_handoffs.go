@@ -1195,8 +1195,8 @@ func workExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef s
 // AND the session holds no occupancy rows on this work now. A recorded
 // landing released the rows its request's claim held, so rows that stand
 // after it belong to a later claim, and the old landing proves nothing about
-// this retirement. A pending request, a version 1 release, no request at
-// all, or renewed occupancy reports the blocker text instead.
+// this retirement. A pending request, no request at all, or renewed
+// occupancy reports the blocker text instead.
 func sessionVacateLandingStateTx(ctx context.Context, q queryer, workID, sessionRef string) (bool, string, error) {
 	latest, err := latestSessionVacateRequestTx(ctx, q, workID, sessionRef)
 	if err != nil {
@@ -1206,14 +1206,7 @@ func sessionVacateLandingStateTx(ctx context.Context, q queryer, workID, session
 		}
 		return false, "", err
 	}
-	if latest.PayloadVersion != 2 {
-		return false, "the recorded session vacate predates the landing-verified release and cannot prove this session's landing", nil
-	}
-	landed, err := sessionVacateLandedAfterTx(ctx, q, workID, sessionRef, latest.Stamp)
-	if err != nil {
-		return false, "", err
-	}
-	if !landed {
+	if !latest.Landed {
 		return false, "the committed session vacate still waits for its verified landing", nil
 	}
 	var occupied int

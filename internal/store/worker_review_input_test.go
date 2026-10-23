@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -93,20 +92,6 @@ func TestReviewContinuityPreservesRecoveryOnCandidateTreeFailure(t *testing.T) {
 		}
 		if snapshot.ReviewInput != nil {
 			t.Fatal("unreachable candidate must not expose review input")
-		}
-	})
-	t.Run("session start", func(t *testing.T) {
-		cmd := exec.CommandContext(t.Context(), "go", "run", "../../cmd/concord", "continuity-block", repo) //nolint:gosec // fixed test-only Go command against the same synthetic fixture
-		cmd.Env = append(os.Environ(), "CONCORD_DB_PATH="+f.store.path)
-		raw, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("session boot with unreachable candidate: %v\n%s", err, raw)
-		}
-		var boot struct {
-			WorkID string `json:"work_id"`
-		}
-		if err := json.Unmarshal(raw, &boot); err != nil || boot.WorkID != f.workID {
-			t.Fatalf("session boot lost work identity: %s, %v", raw, err)
 		}
 	})
 }

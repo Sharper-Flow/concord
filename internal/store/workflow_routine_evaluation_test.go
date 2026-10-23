@@ -25,11 +25,7 @@ import (
 // pure and transactional owners under test see the declared policy.
 func routinePolicyDefinition(t *testing.T) WorkflowDefinition {
 	t.Helper()
-	registered, ok := BuiltinWorkflowRegistry().Lookup(workflowFixtureRef, 2)
-	if !ok {
-		t.Fatalf("workflow fixture v%d is not registered", 2)
-	}
-	definition := registered.Definition
+	definition := workflowFixtureDefinition(t, 2).Definition
 	definition.ApprovalPolicy = WorkflowApprovalPolicyConsequenceV1
 	return definition
 }

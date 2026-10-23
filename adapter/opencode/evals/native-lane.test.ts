@@ -134,7 +134,7 @@ async function syntheticHost(options: {
     const outcome = new NativeLaneProvider({ config: { lane: "review" } }).callApi("synthetic private prompt")
       .then(response => { settled = true; return { response, error: undefined } }, error => { settled = true; return { response: undefined, error } })
     let output = ""
-    for (const chunk of options.chunks ?? ["opencode server listening on http://127.0.0.1:18000\n"]) {
+    for (const chunk of options.chunks ?? ["opencode server listening on http://synthetic-host.test\n"]) {
       output += chunk
       server.stdout.emit("data", Buffer.from(chunk))
       await setImmediate()
@@ -152,12 +152,12 @@ async function syntheticHost(options: {
 
 test("native eval waits for a complete listening line at every stdout chunk boundary", async () => {
   for (const ending of ["\n", "\r\n"]) {
-    const line = `opencode server listening on http://127.0.0.1:18000${ending}`
+    const line = `opencode server listening on http://synthetic-host.test${ending}`
     for (let split = 0; split < line.length; split++) {
       const run = await syntheticHost({ chunks: [line.slice(0, split), line.slice(split)] })
       expect(run.beforeLine).toEqual([0])
       expect(run.error).toBeUndefined()
-      expect(run.requests[0]).toEqual({ method: "GET", url: "http://127.0.0.1:18000/agent" })
+      expect(run.requests[0]).toEqual({ method: "GET", url: "http://synthetic-host.test/agent" })
       expect(run.requests).toHaveLength(5)
       expect(run.reader.cancel).toHaveBeenCalledTimes(1)
       expect(run.server.kill).toHaveBeenCalledTimes(1)
@@ -167,9 +167,9 @@ test("native eval waits for a complete listening line at every stdout chunk boun
 })
 
 test("native eval ignores preamble and refuses an unterminated announcement on host exit", async () => {
-  const complete = await syntheticHost({ chunks: ["synthetic preamble\n", "opencode server listening on http://127.0.0.1:18000\n"] })
+  const complete = await syntheticHost({ chunks: ["synthetic preamble\n", "opencode server listening on http://synthetic-host.test\n"] })
   expect(complete.error).toBeUndefined()
-  const incomplete = await syntheticHost({ chunks: ["opencode server listening on http://127.0.0.1:18000"], exitBeforeReady: true })
+  const incomplete = await syntheticHost({ chunks: ["opencode server listening on http://synthetic-host.test"], exitBeforeReady: true })
   expect(incomplete.error).toBeInstanceOf(Error)
   expect(incomplete.requests).toHaveLength(0)
   expect(incomplete.server.kill).toHaveBeenCalledTimes(1)

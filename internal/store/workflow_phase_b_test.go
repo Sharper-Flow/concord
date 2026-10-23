@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,7 +9,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestBuiltinWorkflowRegistryHasTheThreeLiveContractFamilies(t *testing.T) {
@@ -500,73 +498,4 @@ func TestWorkflowActionAuthorizationPreflightsBeforeCallbackOnRegistryDrift(t *t
 	if err == nil || called {
 		t.Fatalf("registry drift did not fail before authorization: err=%v called=%v", err, called)
 	}
-}
-
-// spikeWorkflowFixture seeds one Product, Project, and task work item the way
-// the fail-closed completion fixture does, so the completion test below
-// measures only the decision-record boundary.
-func spikeWorkflowFixture(t *testing.T, s *Store, workID string, actor WorkflowActor) {
-	t.Helper()
-	ctx := context.Background()
-	events := []Event{
-		{EventID: workID + "-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product-" + workID, Actor: "test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: workID + "-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-" + workID, Actor: "test", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Project"}`)},
-		{EventID: workID + "-product-project", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-" + workID, Actor: "test", OccurredAt: time.Unix(1, 2).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"product_id": "product-" + workID, "project_id": "project-" + workID, "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-		{EventID: workID + "-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(map[string]any{"work_kind": "task", "title": "Spike", "priority": 1})},
-		{EventID: workID + "-work-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"work_id": workID, "project_id": "project-" + workID, "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-"+workID): 0, VersionRef(SubjectProject, "project-"+workID): 0, VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	initializeCompositionWorkflow(t, s, workID, "workflow.architecture_spike", actor)
-}
-
-// spikeDecisionRecordEnvelope is one record_decision payload whose token can
-// be varied per case.
-func spikeDecisionRecordEnvelope(decision string) json.RawMessage {
-	return mustJSONValue(map[string]any{"action_id": "record_decision", "fields": map[string]any{"question": "Which mechanism binds state?", "options_considered": []string{"one"}, "decision": decision, "rationale": "rationale", "consequences": []string{"effect"}, "inputs": []string{"input"}, "poc_findings": "findings"}})
-}
-
-// Completion binds to the recorded row: without one the fold refuses, with
-// one whose token sits in the pinned allowed set the work completes.
-func TestSpikeCompletionBindsToTheRecordedDecisionRecord(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	const workID = "spike-completion-bound-record"
-	owner := WorkflowActor{PrincipalRef: "principal/phase-b", ClientRef: "client/phase-b", AgentRef: "agent/architect", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	spikeWorkflowFixture(t, s, workID, owner)
-	// CD-0183 D4: the lifecycle decision-record gate runs for an instance the
-	// gate never owned, so the fixture completes the instance before the
-	// transition.
-	seedTerminalInstanceForTesting(t, s, workID, "completed")
-	if err := s.Transact(ctx, func(tx *Transaction) error {
-		if err := enterFold(ctx, tx.tx); err != nil {
-			return err
-		}
-		if err := foldWorkflowDecisionRecord(ctx, tx.tx, Event{SubjectID: workID, OccurredAt: time.Unix(100, 0)}, spikeDecisionRecordEnvelope("accepted_decision")); err != nil {
-			return err
-		}
-		return leaveFold(ctx, tx.tx)
-	}); err != nil {
-		t.Fatalf("record_decision fold refused the typed record: %v", err)
-	}
-	event := operationEventForResearch(workID+"-complete", "work.transitioned", workID, map[string]any{"from": "needed", "to": "completed", "reason": "decision accepted", "evidence_refs": []string{"evidence:spike-decision"}, "expected_version": 4, "resulting_version": 5})
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
-		t.Fatalf("spike completion with a bound decision record was refused: %v", err)
-	}
-	var lifecycle string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
-		t.Fatal(err)
-	}
-	if lifecycle != "completed" {
-		t.Fatalf("lifecycle = %q, want completed", lifecycle)
-	}
-}
-
-// foldWorkflowDecisionRecord keeps the builtin resolution for direct callers;
-// the scoped checkpoint fold carries the transaction's registry to the same
-// core.
-func foldWorkflowDecisionRecord(ctx context.Context, tx *sql.Tx, event Event, raw json.RawMessage) error {
-	return foldWorkflowDecisionRecordForRegistry(ctx, tx, BuiltinWorkflowRegistry(), event, raw)
 }

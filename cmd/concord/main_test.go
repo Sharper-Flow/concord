@@ -982,7 +982,7 @@ func TestWorkerCLIRecordsLifecycleAndReadbackOnly(t *testing.T) {
 	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(failedDispatch), &out, &errOut); code != 0 {
 		t.Fatalf("failed worker-dispatch exit=%d stderr=%q", code, errOut.String())
 	}
-	fail := workerFailJSON(t, workerKey, "fail-2", "work-1", "attempt-2", lane, preferredLaneModel(lane), string(store.WorkerFailureFallbackBlocked), "provider unavailable", "nonce-lifecycle-fail000002")
+	fail := wWorkerFailJSON(t, workerKey, "fail-2", "work-1", "attempt-2", lane, preferredLaneModel(lane), string(store.WorkerFailureFallbackBlocked), "provider unavailable", "nonce-lifecycle-fail000002")
 	if code := runWithInput([]string{"worker-fail"}, strings.NewReader(fail), &out, &errOut); code != 0 {
 		t.Fatalf("worker-fail exit=%d stderr=%q", code, errOut.String())
 	}

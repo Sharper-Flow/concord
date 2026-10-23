@@ -130,14 +130,14 @@ func TestQ7ProjectsParkedDelivery(t *testing.T) {
 func TestQ7ProjectsCandidatesNoticesAndWarnings(t *testing.T) {
 	t.Parallel()
 	const workID = "q7-fields"
-	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, emptyMandate: true})
+	s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, emptyMandate: true})
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	version, err := workflowCurrentVersion(ctx, s, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	executor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/"+workID)
+	executor := completion.Actor
 	noticeID := WorkflowNoticeID(workID, 1, "spec", "spec:one", workID, "informational")
 	events := []Event{
 		workflowEventWithActor("q7-candidate", WorkflowCandidateSetRevised, workID, executor, map[string]any{

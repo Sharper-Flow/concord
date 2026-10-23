@@ -19,9 +19,8 @@
   A profile-level allow-all shell rule overrode the host's shell denials, so
   the profiles deny only named unsafe commands and leave every other command
   to the host.
-  A work-item session brings a security, UI/UX, preference, or product choice
-  that no approval point holds to the release train engineer (RTE) first, and
-  the RTE decides it when the answer is clear (CD-0230 D5).
+  A work-item session brings the six operator approval classes directly to the
+  operator; the release train engineer (RTE) coordinates dependencies, not those decisions (CD-0243 D1, D2).
 - **Revision choice:** In-place amendment under CD-0036. Existing workflow pins
   and stored contracts keep their meaning; the managed profile name changes
   through the installer's existing retirement transaction.
@@ -72,30 +71,35 @@ The user may choose to start `Concord-RTE` when a Product or Project has many
 simultaneous work streams or needs a coordinated burst of development. This
 session is optional; it is not a required layer above Concord.
 
-The user may also choose to start `Concord-Planner` for ad-hoc research and
-backlog refinement. It is optional and never a gate on Concord's work. It reads
+The user may also choose to start `Concord-Planner` as an assistant Product
+Owner: it investigates needs, refines proposed product direction, and helps
+maintain an actionable backlog. The operator owns product direction and
+approval. It is optional and never a gate on Concord's work. It reads
 code and law, runs bounded diagnostics, writes research notes and standalone
 prototypes under the project's `.planning` directory, and updates Linear
 records within the scope the operator approves. It surfaces where an executing
 agent would have to guess, separates what it observed from what it recommends,
 writes only approved decisions into a ticket's description, marks every
 unapproved assumption as unapproved, and proposes a consequential batch of
-record changes before it applies one. It does not edit other files, commit,
+record changes before applying it when an operator approval class applies.
+Routine record maintenance within agreed scope needs no fresh approval.
+It does not edit other files, commit,
 push, open or merge pull requests, deploy, edit live configuration, change
 Product law, start or advance managed work, or approve execution.
 
-Each work-item session decides within its item. It brings a choice that
-[CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
-D5 routes to a coordinator to the RTE when one coordinates the item, and asks
-the human operator directly at the operator's reserved boundaries. It never
-waits for the RTE's acceptance.
+Each work-item session decides within its item. It asks the operator directly
+for the six classes in
+[CD-0243 D2](CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision).
+It uses an advisor for a second opinion and a spawned review subagent for
+external review. It needs neither an RTE nor a Planner to finish its item and
+never waits for their acceptance.
 
 The RTE spots shared owners and conflicts, sets merge order for dependent or
 conflicting branches, relays facts, removes impediments, keeps Linear current,
 and reports ship status to the operator. It schedules installation and release
 windows with the operator. It never approves, accepts, or publishes for
-another session's item. Inside that item it decides only a choice CD-0230 D5
-routes to it, and records the decision and its reasons on the item.
+another session's item or decides an operator-reserved choice. The item owner
+keeps technical decisions and coordinates dependencies with the RTE.
 
 `Concord` and `Concord-RTE` grant full editing and delegation permissions, with no
 profile-level Concord-tool denial. Their shell rules only deny named unsafe

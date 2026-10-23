@@ -46,6 +46,9 @@
   [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
   D4.
 
+**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+limits operator consent to its six classes. It does not transfer the operator's size-override authority to agents; agents may still request the model to run again.
+
 ## Context
 
 Goal C asks for workflows built from shared parts: "we snap them together in

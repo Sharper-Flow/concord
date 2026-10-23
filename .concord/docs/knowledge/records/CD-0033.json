@@ -20,9 +20,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:3de814412c37e3bc0e11c67717987acd3edd7da8316d11035139adff6dd5ffaa",
+  "sha256": "sha256:de5b9801e8fad2a01b4b9ce90f5b4771499c44c54efd2ad3bb6b18492daa0fd5",
   "status": "accepted",
-  "summary": "Direction of labor is legitimate and out-of-band; changing a declared end-state binds through the single operator-approved supersession path, with clause 5 as the visible check and the unverifiable trigger documented.",
+  "summary": "Direction of labor is legitimate and out-of-band; changing a declared end-state binds through the single supersession path, with clause 5 as the visible check and the unverifiable trigger documented. Operator consent follows CD-0243's six classes; a changed product outcome still requires product-direction approval.",
   "tags": [
     "direction",
     "outcome-binding",

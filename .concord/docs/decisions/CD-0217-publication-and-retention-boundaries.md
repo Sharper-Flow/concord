@@ -9,6 +9,9 @@
   [CD-0216](CD-0216-research-surface-and-explicit-retirement.md),
   [CD-0142](CD-0142-operator-directed-execution-removal.md), PM8, PM9, and PM10
 
+**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+limits this record's operator-consent requirements to its six classes; its D5 replaces an unconditional recovery veto. Retention eligibility, publication proof, and other non-consent checks remain required.
+
 ## Context
 
 Work publication and research retirement serve different purposes.
@@ -18,7 +21,7 @@ Projection pruning remains a deferred optimization, not a new maintenance obliga
 
 ## Decision
 
-CD-0013 D11 separates routine local publication/proof reconciliation from research retirement, whose operator approval remains a listed gap without a new class assignment. Publication locks exact content, home, and work version in its durable intent without human attestation; it retains salvage and Git proof. Physical pack deletion still requires exact approval, while dry-run and mere retirement eligibility grant no deletion authority. Approval does not waive CD-0230 D5's destructive-action safety requirements.
+CD-0013 D11 separates routine local publication/proof reconciliation from research retirement. Publication locks exact content, home, and work version in its durable intent without human attestation; it retains salvage and Git proof. Physical pack deletion requires exact operator approval only when a [CD-0243 D2](CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision) class applies; dry-run and mere retirement eligibility grant no deletion authority. CD-0243 D5 governs recovery and permanent loss.
 
 
 ### D1. Terminal projection pruning remains deferred

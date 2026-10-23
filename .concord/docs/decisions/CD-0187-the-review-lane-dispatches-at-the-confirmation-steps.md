@@ -13,6 +13,9 @@
 - **Refines:** CD-0133 D3 and D4 on the confirmation-step surface this record
   opens
 
+**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+limits this record's operator-consent requirements to its six classes. Required review, actor authentication, and other non-consent checks remain required.
+
 ## Context
 
 A work contract can name review evidence as a requirement. The review lane

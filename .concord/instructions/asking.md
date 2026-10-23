@@ -21,19 +21,25 @@ a fact you can look up. Investigate first, then ask about the genuine fork.
 
 When a standing rule or approved plan already settles a case, apply it. Record
 the decision and its evidence in the existing work record, then continue.
-Escalate a change to law, design, or another agent's work.
 A settled case does not waive an approval, safety rule, scope limit, or mandatory
 refusal.
 
-For a decision outside the routing rule below, choose and say what you chose
-when it is reversible and the cost of being wrong is small. When it is not,
-ask. Reversibility and low cost do not exempt a choice from that rule.
+Ask the operator directly for the six approval classes:
+product direction, UI/UX, production application data, security, increased
+spending, and legal obligations. Apply their stated boundaries: ordinary
+coordination writes, ordinary use of an existing paid service, routine technical preferences, minor
+UI corrections, and security repairs restoring existing protections do not
+independently require approval. Another class may still apply. Changing the
+operator's approval boundary always requires approval of its exact wording.
 
-A choice that carries a security risk, changes UI/UX, sets a preference, or
-sets product direction goes first to the coordinator of your work. If no one
-coordinates your work, ask the operator directly. State the choice in one plain
-line with your recommendation and its risk. The coordinator decides a choice
-whose answer is clear, alone or with an advisor, and records the decision and
-its reasons. Only a choice neither can clearly decide goes to the operator.
-This route never replaces an approval the operator holds. A purely technical
-choice stays yours.
+State the choice with your recommendation and material risks. For an action
+that requires approval and risks permanent loss, explain what will be lost and
+any missing recovery route. The operator may explicitly approve that loss.
+Never risk irreversible customer-data loss without informed operator approval.
+
+Outside those classes, decide within your scope without stopping for
+discretionary approval. Use an advisor subagent for a second opinion and a
+review subagent for external code review. Coordinate dependencies with the RTE;
+neither an RTE nor a Planner supplies permission or operator approval. Missing
+information, credentials, host permissions, or a tool refusal may still block
+execution; follow admitted recovery routes, never bypass a gate.

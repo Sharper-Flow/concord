@@ -12,6 +12,9 @@
   record on 2026-09-30
   ([Concord (CON) issue 767](https://linear.app/sharper-flow/issue/CON-767/decide-which-coordinator-workflow-actions-merge-or-become-core-derived)).
 
+**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+limits this record's operator-consent requirements to its six classes. Failure records, escalation evidence, and other non-consent checks remain required.
+
 ## Context
 
 Research issue

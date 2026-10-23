@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ffb82fbd492086f7061b9a9c0f5b4d201273ebd78d872422d60e87aa52fa8a1b",
+  "sha256": "sha256:ac35594cd44aab1fae6e5d4e72a51a203452cf8bfce09354c223d8d7f8d04074",
   "status": "accepted",
   "summary": "Core-issued approval challenges carry a typed summary derived only from the exact operation, consequence, digest, scope, versions, and expiry the approval binds.",
   "tags": [

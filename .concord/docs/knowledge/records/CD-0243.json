@@ -1,0 +1,107 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-23T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0243",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0006"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0033"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0036"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0037"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0096"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0118"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0122"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0154"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0159"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0166"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0187"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0198"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0215"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0217"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0218"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0222"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0229"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0230"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
+  "product_wide_rationale": "Role ownership and the operator's approval boundary govern every agent and every Product Domain; no individual implementation Domain owns that authority.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:56cd20903fa2c5a2e0dee5fb1c4de65375930373a6a859fad048a83b5553be63",
+  "status": "accepted",
+  "summary": "Four roles separate operator approval, self-sufficient item delivery, optional RTE coordination, and optional Planner assistance as Product Owner. Six approval classes cover product direction, UI/UX, production application data and irreversible customer-data loss, security decisions, increased spending, and legal obligations. Routine engineering and work management remain agent-owned. Approval-boundary changes require exact-text operator approval; seriousness, Domain count, crucial size, and lack of recovery alone do not create an approval requirement. Runtime consent alignment remains unproved.",
+  "tags": [
+    "roles",
+    "approval",
+    "governance",
+    "product-law"
+  ],
+  "title": "Four roles and six operator approval classes"
+}

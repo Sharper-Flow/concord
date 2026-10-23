@@ -18,7 +18,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ec25b8e738a224f1ecf4715d9bb4a9d10040a6b34468fdbda80b7c81ef046b09",
+  "sha256": "sha256:bc13cee01a95ecfc9fda256636c1dec00f2dfa94427424d27ac5873270a5b8dc",
   "status": "accepted",
   "summary": "The worktree audit reports a fifth drift class, unstarted_present: a needed work item whose active, verified worktree has a clean tree and a branch holding no commit beyond the Project's default ref. The audit pass reclaims such rows without operator approval through a commit-count gate in place of the merged-head gate, the work item stays at needed, and the drift row carries commits_ahead as the gate input and claim_age_seconds as a display fact no gate reads. A read whose default ref is underivable skips the class rather than refusing the page. Amends CD-0096 D3 Destroy at the approval sentence and CD-0105 D1 and D2.",
   "tags": [

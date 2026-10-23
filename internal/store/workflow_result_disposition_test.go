@@ -13,7 +13,7 @@ import (
 )
 
 // The cross-attempt fixture pairs a completed research result at an earlier
-// fenced epoch with a later, independent completed no_ship review, then
+// fenced epoch with a later, independent completed corrective review, then
 // rejects the named earlier result without disturbing the later review. A
 // rejection binds the exact attempt/epoch pair it names at the prefix it
 // names: the guard and the fold read the same interval-bounded eligibility
@@ -54,7 +54,7 @@ func crossAttemptEventPayload(t *testing.T, s *Store, workID, kind, attemptID st
 	return payload
 }
 
-// crossAttemptFixture is one seeded workflow.research v19 instance parked at
+// crossAttemptFixture is one current research instance parked at
 // the worker-dispatch step, with the shared lane, dispatcher, and attempt
 // identities the disposition tests reuse. The owner dispatches both lanes and
 // rejects: another session's dispatch over an undecided result is a
@@ -82,9 +82,9 @@ func seedCrossAttemptFixture(t *testing.T, workID string) crossAttemptFixture {
 // the checkpoint-step evidence-acceptance shape shares the builders.
 func seedCrossAttemptFixtureAtStep(t *testing.T, workID, step string) crossAttemptFixture {
 	t.Helper()
-	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.research", 19)
-	if !ok {
-		t.Fatal("workflow.research v19 is not registered")
+	registered, err := BuiltinWorkflowDefinitionForRef("workflow.research")
+	if err != nil {
+		t.Fatal(err)
 	}
 	f := crossAttemptFixture{
 		fixture:      seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, step, []string{}, []string{}),
@@ -107,6 +107,13 @@ func seedCrossAttemptFixtureAtStep(t *testing.T, workID, step string) crossAttem
 func (f crossAttemptFixture) authorizeDispatch(t *testing.T, attemptID string, lane LaneDefinition, dispatcher WorkflowActor) {
 	t.Helper()
 	packet := joinPacketFor(t, f.s, f.workID, f.step, attemptID, lane.ID, lane.Version, lane.Digest)
+	correction, err := workflowCorrectionContextForDispatch(t.Context(), f.s.db, f.workID, f.step, attemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if correction != nil {
+		packet["inputs"].(map[string]any)["correction"] = correction
+	}
 	if _, err := dispatchJoinAttempt(context.Background(), t, f.s, f.workID, readWorkVersion(t, f.s, f.workID), dispatcher, packet); err != nil {
 		t.Fatalf("authorize the dispatch of %s: %v", attemptID, err)
 	}
@@ -149,21 +156,19 @@ func (f crossAttemptFixture) completeReport(t *testing.T, attemptID string, lane
 	}
 }
 
-// completeReviewNoShip records the shared verdict-report helper's synthetic
-// no_ship report: a disposition must preserve a refusing review's verdict and
-// findings, so the fixture must not complete a review as an accepting ship
-// report.
+// completeReviewNoShip records a corrective report whose disposition and
+// findings must survive another attempt's rejection unchanged.
 func (f crossAttemptFixture) completeReviewNoShip(t *testing.T, attemptID string, at int64) {
 	t.Helper()
-	if err := ApplyOperation(context.Background(), f.s, Operation{Events: []Event{
-		reviewLaneVerdictCompleteEvent(f.workID, "cross-attempt-completed-"+attemptID, attemptID, f.reviewLane, "no_ship", time.Unix(at, 0).UTC(), workerFixtureDirectory(t, f.s, f.workID)),
-	}}); err != nil {
-		t.Fatalf("record the no_ship review report of %s: %v", attemptID, err)
+	event := reviewCompleteEventV3(f.workID, attemptID, f.reviewLane, reviewBlockFixture(), workerFixtureDirectory(t, f.s, f.workID))
+	event.EventID, event.OccurredAt = "cross-attempt-completed-"+attemptID, time.Unix(at, 0).UTC()
+	if err := ApplyOperation(context.Background(), f.s, Operation{Events: []Event{event}}); err != nil {
+		t.Fatalf("record the corrective review report of %s: %v", attemptID, err)
 	}
 }
 
 // buildTwoAttemptHistory materializes the paired history: the research result
-// R dispatched and completed at epoch 1, then the independent no_ship review V
+// R dispatched and completed at epoch 1, then the independent corrective review V
 // dispatched and completed at epoch 2.
 func (f crossAttemptFixture) buildTwoAttemptHistory(t *testing.T) {
 	t.Helper()
@@ -450,20 +455,18 @@ func TestCrossAttemptResultDisposition(t *testing.T) {
 	startsBeforeAccepts := f.eventCount(t, WorkflowActionStarted, "")
 	completionsBeforeAccepts := f.eventCount(t, WorkflowActionCompleted, "")
 
-	// Accepting the already-completed review must refuse while the rejected
-	// research result stays unconsumed: the unconsumed-rejection advance rule
-	// holds the step against a positive cross-attempt advance. The refusal
-	// leaves the work version, the event log, the correction pin, and the
-	// step untouched.
+	// A report without admitted and host-observed candidate bindings cannot
+	// acquire current Review authority. Refusal leaves the research rejection
+	// and its correction untouched.
 	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, f.acceptAttemptRequest(t, acceptVersion, "accept_worker_result", attemptV, epochV, "review", 52)); err == nil {
 		t.Fatal("accepting the completed review while the rejected research result is unconsumed unexpectedly succeeded")
 	} else {
 		var hold *Failure
-		if !errors.As(err, &hold) || hold.Kind != KindIllegalLifecycleTransition {
-			t.Fatalf("accept of the completed review after the rejection = %v, want %s", err, KindIllegalLifecycleTransition)
+		if !errors.As(err, &hold) || hold.Kind != KindStaleRequiresReview {
+			t.Fatalf("accept of the unbound review after the rejection = %v, want %s", err, KindStaleRequiresReview)
 		}
-		if hold.Detail != "an unconsumed rejected worker result holds the step's advance" {
-			t.Fatalf("accept of the completed review after the rejection detail = %q, want the unconsumed-rejection advance refusal", hold.Detail)
+		if hold.Detail != "Review input/output does not match its admitted input and clean host-observed output" {
+			t.Fatalf("unbound review acceptance detail = %q, want the candidate-binding refusal", hold.Detail)
 		}
 	}
 	if got := readWorkVersion(t, s, workID); got != acceptVersion {
@@ -728,10 +731,9 @@ func TestCrossAttemptRejectionOnceOnly(t *testing.T) {
 	}
 }
 
-// TestCrossAttemptEvidenceHoldThenRejectCheckpoint pins the hold-mode shape on
-// the checkpoint step (CD-0187): a hold-accepted review leaves the rejection
-// route, and a fresh review rejects beside it.
-func TestCrossAttemptEvidenceHoldThenRejectCheckpoint(t *testing.T) {
+// A checkpoint start closes the prior result's interval. Rejection consumes
+// only the current result, and a fresh result remains independently rejectable.
+func TestCrossAttemptCheckpointRejectsEachResultOnce(t *testing.T) {
 	t.Parallel()
 	const workID = "cross-attempt-evidence-hold"
 	f := seedCrossAttemptFixtureAtStep(t, workID, "conclude")
@@ -762,18 +764,16 @@ func TestCrossAttemptEvidenceHoldThenRejectCheckpoint(t *testing.T) {
 	_, err := f.invokeReject(t, readWorkVersion(t, f.s, workID), attemptC1, epochC1, "checkpoint", 34)
 	expectMembershipRefusal(t, err, "the rejection of the interval-retired review")
 
-	// The current review accepts as evidence: the legal hold-mode acceptance
-	// holds the step without advancing it.
-	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, f.s, f.acceptAttemptRequest(t, readWorkVersion(t, f.s, workID), "accept_worker_evidence", attemptC2, epochC2, "hold", 36)); err != nil {
-		t.Fatalf("accept the completed review as held evidence: %v", err)
+	if _, err := f.invokeReject(t, readWorkVersion(t, f.s, workID), attemptC2, epochC2, "current", 36); err != nil {
+		t.Fatalf("reject the current checkpoint result: %v", err)
 	}
 	if step := currentStep(t, f.s, workID); step != "conclude" {
-		t.Fatalf("current step after the held evidence acceptance = %q, want conclude held", step)
+		t.Fatalf("current step after rejection = %q, want conclude held", step)
 	}
 	if results := f.rejectableResults(t, 0); len(results) != 0 {
-		t.Fatalf("rejectable results after the held acceptance = %#v, want the accepted review consumed", results)
+		t.Fatalf("rejectable results after rejection = %#v, want the exact result consumed", results)
 	}
-	// The accepted review can no longer be rejected. No completed candidate
+	// The disposed result can no longer be rejected. No completed candidate
 	// stands open, so the action-only preflight classifies the request
 	// off-step and workflowAdmit refuses it before any action guard runs —
 	// the pure admission owns this refusal, not a guard.
@@ -790,8 +790,7 @@ func TestCrossAttemptEvidenceHoldThenRejectCheckpoint(t *testing.T) {
 		t.Fatalf("work pin intents %#v, want reject_worker_result hidden while no completed result stands open", pin.NextValidIntents)
 	}
 
-	// Another completed review stays open: the hold-mode acceptance did not
-	// silently dispose of the route, and a fresh review rejects beside it.
+	// Disposing one result does not dispose a later result.
 	f.dispatch(t, attemptC3, f.reviewLane, f.dispatcher)
 	epochC3 := crossAttemptDispatchEpoch(t, f.s, workID, attemptC3)
 	f.completeReviewNoShip(t, attemptC3, 38)
@@ -810,9 +809,8 @@ func TestCrossAttemptEvidenceHoldThenRejectCheckpoint(t *testing.T) {
 	}
 }
 
-// TestCrossAttemptRejectionTargetActor pins the target-actor rule: rejection
-// compares against the target's own recorded executor tuple, so an attempt's
-// executor cannot judge its own result. The provenance witness runs inside a
+// TestCrossAttemptRejectionTargetActor checks Main authority for both dispatched
+// workers and preserves the target's own executor provenance. The witness runs in a
 // rollback transaction only.
 func TestCrossAttemptRejectionTargetActor(t *testing.T) {
 	t.Parallel()
@@ -842,18 +840,20 @@ func TestCrossAttemptRejectionTargetActor(t *testing.T) {
 		t.Fatalf("instance executor after the review dispatch = %q, want the review's recorded lane actor %q", instanceExecutor, laneActorV)
 	}
 
-	// R's recorded executor cannot reject R: the fold compares the rejecting
-	// actor against the target's own recorded executor tuple.
-	selfEvent := f.forgedRejectCompletionEvent(t, "cross-attempt-self-reject", f.attemptR, epochR, laneActorR, 44)
-	if err := f.applyWitnessEvent(t, selfEvent); err == nil {
-		t.Fatal("the research attempt's own executor rejected its own result")
-	} else {
-		var refusal *Failure
-		if !errors.As(err, &refusal) || refusal.Kind != KindUnauthorized {
-			t.Fatalf("the self-executor rejection = %v, want %s", err, KindUnauthorized)
-		}
-		if refusal.Detail != "executing actor cannot author its own verdict" {
-			t.Fatalf("the self-executor rejection detail = %q, want the executor-distinctness refusal", refusal.Detail)
+	// Neither dispatched worker is Main, including the target's sibling.
+	for index, actor := range []string{laneActorR, laneActorV} {
+		wantDetail := []string{"a worker cannot accept its own result", "a worker cannot accept results, associate criterion proof, or complete work"}[index]
+		event := f.forgedRejectCompletionEvent(t, "cross-attempt-worker-reject-"+strconv.Itoa(index), f.attemptR, epochR, actor, 44)
+		if err := f.applyWitnessEvent(t, event); err == nil {
+			t.Fatal("a dispatched worker rejected a result")
+		} else {
+			var refusal *Failure
+			if !errors.As(err, &refusal) || refusal.Kind != KindUnauthorized {
+				t.Fatalf("the worker rejection = %v, want %s", err, KindUnauthorized)
+			}
+			if refusal.Detail != wantDetail {
+				t.Fatalf("the worker rejection detail = %q, want the Main authority refusal", refusal.Detail)
+			}
 		}
 	}
 
@@ -987,7 +987,7 @@ func TestCrossAttemptRejectionPrefixParity(t *testing.T) {
 
 	// Extend the future suffix through legal operation routes only: a fresh
 	// dispatch whose packet consumes the rejection's correction context, its
-	// completed report, and the advancing acceptance.
+	// completed report, and local acceptance.
 	attemptW := "attempt:" + workID + ":3"
 	retryPacket := func(t *testing.T) map[string]any {
 		t.Helper()
@@ -1010,8 +1010,8 @@ func TestCrossAttemptRejectionPrefixParity(t *testing.T) {
 	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, f.s, f.acceptAttemptRequest(t, readWorkVersion(t, f.s, workID), "accept_worker_result", attemptW, epochV+1, "retry", 61)); err != nil {
 		t.Fatalf("accept the retry's completed result: %v", err)
 	}
-	if step := currentStep(t, f.s, workID); step != "findings" {
-		t.Fatalf("current step after the accepted retry = %q, want findings", step)
+	if step := currentStep(t, f.s, workID); step != f.step {
+		t.Fatalf("local retry acceptance advanced from %q to %q", f.step, step)
 	}
 
 	// No future record affects the fixed prefix.
@@ -1153,14 +1153,14 @@ func TestCrossAttemptCorrectionRetryConsumption(t *testing.T) {
 		t.Fatalf("correction pin after the consumed retry dispatch = %#v, want no standing correction", pin.Correction)
 	}
 
-	// The retry completes and its acceptance advances: the hold is cleared
-	// under the existing correction rule, not by a new one.
+	// The retry completes and local acceptance holds the step. Its materialized
+	// dispatch already consumed the correction without granting a workflow exit.
 	f.completeReport(t, attemptW, f.researchLane, 60)
 	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, f.s, f.acceptAttemptRequest(t, readWorkVersion(t, f.s, workID), "accept_worker_result", attemptW, epochW, "cleared", 61)); err != nil {
 		t.Fatalf("accept the retry's completed result after the hold cleared: %v", err)
 	}
-	if step := currentStep(t, f.s, workID); step != "findings" {
-		t.Fatalf("current step after the accepted retry = %q, want findings", step)
+	if step := currentStep(t, f.s, workID); step != f.step {
+		t.Fatalf("local retry acceptance advanced from %q to %q", f.step, step)
 	}
 }
 
@@ -1436,31 +1436,19 @@ func TestCrossAttemptRejectionIntervalBoundaries(t *testing.T) {
 		t.Fatalf("the witness history's baseline = %#v, want the research result and the review", results)
 	}
 
-	// Witness A: the recorded hold the CD-0201 accept guard authors on a
-	// non-settling review acceptance. No research route writes the field, so
-	// the witness authors the completion directly; the fold honors the
-	// recorded field only, and the assertion is about the reader's answer to
-	// that recorded hold — declarations alone do not decide interval closure.
-	ownerRef := crossAttemptOwnerRef(t, w.fixture.owner)
-	heldAcceptVersion := readWorkVersion(t, w.s, witnessWorkID)
-	heldAccept := Event{
-		EventID: "cross-attempt-witness-held-accept", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: witnessWorkID,
-		Actor: ownerRef, OccurredAt: time.Unix(70, 0).UTC(), PayloadVersion: 5,
-		Payload: mustJSONValue(map[string]any{
-			"work_id": witnessWorkID, "expected_version": heldAcceptVersion, "resulting_version": heldAcceptVersion + 1,
-			"step_id": w.step, "action_id": "accept_worker_result",
-			"attempt_epoch": wEpochV, "worker_attempt_id": w.attemptV, "actor_ref": ownerRef,
-			"review_advance_held": true,
-		}),
-	}
-	if err := w.applyWitnessEvent(t, heldAccept); err != nil {
-		t.Fatalf("the witness held acceptance refused: %v", err)
+	// Local acceptance consumes only its exact result, not sibling eligibility.
+	heldAttempt := "attempt:" + witnessWorkID + ":held"
+	w.dispatch(t, heldAttempt, w.researchLane, w.dispatcher)
+	w.completeReport(t, heldAttempt, w.researchLane, 70)
+	heldEpoch := crossAttemptDispatchEpoch(t, w.s, witnessWorkID, heldAttempt)
+	if _, err := invokeWorkflowActionForCD0059(t.Context(), t, w.s, w.acceptAttemptRequest(t, readWorkVersion(t, w.s, witnessWorkID), "accept_worker_result", heldAttempt, heldEpoch, "local", 71)); err != nil {
+		t.Fatalf("local result acceptance refused: %v", err)
 	}
 	if step := currentStep(t, w.s, witnessWorkID); step != "investigate" {
 		t.Fatalf("the witness held acceptance advanced the step to %q, want investigate held", step)
 	}
-	if results := w.rejectableResults(t, 0); !crossAttemptResultsContain(results, w.attemptR, wEpochR) || crossAttemptResultsContain(results, w.attemptV, wEpochV) {
-		t.Fatalf("rejectable results after the held acceptance = %#v, want the interval open with the research result and the held review consumed", results)
+	if results := w.rejectableResults(t, 0); !crossAttemptResultsContain(results, w.attemptR, wEpochR) || !crossAttemptResultsContain(results, w.attemptV, wEpochV) || crossAttemptResultsContain(results, heldAttempt, heldEpoch) {
+		t.Fatalf("rejectable results after local acceptance = %#v, want siblings retained and only the accepted result consumed", results)
 	}
 
 	// Witness B: one contract supersession closes the interval.
@@ -1474,10 +1462,10 @@ func TestCrossAttemptRejectionIntervalBoundaries(t *testing.T) {
 	const attemptE = "attempt:cross-attempt-interval-witness:9"
 	stalenessEvent(t, w.s, witnessWorkID, string(WorkerDispatched), `{"attempt_id":"`+attemptE+`"}`)
 	stalenessEvent(t, w.s, witnessWorkID, string(WorkerCompleted), `{"attempt_id":"`+attemptE+`","readback_model":"model/witness"}`)
-	if results := w.rejectableResults(t, 0); !crossAttemptResultsContain(results, attemptE, wEpochV) {
-		t.Fatalf("rejectable results after the unprovenanced witness = %#v, want the witness attempt at the latest start's epoch %d", results, wEpochV)
+	if results := w.rejectableResults(t, 0); !crossAttemptResultsContain(results, attemptE, heldEpoch) {
+		t.Fatalf("rejectable results after the unprovenanced witness = %#v, want the witness attempt at the latest start's epoch %d", results, heldEpoch)
 	}
-	if _, err := validateWorkerResultRejection(context.Background(), w.s.DatabaseForTesting(), witnessWorkID, w.definition, w.step, "test", attemptE, wEpochV-1, 0); err == nil {
+	if _, err := validateWorkerResultRejection(context.Background(), w.s.DatabaseForTesting(), witnessWorkID, w.definition, w.step, "test", attemptE, heldEpoch-1, 0); err == nil {
 		t.Fatal("the unprovenanced witness attempt claimed a cross-epoch authority")
 	} else {
 		expectMembershipRefusal(t, err, "the unprovenanced witness attempt at a foreign epoch")

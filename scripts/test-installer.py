@@ -2079,7 +2079,10 @@ esac''',
         placed.write_text("untouched\n", encoding="utf-8")
         manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
         original = json.loads(manifest_path.read_text(encoding="utf-8"))
-        for field, key in (("adapter_files", never), ("version_files", f"adapter/opencode/{never}")):
+        for field, key, refusal in (
+            ("adapter_files", never, "invalid adapter file records"),
+            ("version_files", f"adapter/opencode/{never}", "refusing unknown managed version file"),
+        ):
             with self.subTest(field=field):
                 manifest = json.loads(json.dumps(original))
                 manifest[field][key] = hashlib.sha256(b"untouched\n").hexdigest()
@@ -2088,6 +2091,7 @@ esac''',
                 second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
 
                 self.assertNotEqual(second.returncode, 0)
+                self.assertIn(refusal, second.stderr)
                 self.assertEqual(placed.read_text(encoding="utf-8"), "untouched\n")
         manifest_path.write_text(json.dumps(original), encoding="utf-8")
 

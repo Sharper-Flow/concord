@@ -160,8 +160,8 @@ ADAPTER_FILES = (
     "workflow-status.ts",
 )
 # Adapter files an earlier release shipped and this installer no longer does.
-# A manifest an older installer wrote may still record them. Upgrade and
-# uninstall remove a recorded one from the tools directory; a release tree
+# A manifest an older installer wrote may still record them. A transaction
+# over such a manifest removes a recorded one from the tools directory; a release tree
 # that still holds one is left to the lease-aware release cleanup. Naming
 # them here keeps every other recorded name refused, so an unknown or
 # traversing key still cannot reach a delete. Append on retirement; never

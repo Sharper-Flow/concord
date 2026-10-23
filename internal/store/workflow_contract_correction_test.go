@@ -268,7 +268,7 @@ func TestCurrentReviewKeepsContractCorrectionAfterProductiveAccept(t *testing.T)
 	}
 	reviewGateStartStep(t, j.s, id, "refine", "start_refine", j.fixture.owner)
 	reviewAttempt, reviewEpoch := completeCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
-	if err := runVerdictActionAs(t, j.s, id, "accept_worker_evidence", json.RawMessage(`{"attempt_id":"`+reviewAttempt+`","attempt_epoch":`+fmt.Sprint(reviewEpoch)+`}`), 0, j.fixture.owner); err != nil {
+	if err := runVerdictActionAs(t, j.s, id, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+reviewAttempt+`","attempt_epoch":`+fmt.Sprint(reviewEpoch)+`}`), 0, j.fixture.owner); err != nil {
 		t.Fatalf("Main accepted the refinement review evidence: %v", err)
 	}
 	entry := mustBuiltinDefinition(t, "workflow.break_fix")

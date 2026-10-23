@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:de5f7acd0ac7b55edc43e82493d55670e7d8583798c996cd22877378c317daec",
+  "sha256": "sha256:dda455fb310857da702e50c99b557a8afd6bf6d65c09e8ea2ae36d824e9faf68",
   "status": "accepted",
   "summary": "A dispatched lane executes its step as a derived workflow actor recorded by the dispatch operation from the lane identity, the attempt, and the authenticated host as current rows (CD-0242 D2). Under CD-0242 D5, Implement cannot accept its own result, so the owner's acceptance of a dispatched lane's completed result is compared against the recorded executing actor and the lane's own acceptance refuses; no further executing-actor distinctness exists. Attempts recorded before the lane actor read back unchanged.",
   "tags": [

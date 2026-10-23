@@ -16,6 +16,8 @@
   step) with the recorded lane actor
 - **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5
 
+Under [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md), ordinary acceptance records Main's disposition and leaves progression to Main's separate act.
+
 ## Context
 
 The dispatch route reached the store end to end on v7.1.6: the window opened,
@@ -78,7 +80,7 @@ Scenario: The owner accepts a completed lane result
   And a dispatched lane whose derived actor is recorded with its dispatch
   When the owner submits accept_worker_result for the completed attempt
   Then the acceptance is recorded
-  And the step advances
+  And the step does not change
 
 Scenario: A dispatch cannot invent an actor
   Given a dispatch whose lane_actor_ref is not recorded

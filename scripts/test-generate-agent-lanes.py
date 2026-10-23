@@ -1314,16 +1314,20 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
             source = (ROOT / profile["role_source"]).read_text(encoding="utf-8")
             self.assertTrue(self.projection(agent_id).endswith("\n---\n\n" + source))
 
-    def test_concord_retry_guidance_states_the_three_attempt_wall(self):
+    def test_concord_retry_guidance_states_the_unbudgeted_fresh_attempt(self):
+        # CD-0242 D6: each launch carries its own authority; no attempt count
+        # or escalation wall exists.
         text = " ".join(self.projection("Concord").split())
         sentence = (
-            "At the three-attempt limit, `dispatch_worker` needs a store-derived basis: "
-            "shrinking `open_finding_ids` or an approved `supersede_contract` that changes "
-            "the approach. An approval cannot open the wall."
+            "A failed worker attempt is terminal; never resume its session. Request a fresh "
+            "attempt through `dispatch_worker` under the approved assignment. A failure alone "
+            "does not require operator consent."
         )
-        self.assertTrue(sentence in text, "generated Concord prompt must state the exact retry-wall exception")
+        self.assertTrue(sentence in text, "generated Concord prompt must state the fresh-attempt rule")
         for agent_id in ("Concord", "Concord-RTE"):
-            self.assertNotIn("To retry it, call `dispatch_worker` with the unchanged approved contract", " ".join(self.projection(agent_id).split()))
+            projection = " ".join(self.projection(agent_id).split())
+            self.assertNotIn("three-attempt", projection)
+            self.assertNotIn("To retry it, call `dispatch_worker` with the unchanged approved contract", projection)
 
     def test_retired_primary_profiles_and_role_sources_are_gone(self):
         # Zero tolerance: the retired profiles and their role sources survive

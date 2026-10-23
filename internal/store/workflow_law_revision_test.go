@@ -149,7 +149,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 	successor := map[string]any{
 		"contract_version": 2, "premise": "continue under successor law",
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:successor-law", "immutable_subject_ref": "commit:successor-law", "expected_result": "pass"}}},
-		"required_evidence": []string{"verification", "review"}, "route_conventions": []string{"complete_step_correction"}, "spec_mandate": []string{"spec:two"}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
+		"required_evidence":  []string{"verification", "review"}, "route_conventions": []string{"complete_step_correction"}, "spec_mandate": []string{"spec:two"}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
 		"supersede_reason": "move to the accepted successor law", "audit_evidence": []string{"evidence:law-cutover"}, "decision_domains": []string{}, "architecture_binding": binding,
 	}
 	version := readWorkVersion(t, s, workID)

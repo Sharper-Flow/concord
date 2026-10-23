@@ -21,6 +21,9 @@ import threading
 import time
 import urllib.request
 
+# The harness binds ephemeral ports on the loopback interface only.
+LOOPBACK = socket.inet_ntoa(socket.INADDR_LOOPBACK.to_bytes(4, "big"))
+
 sys.dont_write_bytecode = True
 REPO = Path(__file__).resolve().parents[1]
 SOURCES = REPO / "adapter/opencode/evals/native-issue-key-resume"
@@ -172,7 +175,7 @@ def wait_for_host(root, opener, port, process, budget=15):
     while time.monotonic() < deadline:
         if process.poll() is not None:
             raise RuntimeError("host exited during startup; see host.log")
-        request = urllib.request.Request(f"http://127.0.0.1:{port}/global/health")
+        request = urllib.request.Request(f"http://{LOOPBACK}:{port}/global/health")
         try:
             with opener.open(request, timeout=min(1, deadline - time.monotonic())) as response:
                 value = json.loads(response.read())
@@ -273,19 +276,19 @@ def run(args):
                 self.wfile.write(("data: " + json.dumps(chunk) + "\n\n").encode())
             self.wfile.write(b"data: [DONE]\n\n")
 
-    fake = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    fake = http.server.ThreadingHTTPServer((LOOPBACK, 0), Fake)
     thread = threading.Thread(target=fake.serve_forever, daemon=True)
     thread.start()
-    config = {"model": "fixture/fixture", "small_model": "fixture/fixture", "default_agent": "fixture", "autoupdate": False, "snapshot": False, "share": "disabled", "formatter": False, "lsp": False, "plugin": [(root / "release/adapter/concord-plugin.ts").as_uri(), (root / "config/opencode/observer.ts").as_uri()], "enabled_providers": ["fixture"], "provider": {"fixture": {"name": "Synthetic loopback provider", "env": [], "npm": "@ai-sdk/openai-compatible", "options": {"baseURL": f"http://127.0.0.1:{fake.server_port}/v1", "apiKey": "synthetic-not-a-credential"}, "models": {"fixture": {"name": "fixture", "tool_call": True, "limit": {"context": 100000, "output": 10000}}}}}, "permission": "allow", "agent": {"fixture": {"mode": "primary", "prompt": "Synthetic isolated host experiment. Follow scripted tool calls."}}}
+    config = {"model": "fixture/fixture", "small_model": "fixture/fixture", "default_agent": "fixture", "autoupdate": False, "snapshot": False, "share": "disabled", "formatter": False, "lsp": False, "plugin": [(root / "release/adapter/concord-plugin.ts").as_uri(), (root / "config/opencode/observer.ts").as_uri()], "enabled_providers": ["fixture"], "provider": {"fixture": {"name": "Synthetic loopback provider", "env": [], "npm": "@ai-sdk/openai-compatible", "options": {"baseURL": f"http://{LOOPBACK}:{fake.server_port}/v1", "apiKey": "synthetic-not-a-credential"}, "models": {"fixture": {"name": "fixture", "tool_call": True, "limit": {"context": 100000, "output": 10000}}}}}, "permission": "allow", "agent": {"fixture": {"mode": "primary", "prompt": "Synthetic isolated host experiment. Follow scripted tool calls."}}}
     write_json(root / "opencode.json", config)
     with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
+        sock.bind((LOOPBACK, 0))
         port = sock.getsockname()[1]
     process = None
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
     def api(method, path, data=None, directory=str(repo)):
-        req = urllib.request.Request(f"http://127.0.0.1:{port}" + path, data=None if data is None else json.dumps(data).encode(), method=method, headers={"Content-Type": "application/json", "x-opencode-directory": directory})
+        req = urllib.request.Request(f"http://{LOOPBACK}:{port}" + path, data=None if data is None else json.dumps(data).encode(), method=method, headers={"Content-Type": "application/json", "x-opencode-directory": directory})
         with opener.open(req, timeout=35) as response:
             value = json.loads(response.read())
         log(root, "api.jsonl", {"method": method, "path": path, "directory": directory, "response": value})
@@ -299,7 +302,7 @@ def run(args):
 
     with (root / "host.log").open("w") as output:
         try:
-            process = subprocess.Popen([str(host), "serve", "--hostname", "127.0.0.1", "--port", str(port), "--print-logs"], cwd=repo, env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+            process = subprocess.Popen([str(host), "serve", "--hostname", LOOPBACK, "--port", str(port), "--print-logs"], cwd=repo, env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
             wait_for_host(root, opener, port, process)
             loaded = api("GET", "/config")
             assert loaded.get("plugin") == config["plugin"] and not loaded.get("mcp")
@@ -372,7 +375,7 @@ def run(args):
             ports_closed = []
             for number in (port, fake.server_port):
                 with socket.socket() as sock:
-                    ports_closed.append(sock.connect_ex(("127.0.0.1", number)) != 0)
+                    ports_closed.append(sock.connect_ex((LOOPBACK, number)) != 0)
             write_json(root / "cleanup.json", {"host_pid": process.pid if process else None, "host_reaped": process is None or process.poll() is not None, "provider_thread_stopped": not thread.is_alive(), "ports_closed": ports_closed})
             if not all(ports_closed) or thread.is_alive():
                 raise RuntimeError("fixture cleanup incomplete")

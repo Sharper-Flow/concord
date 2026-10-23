@@ -14,7 +14,7 @@ import (
 // authority and SQLite sequence state, plus schema definitions. Physical page
 // locations are excluded: an online copy can change those without changing state.
 func backupCurrentStateDigest(ctx context.Context, db *sql.DB) (string, error) {
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := beginReadTx(ctx, db)
 	if err != nil {
 		return "", backupStateReadFailure(err)
 	}

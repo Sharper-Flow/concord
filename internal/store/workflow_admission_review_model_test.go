@@ -69,7 +69,9 @@ func admissionReviewState(state admissionModelState) *WorkflowReviewState {
 		view.Candidate = &candidate
 	}
 	dependencies := WorkerReviewDependencies{Criteria: []WorkerReviewCriterion{{PredicateID: "predicate:model", ContentDigest: "sha256:" + strings.Repeat("c", 64)}}, ArchitectureNotApplicable: true}
-	if state.contracts > 0 {
+	// Duplicate active contracts leave no single criteria set, so admission
+	// folds no standing Review dependencies.
+	if state.contracts == 1 {
 		view.Dependencies = &dependencies
 	}
 	if r.accepted != "" {

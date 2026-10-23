@@ -13,7 +13,7 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 	for _, defect := range []string{"invalid_digest", "too_many_sources"} {
 		t.Run(defect, func(t *testing.T) {
 			ctx := context.Background()
-			s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
 			grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
 			scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 			if err != nil {
@@ -141,21 +141,14 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 				"work_id": "work-1", "expected_version": pin.Version, "action_id": "dispatch_worker", "idempotency_key": "retry-refused-provenance",
 				"fields": map[string]any{"attempt_id": freshID, "worker_packet": retryMutationPacket(t, s, freshID, pin.Correction)},
 			}
-			challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(retryInput)}, env)
-			if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-				t.Fatalf("retry without approval: %+v", challenge.Error)
+			// consequence_v1 keeps this engineering retry on ordinary authority.
+			challengesBefore := verifyWallChallenges(t, s)
+			retry := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(retryInput)}, env)
+			if retry.Outcome != OutcomeOK {
+				t.Fatalf("fresh retry: %+v", retry.Error)
 			}
-			ref, ok := challenge.Error.Details["approval_ref"].(string)
-			if !ok || ref == "" {
-				t.Fatal("retry challenge has no approval reference")
-			}
-			approvedRaw := retryJSON(cloneWithApproval(t, retryInput, ref))
-			scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": failedID, "scope_version": scopeVersion}
-			versions := map[string]any{"work": pin.Version, "contract": 1, "failed_attempt_epoch": 1}
-			env.HostApproval = signedHostApproval(privateKey, ref, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(ref))
-			approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
-			if approved.Outcome != OutcomeOK {
-				t.Fatalf("approved fresh retry: %+v", approved.Error)
+			if got := verifyWallChallenges(t, s); got != challengesBefore {
+				t.Fatalf("engineering retry minted approval challenges: %d -> %d", challengesBefore, got)
 			}
 			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind IN ('worker.dispatched','worker.completed')`); got != 0 {
 				t.Fatalf("recovery fabricated %d accepted evidence events", got)

@@ -35,23 +35,6 @@ func readWorkItemSummary(ctx context.Context, q queryer, workID string) (WorkIte
 	return summary, nil
 }
 
-// DomainEventWatermark returns the current append-only event sequence. The
-// COALESCE keeps an empty authority deterministic at zero.
-func (s *Store) DomainEventWatermark(ctx context.Context) (int64, error) {
-	if s == nil || s.db == nil {
-		return 0, newFailure(KindUnavailable, "domain_event_watermark", "database is not open", true, "open the authority database")
-	}
-	return domainEventWatermark(ctx, s.db)
-}
-
-func domainEventWatermark(ctx context.Context, q queryer) (int64, error) {
-	var watermark int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(max(seq),0) FROM domain_events`).Scan(&watermark); err != nil {
-		return 0, wrapFailure(KindUnavailable, "domain_event_watermark", "cannot read the domain-event watermark", true, "retry once the database is readable", err)
-	}
-	return watermark, nil
-}
-
 // KnowledgeIndexWatermark returns the latest indexed commit for a home
 // project. When locatorID is provided, the lookup is narrowed to that locator
 // and head tuple; otherwise it is scoped only to the home project.

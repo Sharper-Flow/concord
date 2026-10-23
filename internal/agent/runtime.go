@@ -1399,7 +1399,7 @@ func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string
 	}
 	expected := SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default"}
 	if r.Tool != "concord_knowledge" {
-		watermark, err := r.Store.DomainEventWatermark(ctx)
+		watermark, err := r.Store.Revision(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -1976,10 +1976,7 @@ func continuityResultMeta(snapshot store.ContinuitySnapshot, next *string) store
 // instant per candidate would move the measured size by a few bytes and
 // strand the emit at one byte over the cap.
 func continuityResultMetaObservedAt(snapshot store.ContinuitySnapshot, next *string, observedAt string) store.ResultMeta {
-	watermark := int64(0)
-	if strings.HasPrefix(snapshot.Watermark, "seq:") {
-		watermark, _ = strconv.ParseInt(strings.TrimPrefix(snapshot.Watermark, "seq:"), 10, 64)
-	}
+	watermark := snapshot.SourceVersionWatermark
 	return store.ResultMeta{QueryID: "C19.Continuity", ContractVersion: "C19/1.0", ResolvedScope: store.ResolvedScope{WorkID: snapshot.WorkID, ProductIDs: snapshot.ProductIdentity}, SourceVersionWatermark: watermark, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: observedAt}, OrderingKeys: []string{"boundary_sequence"}, NextCursor: next, Omissions: []string{}, Warnings: []string{}}
 }
 

@@ -63,6 +63,7 @@ func TestTxScopePropertiesBite(t *testing.T) {
 		{"transaction handle and store", 1, `package store; func violates(q queryer, s *Store) { _ = q }`},
 		{"multi-statement transaction closure", 2, `package store; func violates(s *Store) { s.Transact(nil, func(tx *Transaction) error { x := 1; _ = x; return nil }) }`},
 		{"read snapshot captures store", 2, `package store; func violates(s *Store) { s.readSnapshot(nil, func(q queryer) error { return readThroughStore(s) }) }`},
+		{"read transaction captures store", 2, `package store; func violates(s *Store) { s.ReadTransaction(nil, func(tx *Transaction) error { return readThroughStore(s) }) }`},
 		{"queryer nil comparison", 3, `package store; func violates(q queryer) { if q == nil { return } }`},
 		{"query under open cursor", 4, `package store; func violates(q queryer) { rows, _ := q.QueryContext(nil, ""); for rows.Next() { helper(q) } }`},
 	}
@@ -399,7 +400,7 @@ func scanTxScopeClosure(path string, lit *ast.FuncLit, stores []string, fset *to
 
 func txScopeIsTransactCall(call *ast.CallExpr) bool {
 	selector, ok := call.Fun.(*ast.SelectorExpr)
-	return ok && (selector.Sel.Name == "Transact" || selector.Sel.Name == "TransactDurable" || selector.Sel.Name == "readSnapshot")
+	return ok && (selector.Sel.Name == "Transact" || selector.Sel.Name == "TransactDurable" || selector.Sel.Name == "readSnapshot" || selector.Sel.Name == "ReadTransaction")
 }
 
 func txScopeParams(recv *ast.FieldList, params *ast.FieldList) []txScopeParam {

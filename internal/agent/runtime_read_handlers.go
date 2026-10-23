@@ -269,7 +269,7 @@ func (r runtime) readWorktreeAudit(ctx context.Context, base Envelope, input []b
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	watermark, err := r.Store.DomainEventWatermark(ctx)
+	watermark, err := r.Store.Revision(ctx)
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -619,11 +619,9 @@ func (r runtime) readTraceResearch(ctx context.Context, base Envelope, input []b
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	// The watermark travels in the result meta so wrapCursor and unwrapCursor
-	// bind to the same domain sequence. Research mutations do not advance it,
-	// so a list that changes between pages stays readable through the
-	// store's owner-bounded inner cursor.
-	watermark, err := r.Store.DomainEventWatermark(ctx)
+	// Owner-list cursors use the store publication revision, not a pack's
+	// content revision.
+	watermark, err := r.Store.Revision(ctx)
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}

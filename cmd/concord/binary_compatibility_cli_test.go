@@ -25,7 +25,7 @@ func TestCLIRefusesBinarySkewBeforeMutation(t *testing.T) {
 		SELECT 'workflow',definition_ref,definition_version,definition_digest,'v99.0.0' FROM workflow_instances GROUP BY definition_ref,definition_version,definition_digest`, digest); err != nil {
 		t.Fatal(err)
 	}
-	before, err := s.DomainEventWatermark(context.Background())
+	before, err := s.Revision(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,8 +39,8 @@ func TestCLIRefusesBinarySkewBeforeMutation(t *testing.T) {
 			t.Fatalf("operator diagnostic omitted %q: %q", want, diagnostic)
 		}
 	}
-	after, err := s.DomainEventWatermark(context.Background())
+	after, err := s.Revision(context.Background())
 	if err != nil || after != before {
-		t.Fatalf("refused command changed the event log: before=%d after=%d error=%v", before, after, err)
+		t.Fatalf("refused command changed the store revision: before=%d after=%d error=%v", before, after, err)
 	}
 }

@@ -105,7 +105,18 @@ func (s *Store) transact(ctx context.Context, durable bool, fn func(*Transaction
 // readSnapshot owns a deferred read scope for projection readers.
 // The callback never commits; rollback releases its snapshot and
 // invalidates the transaction even when the callback fails or panics.
-func (s *Store) readSnapshot(ctx context.Context, fn func(queryer) error) (retErr error) {
+func (s *Store) readSnapshot(ctx context.Context, fn func(queryer) error) error {
+	var read func(*Transaction) error
+	if fn != nil {
+		read = func(tx *Transaction) error { return fn(tx.tx) }
+	}
+	return s.ReadTransaction(ctx, read)
+}
+
+// ReadTransaction owns a deferred read snapshot for transaction-scoped reads.
+// It always rolls back and invalidates the opaque transaction after the callback.
+// The callback must only read; rollback does not prevent attempted writes.
+func (s *Store) ReadTransaction(ctx context.Context, fn func(*Transaction) error) (retErr error) {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "read_snapshot", "store is not open", false, "open the authority database")
 	}
@@ -116,10 +127,12 @@ func (s *Store) readSnapshot(ctx context.Context, fn func(queryer) error) (retEr
 	if err != nil {
 		return wrapFailure(KindUnavailable, "read_snapshot", "cannot begin read snapshot", true, "retry once the database is readable", err)
 	}
+	transaction := &Transaction{tx: tx, clock: s.Clock, path: s.Path()}
+	defer func() { transaction.tx = nil }()
 	defer func() {
 		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
 			retErr = errors.Join(retErr, wrapFailure(KindUnavailable, "read_snapshot", "cannot close read snapshot", false, "inspect the transaction cleanup failure", err))
 		}
 	}()
-	return fn(tx)
+	return fn(transaction)
 }

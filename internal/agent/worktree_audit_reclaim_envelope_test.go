@@ -166,6 +166,7 @@ func TestWorktreeAuditReadPagesCompleteClassification(t *testing.T) {
 		if response.Outcome != OutcomeOK {
 			t.Fatalf("audit page failed: %+v", response.Error)
 		}
+		assertStoreRevisionWatermark(t, s, response)
 		pages++
 		var page struct {
 			Drift []store.WorktreeDrift `json:"drift"`

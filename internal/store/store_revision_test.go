@@ -142,6 +142,75 @@ func TestStoreRevisionInstallationKey(t *testing.T) {
 	}
 }
 
+func TestStoreRevisionReopenUnchanged(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	path := s.Path()
+	before := revisionValue(t, s.db)
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		reopened, err := Open(t.Context(), path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := revisionValue(t, reopened.db)
+		if err := reopened.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if got != before {
+			t.Fatalf("unchanged reopen revision=%d, want %d", got, before)
+		}
+	}
+}
+
+func TestStoreRevisionIgnoredKeyInsert(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	if _, err := s.db.Exec(`DELETE FROM agent_installation_keys WHERE key_name='cursor';
+		CREATE TRIGGER ignore_cursor_insert BEFORE INSERT ON agent_installation_keys
+		WHEN NEW.key_name='cursor' BEGIN SELECT RAISE(IGNORE); END;`); err != nil {
+		t.Fatal(err)
+	}
+	before := revisionValue(t, s.db)
+	if err := ensureInstallationKey(t.Context(), s.db); err != nil {
+		t.Fatal(err)
+	}
+	if got := revisionValue(t, s.db); got != before {
+		t.Fatalf("ignored key insert revision=%d, want unchanged %d", got, before)
+	}
+}
+
+func TestStoreRevisionReadTransactionLifecycle(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	before := revisionValue(t, s.db)
+	for _, fail := range []bool{false, true} {
+		var retained *Transaction
+		stopped := errors.New("stop read snapshot")
+		err := s.ReadTransaction(t.Context(), func(tx *Transaction) error {
+			retained = tx
+			if got := revisionValue(t, tx.tx); got != before {
+				t.Fatalf("read revision=%d, want %d", got, before)
+			}
+			if fail {
+				return stopped
+			}
+			return nil
+		})
+		if fail && !errors.Is(err, stopped) || !fail && err != nil {
+			t.Fatalf("read failure=%v, err=%v", fail, err)
+		}
+		if retained == nil || retained.tx != nil {
+			t.Fatal("read transaction escaped its callback")
+		}
+		if got := revisionValue(t, s.db); got != before {
+			t.Fatalf("read advanced revision to %d, want %d", got, before)
+		}
+	}
+}
+
 func TestStoreRevisionReadMetadataWithoutLog(t *testing.T) {
 	t.Parallel()
 	s := revisionFixture(t)
@@ -166,6 +235,9 @@ func TestStoreRevisionReadMetadataWithoutLog(t *testing.T) {
 	}
 	if got, err := backupEventInventory(ctx, s.db); err != nil || got != 87 {
 		t.Fatalf("backup inventory=%d, err=%v, want 87", got, err)
+	}
+	if got, err := s.Revision(ctx); err != nil || got != 87 {
+		t.Fatalf("cursor source=%d, err=%v, want 87 without the log", got, err)
 	}
 }
 

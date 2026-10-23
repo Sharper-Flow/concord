@@ -28,7 +28,6 @@ type candidateJourney struct {
 	workID         string
 	repo           string
 	acceptor       WorkflowActor
-	reviewer       WorkflowActor
 	bundle         NativeOracleControlBundle
 	launches       int
 	reviewReceipts []string
@@ -42,7 +41,6 @@ func newCandidateJourney(t *testing.T, workID string) *candidateJourney {
 	t.Cleanup(func() { f.store.Close() })
 	j := &candidateJourney{fixture: f, s: f.store, workID: workID, repo: t.TempDir()}
 	j.acceptor = WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/candidate-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
-	j.reviewer = WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/candidate-reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
 	for name, data := range map[string]string{
 		"go.mod":            "module example.invalid/oracle\n\ngo 1.26.0\ntoolchain go1.26.7\n",
 		"pkg/value.go":      "package oracle\nfunc Value() int { return 6 }\n",

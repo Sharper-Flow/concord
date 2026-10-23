@@ -35,7 +35,7 @@ func oDispatchJobBoundAttempt(t *testing.T, s *Store, workID, stepID, attemptID 
 }
 
 // oAcceptOracleFixtureReview uses the oracle fixture's host Git runner for
-// both the admitted input and terminal output of a non-editing Review.
+// dispatch and the same observed commit in its stub terminal runner.
 func oAcceptOracleFixtureReview(t *testing.T, f oracleRepairFixture, workID, disposition string) {
 	t.Helper()
 	s := f.store

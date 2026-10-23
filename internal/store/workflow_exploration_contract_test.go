@@ -264,11 +264,12 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 					fields["architecture_binding"] = WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 					payload = mustJSONValue(fields)
 				}
-				if actionID == "record_verdict" {
+				switch {
+				case actionID == "record_verdict":
 					err = runVerdictActionAs(t, s, workID, actionID, criterionAssociationPayload(proofRef, "predicate:liveness-exit"), 0, livenessActor())
-				} else if journey != nil && WorkflowActionRequiresSubjectFreshness(actionID) {
+				case journey != nil && WorkflowActionRequiresSubjectFreshness(actionID):
 					err = journey.terminalAction(t, actionID, payload, livenessActor(), nil)
-				} else {
+				default:
 					err = livenessApply(ctx, s, workID, livenessMove{action: actionID, variant: livenessVariantLabel(variant), payload: payload}, ordinal)
 				}
 				if err != nil {

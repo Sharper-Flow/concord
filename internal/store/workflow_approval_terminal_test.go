@@ -285,10 +285,12 @@ func seedApprovalItemAtAcceptance(t *testing.T, workID string, domains []string)
 // legacy absence shape. The absent contract is authored under a registered
 // synthetic legacy twin of the route definition, the same ref at
 // definition.Version with the legacy approval policy, so the contract write
-// keeps its legacy-shape absence. The investigation observation is recorded
-// through its real fold. A real WorkflowDefinitionSelected event then carries
-// the instance forward through the registered fold to the higher same-ref
-// consequence_v1 version, registered for its actual digest: the carry forward
+// keeps its legacy-shape absence; the legacy twin is the registry's only, and
+// so current, registration while the item selects it and records its history.
+// The investigation observation is recorded through its real fold. The higher
+// same-ref consequence_v1 version is then registered for its actual digest, and
+// a real WorkflowDefinitionSelected event carries the instance forward through
+// the registered fold to it: the carry forward
 // keeps the acceptance step, keeps the NULL historical contract authoritative
 // with its recorded bytes, and keeps the owner as the executing actor. The
 // seed asserts each preserved state, so a carry forward that rewrote history
@@ -303,10 +305,6 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 	higher := definition
 	higher.Version = definition.Version + 1
 	registry, legacyRegistered := newResolutionRegistry(t, legacy)
-	higherRegistered, err := registry.Register(higher)
-	if err != nil {
-		t.Fatalf("the higher consequence_v1 definition refused registration: %v", err)
-	}
 	s, owner := seedResolutionSelection(t, workID, registry, legacyRegistered)
 	recordApprovalActors(t, s, workID)
 	ownerRef := ownerRefForTest(t, owner)
@@ -343,6 +341,12 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 	}
 	if domainsAbsent != 1 || strings.Contains(string(contractPayload), "decision_domains") {
 		t.Fatalf("the legacy contract recorded fact-present bytes (NULL %d, payload %s), want the absent shape", domainsAbsent, contractPayload)
+	}
+	// The higher version arrives after the legacy history, as an upgrade
+	// does: the legacy definition was current when the item selected it.
+	higherRegistered, err := registry.Register(higher)
+	if err != nil {
+		t.Fatalf("the higher consequence_v1 definition refused registration: %v", err)
 	}
 	carryVersion := readWorkVersion(t, s, workID)
 	appendWorkflowEventsWithRegistry(t, s, registry, Operation{

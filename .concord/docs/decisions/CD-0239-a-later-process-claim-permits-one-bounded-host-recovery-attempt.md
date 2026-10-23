@@ -142,10 +142,8 @@ failure authorizes no launch.
   replacement process gets a recorded landing, a repeated landing for the same
   process changes nothing, and the refreshed identity survives restore and
   reconciliation.
-- `internal/agent.TestEscalatedHostRetryReadsHostLeaseBeforeAdmission`
-  must prove the public boundary reads the lease before preflight; the
-  conditional host-recovery route its refusal names binds the CD-0242 D6
-  anchor, and until that change lands `python3 scripts/check-knowledge-index.py`
-  is the executable anchor for this record's law registration.
+- `internal/agent.TestHostRestartDoesNotSupplyRetryAuthority` must prove a
+  live host lease supplies no convergence credit or retry consent and leaves
+  each dispatch subject to ordinary admission.
 - `python3 scripts/check-knowledge-closure.py` and
   `python3 scripts/check-doc-contract.py` must pass after approval and registration.

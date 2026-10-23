@@ -117,7 +117,9 @@ export default class NativeLaneProvider {
         let next
         try {
           next = await reader.read()
-        } catch (cause) {
+        } catch (error) {
+          // node:http reports its own abort to the response as ECONNRESET.
+          const cause = signal.aborted ? signal.reason : error
           throw new Error(`native eval GET /event stream read failed: ${causeChain(cause)}`, { cause })
         }
         if (next.done) throw new Error("native eval GET /event stream ended before the child completed")

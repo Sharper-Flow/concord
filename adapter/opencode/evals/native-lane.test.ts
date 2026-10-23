@@ -87,16 +87,21 @@ test("native eval disables Promptfoo whole-call retries", () => {
 
 async function syntheticHost(options: {
   chunks?: string[], exitBeforeReady?: boolean, failRoute?: string, statusRoute?: string,
-  bodyFailure?: boolean, readFailure?: boolean, cancelFailure?: boolean, holdClose?: boolean,
+  bodyFailure?: boolean, readFailure?: boolean, readTimeout?: boolean, cancelFailure?: boolean, holdClose?: boolean,
 } = {}) {
   const cause = Object.assign(new Error("synthetic private transport detail"), { code: "ECONNRESET" })
   const failure = new TypeError("fetch failed", { cause })
   const requests: { method: string, url: string }[] = []
   const beforeLine: number[] = []
   let closed = false
+  const deadline = new AbortController()
   const reader = {
     read: mock(async () => {
       if (options.readFailure) throw failure
+      if (options.readTimeout) {
+        deadline.abort(new DOMException("synthetic private deadline", "TimeoutError"))
+        throw cause
+      }
       const events = [
         { type: "session.created", properties: { info: { id: child, parentID: "parent", agent } } },
         { type: "session.idle", properties: { sessionID: child } },
@@ -127,6 +132,7 @@ async function syntheticHost(options: {
     return request
   }) as unknown as typeof http.get)
   const toWeb = spyOn(Readable, "toWeb").mockReturnValue({ getReader: () => reader } as unknown as ReturnType<typeof Readable.toWeb>)
+  const timeout = spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal)
   const fetch = spyOn(globalThis, "fetch").mockImplementation((async (input, init) => {
     const url = String(input)
     const route = new URL(url).pathname
@@ -164,6 +170,7 @@ async function syntheticHost(options: {
     spawn.mockRestore()
     get.mockRestore()
     toWeb.mockRestore()
+    timeout.mockRestore()
     fetch.mockRestore()
   }
 }
@@ -255,6 +262,15 @@ test("native eval identifies event-stream read failures and preserves the cause 
   expect(run.error?.message).not.toContain("private")
   expect(run.requests).toHaveLength(4)
   expect(run.reader.cancel).toHaveBeenCalledTimes(1)
+  expect(run.server.kill).toHaveBeenCalledTimes(1)
+  expect(run.closed).toBe(true)
+})
+
+test("native eval names a deadline during the event-stream read instead of the connection reset it causes", async () => {
+  const run = await syntheticHost({ readTimeout: true })
+  expect(run.error?.message).toBe("native eval GET /event stream read failed: TimeoutError 23")
+  expect(run.error?.cause.name).toBe("TimeoutError")
+  expect(run.eventRequests[0].destroy).toHaveBeenCalledTimes(1)
   expect(run.server.kill).toHaveBeenCalledTimes(1)
   expect(run.closed).toBe(true)
 })

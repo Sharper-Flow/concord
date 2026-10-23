@@ -183,8 +183,8 @@ func TestAcceptWorkerResultSucceedsWhenLaneIsExecutingActor(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	if got := currentStep(t, s, workID); got != "acceptance" {
-		t.Fatalf("accepted lane result advanced to %q, want acceptance", got)
+	if got := currentStep(t, s, workID); got != "execution" {
+		t.Fatalf("local lane acceptance moved to %q, want execution held", got)
 	}
 }
 
@@ -979,8 +979,8 @@ func TestDistinctWorkflowOwnerAcceptsCompletedWorkerResult(t *testing.T) {
 	if result.ResultingVersion != 14 {
 		t.Fatalf("accept result version=%d, want 14", result.ResultingVersion)
 	}
-	if got := currentStep(t, s, "authority-accept"); got != "acceptance" {
-		t.Fatalf("accepted worker result current_step=%q, want acceptance", got)
+	if got := currentStep(t, s, "authority-accept"); got != "execution" {
+		t.Fatalf("local worker acceptance current_step=%q, want execution held", got)
 	}
 	if got := readWorkVersion(t, s, "authority-accept"); got != 14 {
 		t.Fatalf("accepted worker result version=%d, want 14", got)
@@ -1006,7 +1006,7 @@ func TestDistinctWorkflowOwnerAcceptsCompletedWorkerResult(t *testing.T) {
 	}
 }
 
-func TestAcceptWorkerResultAdvancesCurrentNonExternalDispatchStep(t *testing.T) {
+func TestAcceptWorkerResultHoldsCurrentNonExternalDispatchStep(t *testing.T) {
 	t.Parallel()
 	const workID = "authority-accept-internal-step"
 	ctx := context.Background()
@@ -1072,10 +1072,9 @@ func TestAcceptWorkerResultAdvancesCurrentNonExternalDispatchStep(t *testing.T) 
 	if result.ResultingVersion != 10 {
 		t.Fatalf("accept result version=%d, want 10", result.ResultingVersion)
 	}
-	// The acceptance advances proposal to its next step, the alignment step;
-	// the item still cannot reach discovery without record_alignment.
-	if got := currentStep(t, s, workID); got != "alignment" {
-		t.Fatalf("accepted worker result current_step=%q, want alignment", got)
+	// Local result intake cannot replace the proposal's own advance action.
+	if got := currentStep(t, s, workID); got != "proposal" {
+		t.Fatalf("accepted worker result current_step=%q, want proposal held", got)
 	}
 }
 
@@ -1117,16 +1116,16 @@ func TestAcceptWorkerResultRejectsWithoutMutation(t *testing.T) {
 	)
 	t.Run("missing attempt id", func(t *testing.T) {
 		s, _, owner, _ := seedWorkerAtExecution(t, "authority-missing-attempt")
-		assertRejectedWorkerAcceptance(t, s, "authority-missing-attempt", owner, wantVersion, map[string]any{"attempt_epoch": 1}, KindInvalidPayload, wantVersion)
+		assertRejectedWorkerAcceptance(t, s, "authority-missing-attempt", owner, wantVersion, map[string]any{"attempt_epoch": 1}, KindMissingEvidence, wantVersion)
 	})
 	t.Run("dispatched but not completed", func(t *testing.T) {
 		s, _, owner, attemptID := seedWorkerAtExecution(t, "authority-dispatched-only")
-		assertRejectedWorkerAcceptance(t, s, "authority-dispatched-only", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, KindIllegalLifecycleTransition, wantVersion)
+		assertRejectedWorkerAcceptance(t, s, "authority-dispatched-only", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, KindMissingEvidence, wantVersion)
 	})
 	t.Run("failed attempt", func(t *testing.T) {
 		s, _, owner, attemptID := seedWorkerAtExecution(t, "authority-failed-attempt")
 		failWorkerAttempt(t, s, "authority-failed-attempt", attemptID)
-		assertRejectedWorkerAcceptance(t, s, "authority-failed-attempt", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, KindIllegalLifecycleTransition, wantVersion)
+		assertRejectedWorkerAcceptance(t, s, "authority-failed-attempt", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, KindMissingEvidence, wantVersion)
 	})
 	t.Run("foreign work attempt", func(t *testing.T) {
 		s, _, owner, _ := seedWorkerAtExecution(t, "authority-foreign-target")
@@ -1141,7 +1140,7 @@ func TestAcceptWorkerResultRejectsWithoutMutation(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
 			t.Fatal(err)
 		}
-		assertRejectedWorkerAcceptance(t, s, "authority-foreign-target", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, KindIllegalLifecycleTransition, wantVersion)
+		assertRejectedWorkerAcceptance(t, s, "authority-foreign-target", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, KindMissingEvidence, wantVersion)
 	})
 	t.Run("stale dispatch before newer retry start", func(t *testing.T) {
 		s, workerRef, owner, attemptID := seedWorkerAtExecution(t, "authority-stale-dispatch")
@@ -1149,7 +1148,7 @@ func TestAcceptWorkerResultRejectsWithoutMutation(t *testing.T) {
 		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{retryStart}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "authority-stale-dispatch"): 12}}); err != nil {
 			t.Fatal(err)
 		}
-		assertRejectedWorkerAcceptance(t, s, "authority-stale-dispatch", owner, 13, map[string]any{"attempt_id": attemptID, "attempt_epoch": 3}, KindIllegalLifecycleTransition, 13)
+		assertRejectedWorkerAcceptance(t, s, "authority-stale-dispatch", owner, 13, map[string]any{"attempt_id": attemptID, "attempt_epoch": 3}, KindMissingEvidence, 13)
 	})
 	t.Run("wrong attempt epoch", func(t *testing.T) {
 		s, _, owner, attemptID := seedCompletedWorkerAtExecution(t, "authority-wrong-epoch")
@@ -1208,6 +1207,9 @@ func assertRejectedWorkerAction(t *testing.T, s *Store, workID string, owner Wor
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != wantKind {
 		t.Fatalf("%s failure=%v, want %s", actionID, err, wantKind)
+	}
+	if actionID == "accept_worker_result" && wantKind == KindMissingEvidence && failure.Detail != "the requested assignment has no admitted terminal result" {
+		t.Fatalf("acceptance did not identify the missing terminal result: %v", err)
 	}
 	if got := currentStep(t, s, workID); got != "execution" {
 		t.Fatalf("rejected %s current_step=%q, want execution", label, got)

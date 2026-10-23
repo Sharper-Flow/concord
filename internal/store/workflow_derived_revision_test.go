@@ -143,7 +143,27 @@ func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 		if !failureAs(err, &failure) || !strings.Contains(failure.Detail, "cannot carry architecture_binding") {
 			t.Fatalf("refusal does not name the binding boundary: %v", err)
 		}
+		if failure.Kind != KindInvalidPayload || failure.RetrySafe || failure.EffectPossible || len(failure.CommittedRefs) != 0 || failure.RecoveryAction != "correct_request" {
+			t.Fatalf("binding refusal does not admit pre-effect request correction: %+v", failure)
+		}
 	})
+}
+
+func TestWorkflowContractProductGuardRequiresBinding(t *testing.T) {
+	t.Parallel()
+	for _, role := range []string{"approval", "successor contract"} {
+		for _, raw := range []json.RawMessage{nil, json.RawMessage(`null`)} {
+			fields := map[string]json.RawMessage{}
+			if raw != nil {
+				fields["architecture_binding"] = raw
+			}
+			_, err := workflowContractProductGuard(context.Background(), nil, "work", fields, nil, true, role, "complete the architecture binding")
+			var failure *Failure
+			if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "requires architecture_binding") || failure.RecoveryAction != "complete the architecture binding" {
+				t.Fatalf("Product-changing %s without binding must remain refused: %v", role, err)
+			}
+		}
+	}
 }
 
 // TestTierAdmittedConflictRecordsTheContractRevisionLine holds the CD-0159

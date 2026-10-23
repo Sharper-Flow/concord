@@ -105,43 +105,27 @@ func TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight(t *testing.T) {
 	}
 }
 
-// TestIssue1013ContractCorrectionAtFailedWorkerDispatch walks the route the
-// issue reporter could not find. A live dispatch holds every advancing exit,
-// the correction opens only once record_worker_failure puts the failure in the
-// durable record, and a fresh fenced start returns the ordinary delivery exit.
-// The work pin states the same facts the fold enforces at every stop
-// (CD-0133 D1, D4).
+// A live dispatch holds contract correction. Terminal ingestion opens the
+// correction atomically, and another authorized dispatch closes that route
+// without promoting the failed report into delivery authority.
 func TestIssue1013ContractCorrectionAtFailedWorkerDispatch(t *testing.T) {
 	const workID = "issue1013-failed-worker-correction"
 	ctx := context.Background()
-	s, owner, attemptID, entry := seedOldDefinitionWorker(t, workID)
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'failed worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:old","expected_result":"pass"}'); DELETE FROM fold_guard`, workID, ownerRef, workID); err != nil {
-		t.Fatal(err)
-	}
-
+	fixture, attemptID, epoch := seedCurrentRepairWorker(t, workID)
+	s := fixture.store
+	job := *s2DispatchJobBinding(t, s, workID, attemptID)
 	pin := issue1013Pin(t, s, workID)
 	if issue1013HasIntent(pin, "record_delivery") {
 		t.Fatalf("dispatched step offers record_delivery the fold refuses: %#v", pin.NextValidIntents)
 	}
-	if !issue1013HasIntent(pin, "accept_worker_result") {
-		t.Fatalf("dispatched step hides accept_worker_result: %#v", pin.NextValidIntents)
+	if issue1013HasIntent(pin, "accept_worker_result") {
+		t.Fatalf("unfinished attempt is advertised as an acceptable result: %#v", pin.NextValidIntents)
 	}
 	if _, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
 		t.Fatal("contract correction resolved while the worker attempt was live")
 	}
 
-	failAbandonedWorkerAttempt(t, s, workID, attemptID)
-	if _, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
-		t.Fatal("contract correction resolved before record_worker_failure put the failure in the record")
-	}
-
-	pin = issue1013Pin(t, s, workID)
-	applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, 1, pin.Version, "issue1013-record-failure")
+	s2WorkerFailedAttributedLive(t, s, workID, attemptID, "the host observed the failed launch")
 	_, action, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract")
 	if err != nil {
 		t.Fatalf("resolve contract correction after the recorded failure: %v", err)
@@ -150,6 +134,10 @@ func TestIssue1013ContractCorrectionAtFailedWorkerDispatch(t *testing.T) {
 		t.Fatalf("correction action = %#v, want operator-approved supersession", action)
 	}
 	pin = issue1013Pin(t, s, workID)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID || pin.Correction.FailedAttemptEpoch != epoch {
+		t.Fatalf("terminal ingestion lost its exact failure identity: %+v", pin.Correction)
+	}
+	source := *pin.Correction
 	var found bool
 	for _, intent := range pin.NextValidIntents {
 		if intent.ActionID == "supersede_contract" && intent.ExpectedVersion == pin.Version && intent.ReasonCode == "operator_contract_correction" {
@@ -163,26 +151,25 @@ func TestIssue1013ContractCorrectionAtFailedWorkerDispatch(t *testing.T) {
 		t.Fatalf("recorded failure alone restored record_delivery: %#v", pin.NextValidIntents)
 	}
 
-	workerRef, err := WorkflowActorRef(WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent})
-	if err != nil {
+	next := attemptID + ":retry"
+	if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, next, job)); err != nil {
+		t.Fatalf("authorize the fresh correction attempt: %v", err)
+	}
+	if window := reviewSubjectWindow(t, s, workID, next); window.AttemptEpoch <= epoch {
+		t.Fatalf("fresh authorization epoch=%d, want greater than %d", window.AttemptEpoch, epoch)
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{implementDispatchEvidenceEvent(workID, next, laneForID(t), job)}}); err != nil {
 		t.Fatal(err)
 	}
-	start := workflowEventWithActor("issue1013-restart-"+workID, WorkflowActionStarted, workID, workerRef, map[string]any{
-		"work_id": workID, "expected_version": pin.Version, "resulting_version": pin.Version + 1, "step_id": "repair",
-		"action_id": "start_repair", "attempt_epoch": 2, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64),
-		"idempotency_identity": "issue1013-restart:" + workID, "actor_ref": workerRef,
-	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): pin.Version}}); err != nil {
-		t.Fatalf("start a fresh repair attempt: %v", err)
+	before := contractCorrectionEffectSnapshot(t, s, workID)
+	if _, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
+		t.Fatal("old failure reopened contract correction beside the live retry")
 	}
-	pin = issue1013Pin(t, s, workID)
-	if !issue1013HasIntent(pin, "record_delivery") {
-		t.Fatalf("fresh attempt did not restore record_delivery: %#v", pin.NextValidIntents)
+	if after := contractCorrectionEffectSnapshot(t, s, workID); after != before {
+		t.Fatal("closed correction discovery changed durable state")
 	}
-
-	registered, ok := BuiltinWorkflowRegistry().Lookup(entry.Definition.Ref, entry.Definition.Version)
-	if !ok || registered.Digest != entry.Digest {
-		t.Fatalf("pinned definition changed: before=%s after=%s", entry.Digest, registered.Digest)
+	if pin = issue1013Pin(t, s, workID); !sameWorkflowCorrection(pin.Correction, &source) || issue1013HasIntent(pin, "record_delivery") {
+		t.Fatalf("materialized retry erased an unresolved job source or acquired delivery authority: %+v", pin)
 	}
 }
 
@@ -461,31 +448,26 @@ func TestWorkflowFourthCorrectionDispatchRetainsLaunchWindow(t *testing.T) {
 	const workID = "issue1013-fourth-correction-preflight"
 	s, owner, pin := seedIssue1013EscalatedCorrection(t, workID)
 	defer s.Close()
+	fixture := workContextFixture{store: s, owner: owner, workID: workID}
+	job := *s2DispatchJobBinding(t, s, workID, pin.Correction.FailedAttemptID)
 
 	attemptID := "attempt:" + workID + ":4"
-	payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", attemptID, pin.Correction)
-	base := WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
-		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "issue1013-escalated-dispatch", OperationID: "issue1013-escalated-dispatch",
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "issue1013-escalated-dispatch", RequestID: "request:issue1013-escalated-dispatch", ContractDigest: testManifestDigest, Now: time.Unix(50, 0).UTC(),
-	}
-	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, base); err != nil {
+	if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, attemptID, job)); err != nil {
 		t.Fatalf("fourth correction dispatch: %v", err)
 	}
 	// An unresolved launch outcome still owns the authorization window.
 	fifth := "attempt:" + workID + ":5"
-	payload = issue1013CorrectionDispatchPayload(t, s, workID, "repair", fifth, pin.Correction)
-	retry := base
-	retry.ExpectedVersion = readWorkVersion(t, s, workID)
-	retry.Payload = payload
-	retry.IdempotencyIdentity = "issue1013-escalated-dispatch-fifth"
-	retry.OperationID = retry.IdempotencyIdentity
-	retry.IdempotencyKey = retry.IdempotencyIdentity
-	retry.RequestID = "request:" + retry.IdempotencyIdentity
-	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, retry); !hasFailureKind(err, KindOperationConflict) {
+	packet := issue1013CurrentDispatchPacket(t, fixture, fifth, job)
+	before := contractCorrectionEffectSnapshot(t, s, workID)
+	if err := dispatchWorkContextAttempt(t, fixture, packet); !hasFailureKind(err, KindOperationConflict) {
 		t.Fatalf("second dispatch beside pending authorization = %v, want operation_conflict", err)
 	}
-	issue1013RecordWorkerDispatch(t, s, workID, attemptID)
+	if after := contractCorrectionEffectSnapshot(t, s, workID); after != before {
+		t.Fatal("refused parallel launch changed durable state")
+	}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(workID, attemptID, laneForID(t), job)}}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestWorkPinRepeatedCorrectionAdvertisesRetry(t *testing.T) {
@@ -608,65 +590,79 @@ func TestRepeatedVerificationCorrectionRequiresFreshVerdict(t *testing.T) {
 // attempt actually exists.
 func TestHalfMaterializedDispatchLeavesTheCorrectionRecordLive(t *testing.T) {
 	const workID = "correction-half-dispatch-live"
-	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
-	defer s.Close()
-	failWorkerAttempt(t, s, workID, attemptID)
-	applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, 1, 9, "half-dispatch-record")
+	fixture := seedCrossAttemptFixture(t, workID)
+	s, attemptID := fixture.s, fixture.attemptR
+	fixture.dispatch(t, attemptID, fixture.researchLane, fixture.dispatcher)
+	epoch := crossAttemptDispatchEpoch(t, s, workID, attemptID)
+	failed := s2WorkerFailedAttributedEvent(workID, attemptID, "failed:"+attemptID, preferredModelForLane(fixture.researchLane), WorkerFailureFallbackBlocked, "the host observed the failed launch", corpusNow)
+	if err := s2WorkerFailedLive(t, s, failed); err != nil {
+		t.Fatal(err)
+	}
 
 	interrupted := "attempt:" + workID + ":interrupted"
 	pin := issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID {
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID || pin.Correction.FailedAttemptEpoch != epoch {
 		t.Fatalf("pin correction before the interrupted dispatch = %#v, want the failed attempt", pin.Correction)
 	}
-	payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", interrupted, pin.Correction)
-	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
-		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: "half-dispatch-" + workID, OperationID: "half-dispatch-" + workID,
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "half-dispatch-" + workID, RequestID: "request:half-dispatch-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(20, 0).UTC(),
-	}); err != nil {
-		t.Fatalf("interrupted dispatch intent: %v", err)
-	}
+	source := *pin.Correction
+	fixture.authorizeDispatch(t, interrupted, fixture.researchLane, fixture.dispatcher)
 
 	pin = issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID {
+	if !sameWorkflowCorrection(pin.Correction, &source) {
 		t.Fatalf("pin correction after the interrupted dispatch = %#v, want the live record", pin.Correction)
 	}
 
-	issue1013RecordWorkerDispatch(t, s, workID, interrupted)
+	fixture.materializeDispatch(t, interrupted, fixture.researchLane, fixture.dispatcher)
 	pin = issue1013Pin(t, s, workID)
 	if pin.Correction != nil {
 		t.Fatalf("materialized dispatch retained the correction: %#v", pin.Correction)
 	}
 }
 
+func issue1013CurrentDispatchPacket(t *testing.T, fixture workContextFixture, attemptID string, job WorkerJobBinding) map[string]any {
+	t.Helper()
+	view, err := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID)
+	if err != nil || view == nil {
+		t.Fatalf("current dispatch context=%+v err=%v", view, err)
+	}
+	packet := workContextDispatchPacket(t, fixture, attemptID, job, view)
+	correction, err := workflowCorrectionContextForDispatch(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID, "repair", attemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if correction != nil {
+		packet["inputs"].(map[string]any)["correction"] = correction
+	}
+	return packet
+}
+
 func seedIssue1013EscalatedCorrection(t *testing.T, workID string) (*Store, WorkflowActor, WorkPin) {
 	t.Helper()
-	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
-	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	workerEpoch := int64(1)
-	for correctionAttempt := int64(1); correctionAttempt <= 3; correctionAttempt++ {
-		version := readWorkVersion(t, s, workID)
-		failWorkerAttempt(t, s, workID, attemptID)
-		applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, workerEpoch, version, "issue1013-record-failure-"+workID+fmt.Sprint(correctionAttempt))
+	fixture, attemptID, epoch := seedCurrentRepairWorker(t, workID)
+	s, owner := fixture.store, fixture.owner
+	job := *s2DispatchJobBinding(t, s, workID, attemptID)
+	for round := 1; round <= 3; round++ {
+		s2WorkerFailedAttributedLive(t, s, workID, attemptID, "the host observed a failed corrective launch")
 		pin := issue1013Pin(t, s, workID)
-		issue1013StartRepair(t, s, workID, worker, pin.Version, workerEpoch+1)
-		pin = issue1013Pin(t, s, workID)
-		if correctionAttempt == 3 {
+		if pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID || pin.Correction.FailedAttemptEpoch != epoch || pin.Correction.FailureKind != WorkerFailureFallbackBlocked || pin.Correction.SourceEventID == "" || pin.Correction.SourceEventSeq < 1 {
+			t.Fatalf("failure %d lost its exact correction source: %+v", round, pin.Correction)
+		}
+		if !issue1013HasIntent(pin, "dispatch_worker") {
+			t.Fatalf("failure %d hid ordinary retry: %+v", round, pin.NextValidIntents)
+		}
+		if round == 3 {
 			return s, owner, pin
 		}
-		attemptID = "attempt:" + workID + ":" + fmt.Sprint(correctionAttempt+1)
-		payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", attemptID, pin.Correction)
-		if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
-			WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
-			Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: "issue1013-dispatch-" + attemptID, OperationID: "issue1013-dispatch-" + attemptID,
-			PrincipalRef: worker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "issue1013-dispatch-" + attemptID, RequestID: "request:issue1013-dispatch-" + attemptID, ContractDigest: testManifestDigest, Now: time.Unix(10+correctionAttempt, 0).UTC(),
-		}); err != nil {
-			t.Fatalf("dispatch correction attempt %d: %v", correctionAttempt+1, err)
+		attemptID = fmt.Sprintf("attempt:%s:%d", workID, round+1)
+		if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, attemptID, job)); err != nil {
+			t.Fatalf("authorize corrective launch %d: %v", round+1, err)
 		}
-		issue1013RecordWorkerDispatch(t, s, workID, attemptID)
-		workerEpoch += 2
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(workID, attemptID, laneForID(t), job)}}); err != nil {
+			t.Fatal(err)
+		}
+		epoch = reviewSubjectWindow(t, s, workID, attemptID).AttemptEpoch
 	}
-	t.Fatal("escalated correction fixture did not return")
+	t.Fatal("repeated correction fixture did not return")
 	return nil, WorkflowActor{}, WorkPin{}
 }
 
@@ -1353,70 +1349,22 @@ func failWorkerAttemptWithKind(t *testing.T, s *Store, workID, attemptID, detail
 	}
 }
 
-// correctionCountingJourney drives one correction round against the counting
-// projection: record the failure of attemptID at attemptEpoch, start a fresh
-// repair, and when nextAttemptID is not empty dispatch it with the current
-// correction context. It returns the pin after the fresh start, while the
-// round's failure still holds the open correction context.
-func correctionCountingJourney(t *testing.T, s *Store, workID string, owner, worker WorkflowActor, attemptID, nextAttemptID string, attemptEpoch int64, operationID string) WorkPin {
-	t.Helper()
-	version := readWorkVersion(t, s, workID)
-	failWorkerAttemptWithKind(t, s, workID, attemptID, "lane fallback blocked before the model ran")
-	applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, attemptEpoch, version, operationID)
-	pin := issue1013Pin(t, s, workID)
-	issue1013StartRepair(t, s, workID, worker, pin.Version, attemptEpoch+1)
-	pin = issue1013Pin(t, s, workID)
-	if nextAttemptID == "" {
-		return pin
-	}
-	payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", nextAttemptID, pin.Correction)
-	key := operationID + "-dispatch"
-	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
-		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: key, OperationID: key,
-		PrincipalRef: worker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: key, RequestID: "request:" + key, ContractDigest: testManifestDigest, Now: time.Unix(10+attemptEpoch, 0).UTC(),
-	}); err != nil {
-		t.Fatalf("dispatch corrective attempt %s: %v", nextAttemptID, err)
-	}
-	issue1013RecordWorkerDispatch(t, s, workID, nextAttemptID)
-	return pin
-}
-
 func TestInfrastructureFailuresRetainCorrectionSource(t *testing.T) {
 	const workID = "correction-count-infra"
-	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
+	s, owner, pin := seedIssue1013EscalatedCorrection(t, workID)
 	defer s.Close()
-	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-
-	pin := correctionCountingJourney(t, s, workID, owner, worker, attemptID, "attempt:"+workID+":2", 1, "infra-count-1")
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID || pin.Correction.FailureKind != WorkerFailureFallbackBlocked {
-		t.Fatalf("correction after infrastructure failure = %#v, want its failed attempt and kind", pin.Correction)
-	}
-
-	pin = correctionCountingJourney(t, s, workID, owner, worker, "attempt:"+workID+":2", "attempt:"+workID+":3", 3, "infra-count-2")
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != "attempt:"+workID+":2" || pin.Correction.FailureKind != WorkerFailureFallbackBlocked {
-		t.Fatalf("correction after two infrastructure failures = %#v, want the latest source", pin.Correction)
-	}
-	if !issue1013HasIntent(pin, "dispatch_worker") {
-		t.Fatalf("correction below the limit lost dispatch_worker: %#v", pin.NextValidIntents)
-	}
-
-	pin = correctionCountingJourney(t, s, workID, owner, worker, "attempt:"+workID+":3", "", 5, "infra-count-3")
 	if pin.Correction == nil || pin.Correction.FailedAttemptID != "attempt:"+workID+":3" || pin.Correction.FailureKind != WorkerFailureFallbackBlocked {
 		t.Fatalf("correction after three infrastructure failures = %#v, want the latest source", pin.Correction)
 	}
-	if !issue1013HasIntent(pin, "dispatch_worker") {
-		t.Fatalf("escalated correction hid dispatch_worker: %#v", pin.NextValidIntents)
-	}
-
-	payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", "attempt:"+workID+":4", pin.Correction)
-	_, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
-		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "infra-count-4", OperationID: "infra-count-4",
-		PrincipalRef: worker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "infra-count-4", RequestID: "request:infra-count-4", ContractDigest: testManifestDigest, Now: time.Unix(30, 0).UTC(),
-	})
-	if err != nil {
+	source := *pin.Correction
+	fixture := workContextFixture{store: s, owner: owner, workID: workID}
+	job := *s2DispatchJobBinding(t, s, workID, source.FailedAttemptID)
+	next := "attempt:" + workID + ":4"
+	if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, next, job)); err != nil {
 		t.Fatalf("fourth dispatch after infrastructure failures: %v", err)
+	}
+	if after := issue1013Pin(t, s, workID); !sameWorkflowCorrection(after.Correction, &source) {
+		t.Fatalf("authorization erased the unresolved job source: %+v", after.Correction)
 	}
 }
 
@@ -1528,63 +1476,68 @@ func TestAcceptedWorkerResultClosesCorrectionSource(t *testing.T) {
 	}
 }
 
-// Operator-approved contract supersession preserves an unresolved correction source.
+// A scope-preserving contract revision cannot erase an unresolved job source.
 func TestCorrectionSourceSurvivesContractSupersession(t *testing.T) {
 	const workID = "correction-count-supersede"
-	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
+	s, owner, pin := seedIssue1013EscalatedCorrection(t, workID)
 	defer s.Close()
-	ownerRef, err := WorkflowActorRef(owner)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != "attempt:"+workID+":3" {
+		t.Fatalf("correction before supersession = %#v, want the latest failed source", pin.Correction)
+	}
+	source := *pin.Correction
+	projection, err := ReadWorkflowProjection(t.Context(), s, WorkflowReadRequest{WorkID: workID})
+	if err != nil || projection.Contract == nil {
+		t.Fatalf("current contract=%+v err=%v", projection.Contract, err)
+	}
+	contract := projection.Contract
+	predicates := make([]map[string]any, len(contract.OutcomePredicates))
+	for i, predicate := range contract.OutcomePredicates {
+		predicates[i] = map[string]any{"predicate_id": predicate.PredicateID, "ordinal": predicate.Ordinal, "outcome_kind": predicate.OutcomeKind, "outcome_payload": json.RawMessage(predicate.OutcomePayload)}
+	}
+	successor, err := json.Marshal(map[string]any{
+		"contract_version": contract.Version + 1, "premise": "The same approved outcome needs a corrected approach.",
+		"outcome_predicates": predicates, "required_evidence": contract.RequiredEvidence,
+		"route_conventions": contract.RouteConventions, "spec_mandate": contract.SpecMandate, "law_modifies": contract.LawModifies,
+		"rigor_class": contract.RigorClass, "architecture_binding": contract.ArchitectureBinding, "decision_domains": []string{},
+		"supersede_reason": "correct the approach without changing the approved outcome", "audit_evidence": source.EvidenceRefs,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedIssue31DomainRegistry(t, s)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'failed worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:old","expected_result":"pass"}'); DELETE FROM fold_guard`, workID, ownerRef, workID); err != nil {
-		t.Fatal(err)
-	}
-	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-
-	correctionCountingJourney(t, s, workID, owner, worker, attemptID, "attempt:"+workID+":2", 1, "supersede-count-1")
-	pin := correctionCountingJourney(t, s, workID, owner, worker, "attempt:"+workID+":2", "", 3, "supersede-count-2")
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != "attempt:"+workID+":2" {
-		t.Fatalf("correction before supersession = %#v, want the latest failed source", pin.Correction)
-	}
-
-	successor := json.RawMessage(`{"contract_version":2,"premise":"corrected predicate subject","outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:e3d7c6e6","expected_result":"pass"}}],"required_evidence":["verification"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","architecture_binding":{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]},"supersede_reason":"the pinned subject named an unrelated commit","audit_evidence":["evidence:issue1013"]}`)
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", successor, owner, operatorVerdictActor(t, workID)); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "supersede_contract", successor, 0, owner); err != nil {
 		t.Fatalf("supersede the contract across the correction sequence: %v", err)
 	}
 	var activeVersion int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeVersion); err != nil {
 		t.Fatal(err)
 	}
-	if activeVersion != 2 {
-		t.Fatalf("active contract version = %d, want 2", activeVersion)
+	if int64(activeVersion) != contract.Version+1 {
+		t.Fatalf("active contract version = %d, want %d", activeVersion, contract.Version+1)
 	}
 	pin = issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != "attempt:"+workID+":2" {
+	if !sameWorkflowCorrection(pin.Correction, &source) {
 		t.Fatalf("correction across supersession = %#v, want the same failed source", pin.Correction)
 	}
 
-	correctiveAttempt := "attempt:" + workID + ":3"
-	payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", correctiveAttempt, pin.Correction)
-	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
-		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: "supersede-count-3", OperationID: "supersede-count-3",
-		PrincipalRef: worker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "supersede-count-3", RequestID: "request:supersede-count-3", ContractDigest: testManifestDigest, Now: time.Unix(24, 0).UTC(),
-	}); err != nil {
+	fixture := workContextFixture{store: s, owner: owner, workID: workID}
+	job := *s2DispatchJobBinding(t, s, workID, source.FailedAttemptID)
+	recordWorkerJobRevisionForTest(t, s, workID, owner, &job)
+	correctiveAttempt := "attempt:" + workID + ":4"
+	if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, correctiveAttempt, job)); err != nil {
 		t.Fatalf("dispatch the corrective attempt under the successor contract: %v", err)
 	}
-	issue1013RecordWorkerDispatch(t, s, workID, correctiveAttempt)
-	version := readWorkVersion(t, s, workID)
-	failWorkerAttemptWithKind(t, s, workID, correctiveAttempt, "lane fallback blocked before the model ran")
-	applyRecordWorkerFailureForTest(t, s, workID, owner, correctiveAttempt, 5, version, "supersede-count-3-record")
+	if err := ApplyOperation(t.Context(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(workID, correctiveAttempt, laneForID(t), job)}}); err != nil {
+		t.Fatal(err)
+	}
+	epoch := reviewSubjectWindow(t, s, workID, correctiveAttempt).AttemptEpoch
+	s2WorkerFailedAttributedLive(t, s, workID, correctiveAttempt, "the host observed a failed corrective launch")
 	pin = issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != correctiveAttempt {
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != correctiveAttempt || pin.Correction.FailedAttemptEpoch != epoch || pin.Correction.SourceEventID == source.SourceEventID {
 		t.Fatalf("correction under the successor contract = %#v, want the new failed source", pin.Correction)
 	}
 	// The successor keeps the corrective dispatch route visible.
 	if !issue1013HasIntent(pin, "dispatch_worker") {
-		t.Fatalf("escalated correction under the successor hid dispatch_worker: %#v", pin.NextValidIntents)
+		t.Fatalf("correction under the successor hid dispatch_worker: %#v", pin.NextValidIntents)
 	}
 }
 

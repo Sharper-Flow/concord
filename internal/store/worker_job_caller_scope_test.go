@@ -142,6 +142,7 @@ func TestWorkerJobCallerExclusionsAboveTheCountBound(t *testing.T) {
 	if got := published(); !slices.Equal(got, wide) {
 		t.Fatalf("continuity exclusions at the bound = %v, want the failed correction's %d paths", got, len(wide))
 	}
+	oAcceptOracleFixtureReview(t, f, workID, "continue")
 	fail("job:extra", []string{"extra/one.go"})
 	_, err := workerJobCallerExclusionsTx(context.Background(), f.store.db, workID, ready.JobID)
 	var failure *Failure
@@ -293,6 +294,7 @@ func TestWorkerJobDeliveredPathContainmentAtAcceptance(t *testing.T) {
 		siblingAttempt := "attempt:" + sibling.JobID
 		dispatchChangeAcceptanceAttempt(t, f, workID, siblingAttempt, sibling)
 		s2WorkerFailedAttributedLive(t, f.store, workID, siblingAttempt, "lane fallback blocked before the model ran")
+		oAcceptOracleFixtureReview(t, f, workID, "continue")
 		job := recordJob(t, f, workID, "job:excluded", "owner", true)
 		attempt := deliver(t, f, workID, job, []string{"owner/value.go", "sibling/use.go"}, []WorkerDirectCallerRepair{repair("owner/value.go", "sibling/use.go")})
 		refused(t, f, workID, attempt, KindInvalidOperation, "repaired caller path sibling/use.go, which its dispatch excluded as another correction's recorded path")

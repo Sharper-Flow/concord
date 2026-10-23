@@ -31,10 +31,6 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestCompleteStepCorrectionSurvivesRebuildFromLog"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestCompleteStepCorrectionHistoricalSupersessionReplays"
     }
   ],
   "id": "CD-0172",

@@ -36,7 +36,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a74a60f4321642918c40647e593aa79e40f8d22e03e7e90f709f53150bc5b340",
+  "sha256": "sha256:75a9cd52cc70c809fffc3b1e7f9ec9f82b771cb056434a2e2e33c5f6a974d929",
   "status": "accepted",
   "summary": "The liveness, well-formed-exit, and conformance checks derive every condition workflowAdmit reads over the registered definitions, and the three strands they found recover: an advancing action with no active contract refuses at the contract step except approve_contract; the complete-step correction admits one or more active contracts so a duplicated projection recovers through the same shared gate; and the operator question opens for confirm_premise on any step that declares it, so frozen ops runbooks leave their internal-SQLite cleanup step. No definition version changes.",
   "tags": [

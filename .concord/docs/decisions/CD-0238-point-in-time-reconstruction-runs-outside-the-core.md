@@ -64,8 +64,6 @@ evidence.
 
 ## Verification
 
-- `internal/store.TestHistoricalJournalFixturesReplayWithOriginalPins` restores
-  each frozen journal at every recorded as-of sample, rebuilds the prefix, and
-  matches the recorded workflow instance state, step, and work lifecycle.
+- [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) retires frozen-journal replay in favor of verified snapshots and current-row reconciliation; `python3 scripts/check-knowledge-index.py` checks this record's registration, not historical reconstruction.
 - `internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions`
   runs the corpus with number 36 retired.

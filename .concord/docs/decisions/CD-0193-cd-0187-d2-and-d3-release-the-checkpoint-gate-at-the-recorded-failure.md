@@ -155,8 +155,9 @@ Scenario: The effect-step recovery route is unchanged
   CD-0143 D1 corrective return at the checkpoint, and the failure record
   never reads as an accepted delivery.
 - `go test ./internal/store/ -run
-  TestCheckpointUnspawnedDispatchKeepsTheFailedReviewHold` proves the second
-  scenario.
+  TestCheckpointUnspawnedDispatchKeepsTheReviewHold` proves the unused-window
+  hold on a completed, undispositioned Review under [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget);
+  a failed attempt derives its own failure record under CD-0198 D5.
 - `go test ./internal/store/ -run
   TestCheckpointRetryDispatchSupersedesTheFailedReview` proves the fourth
   scenario.

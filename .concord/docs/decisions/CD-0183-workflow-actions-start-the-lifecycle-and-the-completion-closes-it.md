@@ -108,8 +108,6 @@ items completable (CD-0094 D2). A `cancelled` target is unchanged. [CD-0242 D2](
   keeps its completed record.
 - `TestTerminalLifecycleRefusesCompletedWhileWorkflowLive` proves the D4
   refusal and its remedy.
-  `TestArchitectureSpikeCompletionFailsClosedBeforeDecisionWorkflow` and
-  `TestSpikeCompletionBindsToTheRecordedDecisionRecord` prove the
-  decision-record gate on the lifecycle path.
+- [CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum) retires the architecture-spike family's lifecycle decision-record witnesses in favor of implementation stages; `python3 scripts/check-knowledge-index.py` checks this record's registration, not that retired behavior.
 - `python3 scripts/check-migration-compatibility.py` classifies migration 107
   as non-breaking.

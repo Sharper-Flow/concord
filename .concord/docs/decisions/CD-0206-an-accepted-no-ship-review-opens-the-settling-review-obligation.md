@@ -117,6 +117,7 @@ Scenario: The first accepted negative review opens the obligation
   Then the acceptance opens the settling review obligation
   And the delivery gate refuses record_delivery and admits the corrective return
 
+# [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) and [D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) retire the historical delivery-gate witnesses; `python3 scripts/check-knowledge-index.py` checks this record's registration, not historical acceptance replay.
 Scenario: Historical negative review delivery retains correction
   Given a historical delivery gate after an accepted no_ship review
   And no coordinator rejection exists
@@ -128,15 +129,17 @@ Scenario: A stale pending review cannot bind
   When the coordinator accepts the older review
   Then the acceptance refuses with the fresh-review refusal
 
+# [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) and [D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) retire the historical delivery-gate witnesses; `python3 scripts/check-knowledge-index.py` checks this record's registration, not historical acceptance replay.
 Scenario: A settling review preserves ordinary delivery
   Given a historical delivery gate after an accepted ship or legacy review
   When the coordinator reads correction admission
   Then the negative-review corrective return is absent
 ```
 
-- `go test ./internal/store/ -run 'TestInitialNoShipReviewHoldsDeliveryBehindTheObligation|TestInitialNoShipHistoricalDeliveryKeepsTypedCorrection'` proves the first and second scenarios.
+- `go test ./internal/store/ -run TestBlockingReviewDispositionAcceptsWithoutAdvancing` proves Main accepts a blocking Review without advancing or admitting delivery under [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls).
+- [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) and [D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) retire the historical delivery-gate witnesses; `python3 scripts/check-knowledge-index.py` checks this record's registration, not historical acceptance replay.
 - `go test ./internal/store/ -run 'TestPendingNoShipReviewDoesNotOutliveAFreshSettlingShip|TestRenewedNoShipObligationCarriesItsOwnEvidence'` proves the third scenario and the renewal provenance.
-- `go test ./internal/store/ -run 'TestInitialSettlingReviewDoesNotOpenHistoricalDeliveryCorrection|TestAcceptedNonReviewReportDoesNotOpenReviewObligation'` proves the fourth scenario and the boundary refusals.
+- `go test ./internal/store/ -run TestReviewCurrentCandidateChangesOnlyOnMainAcceptance` proves an accepted non-Review assignment acquires no Review authority under [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls).
 - `python3 scripts/check-doc-contract.py` proves this record carries the current decision outline and passes the writing rules.
 - `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0206 identifier allocates once.
 - `TestOwnerOracleFinding` and `TestOwnerOracleRepairFamily` cover retained findings and receipts without converting follow-ups into repair obligations.

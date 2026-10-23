@@ -118,11 +118,7 @@ changes (CD-0242 D2, D14).
 - `TestRecordDeliveryExitsTheStepTheSessionExecuted` proves delivery advances
   the effect step into the gate and the gate into the verdict step, under the
   required payload.
-- `TestWorkflowDefinitionVersionPinsHold` and
-  `TestBuiltinDefinitionsCoverExactlyThePinnedVersions` prove every registered
-  definition version's digest matches its recorded pin and holds exactly one
-  pin; the implementing change binds the current-state anchor for definitions
-  generated from one source (CD-0242 D2, D14).
+- [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) retires retained-definition digest-pin witnesses: definitions derive from one canonical source without retained versions or in-flight pins.
 - `TestWorkflowReadParksDeliveryAtGate` proves the read projection parks one
   parked delivery for a gated item and carries its duration; the Product-row
   count retired with the row under CD-0224.

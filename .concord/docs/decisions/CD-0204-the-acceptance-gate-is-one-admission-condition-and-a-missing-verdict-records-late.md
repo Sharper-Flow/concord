@@ -124,7 +124,7 @@ Scenario: A premise-question step records missing criterion proof late
 ```
 
 - `go test ./internal/store/ -run 'TestPreflightRefusesConfirmationMissingMandatedDeliverables|TestWorkPinPublishesConfirmPremiseRequiredFields'` proves the first scenario.
-- `go test ./internal/store/ -run TestPreflightRefusesReviewDebtDeliveryTheExecutionRefuses` proves the second scenario.
+- `go test ./internal/store/ -run TestPreflightAndMutationRequireAcceptedReadyDisposition` proves preflight, mutation, and the work pin agree that delivery requires an accepted ready disposition under [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls).
 - `go test ./internal/store/ -run 'TestCriterionAssociationAtPremiseQuestionWithoutDeclaration|TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight|TestIssue933LateVerdictRecoveryHoldsStepAndRefusesHealthyReplacement'` proves the late route holds its step, agrees across preflight and mutation, and closes after the missing criteria have proof.
 - `python3 scripts/check-doc-contract.py --report-only` proves this record carries the current decision outline and passes the writing rules.
 - `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0204 identifier allocates once.

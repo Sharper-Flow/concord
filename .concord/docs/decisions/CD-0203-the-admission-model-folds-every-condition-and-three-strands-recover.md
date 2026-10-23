@@ -126,6 +126,7 @@ Scenario: A duplicated projection at the complete step recovers
   When the operator approves a supersession that names every active version
   Then the projection holds one active contract and the instance returns to repair
 
+# [CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum) and [D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) retire the frozen ops-runbook cleanup scenario and its witness; `TestCurrentDefinitionsHaveOneSourcePerLiveFamily` checks the current family set without archived definitions.
 Scenario: A frozen ops runbook leaves its cleanup step
   Given a version-4 ops runbook item at cleanup with a verdict and an investigation artifact
   When the work pin is read
@@ -140,7 +141,8 @@ Scenario: Every registered definition stays live under the full model
 
 - `go test ./internal/store/ -run TestContractStepAdvancesOnlyThroughItsApproval` proves the first scenario.
 - `go test ./internal/store/ -run TestCompleteStepCorrectionRecoversDuplicateProjection` proves the second scenario.
-- `go test ./internal/store/ -run 'TestFrozenOpsRunbookCleanupOpensThePremiseQuestion|TestRegisteredStepsAdmitTheirApprovalRequiredActions|TestRegisteredNonTerminalStepsCanAdvance'` proves the third scenario.
+- [CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum) and [D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) retire the frozen ops-runbook cleanup scenario and its witness; `TestCurrentDefinitionsHaveOneSourcePerLiveFamily` checks the current family set without archived definitions.
+- `go test ./internal/store/ -run 'TestRegisteredStepsAdmitTheirApprovalRequiredActions|TestRegisteredNonTerminalStepsCanAdvance'` checks approval-required actions and advancing exits across the registered current definitions.
 - `go test ./internal/store/ -run 'TestWellFormedAdmissionStateHasNonContinuityExit|TestReachableAdmissionStateReachesTerminal|TestAdmissionConformanceLocalJobAcceptHolds|TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition'` proves the fourth scenario over current definitions and Review admission.
 - `python3 scripts/check-doc-contract.py --report-only` proves this record carries the current decision outline and passes the writing rules.
 - `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0203 identifier allocates once.

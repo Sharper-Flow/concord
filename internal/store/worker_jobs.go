@@ -629,7 +629,7 @@ func dispatchConsumedChecksRepairReviewTx(ctx context.Context, q queryer, workID
 // so a later job's prerequisite pins resolve through that real recorded
 // acceptance while the repair stands unconfirmed or confirmed. The
 // correction walk keeps the named obligations unresolved until the
-// confirming review's accepted ship verdict, so this readiness resolution
+// confirming Review's accepted continuation or readiness, so this resolution
 // never clears correction debt. It is a no-op for a non-repair revision.
 func markWorkerJobRepairReadinessTx(ctx context.Context, tx *sql.Tx, event Event, binding *WorkerJobBinding) error {
 	if binding == nil {
@@ -645,7 +645,7 @@ func markWorkerJobRepairReadinessTx(ctx context.Context, tx *sql.Tx, event Event
 	}
 	// Only the acceptance that opens the repair grants readiness: a later
 	// acceptance bound to the repairing revision, such as the voiding
-	// no_ship review's, never restores it (CD-0205 D4).
+	// blocking Review's, never restores it (CD-0205 D4).
 	history, err := workerChecksRepairWalkTx(ctx, tx, event.SubjectID, event.Seq-1)
 	if err != nil {
 		return err
@@ -673,7 +673,7 @@ func markWorkerJobRepairReadinessTx(ctx context.Context, tx *sql.Tx, event Event
 // revertWorkerJobRepairReadinessTx voids one repair's provisional readiness:
 // the named revisions lose the satisfaction the repairing acceptance gave
 // them when the confirming review fails, is abandoned, is rejected, or
-// completes no_ship, or when a contract supersession voids the repair. The
+// is accepted with a blocking disposition, or a supersession voids it. The
 // satisfied-reference comparison keeps a named revision some later real
 // acceptance satisfied exactly where it stands.
 func revertWorkerJobRepairReadinessTx(ctx context.Context, tx *sql.Tx, workID string, binding WorkerJobBinding) error {
@@ -728,8 +728,20 @@ func markAcceptedWorkerJobTx(ctx context.Context, tx *sql.Tx, event Event, p wor
 		return nil
 	}
 	confirming, err := dispatchConsumedChecksRepairReviewTx(ctx, tx, event.SubjectID, p.WorkerAttemptID, *p.WorkerJob)
-	if err != nil || confirming {
+	if err != nil {
 		return err
+	}
+	if confirming {
+		// The history owns the accepted Review decision. Apply its void to
+		// readiness without reclassifying the report or replacing satisfaction.
+		history, err := workerChecksRepairWalkTx(ctx, tx, event.SubjectID, event.Seq)
+		if err != nil {
+			return err
+		}
+		if repair := history.confirmingAttemptOf(p.WorkerAttemptID); repair != nil && repair.voided {
+			return revertWorkerJobRepairReadinessTx(ctx, tx, event.SubjectID, *p.WorkerJob)
+		}
+		return nil
 	}
 	if err := markWorkerJobSatisfiedTx(ctx, tx, event, p.WorkerJob); err != nil {
 		return err

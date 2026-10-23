@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -288,17 +289,17 @@ func TestChecksRepairSatisfiesNamedRevisionsAndAdmitsOneConfirmingReview(t *test
 		t.Fatal("an authoring dispatch of the satisfied repairing revision was admitted")
 	}
 
-	// Only acceptance of the confirming review's ship verdict confirms the
+	// Only acceptance of the confirming Review's readiness confirms the
 	// repair and satisfies the named revisions' failed obligations. The
-	// review's own completed ship report leaves the repair unconfirmed, and
+	// Review's own completed report leaves the repair unconfirmed, and
 	// nothing dispatches in between: a second review dispatch refuses before
 	// the verdict lands.
-	completeChecksRepairReviewWithVerdict(t, s, workID, reviewAttempt, "ship")
+	completeChecksRepairReviewWithVerdict(t, s, workID, reviewAttempt, "ready_for_final_proof")
 	if candidates, err := workerChecksRepairAwaitingReviewTx(ctx, s.DatabaseForTesting(), workID); err != nil || len(candidates) != 0 {
-		t.Fatalf("candidates behind the unaccepted ship report = (%#v, %v), want none: the one confirming review already dispatched", candidates, err)
+		t.Fatalf("candidates behind the unaccepted ready report = (%#v, %v), want none: the one confirming review already dispatched", candidates, err)
 	}
 	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": reviewAttempt, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor); err != nil {
-		t.Fatalf("accept the confirming review's ship verdict: %v", err)
+		t.Fatalf("accept the confirming Review's readiness: %v", err)
 	}
 	var confirmedRef string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT satisfied_result_ref FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, workID, jobID, rev3View.Binding.Revision).Scan(&confirmedRef); err != nil || confirmedRef != acceptedRef {
@@ -340,7 +341,8 @@ func dispatchConfirmingReview(t *testing.T, s *Store, workID, attemptID string, 
 	t.Helper()
 	lane := reviewGateLane(t, "review")
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(t, s, workID, "repair", attemptID, "review", laneVersion, laneDigest)
+	step := currentStep(t, s, workID)
+	packet := joinPacketFor(t, s, workID, step, attemptID, "review", laneVersion, laneDigest)
 	packet["schema_version"] = WorkerPacketSchemaVersion
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "review")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, workID)
@@ -356,7 +358,7 @@ func dispatchConfirmingReview(t *testing.T, s *Store, workID, attemptID string, 
 	// The open correction window is part of the packet's truth: the
 	// confirming review consumes the same current correction context any
 	// dispatch at this step consumes.
-	if correction, correctionErr := workflowCorrectionContextForDispatch(context.Background(), s.DatabaseForTesting(), workID, "repair", attemptID); correctionErr != nil {
+	if correction, correctionErr := workflowCorrectionContextForDispatch(context.Background(), s.DatabaseForTesting(), workID, step, attemptID); correctionErr != nil {
 		return correctionErr
 	} else if correction != nil {
 		packet["inputs"].(map[string]any)["correction"] = correction
@@ -529,168 +531,195 @@ func TestWorkerJobChecksRepairFoldVerifiesDerivedMetadata(t *testing.T) {
 	}
 }
 
-// A confirming review whose verdict is no_ship voids the repair: the named
+// Acceptance of a blocking confirming Review voids the repair: the named
 // revisions become unresolved again, the old and new checks stay on record,
 // and the voided repair cannot admit another confirming review (CD-0205 D4).
 func TestChecksRepairNoShipReviewVoidsRepair(t *testing.T) {
-	const workID = "checks-repair-no-ship-void"
-	const jobID = "job:checks-repair-void"
-	fixture := seedChecksRepairFixture(t, workID, "repair")
-	s := fixture.store
-	defer s.Close()
-	ctx := context.Background()
-	reviewSubjectClaim(t, s, workID)
-	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/checks-repair-void-worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	acceptor := reviewGateAcceptor(workID)
+	for _, disposition := range []string{"correction_required", "revision_required"} {
+		t.Run(disposition, func(t *testing.T) {
+			const workID = "checks-repair-no-ship-void"
+			const jobID = "job:checks-repair-void"
+			fixture := seedChecksRepairFixture(t, workID, "repair")
+			s := fixture.store
+			defer s.Close()
+			ctx := context.Background()
+			reviewSubjectClaim(t, s, workID)
+			worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/checks-repair-void-worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+			acceptor := reviewGateAcceptor(workID)
 
-	job := &WorkerJobBinding{JobID: jobID, Revision: 1}
-	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, map[string]any{
-		"job_id": jobID, "objective": "Corrective bounded objective for the checks-repair-void job",
-		"stopping_condition": "the recorded checks pass with no unresolved reference", "path_scope": []string{"internal/store"},
-		"checks": []string{"concord check --void-original --exit-code=never"}, "reserved_integration": "integration evidence binds at the parent effect step",
-		"ready": true, "readiness_evidence": []string{"evidence:checks-repair-void-ready"},
-	}); err != nil {
-		t.Fatalf("record the original revision: %v", err)
-	}
-	if latest := checksRepairLatestBinding(t, s, workID, jobID); latest != nil {
-		*job = *latest
-	}
-	attempt1 := "attempt:" + workID + ":1"
-	dispatchJobBoundAttempt(t, s, workID, "repair", attempt1, nil, worker, 0, "checks-repair-void-1", job)
-	s2WorkerFailedAttributedLive(t, s, workID, attempt1, "the recorded check names a command no admitted lane can execute")
+			job := &WorkerJobBinding{JobID: jobID, Revision: 1}
+			if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, map[string]any{
+				"job_id": jobID, "objective": "Corrective bounded objective for the checks-repair-void job",
+				"stopping_condition": "the recorded checks pass with no unresolved reference", "path_scope": []string{"internal/store"},
+				"checks": []string{"concord check --void-original --exit-code=never"}, "reserved_integration": "integration evidence binds at the parent effect step",
+				"ready": true, "readiness_evidence": []string{"evidence:checks-repair-void-ready"},
+			}); err != nil {
+				t.Fatalf("record the original revision: %v", err)
+			}
+			if latest := checksRepairLatestBinding(t, s, workID, jobID); latest != nil {
+				*job = *latest
+			}
+			attempt1 := "attempt:" + workID + ":1"
+			dispatchJobBoundAttempt(t, s, workID, "repair", attempt1, nil, worker, 0, "checks-repair-void-1", job)
+			s2WorkerFailedAttributedLive(t, s, workID, attempt1, "the recorded check names a command no admitted lane can execute")
 
-	repairFields := map[string]any{
-		"job_id": jobID, "objective": "Corrective bounded objective for the checks-repair-void job",
-		"stopping_condition": "the recorded checks pass with no unresolved reference", "path_scope": []string{"internal/store"},
-		"checks": []string{"go test ./internal/store/ -run TestChecksRepairVoid"}, "reserved_integration": "integration evidence binds at the parent effect step",
-		"ready": true, "readiness_evidence": []string{"evidence:checks-repair-void-ready"},
-		"repair_revisions": []int64{1}, "repair_reason": "the named revision's checks invoked a command no admitted lane can execute or decide as written",
-	}
-	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, repairFields); err != nil {
-		t.Fatalf("record the repair: %v", err)
-	}
-	repairing := checksRepairLatestBinding(t, s, workID, jobID)
-	if repairing == nil {
-		t.Fatal("the repairing revision is not recorded")
-	}
-	pin := issue1013Pin(t, s, workID)
-	issue1013StartRepair(t, s, workID, fixture.owner, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
-	pin = issue1013Pin(t, s, workID)
-	attempt2 := "attempt:" + workID + ":2"
-	dispatchJobBoundAttempt(t, s, workID, "repair", attempt2, pin.Correction, worker, pin.Version, "checks-repair-void-2", repairing)
-	completeChecksRepairAttemptObserved(t, s, workID, attempt2, "checks-repair-completed-"+attempt2)
-	acceptChecksRepairAttempt(t, s, workID, attempt2, acceptor)
+			repairFields := map[string]any{
+				"job_id": jobID, "objective": "Corrective bounded objective for the checks-repair-void job",
+				"stopping_condition": "the recorded checks pass with no unresolved reference", "path_scope": []string{"internal/store"},
+				"checks": []string{"go test ./internal/store/ -run TestChecksRepairVoid"}, "reserved_integration": "integration evidence binds at the parent effect step",
+				"ready": true, "readiness_evidence": []string{"evidence:checks-repair-void-ready"},
+				"repair_revisions": []int64{1}, "repair_reason": "the named revision's checks invoked a command no admitted lane can execute or decide as written",
+			}
+			if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, repairFields); err != nil {
+				t.Fatalf("record the repair: %v", err)
+			}
+			repairing := checksRepairLatestBinding(t, s, workID, jobID)
+			if repairing == nil {
+				t.Fatal("the repairing revision is not recorded")
+			}
+			pin := issue1013Pin(t, s, workID)
+			issue1013StartRepair(t, s, workID, fixture.owner, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
+			pin = issue1013Pin(t, s, workID)
+			attempt2 := "attempt:" + workID + ":2"
+			dispatchJobBoundAttempt(t, s, workID, "repair", attempt2, pin.Correction, worker, pin.Version, "checks-repair-void-2", repairing)
+			completeChecksRepairAttemptObserved(t, s, workID, attempt2, "checks-repair-completed-"+attempt2)
+			acceptChecksRepairAttempt(t, s, workID, attempt2, acceptor)
 
-	// The confirming review dispatches once; its completed no_ship
-	// report voids the repair at the verdict, and its acceptance only binds
-	// the findings. The named revision loses its provisional readiness.
-	reviewAttempt := "attempt:" + workID + ":review-void"
-	if err := dispatchConfirmingReview(t, s, workID, reviewAttempt, repairing, fixture.owner); err != nil {
-		t.Fatalf("the confirming review dispatch refused: %v", err)
-	}
-	assertChecksRepairReviewMarker(t, s, workID, reviewAttempt, *repairing)
-	completeChecksRepairReviewWithVerdict(t, s, workID, reviewAttempt, "no_ship")
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": reviewAttempt, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor); err != nil {
-		t.Fatalf("accept the no_ship review: %v", err)
-	}
-	if state := checksRepairRevisionView(t, s, workID, *job).State; state != "recorded" {
-		t.Fatalf("accepting the voiding review restored the named revision to %q", state)
-	}
+			// The confirming Review dispatches once. Main's acceptance of its
+			// blocking disposition voids the repair and its provisional readiness.
+			reviewAttempt := "attempt:" + workID + ":review-void"
+			if err := dispatchConfirmingReview(t, s, workID, reviewAttempt, repairing, fixture.owner); err != nil {
+				t.Fatalf("the confirming review dispatch refused: %v", err)
+			}
+			assertChecksRepairReviewMarker(t, s, workID, reviewAttempt, *repairing)
+			completeChecksRepairReviewWithVerdict(t, s, workID, reviewAttempt, disposition)
+			if state := checksRepairRevisionView(t, s, workID, *job).State; state != "satisfied" {
+				t.Fatalf("unaccepted Review changed provisional satisfaction to %q", state)
+			}
+			watermark, err := workerChecksRepairWatermarkTx(ctx, s.db, workID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			history, err := workerChecksRepairWalkTx(ctx, s.db, workID, watermark)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if repair := history.confirmingAttemptOf(reviewAttempt); repair == nil || repair.voided || repair.confirmed {
+				t.Fatalf("unaccepted Review decided the repair: %+v", repair)
+			}
+			if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": reviewAttempt, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor); err != nil {
+				t.Fatalf("accept the blocking Review: %v", err)
+			}
+			if state := checksRepairRevisionView(t, s, workID, *job).State; state != "recorded" {
+				t.Fatalf("accepting the voiding review restored the named revision to %q", state)
+			}
+			if disposition == "revision_required" {
+				if err := RebuildFromLog(ctx, s); err != nil {
+					t.Fatal(err)
+				}
+				if state := checksRepairRevisionView(t, s, workID, *job).State; state != "recorded" {
+					t.Fatalf("rebuild restored a revision-required repair to %q", state)
+				}
+				return
+			}
+			checksRepairRequestCorrection(t, s, workID, acceptor)
 
-	// The named revision is unresolved again and the window is open: the
-	// voided repair admits no replacement review. Rebuild folds the
-	// same voided state.
-	anchor, anchorErr := workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "repair", "")
-	if anchorErr != nil || anchor == nil {
-		t.Fatalf("correction anchor after the voiding review = (%#v, %v), want the open window restored", anchor, anchorErr)
-	}
-	if candidates, err := workerChecksRepairAwaitingReviewTx(ctx, s.DatabaseForTesting(), workID); err != nil || len(candidates) != 0 {
-		t.Fatalf("candidates after the voiding review = (%#v, %v), want none", candidates, err)
-	}
-	// The no_ship review's own failure lands on the repairing revision.
-	// Re-recording that obligation admits recovery under ordinary dispatch.
-	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, func() map[string]any {
-		fields := repairFields
-		delete(fields, "repair_revisions")
-		delete(fields, "repair_reason")
-		return fields
-	}()); err != nil {
-		t.Fatalf("record the repairing revision's own obligation: %v", err)
-	}
-	own := checksRepairLatestBinding(t, s, workID, jobID)
-	if own == nil {
-		t.Fatal("the repairing revision's own obligation is not recorded")
-	}
-	pin = issue1013Pin(t, s, workID)
-	issue1013StartRepair(t, s, workID, fixture.owner, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
-	pin = issue1013Pin(t, s, workID)
-	ownAttempt := "attempt:" + workID + ":own"
-	ownPacket := dispatchWorkerPacket(t, s, workID, "repair", ownAttempt)
-	ownPacket["schema_version"] = WorkerPacketSchemaVersion
-	ownPacket["inputs"].(map[string]any)["correction"] = pin.Correction
-	ownPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *own, "implement")
-	if err := dispatchJobPacketForTest(t, s, workID, ownAttempt, worker, "checks-repair-void-own", ownPacket); err != nil {
-		t.Fatalf("the own-obligation recovery dispatch refused: %v", err)
-	}
-	recordJobBoundWorkerDispatch(t, s, workID, ownAttempt, own)
-	s2WorkerFailedAttributedLive(t, s, workID, ownAttempt, "the re-recorded obligation still failed")
+			// The named revision is unresolved again and the window is open: the
+			// voided repair admits no replacement review. Rebuild folds the
+			// same voided state.
+			anchor, anchorErr := workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "repair", "")
+			if anchorErr != nil || anchor == nil {
+				t.Fatalf("correction anchor after the voiding review = (%#v, %v), want the open window restored", anchor, anchorErr)
+			}
+			if candidates, err := workerChecksRepairAwaitingReviewTx(ctx, s.DatabaseForTesting(), workID); err != nil || len(candidates) != 0 {
+				t.Fatalf("candidates after the voiding review = (%#v, %v), want none", candidates, err)
+			}
+			// The blocking Review's own failure lands on the repairing revision.
+			// Re-recording that obligation admits recovery under ordinary dispatch.
+			if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, func() map[string]any {
+				fields := repairFields
+				delete(fields, "repair_revisions")
+				delete(fields, "repair_reason")
+				return fields
+			}()); err != nil {
+				t.Fatalf("record the repairing revision's own obligation: %v", err)
+			}
+			own := checksRepairLatestBinding(t, s, workID, jobID)
+			if own == nil {
+				t.Fatal("the repairing revision's own obligation is not recorded")
+			}
+			pin = issue1013Pin(t, s, workID)
+			issue1013StartRepair(t, s, workID, fixture.owner, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
+			pin = issue1013Pin(t, s, workID)
+			ownAttempt := "attempt:" + workID + ":own"
+			ownPacket := dispatchWorkerPacket(t, s, workID, "repair", ownAttempt)
+			ownPacket["schema_version"] = WorkerPacketSchemaVersion
+			ownPacket["inputs"].(map[string]any)["correction"] = pin.Correction
+			ownPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *own, "implement")
+			if err := dispatchJobPacketForTest(t, s, workID, ownAttempt, worker, "checks-repair-void-own", ownPacket); err != nil {
+				t.Fatalf("the own-obligation recovery dispatch refused: %v", err)
+			}
+			recordJobBoundWorkerDispatch(t, s, workID, ownAttempt, own)
+			s2WorkerFailedAttributedLive(t, s, workID, ownAttempt, "the re-recorded obligation still failed")
 
-	// The operator supersedes the contract. The successor carries the job
-	// forward, so recovery re-records the obligation under the active contract
-	// and its acceptance discharges the repairing revision's debt.
-	checksRepairSupersedeContract(t, s, workID)
-	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, func() map[string]any {
-		fields := repairFields
-		delete(fields, "repair_revisions")
-		delete(fields, "repair_reason")
-		return fields
-	}()); err != nil {
-		t.Fatalf("record the recovery revision under the successor contract: %v", err)
-	}
-	recovered := checksRepairLatestBinding(t, s, workID, jobID)
-	if recovered == nil {
-		t.Fatal("the recovery revision is not recorded")
-	}
-	if got := checksRepairRevisionView(t, s, workID, *recovered).ContractVersion; got != 2 {
-		t.Fatalf("recovery revision contract = %d, want the successor's 2", got)
-	}
-	pin = issue1013Pin(t, s, workID)
-	issue1013StartRepair(t, s, workID, fixture.owner, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
-	pin = issue1013Pin(t, s, workID)
-	recoveryAttempt := "attempt:" + workID + ":recovery"
-	recoveryPacket := dispatchWorkerPacket(t, s, workID, "repair", recoveryAttempt)
-	recoveryPacket["schema_version"] = WorkerPacketSchemaVersion
-	recoveryPacket["inputs"].(map[string]any)["correction"] = pin.Correction
-	recoveryPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *recovered, "implement")
-	if err := dispatchJobPacketForTest(t, s, workID, recoveryAttempt, worker, "checks-repair-void-recovery", recoveryPacket); err != nil {
-		t.Fatalf("the successor-contract recovery dispatch refused: %v", err)
-	}
-	recordJobBoundWorkerDispatch(t, s, workID, recoveryAttempt, recovered)
-	completeAndAcceptAttempt(t, s, workID, recoveryAttempt, reviewGateLane(t, "implementation"), acceptor)
-	// Satisfying the revision admits no second authoring dispatch.
-	secondPacket := dispatchWorkerPacket(t, s, workID, "repair", "attempt:"+workID+":recovery-2")
-	secondPacket["schema_version"] = WorkerPacketSchemaVersion
-	secondPacket["inputs"].(map[string]any)["correction"] = pin.Correction
-	secondPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *recovered, "implement")
-	if err := dispatchJobPacketForTest(t, s, workID, "attempt:"+workID+":recovery-2", worker, "checks-repair-void-recovery-2", secondPacket); err == nil || !strings.Contains(err.Error(), "selected worker-job revision is not ready") {
-		t.Fatalf("second authoring dispatch = %v, want the satisfied revision's readiness refusal", err)
-	}
+			// The operator supersedes the contract. The successor carries the job
+			// forward, so recovery re-records the obligation under the active contract
+			// and its acceptance discharges the repairing revision's debt.
+			checksRepairSupersedeContract(t, s, workID)
+			if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, func() map[string]any {
+				fields := repairFields
+				delete(fields, "repair_revisions")
+				delete(fields, "repair_reason")
+				return fields
+			}()); err != nil {
+				t.Fatalf("record the recovery revision under the successor contract: %v", err)
+			}
+			recovered := checksRepairLatestBinding(t, s, workID, jobID)
+			if recovered == nil {
+				t.Fatal("the recovery revision is not recorded")
+			}
+			if got := checksRepairRevisionView(t, s, workID, *recovered).ContractVersion; got != 2 {
+				t.Fatalf("recovery revision contract = %d, want the successor's 2", got)
+			}
+			pin = issue1013Pin(t, s, workID)
+			issue1013StartRepair(t, s, workID, fixture.owner, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
+			pin = issue1013Pin(t, s, workID)
+			recoveryAttempt := "attempt:" + workID + ":recovery"
+			recoveryPacket := dispatchWorkerPacket(t, s, workID, "repair", recoveryAttempt)
+			recoveryPacket["schema_version"] = WorkerPacketSchemaVersion
+			recoveryPacket["inputs"].(map[string]any)["correction"] = pin.Correction
+			recoveryPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *recovered, "implement")
+			if err := dispatchJobPacketForTest(t, s, workID, recoveryAttempt, worker, "checks-repair-void-recovery", recoveryPacket); err != nil {
+				t.Fatalf("the successor-contract recovery dispatch refused: %v", err)
+			}
+			recordJobBoundWorkerDispatch(t, s, workID, recoveryAttempt, recovered)
+			completeAndAcceptAttempt(t, s, workID, recoveryAttempt, reviewGateLane(t, "implementation"), acceptor)
+			// Satisfying the revision admits no second authoring dispatch.
+			secondPacket := dispatchWorkerPacket(t, s, workID, "repair", "attempt:"+workID+":recovery-2")
+			secondPacket["schema_version"] = WorkerPacketSchemaVersion
+			secondPacket["inputs"].(map[string]any)["correction"] = pin.Correction
+			secondPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *recovered, "implement")
+			if err := dispatchJobPacketForTest(t, s, workID, "attempt:"+workID+":recovery-2", worker, "checks-repair-void-recovery-2", secondPacket); err == nil || !strings.Contains(err.Error(), "selected worker-job revision is not ready") {
+				t.Fatalf("second authoring dispatch = %v, want the satisfied revision's readiness refusal", err)
+			}
 
-	// Rebuild folds the same voided state and the same open window from the
-	// log alone.
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild after the void: %v", err)
-	}
-	if candidates, err := workerChecksRepairAwaitingReviewTx(ctx, s.DatabaseForTesting(), workID); err != nil || len(candidates) != 0 {
-		t.Fatalf("candidates after the rebuild = (%#v, %v), want the same voided state", candidates, err)
-	}
-	anchor, anchorErr = workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "repair", "")
-	if anchorErr != nil || anchor == nil {
-		t.Fatalf("rebuilt correction anchor = (%#v, %v), want the open window", anchor, anchorErr)
+			// Rebuild folds the same voided state and the same open window from the
+			// log alone.
+			if err := RebuildFromLog(ctx, s); err != nil {
+				t.Fatalf("rebuild after the void: %v", err)
+			}
+			if candidates, err := workerChecksRepairAwaitingReviewTx(ctx, s.DatabaseForTesting(), workID); err != nil || len(candidates) != 0 {
+				t.Fatalf("candidates after the rebuild = (%#v, %v), want the same voided state", candidates, err)
+			}
+			anchor, anchorErr = workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "repair", "")
+			if anchorErr != nil || anchor == nil {
+				t.Fatalf("rebuilt correction anchor = (%#v, %v), want the open window", anchor, anchorErr)
+			}
+		})
 	}
 }
 
-// A contract supersession before the ship verdict is accepted voids an
+// A contract supersession before the confirming Review is accepted voids an
 // unconfirmed repair: the named revisions lose their provisional readiness,
 // the review is no longer a candidate, and no repair under the active contract
 // can name those revisions (CD-0205 D4).
@@ -746,7 +775,7 @@ func TestChecksRepairSupersessionVoidsUnconfirmedRepair(t *testing.T) {
 		t.Fatalf("candidates behind the unconfirmed repair = (%#v, %v), want the exact repairing binding", candidates, err)
 	}
 
-	// The operator supersedes the contract before any ship verdict: the
+	// The operator supersedes the contract before a confirming acceptance: the
 	// supersession voids the unconfirmed repair, the named revision loses its
 	// provisional readiness, and no confirming review remains available.
 	checksRepairSupersedeContract(t, s, workID)
@@ -850,8 +879,8 @@ func checksRepairAttemptLane(t *testing.T, s *Store, workID, attemptID string) L
 }
 
 // completeChecksRepairReviewWithVerdict completes a dispatched review attempt
-// with the named verdict. A ship report carries the review block alone; a
-// no_ship report binds one classified delivery blocker beside its unavailable
+// with the named disposition. Readiness carries the Review block alone; a
+// corrective report binds one classified delivery blocker beside its unavailable
 // receipt, the shape an oracle-bound review of the repairing revision owes.
 func completeChecksRepairReviewWithVerdict(t *testing.T, s *Store, workID, attemptID, verdict string) {
 	t.Helper()
@@ -860,11 +889,13 @@ func completeChecksRepairReviewWithVerdict(t *testing.T, s *Store, workID, attem
 	if err != nil {
 		t.Fatal(err)
 	}
-	review := &WorkerReviewBlock{Disposition: verdict, Findings: []WorkerReviewFinding{}}
+	review := currentReviewBlockForTest(t, s, workID, attemptID, verdict)
 	project := ""
-	if verdict == "no_ship" {
+	if verdict == "correction_required" {
 		project = checksRepairRevisionView(t, s, workID, *dispatched).ProjectScope
 		review.Findings = []WorkerReviewFinding{{
+			FindingID: "finding:checks-repair", InScope: true, Blocking: true, Status: "open",
+			EvidenceRefs: []string{"evidence:checks-repair-review"}, ClosureRefs: []string{},
 			Severity: "P1", Confidence: "high",
 			Detail: "the repaired checks still cannot be executed or decided as written",
 			Oracle: &WorkerOracleFinding{
@@ -875,8 +906,11 @@ func completeChecksRepairReviewWithVerdict(t *testing.T, s *Store, workID, attem
 		}}
 	}
 	event := checksRepairReviewCompletion(t, s, workID, attemptID, lane, dispatched, review, project)
-	ctx := prepareWorkerTerminalDelivery(t, s, workID, attemptID, event.EventID)
-	workerTerminalEventThroughSeamCtx(t, ctx, s, event)
+	prepared, err := PrepareWorkerTerminalDelivery(t.Context(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attemptID, EventID: event.EventID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(t.Context(), prepared), s, event)
 }
 
 func checksRepairReviewCompletion(t *testing.T, s *Store, workID, attemptID string, lane LaneDefinition, dispatched *WorkerJobBinding, review *WorkerReviewBlock, project string) Event {
@@ -906,6 +940,25 @@ func fixtureRepairPredicateIDs(t *testing.T, s *Store, workID string) []string {
 	return views[len(views)-1].AcceptanceOracle.Owners[0].PredicateIDs
 }
 
+func checksRepairRequestCorrection(t *testing.T, s *Store, workID string, actor WorkflowActor) {
+	t.Helper()
+	blocked := issue1013Pin(t, s, workID)
+	reportRef := blocked.Review.Accepted.ReportRef
+	lineage, err := readWorkerOracleFindingLineageTx(t.Context(), s.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "review", "evidence_ref": reportRef}), 0, actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "request_correction", mustJSONValue(map[string]any{
+		"predicate_ids": fixtureRepairPredicateIDs(t, s, workID), "evidence_refs": []string{reportRef}, "open_finding_ids": lineage.openFindingIDs(),
+		"diagnosis": "The accepted Review finds the repairing checks cannot run.", "strategy": "Re-record and repair the unresolved obligation.",
+	}), 0, actor); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // checksRepairLatestBinding returns the latest recorded binding of one job.
 func checksRepairLatestBinding(t *testing.T, s *Store, workID, jobID string) *WorkerJobBinding {
 	t.Helper()
@@ -921,23 +974,6 @@ func checksRepairLatestBinding(t *testing.T, s *Store, workID, jobID string) *Wo
 		}
 	}
 	return latest
-}
-
-// A released pin without the repair declaration refuses the authoring fields
-// before any effect (CD-0115, CD-0205 D6): the repair travels only with the
-// definition versions that declare it.
-func TestChecksRepairAuthoringRefusedOnReleasedPin(t *testing.T) {
-	const workID = "checks-repair-released-pin"
-	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 30, "repair")
-	s := fixture.store
-	defer s.Close()
-	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, map[string]any{
-		"job_id": "job:released-pin", "objective": "bounded objective", "stopping_condition": "the recorded checks pass",
-		"checks": []string{"go test ./internal/store/"}, "ready": true, "readiness_evidence": []string{"evidence:released-pin"},
-		"repair_revisions": []int64{1}, "repair_reason": "the named revision's checks cannot run",
-	}); err == nil || !strings.Contains(err.Error(), "is not declared for action") {
-		t.Fatalf("repair authoring on a released pin = %v, want the undeclared-field refusal", err)
-	}
 }
 
 // checksRepairSupersedeContract supersedes the active contract through the
@@ -988,13 +1024,6 @@ func TestChecksRepairConfirmingAcceptanceKeepsUnrelatedJobDebt(t *testing.T) {
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/checks-repair-debt-worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	acceptor := reviewGateAcceptor(workID)
 
-	// The unrelated job fails and stays unresolved beside the whole flow.
-	unrelated := &WorkerJobBinding{JobID: "job:unrelated-debt", Revision: 1}
-	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, unrelated)
-	unrelatedAttempt := "attempt:" + workID + ":unrelated"
-	dispatchJobBoundAttempt(t, s, workID, "repair", unrelatedAttempt, nil, worker, 0, "checks-repair-debt-unrelated", unrelated)
-	s2WorkerFailedAttributedLive(t, s, workID, unrelatedAttempt, "the unrelated job's check cannot run")
-
 	job := &WorkerJobBinding{JobID: jobID, Revision: 1}
 	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, map[string]any{
 		"job_id": jobID, "objective": "Corrective bounded objective for the checks-repair-debt job",
@@ -1008,10 +1037,7 @@ func TestChecksRepairConfirmingAcceptanceKeepsUnrelatedJobDebt(t *testing.T) {
 		*job = *latest
 	}
 	attempt1 := "attempt:" + workID + ":1"
-	unrelatedPin := issue1013Pin(t, s, workID)
-	issue1013StartRepair(t, s, workID, fixture.owner, unrelatedPin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
-	unrelatedPin = issue1013Pin(t, s, workID)
-	dispatchJobBoundAttempt(t, s, workID, "repair", attempt1, unrelatedPin.Correction, worker, unrelatedPin.Version, "checks-repair-debt-1", job)
+	dispatchJobBoundAttempt(t, s, workID, "repair", attempt1, nil, worker, 0, "checks-repair-debt-1", job)
 	s2WorkerFailedAttributedLive(t, s, workID, attempt1, "the recorded check names a command no admitted lane can execute")
 
 	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, map[string]any{
@@ -1035,13 +1061,24 @@ func TestChecksRepairConfirmingAcceptanceKeepsUnrelatedJobDebt(t *testing.T) {
 	completeChecksRepairAttemptObserved(t, s, workID, attempt2, "checks-repair-completed-"+attempt2)
 	acceptChecksRepairAttempt(t, s, workID, attempt2, acceptor)
 
+	// A separate Review assignment can inspect the integrated candidate while
+	// the checks repair awaits confirmation. Its failed obligation must not be
+	// discharged by the repairing assignment's confirming acceptance.
+	unrelated := &WorkerJobBinding{JobID: "job:unrelated-debt", Revision: 1}
+	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, unrelated)
+	unrelatedAttempt := "attempt:" + workID + ":unrelated"
+	if err := dispatchConfirmingReview(t, s, workID, unrelatedAttempt, unrelated, fixture.owner); err != nil {
+		t.Fatal(err)
+	}
+	s2WorkerFailedAttributedLive(t, s, workID, unrelatedAttempt, "the unrelated job's check cannot run")
+
 	reviewAttempt := "attempt:" + workID + ":review-debt"
 	if err := dispatchConfirmingReview(t, s, workID, reviewAttempt, repairing, fixture.owner); err != nil {
 		t.Fatalf("the confirming review dispatch refused: %v", err)
 	}
-	completeChecksRepairReviewWithVerdict(t, s, workID, reviewAttempt, "ship")
+	completeChecksRepairReviewWithVerdict(t, s, workID, reviewAttempt, "continue")
 	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": reviewAttempt, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor); err != nil {
-		t.Fatalf("accept the confirming review's ship verdict: %v", err)
+		t.Fatalf("accept the confirming Review's continuation: %v", err)
 	}
 
 	// The repair is confirmed, but the unrelated job's obligation stays
@@ -1053,6 +1090,17 @@ func TestChecksRepairConfirmingAcceptanceKeepsUnrelatedJobDebt(t *testing.T) {
 	if state := checksRepairRevisionView(t, s, workID, *unrelated).State; state != "recorded" {
 		t.Fatalf("unrelated revision state = %q, want its obligation unresolved", state)
 	}
+	watermark, err := workerChecksRepairWatermarkTx(ctx, s.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := workerChecksRepairWalkTx(ctx, s.db, workID, watermark)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repair := history.confirmingAttemptOf(reviewAttempt); repair == nil || !repair.confirmed || repair.voided {
+		t.Fatalf("accepted continue did not confirm the exact repair: %+v", repair)
+	}
 }
 
 // checksRepairRefineProof seeds one green verify run of the work's primary
@@ -1061,12 +1109,18 @@ func TestChecksRepairConfirmingAcceptanceKeepsUnrelatedJobDebt(t *testing.T) {
 // and the admission's later gates answer for themselves.
 func checksRepairRefineProof(t *testing.T, s *Store, workID string) {
 	t.Helper()
-	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
+	head := issue1013Pin(t, s, workID).Review.Candidate.Commit
+	git := checksRepairClaimGit(t, s, workID, workerFixtureDirectory(t, s, workID), head)
+	req := verifyRequest(git, "checks-repair-refine-proof-"+workID, []string{"go", "vet", "./..."}, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil })
+	req.WorkID, req.ProjectID = workID, "project"
+	req.PrincipalRef = "principal/operator"
+	run, err := s.VerifyWorktree(t.Context(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := refineProofSeedVerifyRunForProject(t, s, workID, strings.Repeat("c", 64), []string{"go", "vet", "./..."}, time.Now().UTC().Add(time.Second), views[0].ProjectScope)
-	refineProofBindVerification(t, s, workID, ref, ref)
+	if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "verification", "evidence_ref": run.OperationRef}), 0, reviewGateAcceptor(workID)); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // An abandoned confirming review voids the repair exactly as a failed one
@@ -1177,6 +1231,27 @@ func TestChecksRepairReviewDebtHoldsCombinedAcceptRoute(t *testing.T) {
 	reviewSubjectClaim(t, s, workID)
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/checks-repair-combined-worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	acceptor := reviewGateAcceptor(workID)
+	contextFixture := workContextFixture{store: s, workID: workID, owner: worker}
+	// The current candidate remains unchanged while checks are repaired. A
+	// real preceding delivery and accepted ready Review establish exit proof.
+	anchorJob := &WorkerJobBinding{JobID: "job:checks-repair-anchor", Revision: 1}
+	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, anchorJob)
+	anchorAttempt := "attempt:" + workID + ":anchor"
+	dispatchJobBoundAttempt(t, s, workID, "refine", anchorAttempt, nil, worker, 0, "checks-repair-combined-anchor", anchorJob)
+	repo := workerFixtureDirectory(t, s, workID)
+	anchorPath := "internal/store/" + anchorJob.JobID + "/anchor.txt"
+	if err := os.MkdirAll(repo+"/internal/store/"+anchorJob.JobID, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(repo+"/"+anchorPath, []byte("integrated candidate\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRunStore(t, repo, "add", anchorPath)
+	gitRunStore(t, repo, "commit", "-m", "implement the fixture candidate")
+	completeChecksRepairAttemptObserved(t, s, workID, anchorAttempt, "checks-repair-anchor-completed")
+	acceptChecksRepairAttemptAtStep(t, s, workID, anchorAttempt, "refine", acceptor)
+	checksRepairRefineProof(t, s, workID)
+	acceptCurrentReviewForTest(t, contextFixture, workerFixtureDirectory(t, s, workID), "ready_for_final_proof")
 
 	job := &WorkerJobBinding{JobID: jobID, Revision: 1}
 	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, map[string]any{
@@ -1191,7 +1266,9 @@ func TestChecksRepairReviewDebtHoldsCombinedAcceptRoute(t *testing.T) {
 		*job = *latest
 	}
 	attempt1 := "attempt:" + workID + ":1"
-	dispatchJobBoundAttempt(t, s, workID, "refine", attempt1, nil, worker, 0, "checks-repair-combined-1", job)
+	if err := dispatchConfirmingReview(t, s, workID, attempt1, job, worker); err != nil {
+		t.Fatal(err)
+	}
 	s2WorkerFailedAttributedLive(t, s, workID, attempt1, "the recorded check names a command no admitted lane can execute")
 
 	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, map[string]any{
@@ -1212,21 +1289,22 @@ func TestChecksRepairReviewDebtHoldsCombinedAcceptRoute(t *testing.T) {
 	if anchorErr != nil || failedAnchor == nil {
 		t.Fatalf("correction anchor after the failed job at refine = (%#v, %v), want the open window", failedAnchor, anchorErr)
 	}
-	dispatchJobBoundAttempt(t, s, workID, "refine", attempt2, failedAnchor, worker, 0, "checks-repair-combined-2", repairing)
+	if err := dispatchConfirmingReview(t, s, workID, attempt2, repairing, worker); err != nil {
+		t.Fatal(err)
+	}
 	// The refine-exit proof stays green: the combined accept gets past the
 	// proof gate, so the refusal behind the review debt is the debt gate and
 	// nothing ahead of it.
-	checksRepairRefineProof(t, s, workID)
-	completeChecksRepairAttemptObserved(t, s, workID, attempt2, "checks-repair-completed-"+attempt2)
+	completeChecksRepairReviewWithVerdict(t, s, workID, attempt2, "ready_for_final_proof")
 
 	// The combined accept asserts delivery in the same event that records
 	// the job disposition: behind the unconfirmed repair's review debt it
 	// refuses on the shared delivery admission, naming the review debt the
 	// standalone route names.
-	err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{
-		"attempt_id": attempt2, "attempt_epoch": latestStepStartEpoch(t, s, workID, "refine"),
+	err := runDeliveryAdmissionAction(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{
+		"attempt_id": attempt2, "attempt_epoch": reviewSubjectWindow(t, s, workID, attempt2).AttemptEpoch,
 		"delivery_artifact": "artifact:checks-repair-combined", "delivery_state": "asserted",
-	}), 0, acceptor)
+	}), refineProofTooling(ProjectDeclaredTool{ID: "go-vet", Invocation: "go vet ./..."}), acceptor)
 	if err == nil || !strings.Contains(err.Error(), "review debt") {
 		t.Fatalf("the combined accept behind the review debt = %v, want the shared delivery admission's review-debt refusal", err)
 	}
@@ -1245,7 +1323,9 @@ func TestChecksRepairReviewDebtHoldsCombinedAcceptRoute(t *testing.T) {
 	if candidates, err := workerChecksRepairAwaitingReviewTx(ctx, s.DatabaseForTesting(), workID); err != nil || len(candidates) != 0 {
 		t.Fatalf("candidates after the refused combined accept = (%#v, %v), want none: the pending disposition opened nothing", candidates, err)
 	}
-	acceptChecksRepairAttemptAtStep(t, s, workID, attempt2, "refine", acceptor)
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attempt2, "attempt_epoch": reviewSubjectWindow(t, s, workID, attempt2).AttemptEpoch}), 0, acceptor); err != nil {
+		t.Fatal(err)
+	}
 	if candidates, err := workerChecksRepairAwaitingReviewTx(ctx, s.DatabaseForTesting(), workID); err != nil || !slices.Equal(candidates, []WorkerJobBinding{*repairing}) {
 		t.Fatalf("candidates after the plain accepting disposition = (%#v, %v), want the exact repairing binding", candidates, err)
 	}

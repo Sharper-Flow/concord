@@ -466,16 +466,10 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 		}
 		if report.Review != nil {
 			h.reviewVerdict[row.dispatchAttempt] = report.Review.Disposition
-			if report.Review.Disposition == "correction_required" {
+			if report.Review.Disposition == "correction_required" || report.Review.Disposition == "revision_required" {
 				h.nonSettling[row.dispatchAttempt] = true
 				h.fail(row.dispatchAttempt)
 			}
-		}
-		// A completed no_ship verdict voids the confirming review's repair
-		// at the verdict; a completed ship report keeps waiting for its
-		// acceptance (CD-0205 D4).
-		if report.Review != nil && report.Review.Disposition == "correction_required" {
-			h.voidConfirmingRepair(row.dispatchAttempt)
 		}
 	case string(WorkerFailed):
 		// A failure creates debt before any coordinator disposition, including
@@ -554,6 +548,9 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 		}
 		confirming := h.confirmingAttemptOf(row.actionAttempt)
 		verdict := h.reviewVerdict[row.actionAttempt]
+		if confirming != nil && (verdict == "correction_required" || verdict == "revision_required") {
+			h.voidConfirmingRepair(row.actionAttempt)
+		}
 		if confirming != nil && (verdict == "continue" || verdict == "ready_for_final_proof") && !confirming.voided {
 			confirming.confirmed = true
 			for _, key := range confirming.namedKeys {

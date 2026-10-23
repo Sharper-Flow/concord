@@ -55,7 +55,7 @@ func checksRepairClosureRun(t *testing.T, s *Store, name string, git *fakeWorktr
 }
 
 // checksRepairFindingsCompletion applies one job-bound completion whose
-// no_ship report carries the classified blockers beside the resolution
+// corrective report carries the classified blockers beside the resolution
 // claims, with the closure runs' receipts attached.
 func checksRepairFindingsCompletion(t *testing.T, s *Store, workID, attemptID, eventKey, verdict string, blockers []WorkerReviewFinding, resolutions []WorkerOracleResolution, receipt *WorkerOracleReceipt) {
 	t.Helper()
@@ -63,20 +63,24 @@ func checksRepairFindingsCompletion(t *testing.T, s *Store, workID, attemptID, e
 		if blockers == nil {
 			blockers = []WorkerReviewFinding{}
 		}
-		payload.Review = &WorkerReviewBlock{Disposition: verdict, Findings: blockers, ResolvedFindings: resolutions}
+		payload.Review = currentReviewBlockForTest(t, s, workID, attemptID, verdict)
+		payload.Review.Findings, payload.Review.ResolvedFindings = blockers, resolutions
 		if receipt != nil && len(payload.Evidence) > 0 {
 			payload.Evidence[0].OracleReceipt = receipt
 		}
 	})
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completion}}); err != nil {
-		t.Fatalf("%s completion refused: %v", attemptID, err)
+	prepared, err := PrepareWorkerTerminalDelivery(t.Context(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attemptID, EventID: completion.EventID})
+	if err != nil {
+		t.Fatal(err)
 	}
+	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(t.Context(), prepared), s, checksRepairSealedCompletion(t, completion))
 }
 
 func checksRepairBlocker(t *testing.T, s *Store, detail, family string) WorkerReviewFinding {
 	t.Helper()
 	const workID = checksRepairContinuityWorkID
-	return WorkerReviewFinding{Severity: "P1", Confidence: "high", Detail: detail,
+	return WorkerReviewFinding{FindingID: "finding:" + family, Severity: "P1", Confidence: "high", Detail: detail,
+		InScope: true, Blocking: true, Status: "open", EvidenceRefs: []string{"evidence:checks-repair-continuity-" + family}, ClosureRefs: []string{},
 		Oracle: &WorkerOracleFinding{
 			Classification: OracleClassificationDeliveryBlocker, OwnerID: "owner:fixture",
 			FailureFamily: family, PredicateIDs: fixtureRepairPredicateIDs(t, s, workID),
@@ -84,7 +88,7 @@ func checksRepairBlocker(t *testing.T, s *Store, detail, family string) WorkerRe
 		}}
 }
 
-func checksRepairReject(t *testing.T, s *Store, attemptID string, open []string, acceptor WorkflowActor) {
+func checksRepairRejection(t *testing.T, s *Store, attemptID string, open []string, acceptor WorkflowActor, apply bool) {
 	t.Helper()
 	const workID = checksRepairContinuityWorkID
 	// The rejection binds the attempt's own dispatch epoch: an intermediate
@@ -99,6 +103,15 @@ func checksRepairReject(t *testing.T, s *Store, attemptID string, open []string,
 	}
 	if open != nil {
 		payload["open_finding_ids"] = open
+	}
+	if !apply {
+		err := WorkflowActionPreflightWithRegistry(t.Context(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
+			WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "reject_worker_result", Payload: mustJSONValue(payload), Actor: acceptor,
+		})
+		if err != nil {
+			t.Fatalf("preflight rejection of %s with %v: %v", attemptID, open, err)
+		}
+		return
 	}
 	if err := runVerdictActionAs(t, s, workID, "reject_worker_result", mustJSONValue(payload), 0, acceptor); err != nil {
 		t.Fatalf("reject %s with %v: %v", attemptID, open, err)
@@ -149,7 +162,7 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 	git := checksRepairClaimGit(t, s, workID, dir, head)
 	acceptor := reviewGateAcceptor(workID)
 
-	// Round one: the original revision's attempt completes no_ship with five
+	// Round one: the original revision's attempt reports correction with five
 	// classified blockers, and the exact-set rejection records them.
 	job := &WorkerJobBinding{JobID: jobID, Revision: 1}
 	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields("concord check --continuity-original --exit-code=never", nil)); err != nil {
@@ -160,7 +173,7 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 	}
 	attempt1 := "attempt:" + workID + ":1"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt1, nil, workerForChecksRepair(workID), 0, "checks-repair-continuity-1", job)
-	checksRepairFindingsCompletion(t, s, workID, attempt1, "checks-repair-r0", "no_ship", []WorkerReviewFinding{
+	checksRepairFindingsCompletion(t, s, workID, attempt1, "checks-repair-r0", "correction_required", []WorkerReviewFinding{
 		checksRepairBlocker(t, s, "first blocker", "family-one"),
 		checksRepairBlocker(t, s, "second blocker", "family-two"),
 		checksRepairBlocker(t, s, "third blocker", "family-three"),
@@ -175,7 +188,7 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 	if len(open) != 5 {
 		t.Fatalf("open finding ids = %v, want five blockers", open)
 	}
-	checksRepairReject(t, s, attempt1, open, acceptor)
+	checksRepairRejection(t, s, attempt1, open, acceptor, true)
 
 	// The first repair names the one unresolved revision; its acceptance
 	// opens the repair and admits its confirming review.
@@ -186,15 +199,14 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 	if first == nil {
 		t.Fatal("the first repair is not recorded")
 	}
-	// An unrelated failed job remains beside the repair. Its dispatch precedes
-	// the repairing attempt so the acceptance binds the latter's own epoch.
+	// A failed attempt of the same assignment remains beside the repair. A
+	// different ordinary assignment would require a new accepted Review.
 	plain := "attempt:" + workID + ":plain"
-	unrelated := &WorkerJobBinding{JobID: "job:checks-repair-continuity-unrelated", Revision: 1}
 	plainCorrection, plainCorrectionErr := workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "repair", plain)
 	if plainCorrectionErr != nil {
 		t.Fatal(plainCorrectionErr)
 	}
-	dispatchJobBoundAttempt(t, s, workID, "repair", plain, plainCorrection, workerForChecksRepair(workID), 0, "checks-repair-continuity-plain", unrelated)
+	dispatchJobBoundAttempt(t, s, workID, "repair", plain, plainCorrection, workerForChecksRepair(workID), 0, "checks-repair-continuity-plain", first)
 	plainFailure := Event{EventID: "checks-repair-plain-failed-" + workID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{
 		AttemptID: plain, ReadbackModel: preferredModelForLane(reviewGateLane(t, "implementation")), FailureKind: WorkerFailureWorkerError, Detail: "the unrelated attempt failed before a judgeable result",
 		FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: workerFailureObservationFixture()},
@@ -212,12 +224,14 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 	// attempt anchors the confirming review's subject join.
 	run5 := checksRepairClosureRun(t, s, "close-family-five", git)
 	attempt2Completion := checksRepairSealedCompletion(t, oracleCompletionEvent(t, s, workID, attempt2, "checks-repair-completed-"+attempt2, func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{
+		payload.Review = currentReviewBlockForTest(t, s, workID, attempt2, "correction_required")
+		payload.Review.Findings = []WorkerReviewFinding{
 			checksRepairContinuation(t, s, open[0], "first blocker stands"),
 			checksRepairContinuation(t, s, open[1], "second blocker stands"),
 			checksRepairContinuation(t, s, open[2], "third blocker stands"),
 			checksRepairContinuation(t, s, open[3], "fourth blocker stands"),
-		}, ResolvedFindings: []WorkerOracleResolution{{FindingID: open[4], EvidenceRefs: []string{run5.OperationRef}}}}
+		}
+		payload.Review.ResolvedFindings = []WorkerOracleResolution{{FindingID: open[4], EvidenceRefs: []string{run5.OperationRef}}}
 		payload.Evidence[0].OracleReceipt = &WorkerOracleReceipt{
 			ControlIDs: []string{"control:fixture"}, CaseIDs: []string{"case:fixture"},
 			RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},
@@ -230,9 +244,9 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 		t.Fatalf("the first repair's terminal delivery preparation refused: %v", attempt2PreparedErr)
 	}
 	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), attempt2Prepared), s, attempt2Completion)
-	// The exact-set rejection records the four remaining blockers before the
-	// acceptance opens the repair.
-	checksRepairReject(t, s, attempt2, open[:4], acceptor)
+	// Exact-set rejection preflight retains the four remaining blockers.
+	// Main chooses acceptance once; it cannot also reject the same result.
+	checksRepairRejection(t, s, attempt2, open[:4], acceptor, false)
 	// The acceptance binds the attempt's own dispatch epoch: the plain
 	// attempt's dispatch moved the step's latest start, never attempt2's
 	// authorized window.
@@ -242,7 +256,7 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 	}
 
 	// Continuity publishes the first repair's exact candidate. Its confirming
-	// review's no_ship verdict voids the repair.
+	// Review's accepted blocking disposition voids the repair.
 	continuity, continuityErr := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
 	if continuityErr != nil {
 		t.Fatal(continuityErr)
@@ -260,10 +274,10 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 	}
 	assertChecksRepairReviewMarker(t, s, workID, review1, *first)
 	// The voiding report continues three standing blockers and closes the
-	// fourth with an evidenced pass, so the exact-set rejection shrinks the
+	// fourth with an evidenced pass, so the derived finding lineage shrinks the
 	// open set 4→3.
 	run4 := checksRepairClosureRun(t, s, "close-family-four", git)
-	checksRepairFindingsCompletion(t, s, workID, review1, "checks-repair-review1", "no_ship", []WorkerReviewFinding{
+	checksRepairFindingsCompletion(t, s, workID, review1, "checks-repair-review1", "correction_required", []WorkerReviewFinding{
 		checksRepairContinuation(t, s, open[0], "first blocker stands"),
 		checksRepairContinuation(t, s, open[1], "second blocker stands"),
 		checksRepairContinuation(t, s, open[2], "third blocker stands"),
@@ -273,7 +287,9 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 		Result:       OracleReceiptResultPass, ExitCode: passExitCode(), RunRef: run4.OperationRef,
 		EvidenceRefs: []string{run4.OperationRef},
 	})
-	checksRepairReject(t, s, review1, open[:3], acceptor)
+	checksRepairRejection(t, s, review1, open[:3], acceptor, false)
+	acceptChecksRepairAttempt(t, s, workID, review1, acceptor)
+	checksRepairRequestCorrection(t, s, workID, acceptor)
 	if candidates, err := workerChecksRepairAwaitingReviewTx(ctx, s.DatabaseForTesting(), workID); err != nil || len(candidates) != 0 {
 		t.Fatalf("candidates after the void = (%#v, %v), want none", candidates, err)
 	}
@@ -331,17 +347,17 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 
 	// The recovery run settles: its own checks pass — the pass receipt proves
 	// the run — and its evidenced resolution closes the third blocker, so the
-	// open set shrinks 3→2 through the exact-set rejection the coordinator
-	// records because the work still holds open blockers.
+	// open set shrinks 3→2. Rejection preflight validates the exact remaining
+	// set, then Main accepts the result without a second disposition.
 	run3 := checksRepairClosureRun(t, s, "close-family-three", git)
-	checksRepairFindingsCompletion(t, s, workID, attempt3, "checks-repair-recovery", "ship", nil,
+	checksRepairFindingsCompletion(t, s, workID, attempt3, "checks-repair-recovery", "continue", nil,
 		[]WorkerOracleResolution{{FindingID: open[2], EvidenceRefs: []string{run3.OperationRef}}}, &WorkerOracleReceipt{
 			ControlIDs: []string{"control:fixture"}, CaseIDs: []string{"case:fixture"},
 			RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},
 			Result:       OracleReceiptResultPass, ExitCode: passExitCode(), RunRef: run3.OperationRef,
 			EvidenceRefs: []string{run3.OperationRef},
 		})
-	checksRepairReject(t, s, attempt3, open[:2], acceptor)
+	checksRepairRejection(t, s, attempt3, open[:2], acceptor, false)
 	// The settling acceptance discharges the failed confirming review's
 	// repairing revision, leaving only the original revision unresolved.
 	acceptChecksRepairAttempt(t, s, workID, attempt3, acceptor)
@@ -399,9 +415,11 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 	// observation).
 	run2 := checksRepairClosureRun(t, s, "close-family-two", git)
 	attempt4Completion := checksRepairSealedCompletion(t, oracleCompletionEvent(t, s, workID, attempt4, "checks-repair-second-repair", func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{
+		payload.Review = currentReviewBlockForTest(t, s, workID, attempt4, "correction_required")
+		payload.Review.Findings = []WorkerReviewFinding{
 			checksRepairContinuation(t, s, open[0], "first blocker stands"),
-		}, ResolvedFindings: []WorkerOracleResolution{{FindingID: open[1], EvidenceRefs: []string{run2.OperationRef}}}}
+		}
+		payload.Review.ResolvedFindings = []WorkerOracleResolution{{FindingID: open[1], EvidenceRefs: []string{run2.OperationRef}}}
 		payload.Evidence[0].OracleReceipt = &WorkerOracleReceipt{
 			ControlIDs: []string{"control:fixture"}, CaseIDs: []string{"case:fixture"},
 			RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},
@@ -414,7 +432,7 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 		t.Fatalf("terminal delivery preparation refused: %v", preparedErr)
 	}
 	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), prepared), s, attempt4Completion)
-	checksRepairReject(t, s, attempt4, open[:1], acceptor)
+	checksRepairRejection(t, s, attempt4, open[:1], acceptor, false)
 	acceptChecksRepairAttempt(t, s, workID, attempt4, acceptor)
 	acceptSeq, found, acceptErr := workerChecksRepairConfirmingAcceptanceSeqTx(ctx, s.DatabaseForTesting(), workID, *second)
 	if acceptErr != nil || !found || acceptSeq == 0 {

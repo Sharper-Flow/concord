@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -28,13 +29,7 @@ func completeCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disp
 	}
 	j.laneDispatch(t, attempt, "review", &job)
 	window := reviewSubjectWindow(t, f.store, f.workID, attempt)
-	candidate := WorkerReviewCandidate{ProjectID: "project", Commit: window.SubjectCommit, Tree: reviewObservedTree(t, repo, window.SubjectCommit)}
-	dependencies, err := workflowReviewDependencies(t.Context(), f.store.db, f.workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	report := &WorkerReviewBlock{Disposition: disposition, InputCandidate: candidate, OutputCandidate: candidate, Dependencies: dependencies,
-		Assessments: []WorkerReviewAssessment{}, Findings: []WorkerReviewFinding{}, RemainingObligations: []WorkerReviewObligation{}}
+	report := currentReviewBlockForTest(t, f.store, f.workID, attempt, disposition)
 	lane := reviewGateLane(t, "review")
 	evidence := []WorkerReportEvidence{}
 	for _, obligation := range lane.EvidenceObligations {
@@ -50,4 +45,31 @@ func completeCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disp
 	}
 	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), prepared), f.store, event)
 	return attempt, window.AttemptEpoch
+}
+
+func currentReviewBlockForTest(t *testing.T, s *Store, workID, attempt, disposition string) *WorkerReviewBlock {
+	t.Helper()
+	repo := workerFixtureDirectory(t, s, workID)
+	window := reviewSubjectWindow(t, s, workID, attempt)
+	commit := window.SubjectCommit
+	if commit == "" {
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+		raw, err := (ExecGitRunner{}).Run(ctx, repo, "rev-parse", "HEAD")
+		if err != nil {
+			t.Fatal(err)
+		}
+		commit = strings.TrimSpace(string(raw))
+	}
+	var project string
+	if err := s.db.QueryRowContext(t.Context(), `SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
+		t.Fatal(err)
+	}
+	candidate := WorkerReviewCandidate{ProjectID: project, Commit: commit, Tree: reviewObservedTree(t, repo, commit)}
+	dependencies, err := workflowReviewDependencies(t.Context(), s.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &WorkerReviewBlock{Disposition: disposition, InputCandidate: candidate, OutputCandidate: candidate, Dependencies: dependencies,
+		Assessments: []WorkerReviewAssessment{}, Findings: []WorkerReviewFinding{}, RemainingObligations: []WorkerReviewObligation{}}
 }

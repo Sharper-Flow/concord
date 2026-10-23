@@ -30,7 +30,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestResearchAndSpikeProducersClearStaleness"
+      "value": "internal/store.TestResearchProducerClearsStaleness"
     },
     {
       "kind": "go_test",

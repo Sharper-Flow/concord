@@ -26,7 +26,7 @@ import (
 // acceptance is excluded.
 func correctionActionWitness(t *testing.T, workID string) (workflowReturnRouteFixture, *Store, *WorkerJobBinding, WorktreeVerifyResult) {
 	t.Helper()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := tSeedReviewRoute(t, workID)
 	s := fixture.store
 	lane := reviewGateLane(t, "implementation")
 	acceptor := reviewGateAcceptor(workID)
@@ -34,7 +34,7 @@ func correctionActionWitness(t *testing.T, workID string) (workflowReturnRouteFi
 	jobBefore := &WorkerJobBinding{JobID: "job:" + workID + "-before", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, jobBefore)
 	attemptBefore := "attempt:" + workID + ":before"
-	dispatchJobBoundAttempt(t, s, workID, "repair", attemptBefore, nil, fixture.owner, 0, "correction-flow-before-"+workID, jobBefore)
+	tDispatchJobBoundAttempt(t, s, workID, "repair", attemptBefore, nil, fixture.owner, "correction-flow-before-"+workID, jobBefore)
 	completeAndAcceptAttempt(t, s, workID, attemptBefore, lane, acceptor)
 
 	git := integrationWorkflowWorktree(t, s, workID)
@@ -43,13 +43,15 @@ func correctionActionWitness(t *testing.T, workID string) (workflowReturnRouteFi
 	jobAfter := &WorkerJobBinding{JobID: "job:" + workID + "-after", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, jobAfter)
 	attemptAfter := "attempt:" + workID + ":after"
-	dispatchJobBoundAttempt(t, s, workID, "repair", attemptAfter, nil, fixture.owner, 0, "correction-flow-after-"+workID, jobAfter)
+	tDispatchJobBoundAttempt(t, s, workID, "repair", attemptAfter, nil, fixture.owner, "correction-flow-after-"+workID, jobAfter)
 	completeAndAcceptAttempt(t, s, workID, attemptAfter, lane, acceptor)
 
 	jobResult := &WorkerJobBinding{JobID: "job:" + workID + "-result", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, jobResult)
 	attemptResult := "attempt:" + workID + ":result"
-	dispatchJobBoundAttempt(t, s, workID, "repair", attemptResult, nil, fixture.owner, 0, "correction-flow-result-"+workID, jobResult)
+	// Each implementation group opens on its own continue Review (CD-0242 D5).
+	acceptCurrentReviewForTest(t, workContextFixture{store: s, workID: workID, owner: fixture.owner}, workerFixtureDirectory(t, s, workID), "continue")
+	tDispatchJobBoundAttempt(t, s, workID, "repair", attemptResult, nil, fixture.owner, "correction-flow-result-"+workID, jobResult)
 	if err := completeJobBoundAttemptForTest(s, workID, attemptResult, lane, jobResult); err != nil {
 		t.Fatalf("complete the rejected attempt: %v", err)
 	}
@@ -209,47 +211,33 @@ func TestCorrectionAttributionFullActionRejectWitness(t *testing.T) {
 }
 
 // TestCorrectionAttributionFullActionRequestCorrectionWitness drives the
-// exact full request_correction action on the checkpoint failed-review route
-// at the attribution-active break-fix head: the pinned definition parked at
-// its verify checkpoint behind a failed review, a current non-ok verdict, and
-// the failure record that dispositions the review, with the integration
-// observation citing the failed combined run. The request crosses the actual
-// admission boundary — preflight, AuthorizeWorkflowActionAtBoundaryTx,
-// ApplyWorkflowActionTx with the operator authority — the stored completion
-// records the derived integration block, and rebuild reproduces it exactly
-// while a corrupted population refuses.
+// exact full request_correction action on the live execution-Review route:
+// the break-fix item at repair holds one accepted implementation delivery,
+// the failed combined run, and an accepted Review that requires correction
+// (CD-0242 D5). The request crosses the actual admission boundary —
+// preflight, AuthorizeWorkflowActionAtBoundaryTx, ApplyWorkflowActionTx under
+// the coordinator's own authority — the stored completion records the derived
+// integration block, and rebuild reproduces it exactly while a corrupted
+// population refuses.
 func TestCorrectionAttributionFullActionRequestCorrectionWitness(t *testing.T) {
 	t.Parallel()
 	const workID = "correction-full-correction"
-	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 28)
-	if !ok {
-		t.Fatal("workflow.break_fix v28 is not registered")
-	}
-	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, "verify", []string{"verification"}, []string{"verification", "artifact"})
+	fixture := tSeedReviewRoute(t, workID)
 	s := fixture.store
 	defer s.Close()
+	lane := reviewGateLane(t, "implementation")
 
-	// The checkpoint failed-review journey, with the failed review terminal
-	// closed through the authenticated ingest so the attribution-active pin
-	// admits it: accepted delivery, review dispatch, attributed terminal.
-	seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, checkpointEffectStep(t, s, workID, "verify"), "verify")
-	attemptID := "attempt:" + workID + ":failed-review"
-	dispatchCheckpointReviewAttempt(t, fixture, workID, "verify", attemptID)
-	lane := reviewGateLane(t, "review")
-	if err := s2WorkerFailedLive(t, s, attributionWorkerFailedEvent(workID, attemptID, "checkpoint-failed-"+attemptID, preferredModelForLane(lane), attributionWorkerObservation())); err != nil {
-		t.Fatalf("the attributed failed review terminal ingest refused: %v", err)
-	}
-	reviewer := checkpointReviewReviewer(t, s, workID)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
-		t.Fatalf("record the mismatch verdict: %v", err)
-	}
-	// The attributed terminal ingest itself derives the record_worker_failure
-	// disposition (CD-0198 D5) on this pin, so no manual failure record runs.
+	job := &WorkerJobBinding{JobID: "job:" + workID + "-delivery", Revision: 1}
+	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
+	attemptID := "attempt:" + workID + ":delivery"
+	tDispatchJobBoundAttempt(t, s, workID, "repair", attemptID, nil, fixture.owner, "correction-flow-delivery-"+workID, job)
+	completeAndAcceptAttempt(t, s, workID, attemptID, lane, reviewGateAcceptor(workID))
 
 	// The failed clean combined run the correction cites, recorded on the
-	// work's own claimed worktree.
+	// work's own claimed worktree, then the Review that requires correction.
 	git := integrationWorkflowWorktree(t, s, workID)
 	failed := integrationFailedVerifyFor(t, s, git, workID, "project", "lease-"+workID)
+	acceptCurrentReviewForTest(t, workContextFixture{store: s, workID: workID, owner: fixture.owner}, workerFixtureDirectory(t, s, workID), "correction_required")
 
 	fields := map[string]any{
 		"diagnosis":           "the combined run failed its compatibility check",
@@ -265,7 +253,7 @@ func TestCorrectionAttributionFullActionRequestCorrectionWitness(t *testing.T) {
 	}
 	execution := WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "request_correction", Payload: payload,
-		Actor: fixture.owner, OperatorActor: &fixture.operator,
+		Actor:                fixture.owner,
 		AcceptedInputsDigest: cd0059TestDigest(t, "request-correction-attribution-inputs"), IdempotencyIdentity: "request-correction-attribution-op",
 		OperationID: "op-request-correction-attribution", PrincipalRef: fixture.owner.PrincipalRef,
 		Tool: "concord_work_transition", IdempotencyKey: "request-correction-attribution-key", RequestID: "req-request-correction-attribution",
@@ -279,9 +267,6 @@ func TestCorrectionAttributionFullActionRequestCorrectionWitness(t *testing.T) {
 		t.Fatalf("the full request_correction action refused: %v", err)
 	}
 
-	// The checkpoint route carries no accepted worker_job acceptance, so the
-	// derived population is the empty accepted list beside the cited run's
-	// canonical reference and retained digest.
 	members := readStoredCorrectionCompletion(t, s, workID, "request_correction")
 	raw, present := members["failure_attribution"]
 	if !present {
@@ -298,9 +283,8 @@ func TestCorrectionAttributionFullActionRequestCorrectionWitness(t *testing.T) {
 	if integration.NativeRun.Locator != worktreeVerifyOperationRef(failed.LeaseID) || integration.NativeRun.Digest != integrationRetainedResultDigest(t, s, failed.LeaseID) {
 		t.Fatalf("native run = %+v, want the cited run's canonical reference and retained digest", integration.NativeRun)
 	}
-	// The checkpoint journey accepts the implementation delivery before the
-	// run, so the derived population is exactly that acceptance: the failed
-	// review dispatch produced no accepted result beside it.
+	// The implementation delivery is the one acceptance below the run's
+	// watermark; the Review accepted after the run is outside it.
 	if len(integration.InputResults) != 1 || integration.InputsUnavailable {
 		t.Fatalf("input population = (unavailable=%v results=%+v), want exactly the accepted delivery below the watermark", integration.InputsUnavailable, integration.InputResults)
 	}

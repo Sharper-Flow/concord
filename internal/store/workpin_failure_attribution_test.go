@@ -10,8 +10,8 @@ import (
 // The work pin's attempt read exposes the attempt's terminal failure
 // attribution through the same transaction and the one event-based
 // attribution reader: a recorded block on a failed terminal, the
-// born-failed dispatch evidence, the explicit legacy marker beside its own
-// source version, and no member on an attempt that never failed.
+// born-failed dispatch evidence, and no member on an attempt that never
+// failed.
 
 func TestWorkPinAttemptExposesFailureAttribution(t *testing.T) {
 	t.Parallel()
@@ -95,50 +95,6 @@ func TestWorkPinAttemptOmitsFailureAttributionOnLiveAttempt(t *testing.T) {
 	}
 	if pin.Attempt.FailureAttribution != nil {
 		t.Fatalf("typed live attempt attribution=%+v, want nil", pin.Attempt.FailureAttribution)
-	}
-}
-
-func TestWorkPinAttemptExposesLegacyAttributionWithSourceVersion(t *testing.T) {
-	t.Parallel()
-	const workID = "workpin-attribution-legacy"
-	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 27, "repair")
-	s := fixture.store
-	defer s.Close()
-	lane := reviewGateLane(t, "implementation")
-	attempt := "attempt:" + workID + ":1"
-	dispatchJobBoundAttempt(t, s, workID, "repair", attempt, nil, fixture.owner, 0, "workpin-attribution-legacy-dispatch", &WorkerJobBinding{JobID: "job:" + workID})
-	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, attempt, "failed-workpin-attribution-legacy", "detail", preferredModelForLane(lane))); err != nil {
-		t.Fatalf("the legacy terminal ingest: %v", err)
-	}
-	pin, err := ReadWorkPin(context.Background(), s, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pin.Attempt == nil || pin.Attempt.State != "failed" {
-		t.Fatalf("pin attempt=%+v, want the failed terminal attempt", pin.Attempt)
-	}
-	failure, ok := workPinAttemptWire(t, pin)["failure_attribution"].(map[string]any)
-	if !ok {
-		t.Fatal("the legacy failed attempt's pin carries no failure_attribution member")
-	}
-	if failure["event_id"] != "failed-workpin-attribution-legacy" {
-		t.Fatalf("failure_attribution event_id=%v, want the legacy terminal event", failure["event_id"])
-	}
-	if version, ok := failure["source_version"].(float64); !ok || int(version) != 1 {
-		t.Fatalf("failure_attribution source_version=%v, want the recorded legacy source version 1", failure["source_version"])
-	}
-	block, ok := failure["attribution"].(map[string]any)
-	if !ok || block["origin"] != WorkerFailureAttributionLegacyUnavailable {
-		t.Fatalf("failure_attribution=%v, want the explicit legacy_unavailable marker", failure["attribution"])
-	}
-	if _, carries := block["observation"]; carries {
-		t.Fatal("the legacy_unavailable marker carries no observation")
-	}
-	if _, carries := block["identity"]; carries {
-		t.Fatal("the legacy_unavailable marker carries no identity")
-	}
-	if pin.Attempt.FailureAttribution == nil || pin.Attempt.FailureAttribution.Attribution == nil || pin.Attempt.FailureAttribution.Attribution.Observation != nil || pin.Attempt.FailureAttribution.Attribution.Identity != nil {
-		t.Fatalf("typed legacy attempt attribution=%+v, want the bare legacy marker", pin.Attempt.FailureAttribution)
 	}
 }
 

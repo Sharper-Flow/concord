@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -104,10 +103,7 @@ func mustActorRef(t *testing.T, actor WorkflowActor) string {
 func TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent(t *testing.T) {
 	t.Parallel()
 	const workID = "s2-derived-failure-once"
-	// The derived-failure head that predates the attribution requirement:
-	// this suite pins the released derivation semantics, and the terminal
-	// events it records carry no producer observation.
-	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 27, "repair")
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	dispatcher := diagnosisS1Actor(workID, "dispatcher")
 	lane := reviewGateLane(t, "implementation")
@@ -117,7 +113,7 @@ func TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent(t *testing.
 		t.Fatalf("repair starts after the dispatch = %+v, want one dispatch start at epoch 1", starts)
 	}
 	detail := "the lane failed before a judgeable result existed"
-	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, attempt, "failed-"+workID+"-1", detail, preferredModelForLane(lane))); err != nil {
+	if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, attempt, "failed-"+workID+"-1", preferredModelForLane(lane), WorkerFailureWorkerError, detail, time.Unix(30, 0).UTC())); err != nil {
 		t.Fatalf("the live terminal worker.failed ingest: %v", err)
 	}
 	records := s2DerivedFailureRecords(t, s, workID, attempt)
@@ -146,7 +142,7 @@ func TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent(t *testing.
 	}
 	// A duplicate terminal event for the same attempt refuses and leaves the
 	// single record intact.
-	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, attempt, "failed-"+workID+"-1-duplicate", detail, preferredModelForLane(lane))); err == nil {
+	if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, attempt, "failed-"+workID+"-1-duplicate", preferredModelForLane(lane), WorkerFailureWorkerError, detail, time.Unix(30, 0).UTC())); err == nil {
 		t.Fatal("a duplicate terminal worker.failed event for a failed attempt was admitted")
 	}
 	if got := s2DerivedFailureRecords(t, s, workID, attempt); len(got) != 1 {
@@ -154,7 +150,7 @@ func TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent(t *testing.
 	}
 	// An exact replay of the original terminal event cannot append a second
 	// derivation either.
-	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, attempt, "failed-"+workID+"-1", detail, preferredModelForLane(lane))); err == nil {
+	if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, attempt, "failed-"+workID+"-1", preferredModelForLane(lane), WorkerFailureWorkerError, detail, time.Unix(30, 0).UTC())); err == nil {
 		t.Fatal("an exact-replay terminal event appended twice")
 	}
 	if got := s2DerivedFailureRecords(t, s, workID, attempt); len(got) != 1 {
@@ -177,102 +173,6 @@ func TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent(t *testing.
 	}
 }
 
-func TestDerivedWorkerFailureMatchesManualCorrectionProjection(t *testing.T) {
-	for _, family := range []struct {
-		ref            string
-		manualVersion  int64
-		derivedVersion int64
-		step           string
-	}{
-		{ref: "workflow.implementation", manualVersion: 28, derivedVersion: 30, step: "execution"},
-		{ref: "workflow.break_fix", manualVersion: 25, derivedVersion: 27, step: "repair"},
-	} {
-		t.Run(family.ref, func(t *testing.T) {
-			workID := "failure-parity-" + strings.TrimPrefix(family.ref, "workflow.")
-			manual := seedHistoricalWorkflowReturnRouteFixture(t, workID, family.ref, family.manualVersion, family.step)
-			derived := seedHistoricalWorkflowReturnRouteFixture(t, workID, family.ref, family.derivedVersion, family.step)
-			fixtures := []workflowReturnRouteFixture{manual, derived}
-			jobs := []*WorkerJobBinding{{JobID: "job:" + workID}, {JobID: "job:" + workID}}
-			corrections := make([]*WorkflowCorrectionContext, len(fixtures))
-			lane := reviewGateLane(t, "implementation")
-
-			for round := int64(1); round <= 3; round++ {
-				attempt := fmt.Sprintf("attempt:%s:%d", workID, round)
-				terminalID := fmt.Sprintf("failed-%s-%d", workID, round)
-				detail := fmt.Sprintf("failure detail for fenced attempt %d", round)
-				for index, fixture := range fixtures {
-					s := fixture.store
-					dispatchJobBoundAttempt(t, s, workID, family.step, attempt, corrections[index], fixture.owner, 0, fmt.Sprintf("parity-dispatch-%d", round), jobs[index])
-					epoch := latestStepStartEpoch(t, s, workID, family.step)
-					if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, attempt, terminalID, detail, preferredModelForLane(lane))); err != nil {
-						t.Fatalf("path %d terminal failure %d: %v", index, round, err)
-					}
-					if index == 0 {
-						if records := s2DerivedFailureRecords(t, s, workID, attempt); len(records) != 0 {
-							t.Fatalf("released pin derived failure records: %+v", records)
-						}
-						if err := runVerdictActionAs(t, s, workID, "record_worker_failure", mustJSONValue(map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}), 0, fixture.owner); err != nil {
-							t.Fatalf("manual failure record %d: %v", round, err)
-						}
-					}
-					correction, err := workflowCorrectionContext(context.Background(), s.db, workID, family.step)
-					if err != nil || correction == nil {
-						t.Fatalf("path %d correction %d = (%+v, %v)", index, round, correction, err)
-					}
-					// Source and evidence locators are route-local. Qualify them
-					// against the actual completion before comparing the context.
-					var sourceID, actor string
-					var sourceSeq int64
-					var raw []byte
-					if err := s.db.QueryRow(`SELECT event_id,seq,json_extract(payload,'$.actor_ref'),payload FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attempt).Scan(&sourceID, &sourceSeq, &actor, &raw); err != nil {
-						t.Fatal(err)
-					}
-					var fields workflowCorrectionCompletionFields
-					if err := json.Unmarshal(raw, &fields); err != nil {
-						t.Fatal(err)
-					}
-					if fields.CorrectionDiagnosis != "" || fields.CorrectionStrategy != "" || len(fields.CorrectionEvidence) != 0 || len(fields.ResultEvidence) != 1 || actor != mustActorRef(t, fixture.owner) {
-						t.Fatalf("path %d completion does not carry the default-only failure record: %+v, actor %q", index, fields, actor)
-					}
-					if isDerived := strings.HasSuffix(sourceID, workflowDerivedWorkerFailureEventIDSuffix); isDerived != (index == 1) {
-						t.Fatalf("path %d source = %q, derived = %t", index, sourceID, isDerived)
-					}
-					if index == 1 && sourceID != terminalID+workflowDerivedWorkerFailureEventIDSuffix {
-						t.Fatalf("derived source = %q, want the original terminal pair", sourceID)
-					}
-					want := &WorkflowCorrectionContext{
-						Disposition:  "failed",
-						PredicateIDs: []string{}, EvidenceRefs: fields.ResultEvidence,
-						Diagnosis: detail, Strategy: "retry with a fresh fenced attempt",
-						FailureKind: string(WorkerFailureWorkerError), FailureDetail: detail,
-						FailedAttemptID: attempt, FailedAttemptEpoch: round,
-						SourceEventID: sourceID, SourceEventSeq: sourceSeq,
-					}
-					if !reflect.DeepEqual(correction, want) {
-						t.Fatalf("path %d correction %d = %+v, want %+v", index, round, correction, want)
-					}
-					corrections[index] = correction
-					if err := RebuildFromLog(context.Background(), s); err != nil {
-						t.Fatalf("path %d rebuild %d: %v", index, round, err)
-					}
-					if rebuilt, err := workflowCorrectionContext(context.Background(), s.db, workID, family.step); err != nil || !reflect.DeepEqual(rebuilt, correction) {
-						t.Fatalf("path %d rebuilt correction %d = (%+v, %v), want %+v", index, round, rebuilt, err, correction)
-					}
-				}
-				manualContext, derivedContext := *corrections[0], *corrections[1]
-				// All remaining fields must match. The distinct locators above
-				// must keep naming each route's own immutable completion.
-				derivedContext.SourceEventID = manualContext.SourceEventID
-				derivedContext.SourceEventSeq = manualContext.SourceEventSeq
-				derivedContext.EvidenceRefs = manualContext.EvidenceRefs
-				if !reflect.DeepEqual(manualContext, derivedContext) {
-					t.Fatalf("round %d derived correction = %+v, manual = %+v", round, derivedContext, manualContext)
-				}
-			}
-		})
-	}
-}
-
 // TestTerminalFailureWithoutADerivedRecordSkipsStructurally proves the
 // derivation is structural, never prose: when a newer fenced window has
 // superseded the failing attempt's epoch at the step, the terminal event
@@ -286,8 +186,10 @@ func TestTerminalFailureWithoutADerivedRecordSkipsStructurally(t *testing.T) {
 	dispatcher := diagnosisS1Actor(workID, "dispatcher")
 	lane := reviewGateLane(t, "implementation")
 	first, second := "attempt:"+workID+":1", "attempt:"+workID+":2"
-	dispatchJobBoundAttempt(t, s, workID, "repair", first, nil, dispatcher, 0, "s2-skip-dispatch-1-"+workID, &WorkerJobBinding{JobID: "job:" + workID + ":1"})
-	dispatchJobBoundAttempt(t, s, workID, "repair", second, nil, dispatcher, 0, "s2-skip-dispatch-2-"+workID, &WorkerJobBinding{JobID: "job:" + workID + ":2"})
+	// Both attempts launch the one assignment, so the second needs no
+	// intermediate Review (CD-0242 D6).
+	dispatchJobBoundAttempt(t, s, workID, "repair", first, nil, dispatcher, 0, "s2-skip-dispatch-1-"+workID, &WorkerJobBinding{JobID: "job:" + workID})
+	dispatchJobBoundAttempt(t, s, workID, "repair", second, nil, dispatcher, 0, "s2-skip-dispatch-2-"+workID, &WorkerJobBinding{JobID: "job:" + workID})
 	starts := workflowStartedEventsAtStep(t, s, workID, "repair")
 	if len(starts) != 2 || starts[1].Epoch != 2 {
 		t.Fatalf("repair starts = %+v, want two dispatch starts with the second at epoch 2", starts)
@@ -517,22 +419,23 @@ func TestCombinedRejectRetryAfterRepeatedRejections(t *testing.T) {
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
 	s := fixture.store
 	dispatcher := diagnosisS1Actor(workID, "dispatcher")
-	// Two rejected attempts arm the count at two; the third rejection is the
-	// attempt that reaches the limit.
+	// Each rejected launch of the one assignment is its own request; no
+	// count or wall stands between the third rejection and its retry
+	// (CD-0242 D6).
 	for round := 1; round <= 2; round++ {
 		attempt := fmt.Sprintf("attempt:%s:%d", workID, round)
 		var correction *WorkflowCorrectionContext
 		if round > 1 {
 			correction = issue1013Pin(t, s, workID).Correction
 		}
-		dispatchJobBoundAttempt(t, s, workID, "execution", attempt, correction, dispatcher, 0, fmt.Sprintf("s2-wall-dispatch-%d-%s", round, workID), &WorkerJobBinding{JobID: fmt.Sprintf("job:%s:%d", workID, round)})
+		dispatchJobBoundAttempt(t, s, workID, "execution", attempt, correction, dispatcher, 0, fmt.Sprintf("s2-wall-dispatch-%d-%s", round, workID), &WorkerJobBinding{JobID: "job:" + workID})
 		s2CompletedJobBoundAttempt(t, s, workID, attempt)
 		if _, err := s2CombinedReject(t, s, workID, fixture.owner, s2CombinedRejectPayload(attempt, latestStepStartEpoch(t, s, workID, "execution"), nil), fmt.Sprintf("s2-wall-reject-%d-%s", round, workID)); err != nil {
 			t.Fatalf("rejection round %d: %v", round, err)
 		}
 	}
 	third := "attempt:" + workID + ":3"
-	dispatchJobBoundAttempt(t, s, workID, "execution", third, issue1013Pin(t, s, workID).Correction, dispatcher, 0, "s2-wall-dispatch-3-"+workID, &WorkerJobBinding{JobID: fmt.Sprintf("job:%s:3", workID)})
+	dispatchJobBoundAttempt(t, s, workID, "execution", third, issue1013Pin(t, s, workID).Correction, dispatcher, 0, "s2-wall-dispatch-3-"+workID, &WorkerJobBinding{JobID: "job:" + workID})
 	s2CompletedJobBoundAttempt(t, s, workID, third)
 	if _, err := s2CombinedReject(t, s, workID, fixture.owner, s2CombinedRejectPayload(third, latestStepStartEpoch(t, s, workID, "execution"), json.RawMessage(`{"lane_id":"implement"}`)), "s2-combined-wall-"+workID); err != nil {
 		t.Fatalf("combined retry after repeated rejections: %v", err)
@@ -557,9 +460,9 @@ func TestCombinedRejectRetryAfterRepeatedRejections(t *testing.T) {
 }
 
 // TestCombinedRejectRetryRefusalsLeaveZeroWrites proves the combined route's
-// closed inputs: an unknown lane, a retry member with unknown fields or a
-// missing lane_id, and a retry offered on a released pin all refuse before
-// any write, and the plain rejection stays available behind every refusal.
+// closed inputs: an unknown lane, a retry member with unknown fields, and a
+// missing lane_id all refuse before any write, and the plain rejection stays
+// available behind every refusal.
 func TestCombinedRejectRetryRefusalsLeaveZeroWrites(t *testing.T) {
 	t.Parallel()
 	const workID = "s2-combined-reject-refusals"
@@ -591,36 +494,6 @@ func TestCombinedRejectRetryRefusalsLeaveZeroWrites(t *testing.T) {
 	// dispositions the result.
 	if _, err := s2CombinedReject(t, s, workID, fixture.owner, s2CombinedRejectPayload(attempt, epoch, nil), "s2-reject-after-refusals-"+workID); err != nil {
 		t.Fatalf("the plain rejection behind the refusals: %v", err)
-	}
-	// A released pin refuses the retry intent and keeps its callable failure
-	// record: the derivation and the combined route are new-pin behavior.
-	const releasedID = "s2-released-pin-boundary"
-	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 28)
-	if !ok {
-		t.Fatal("workflow.implementation v28 is not registered")
-	}
-	released := seedWorkflowReturnRouteFixtureWithDefinition(t, releasedID, registered, "execution", []string{"verification"}, []string{"verification", "review", "artifact"})
-	releasedDispatcher := diagnosisS1Actor(releasedID, "dispatcher")
-	releasedAttempt := "attempt:" + releasedID + ":1"
-	dispatchJobBoundAttempt(t, released.store, releasedID, "execution", releasedAttempt, nil, releasedDispatcher, 0, "s2-released-dispatch-"+releasedID, &WorkerJobBinding{JobID: "job:" + releasedID})
-	releasedEpoch := latestStepStartEpoch(t, released.store, releasedID, "execution")
-	// The retry intent refuses on the released pin before any write.
-	if _, err := s2CombinedReject(t, released.store, releasedID, released.owner, s2CombinedRejectPayload(releasedAttempt, releasedEpoch, json.RawMessage(`{"lane_id":"implement"}`)), "s2-combined-released-"+releasedID); err == nil {
-		t.Fatal("the retry intent was admitted on the released pin")
-	}
-	// The released pin keeps its callable failure record: the attempt fails
-	// through the terminal seam, the manual record dispositions it, and no
-	// derivation runs.
-	lane := reviewGateLane(t, "implementation")
-	if err := s2WorkerFailedLive(t, released.store, s2WorkerFailedEvent(releasedID, releasedAttempt, "failed-"+releasedID, "the released attempt failed", preferredModelForLane(lane))); err != nil {
-		t.Fatalf("the released attempt's terminal ingest: %v", err)
-	}
-	if err := runVerdictActionAs(t, released.store, releasedID, "record_worker_failure", json.RawMessage(`{"attempt_id":"`+releasedAttempt+`","attempt_epoch":`+fmt.Sprint(releasedEpoch)+`}`), 0, released.owner); err != nil {
-		t.Fatalf("the callable failure record on the released pin: %v", err)
-	}
-	got := s2DerivedFailureRecords(t, released.store, releasedID, releasedAttempt)
-	if len(got) != 1 || strings.HasSuffix(got[0]["event_id"].(string), ":workflow-failure") {
-		t.Fatalf("the released pin's failure records = %+v, want the manual record alone with no derivation pair", got)
 	}
 }
 

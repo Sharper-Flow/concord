@@ -69,7 +69,7 @@ func TestHistoryAdmittedKindsDetailsBounds(t *testing.T) {
 }
 
 func TestTraceHistoryWorkerEventsExposeAttemptIDs(t *testing.T) {
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch", "product_read"})
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch", "product_read"})
 	version, attemptID, worktree := seedFailedWorkerRetryMutation(t, s, service, grant)
 	grant.Worktree = worktree
 	fixtureClaimSubject(t, worktree)
@@ -87,18 +87,8 @@ func TestTraceHistoryWorkerEventsExposeAttemptIDs(t *testing.T) {
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker", "idempotency_key": "history-fresh-dispatch",
 		"fields": map[string]any{"attempt_id": freshID, "worker_packet": retryMutationPacket(t, s, freshID, pin.Correction)},
 	}
-	challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
-	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("fresh retry did not request approval: %+v", challenge.Error)
-	}
-	ref, ok := challenge.Error.Details["approval_ref"].(string)
-	if !ok || ref == "" {
-		t.Fatal("fresh retry challenge has no approval reference")
-	}
-	approvedRaw := retryJSON(cloneWithApproval(t, input, ref))
-	scope, versions := challengeApprovalBindings(t, challenge.Error.ConsequenceSummary)
-	env.HostApproval = signedHostApproval(privateKey, ref, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(ref))
-	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
+	// A failed attempt's retry needs no operator consent (CD-0242 D6).
+	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("fresh retry authorization refused: %+v", approved.Error)
 	}

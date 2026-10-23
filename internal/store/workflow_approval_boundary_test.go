@@ -303,11 +303,15 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 			t.Fatalf("proposal without its submitted fact = %v, want the typed invalid_payload refusal", err)
 		}
 
-		// The nil registry resolves the builtin convention, so the local pin
-		// refuses through the typed pin failure; an empty registry refuses
-		// the same way.
-		if _, err := ReadWorkflowApprovalBoundary(ctx, s, nil, confirmed); refusalKind(err) != KindInvariantViolation {
-			t.Fatalf("nil-registry read = %v, want the typed pin refusal", err)
+		// The nil registry resolves the builtin convention, so the builtin pin
+		// reads the same boundary state; an empty registry resolves no pin and
+		// refuses through the typed pin failure.
+		builtin, err := ReadWorkflowApprovalBoundary(ctx, s, nil, confirmed)
+		if err != nil {
+			t.Fatalf("nil-registry read refused: %v", err)
+		}
+		if !reflect.DeepEqual(builtin, state) {
+			t.Fatalf("nil-registry state = %+v, want the pool state %+v", builtin, state)
 		}
 		if _, err := ReadWorkflowApprovalBoundary(ctx, s, NewWorkflowDefinitionRegistry(), confirmed); refusalKind(err) != KindInvariantViolation {
 			t.Fatalf("empty-registry read = %v, want the typed pin refusal", err)

@@ -15,21 +15,7 @@ import (
 // named workflow kind, parked at that kind's verification checkpoint.
 func seedCheckpointFailedReviewMismatchOn(t *testing.T, workID, definitionRef, checkpoint string) (workflowReturnRouteFixture, string, int64) {
 	t.Helper()
-	return seedCheckpointFailedReviewMismatchWith(t, workID, attributionInactiveWorkflowHeadForTest(t, definitionRef), checkpoint)
-}
-
-// seedCheckpointFailedReviewMismatchAt seeds the issue 1062 shape on one
-// named definition version. The return-to-effect tests pin the version before
-// the CD-0205 worker-job lifecycle: their fresh implement dispatch carries no
-// worker job, which a job-capable pin refuses; the job-bound return route is
-// covered by TestCheckpointCorrectionReturnDispatchesARecordedWorkerJob.
-func seedCheckpointFailedReviewMismatchAt(t *testing.T, workID, definitionRef string, version int64, checkpoint string) (workflowReturnRouteFixture, string, int64) {
-	t.Helper()
-	registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, version)
-	if !ok {
-		t.Fatalf("workflow definition %s@%d is not registered", definitionRef, version)
-	}
-	return seedCheckpointFailedReviewMismatchWith(t, workID, registered, checkpoint)
+	return seedCheckpointFailedReviewMismatchWith(t, workID, mustBuiltinDefinition(t, definitionRef), checkpoint)
 }
 
 func seedCheckpointFailedReviewMismatchWith(t *testing.T, workID string, registered RegisteredDefinition, checkpoint string) (workflowReturnRouteFixture, string, int64) {
@@ -128,7 +114,7 @@ func requestCorrectionRefusalClass(t *testing.T, s *Store, workID string) (Failu
 // only the fresh execution-step dispatch carries the bounded mismatch context.
 func TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	const workID = "checkpoint-failed-review-correction"
-	fixture, attemptID, epoch := seedCheckpointFailedReviewMismatchAt(t, workID, "workflow.break_fix", 19, "verify")
+	fixture, attemptID, epoch := seedCheckpointFailedReviewMismatchOn(t, workID, "workflow.break_fix", "verify")
 	s := fixture.store
 	ctx := context.Background()
 
@@ -185,7 +171,7 @@ func TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	// The return carries no law, contract, history, or evidence edit: the
 	// pinned digest, the one contract, the failure verdict, and the failure
 	// record all survive unchanged.
-	assertFailedReviewCorrectionPreservesPinnedState(t, s, workID, "workflow.break_fix", 19)
+	assertFailedReviewCorrectionPreservesPinnedState(t, s, workID, "workflow.break_fix", mustBuiltinDefinition(t, "workflow.break_fix").Definition.Version)
 
 	// The return reopens the owning execution step's normal dispatch: a fresh
 	// fenced attempt mints a new identity and a strictly incremented epoch,

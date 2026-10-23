@@ -13,14 +13,14 @@ import (
 )
 
 func TestRepeatedVerificationCorrectionsKeepOrdinaryLaunchAuthority(t *testing.T) {
-	runVerificationCorrectionWall(t, 26)
+	runVerificationCorrectionWall(t)
 }
 
 func TestWorkerRetryVerificationOracleKeepsOrdinaryLaunchAuthority(t *testing.T) {
-	runVerificationCorrectionWall(t, 27)
+	runVerificationCorrectionWall(t)
 }
 
-func runVerificationCorrectionWall(t *testing.T, definitionVersion int64) {
+func runVerificationCorrectionWall(t *testing.T) {
 	t.Helper()
 	for _, tc := range []struct {
 		name           string
@@ -31,7 +31,7 @@ func runVerificationCorrectionWall(t *testing.T, definitionVersion int64) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-			version, worktree := seedEscalatedVerificationWorkerMutation(t, s, service, grant, definitionVersion, tc.finalPredicate)
+			version, worktree := seedEscalatedVerificationWorkerMutation(t, s, service, grant, tc.finalPredicate)
 			grant.Worktree = worktree
 			scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 			if err != nil {
@@ -128,12 +128,12 @@ func runVerificationCorrectionWall(t *testing.T, definitionVersion int64) {
 // seedEscalatedVerificationWorkerMutation records four correction cycles
 // under the selected definition. The fourth request selects predicates
 // without claiming any finding closure.
-func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, service *Service, grant Authority, definitionVersion int64, finalPredicates []string) (int64, string) {
+func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, service *Service, grant Authority, finalPredicates []string) (int64, string) {
 	t.Helper()
 	seedCurrentWorkflowDomainFixture(t, s)
-	definition, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.implementation", definitionVersion)
-	if !ok {
-		t.Fatalf("implementation definition %d is not registered", definitionVersion)
+	definition, err := store.BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
 	}
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {

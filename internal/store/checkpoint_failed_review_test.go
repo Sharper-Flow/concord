@@ -123,6 +123,7 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 	}
 	attemptID := "attempt:accepted-delivery:" + workID
 	packet := joinPacketFor(t, s, workID, stepID, attemptID, "implement", lane.Version, lane.Digest)
+	consumeCurrentCorrection(t, s, workID, packet)
 	if job != nil {
 		packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "review")
 	}
@@ -326,30 +327,29 @@ func TestCheckpointUnspawnedDispatchKeepsTheFailedReviewHold(t *testing.T) {
 }
 
 // TestCheckpointFailedReviewPinMatchesTheFoldGate pins the pin side of the
-// recovery: the pin advertises the hold-mode failure record exactly while the
-// fold admits it, stops advertising once the record dispositions the attempt,
-// and the recovery leaves the pinned definition digest unchanged.
+// recovery: the live terminal seam derives the failure disposition, so the pin
+// and fold expose no caller-authored failure record. The pinned digest stays.
 func TestCheckpointFailedReviewPinMatchesTheFoldGate(t *testing.T) {
 	const workID = "checkpoint-failed-review-pin"
 	fixture, attemptID, epoch := seedCheckpointFailedReview(t, workID)
 	s := fixture.store
 
 	pin := issue1013Pin(t, s, workID)
-	if !issue1013HasIntent(pin, "record_worker_failure") {
-		t.Fatalf("pin hides the checkpoint failure record the fold admits: %#v", pin.NextValidIntents)
+	if issue1013HasIntent(pin, "record_worker_failure") {
+		t.Fatalf("pin advertises a caller-authored failure record: %#v", pin.NextValidIntents)
 	}
-	for _, intent := range pin.NextValidIntents {
-		if intent.ActionID == "record_worker_failure" && intent.ReasonCode != "worker_failure_recovery" {
-			t.Fatalf("failure record reason = %q, want worker_failure_recovery", intent.ReasonCode)
-		}
+	if records := s2DerivedFailureRecords(t, s, workID, attemptID); len(records) != 1 || records[0]["epoch"] != epoch {
+		t.Fatalf("derived failure records = %+v, want one disposition at epoch %d", records, epoch)
 	}
 	var digestBefore string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&digestBefore); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := runVerdictActionAs(t, s, workID, "record_worker_failure", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(epoch)+`}`), 0, fixture.owner); err != nil {
-		t.Fatalf("record_worker_failure at the verify checkpoint refused: %v", err)
+	err := runVerdictActionAs(t, s, workID, "record_worker_failure", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(epoch)+`}`), 0, fixture.owner)
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindIllegalLifecycleTransition || !strings.Contains(failure.Detail, "not declared on the current step") {
+		t.Fatalf("caller-authored failure record = %v, want the current-step refusal", err)
 	}
 
 	pin = issue1013Pin(t, s, workID)

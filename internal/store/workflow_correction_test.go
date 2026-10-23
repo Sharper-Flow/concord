@@ -337,7 +337,7 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 func TestCorrectionDispatchClearsPinContextForLaterLane(t *testing.T) {
 	const workID = "work-c1b9adae6631673333fc94b8"
 	ctx := context.Background()
-	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 19, "repair")
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s, owner := fixture.store, fixture.owner
 	defer s.Close()
 
@@ -1182,30 +1182,12 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 
 	t.Run("unsupported workflow shape", func(t *testing.T) {
 		t.Parallel()
-		const workID = "complete-correction-shape"
-		// The unsupported shape is a definition whose recovery-route table
-		// declares no disproved_premise_at_complete route: the real
-		// static-analysis family, whose completion the route table leaves
-		// without a complete-step return. The refusal reads the table, not
-		// a work kind: the work-kind whitelist that once carried this
-		// refusal is deleted (CD-0201 D1).
-		s := openTemp(t)
-		defer s.Close()
-		definition := mustBuiltinDefinition(t, "workflow.static_analysis").Definition
-		if target := workflowDisprovedPremiseAtCompleteRouteTarget(definition, "complete"); target != "" {
-			t.Fatalf("static analysis complete-step target = %q, want the unsupported shape", target)
-		}
-		pinWorkflowAtStep(t, s, workID, "workflow.static_analysis", definition.Version, "complete")
-		stalenessSeedContract(t, s, workID)
-		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-		recordCompleteStepContradictionObservation(t, s, workID, owner)
-		err := issue1013Preflight(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), owner)
+		// CD-0242 D14 removes retired definitions from the registry. The
+		// unsupported family now refuses before a recovery shape can be pinned.
+		_, err := BuiltinWorkflowDefinitionForRef("workflow.static_analysis")
 		var failure *Failure
-		// The retired family refuses public execution before the shape
-		// question; the route-table probe above still proves its complete
-		// step carries no correction return.
-		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "workflow.static_analysis is archived") {
-			t.Fatalf("preflight on the static-analysis shape = %v, want the archived-family refusal", err)
+		if !errors.As(err, &failure) || failure.Kind != KindDefinitionDigestMismatch || !strings.Contains(failure.Detail, "workflow type reference is not registered") {
+			t.Fatalf("resolve the static-analysis shape = %v, want the retired-family refusal", err)
 		}
 	})
 
@@ -1377,97 +1359,51 @@ func latestStepStartEpoch(t *testing.T, s *Store, workID, stepID string) int64 {
 	return epoch
 }
 
-// dispatchCountingAttempt dispatches one worker attempt on the named step and
-// records the worker.dispatched event, with the correction context when one
-// is open and a bare packet when none is.
-func dispatchCountingAttempt(t *testing.T, s *Store, stepID, attemptID string, correction *WorkflowCorrectionContext, actor WorkflowActor, expectedVersion int64, key string) {
-	t.Helper()
-	var payload json.RawMessage
-	if correction == nil {
-		packetPayload, err := json.Marshal(dispatchWorkerPacket(t, s, "correction-count-accept-reset", stepID, attemptID))
-		if err != nil {
-			t.Fatal(err)
-		}
-		payload = mustJSONValue(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetPayload)})
-	} else {
-		payload = issue1013CorrectionDispatchPayload(t, s, "correction-count-accept-reset", stepID, attemptID, correction)
-	}
-	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
-		WorkID: "correction-count-accept-reset", ExpectedVersion: expectedVersion, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, "correction-count-accept-reset"),
-		Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: key, OperationID: key,
-		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: key, RequestID: "request:" + key, ContractDigest: testManifestDigest, Now: time.Unix(10, 0).UTC(),
-	}); err != nil {
-		t.Fatalf("dispatch attempt %s: %v", attemptID, err)
-	}
-	issue1013RecordWorkerDispatch(t, s, "correction-count-accept-reset", attemptID)
-}
-
-// accept_worker_result is the reset condition (CD-0164): the counting window
-// opens after the last accepted result, so a fresh infrastructure failure on
-// the next attempt starts a new sequence at one instead of inheriting the
-// consumed bound.
+// An accepted worker result closes the current correction source. A later
+// failed attempt owns a fresh source without inheriting the consumed one.
 func TestAcceptedWorkerResultClosesCorrectionSource(t *testing.T) {
 	const workID = "correction-count-accept-reset"
 	ctx := context.Background()
-	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 19, "repair")
-	s, owner := fixture.store, fixture.owner
+	fixture, attempt1, _ := seedCurrentRepairWorker(t, workID)
+	s := fixture.store
 	defer s.Close()
-	lane := BuiltinLaneDefinitions()[0]
-	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	workerRef, err := WorkflowActorRef(worker)
-	if err != nil {
-		t.Fatal(err)
-	}
-	workerVersion := readWorkVersion(t, s, workID)
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{workflowEventWithActor("reset-count-worker-"+workID, WorkflowActorRecorded, workID, workerRef, map[string]any{
-		"work_id": workID, "expected_version": workerVersion, "resulting_version": workerVersion + 1,
-		"actor_ref": workerRef, "principal_ref": worker.PrincipalRef, "client_ref": worker.ClientRef,
-		"agent_ref": worker.AgentRef, "session_ref": worker.SessionRef, "actor_class": "agent",
-	})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): workerVersion}}); err != nil {
-		t.Fatal(err)
-	}
-	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/correction-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
-
-	attempt1 := "attempt:" + workID + ":1"
-	dispatchCountingAttempt(t, s, "repair", attempt1, nil, worker, issue1013Pin(t, s, workID).Version, "reset-dispatch-1")
-	failWorkerAttemptWithKind(t, s, workID, attempt1, "lane fallback blocked before the model ran")
-	applyRecordWorkerFailureForTest(t, s, workID, owner, attempt1, latestStepStartEpoch(t, s, workID, "repair"), readWorkVersion(t, s, workID), "reset-count-1")
+	job := *s2DispatchJobBinding(t, s, workID, attempt1)
+	s2WorkerFailedAttributedLive(t, s, workID, attempt1, "lane fallback blocked before the model ran")
 	pin := issue1013Pin(t, s, workID)
 	if pin.Correction == nil || pin.Correction.FailedAttemptID != attempt1 || pin.Correction.FailureKind != WorkerFailureFallbackBlocked {
 		t.Fatalf("correction after infrastructure failure = %#v, want its exact source and kind", pin.Correction)
 	}
 
 	attempt2 := "attempt:" + workID + ":2"
-	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
-	pin = issue1013Pin(t, s, workID)
-	dispatchCountingAttempt(t, s, "repair", attempt2, pin.Correction, worker, pin.Version, "reset-dispatch-2")
-	failWorkerAttemptWithKind(t, s, workID, attempt2, "lane fallback blocked before the model ran")
-	applyRecordWorkerFailureForTest(t, s, workID, owner, attempt2, latestStepStartEpoch(t, s, workID, "repair"), readWorkVersion(t, s, workID), "reset-count-2")
+	if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, attempt2, job)); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{implementDispatchEvidenceEvent(workID, attempt2, laneForID(t), job)}}); err != nil {
+		t.Fatal(err)
+	}
+	s2WorkerFailedAttributedLive(t, s, workID, attempt2, "lane fallback blocked before the model ran")
 	pin = issue1013Pin(t, s, workID)
 	if pin.Correction == nil || pin.Correction.FailedAttemptID != attempt2 {
 		t.Fatalf("correction after two infrastructure failures = %#v, want the latest failed source", pin.Correction)
 	}
 
-	attempt3 := "attempt:" + workID + ":3"
-	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
-	pin = issue1013Pin(t, s, workID)
-	dispatchCountingAttempt(t, s, "repair", attempt3, pin.Correction, worker, pin.Version, "reset-dispatch-3")
-	completed := Event{EventID: "worker-completed-" + attempt3, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(16, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attempt3, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{completed}}); err != nil {
-		t.Fatalf("complete corrective worker attempt: %v", err)
-	}
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attempt3, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor); err != nil {
-		t.Fatalf("accept corrective worker result: %v", err)
-	}
+	seedAcceptedImplementationDeliveryAt(t, s, workID, fixture.owner, "repair")
 	pin = issue1013Pin(t, s, workID)
 	if pin.Correction != nil {
 		t.Fatalf("accepted result left correction context: %#v", pin.Correction)
 	}
+	if step := currentStep(t, s, workID); step != "repair" {
+		t.Fatalf("local result acceptance advanced the step to %q, want repair", step)
+	}
 
 	attempt4 := "attempt:" + workID + ":4"
-	dispatchCountingAttempt(t, s, "refine", attempt4, nil, worker, pin.Version, "reset-dispatch-4")
-	failWorkerAttemptWithKind(t, s, workID, attempt4, "lane fallback blocked before the model ran")
-	applyRecordWorkerFailureForTest(t, s, workID, owner, attempt4, latestStepStartEpoch(t, s, workID, "refine"), readWorkVersion(t, s, workID), "reset-count-4")
+	if err := dispatchWorkContextAttempt(t, fixture, issue1013CurrentDispatchPacket(t, fixture, attempt4, job)); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{implementDispatchEvidenceEvent(workID, attempt4, laneForID(t), job)}}); err != nil {
+		t.Fatal(err)
+	}
+	s2WorkerFailedAttributedLive(t, s, workID, attempt4, "lane fallback blocked before the model ran")
 	pin = issue1013Pin(t, s, workID)
 	if pin.Correction == nil || pin.Correction.FailedAttemptID != attempt4 {
 		t.Fatalf("correction after the accepted result = %#v, want the new failed source", pin.Correction)
@@ -1722,13 +1658,13 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 			VerificationObligations: []WorkflowVerificationObligation{},
 		},
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "decision_domains": []string{},
 	})
 	if marshalErr != nil {
 		t.Fatal(marshalErr)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		"complete-correction-duplicate-approval", WorkflowContractApproved, SubjectWorkItem, workID, ownerRef, "2026-09-22T00:00:00Z", 3, legacyApproval); err != nil {
+		"complete-correction-duplicate-approval", WorkflowContractApproved, SubjectWorkItem, workID, ownerRef, "2026-09-22T00:00:00Z", workflowContractDecisionDomainsPayloadVersion, legacyApproval); err != nil {
 		t.Fatal(err)
 	}
 	if err := RebuildFromLog(context.Background(), s); err != nil {
@@ -1932,12 +1868,9 @@ func TestCompleteStepCorrectionSurvivesRebuildFromLog(t *testing.T) {
 	}
 }
 
-// TestCompleteStepCorrectionHistoricalSupersessionReplays proves the fold
-// tolerates a typed supersession recorded at the pinned complete step before
-// the reserved convention existed: it replays exactly as it folded, with no
-// route, no instance return, and no complete-step admission demanded of
-// history (CD-0172 D2).
-func TestCompleteStepCorrectionHistoricalSupersessionReplays(t *testing.T) {
+// A supersession without the reserved return convention preserves the complete
+// step when its typed contract facts are rebuilt.
+func TestCompleteStepSupersessionWithoutReturnConventionPreservesStep(t *testing.T) {
 	t.Parallel()
 	const workID = "complete-correction-historical-replay"
 	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
@@ -1958,7 +1891,7 @@ func TestCompleteStepCorrectionHistoricalSupersessionReplays(t *testing.T) {
 				"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:return-route", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}}},
 			"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
 			"law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
-			"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+			"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "decision_domains": []string{},
 			"architecture_binding": WorkflowArchitectureBinding{
 				DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
 				DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
@@ -1970,7 +1903,7 @@ func TestCompleteStepCorrectionHistoricalSupersessionReplays(t *testing.T) {
 		t.Fatal(marshalErr)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		"complete-correction-historical-supersession", WorkflowContractSuperseded, SubjectWorkItem, workID, ownerRef, "2026-09-22T00:00:00Z", 2, historical); err != nil {
+		"complete-correction-historical-supersession", WorkflowContractSuperseded, SubjectWorkItem, workID, ownerRef, "2026-09-22T00:00:00Z", workflowContractSupersededDecisionDomainsPayloadVersion, historical); err != nil {
 		t.Fatal(err)
 	}
 	if err := RebuildFromLog(context.Background(), s); err != nil {
@@ -2168,13 +2101,13 @@ func TestCompletedInstanceDuplicateRecoveryStaysOffThePin(t *testing.T) {
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 			VerificationObligations: []WorkflowVerificationObligation{},
 		},
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "decision_domains": []string{},
 	})
 	if marshalErr != nil {
 		t.Fatal(marshalErr)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		"complete-correction-duplicate-offshape-approval", WorkflowContractApproved, SubjectWorkItem, workID, ownerRef, "2026-09-22T00:00:00Z", 3, legacyApproval); err != nil {
+		"complete-correction-duplicate-offshape-approval", WorkflowContractApproved, SubjectWorkItem, workID, ownerRef, "2026-09-22T00:00:00Z", workflowContractDecisionDomainsPayloadVersion, legacyApproval); err != nil {
 		t.Fatal(err)
 	}
 	if err := RebuildFromLog(context.Background(), s); err != nil {

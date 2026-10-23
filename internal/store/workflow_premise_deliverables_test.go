@@ -25,16 +25,6 @@ func TestConfirmPremiseRequiresVerdictAndRequiredEvidence(t *testing.T) {
 	}
 }
 
-func scenarioActorRef(scenario workflowScenario) string {
-	grant := scenario.Request.Grant
-	actor := WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: ActorAgent}
-	ref, err := WorkflowActorRef(actor)
-	if err != nil {
-		return ""
-	}
-	return ref
-}
-
 // Record the Domain investigation the premise-question boundary requires.
 func seedPremiseDeliverablesInvestigation(t *testing.T, s *Store, workID string) {
 	t.Helper()

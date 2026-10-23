@@ -71,33 +71,6 @@ func newAcceptanceRecoveryFixture(_ context.Context, t *testing.T, extraRequired
 	return qCurrentAcceptance(t, "work-alpha", extraRequiredKinds...)
 }
 
-// withRequiredEvidenceKinds copies one contract payload and appends the added
-// kinds to its required evidence, leaving the corpus event untouched.
-func withRequiredEvidenceKinds(t *testing.T, payload map[string]any, extra []string) map[string]any {
-	t.Helper()
-	copied := make(map[string]any, len(payload))
-	for key, value := range payload {
-		copied[key] = value
-	}
-	var required []string
-	switch declared := copied["required_evidence"].(type) {
-	case []any:
-		for _, kind := range declared {
-			text, ok := kind.(string)
-			if !ok {
-				t.Fatalf("required_evidence entry %v is not a string", kind)
-			}
-			required = append(required, text)
-		}
-	case []string:
-		required = append(required, declared...)
-	default:
-		t.Fatalf("required_evidence has unexpected type %T", copied["required_evidence"])
-	}
-	copied["required_evidence"] = append(required, extra...)
-	return copied
-}
-
 func (f acceptanceRecoveryFixture) version(ctx context.Context, t *testing.T) int64 {
 	t.Helper()
 	version, err := workflowCurrentVersion(ctx, f.store, f.workID)

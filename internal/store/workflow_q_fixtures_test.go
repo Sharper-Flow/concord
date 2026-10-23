@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -40,7 +41,8 @@ func qBuildAcceptancePredicates(t *testing.T, workID, artifact string, associate
 // qAssociateCurrentProof keeps the seeded store and contract. The item must
 // declare the current Review and criterion-association routes. It adds a
 // managed claim and clean candidate before capturing the command receipt.
-func qAssociateCurrentProof(t *testing.T, f workContextFixture, artifact string, associate bool) acceptanceRecoveryFixture {
+// Investigation is seeded by default; pass false to leave that gate unmet.
+func qAssociateCurrentProof(t *testing.T, f workContextFixture, artifact string, associate bool, investigation ...bool) acceptanceRecoveryFixture {
 	t.Helper()
 	workID := f.workID
 	repo, _ := reviewSubjectClaim(t, f.store, workID)
@@ -74,7 +76,9 @@ func qAssociateCurrentProof(t *testing.T, f workContextFixture, artifact string,
 			t.Fatalf("associate captured current proof: %v", err)
 		}
 	}
-	seedPremiseDeliverablesInvestigation(t, f.store, workID)
+	if len(investigation) == 0 || investigation[0] {
+		seedPremiseDeliverablesInvestigation(t, f.store, workID)
+	}
 	return fixture
 }
 
@@ -161,5 +165,24 @@ func TestQAssociateCurrentProofKeepsSeededContract(t *testing.T) {
 	}
 	if contracts != 1 || associations != 1 {
 		t.Fatalf("seeded contract count=%d, proof association count=%d, want one each", contracts, associations)
+	}
+}
+
+func TestQAssociateCurrentProofCanLeaveInvestigationMissing(t *testing.T) {
+	t.Parallel()
+	const workID = "q-uninvestigated-association"
+	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "execution", []string{"verification"}, []string{"verification", "review", "artifact"})
+	f := qAssociateCurrentProof(t, workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}, "", true, false)
+	err = WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
+		WorkID: workID, ExpectedVersion: readWorkVersion(t, f.store, workID), ActionID: "confirm_premise", Actor: f.owner,
+		Payload: json.RawMessage(`{}`), SelectedChoice: "confirm",
+	})
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "investigation") {
+		t.Fatalf("confirmation without an investigation = %v, want missing_evidence naming investigation", err)
 	}
 }

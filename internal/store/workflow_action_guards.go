@@ -1130,6 +1130,30 @@ func workflowAcceptBindsReadyUnsettledReview(state *WorkflowAdmissionState, fiel
 	return workflowFieldStringDefault(fields, "attempt_id", "") == state.ReadyReviewAttemptID
 }
 
+// workflowGateHoldsAction reports whether an approval-gated step records the
+// action without advancing: an accepted worker result there leaves the gate
+// as the step's only exit (CD-0117).
+func workflowGateHoldsAction(definition WorkflowDefinition, stepID, actionID string) bool {
+	return actionID == "accept_worker_result" && workflowStepHasApprovalGate(definition, stepID)
+}
+
+// workflowStepHasApprovalGate reports whether the step declares an
+// approval-required advancing action, the gate that is the step's only exit.
+func workflowStepHasApprovalGate(definition WorkflowDefinition, stepID string) bool {
+	step := workflowStep(definition, stepID)
+	if step == nil {
+		return false
+	}
+	for _, candidate := range step.Actions {
+		for _, action := range definition.ActionDefinitions {
+			if action.ID == candidate && action.ExecutionMode == ActionAdvance && action.Approval == ActionApprovalRequired {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // defaultedPayload returns the action payload with an empty payload
 // normalized to an empty JSON object, the form the later stages process.
 func (g *workflowActionGuardContext) defaultedPayload() json.RawMessage {
@@ -1452,8 +1476,10 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	// it authors. The accepted non-delivery disposition of a ready
 	// non-settling review holds the step's advance — the debt waits for a
 	// settling review — so the guard records the hold from the folded
-	// admission state, and the fold honors the recorded field only.
-	if in.request.ActionID == "accept_worker_result" {
+	// admission state, and the fold honors the recorded field only. An
+	// accepted Review at an approval-gated step also holds: the gate is that
+	// step's only exit (CD-0117).
+	if in.request.ActionID == "accept_worker_result" && (workflowAcceptBindsReadyUnsettledReview(in.admission, fields) || workflowGateHoldsAction(in.entry.Definition, in.currentStep, in.request.ActionID)) {
 		completionValues["review_advance_held"] = true
 	}
 	var workerPacketDigest string

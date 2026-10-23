@@ -22,7 +22,7 @@ func TestApprovalGateStepHasNoOtherAdvancingAction(t *testing.T) {
 		for _, step := range definition.StepGraph.Steps {
 			var gates, advancing []string
 			for _, action := range step.Actions {
-				if modes[action] != ActionAdvance {
+				if modes[action] != ActionAdvance || workflowGateHoldsAction(definition, step.ID, action) {
 					continue
 				}
 				advancing = append(advancing, action)

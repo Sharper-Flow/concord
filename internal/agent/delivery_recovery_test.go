@@ -85,7 +85,15 @@ func deliveryRecoveryCompletion(t *testing.T, s *store.Store, grant Authority, a
 	// their oracle classification (CD-0198).
 	if len(lane.RequiredReportBlocks) > 0 {
 		payload.EvidenceOrigin = store.WorkerEvidenceLegacyUnavailable
-		payload.Review = &store.WorkerReviewBlock{Disposition: "correction_required", Findings: []store.WorkerReviewFinding{{Severity: "P0", Confidence: "high", Detail: "the refined result misses the approved contract"}}}
+		pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
+		if err != nil || pin.Review == nil || pin.Review.Dependencies == nil {
+			t.Fatalf("gate Review dependencies: %v", err)
+		}
+		path := agentWorkerDirectory(t, s, "work-1")
+		candidate := store.WorkerReviewCandidate{ProjectID: "project-1", Commit: gitRun(t, path, "rev-parse", "HEAD"), Tree: gitRun(t, path, "rev-parse", "HEAD^{tree}")}
+		payload.Review = &store.WorkerReviewBlock{Disposition: "correction_required", InputCandidate: candidate, OutputCandidate: candidate, Dependencies: *pin.Review.Dependencies,
+			Assessments: []store.WorkerReviewAssessment{}, RemainingObligations: []store.WorkerReviewObligation{},
+			Findings: []store.WorkerReviewFinding{{FindingID: "finding:gate-result", Status: "open", Severity: "P0", Confidence: "high", Detail: "the refined result misses the approved contract", EvidenceRefs: []string{"evidence:gate-review"}, ClosureRefs: []string{}}}}
 		if job != nil {
 			if oracle := recordedAgentOracle(t, s, job); oracle != nil {
 				owner := oracle.Owners[0]
@@ -150,6 +158,8 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
+	fixture := oAgentFixture(t, s, service, env, "work-1")
+	oAgentControlRepository(t, fixture)
 	invoke := func(input map[string]any) Envelope {
 		t.Helper()
 		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
@@ -180,6 +190,9 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 		// Each dispatch binds its own recorded ready revision: an accepted
 		// job is satisfied and never redispatches (CD-0205).
 		recordReadyRetryJob(t, s, service, env, "job:"+attemptID)
+		if stepID == "refine" && capabilityClass == "implementation" {
+			oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
+		}
 		response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": deliveryRecoveryPacket(t, s, "work-1", stepID, attemptID, capabilityClass)}, "idempotency_key": "gate-dispatch-" + attemptID})
 		if response.Outcome != OutcomeOK {
 			t.Fatalf("gate recovery dispatch %s: %+v", attemptID, response.Error)
@@ -205,10 +218,12 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 	// The job-bound accept is local acceptance and holds execution; the step
 	// exits through its delivery assertion, which requires qualifying
 	// core-owned worktree verification covering the job's Project (CD-0205 D3).
-	integrationRef := agentSeedIntegrationVerifyRun(t, s, "work-1", "gate-execution-integration")
+	integrationRef := oAgentVerify(t, fixture, []string{"go", "vet", "./..."})
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "verification", "evidence_ref": integrationRef}, "idempotency_key": "gate-execution-integration"}); response.Outcome != OutcomeOK {
 		t.Fatalf("gate recovery integration bind: %+v", response.Error)
 	}
+	recordReadyRetryJob(t, s, service, env, "job:gate-final-review")
+	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "ready_for_final_proof", false)
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:gate-execution", "delivery_state": "asserted"}, "idempotency_key": "gate-execution-delivery"}); response.Outcome != OutcomeOK {
 		t.Fatalf("gate recovery execution delivery: %+v", response.Error)
 	}
@@ -220,11 +235,11 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "checkpoint_refine", "fields": map[string]any{}, "idempotency_key": "gate-refine-start"}); response.Outcome != OutcomeOK {
 		t.Fatalf("gate recovery checkpoint_refine: %+v", response.Error)
 	}
-	refineEpoch := epochOf("dispatch_worker")
 
 	// A rejected review, then an accepted implement repair: the refinement
 	// history carries the post-rejection review debt.
 	dispatch("refine", "attempt:work-1:gate-review", "review")
+	refineEpoch := attemptEpoch(t, s, "attempt:work-1:gate-review")
 	reviewer := store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/gate-reviewer", SessionRef: "session/work-1-gate-reviewer", ActorClass: store.ActorAgent}
 	runVerificationStoreAction(t, s, "reject_worker_result", map[string]any{
 		"attempt_id": "attempt:work-1:gate-review", "attempt_epoch": refineEpoch,
@@ -232,6 +247,9 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 		"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:gate-review"},
 	}, reviewer, nil, "gate-reject")
 	dispatch("refine", "attempt:work-1:gate-repair", "implementation")
+	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "accept_worker_result", "fields": map[string]any{"attempt_id": "attempt:work-1:gate-repair", "attempt_epoch": attemptEpoch(t, s, "attempt:work-1:gate-repair")}, "idempotency_key": "gate-repair-accept"}); response.Outcome != OutcomeOK {
+		t.Fatalf("gate recovery repair accept: %+v", response.Error)
+	}
 
 	// The historical parked position of a pre-gate database: the instance
 	// sits on the delivery gate with the review debt outstanding.

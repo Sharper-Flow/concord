@@ -26,7 +26,7 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 	retryID := "attempt:work-1:escalated-4"
 	input := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "escalated-convergence-3", "fields": map[string]any{"attempt_id": retryID, "worker_packet": retryMutationPacket(t, s, retryID, verifyWallPinCorrection(t, s))},
+		"idempotency_key": "escalated-convergence-3", "fields": map[string]any{"attempt_id": retryID, "worker_packet": deliveryRecoveryPacket(t, s, "work-1", "execution", retryID, "implementation")},
 	}
 	raw, err := json.Marshal(input)
 	if err != nil {
@@ -58,15 +58,22 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 	if got := verifyWallDispatchCompletions(t, s, retryID); got != 1 {
 		t.Fatalf("replayed retry recorded %d dispatch completions, want 1", got)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 4 {
+	// The two admitted prerequisite Reviews are not implementation retries.
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND capability_class='implementation'`); got != 4 {
 		t.Fatalf("replayed retry left %d worker attempts, want 4", got)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND capability_class='review'`); got != 2 {
+		t.Fatalf("prerequisite Review attempts=%d, want 2", got)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 6 {
+		t.Fatalf("replayed retry left %d total worker attempts, want four implementation attempts and two Reviews", got)
 	}
 
 	// An unresolved launch must be reconciled before another authorization.
 	secondID := "attempt:work-1:escalated-5"
 	nextInput := map[string]any{
 		"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "dispatch_worker",
-		"idempotency_key": "escalated-convergence-4", "fields": map[string]any{"attempt_id": secondID, "worker_packet": retryMutationPacket(t, s, secondID, verifyWallPinCorrection(t, s))},
+		"idempotency_key": "escalated-convergence-4", "fields": map[string]any{"attempt_id": secondID, "worker_packet": deliveryRecoveryPacket(t, s, "work-1", "execution", secondID, "implementation")},
 	}
 	blindRaw, err := json.Marshal(nextInput)
 	if err != nil {
@@ -98,12 +105,18 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 		t.Fatalf("re-armed correction epoch %d, want the admitted attempt's own fenced epoch %d", rearmed.FailedAttemptEpoch, retryAttemptEpoch)
 	}
 
-	// Operator-approved contract recovery still retires the old job revision.
+	// Contract recovery still retires the old job revision.
 	supersedeEscalatedCorrectionContract(t, s, owner, workVersion(t, s, "work-1"), 2, "the failed retry needs a corrected objective")
+	recordReadyRetryJobUnderContract(t, s, service, mutationEnvelope(grant, mustScopeVersion(t, s)), "job:retry-objective-2-review", 2)
+	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
+	if epoch := escalatedDispatchEpoch(t, s); epoch != retryAttemptEpoch+1 {
+		t.Fatalf("contract-recovery Review epoch=%d, want the fenced epoch after %d", epoch, retryAttemptEpoch)
+	}
 	recordReadyRetryJobUnderContract(t, s, service, mutationEnvelope(grant, mustScopeVersion(t, s)), "job:retry-objective-2", 2)
+	renewedWantEpoch := escalatedDispatchEpoch(t, s) + 1
 	renewedInput := map[string]any{
 		"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "dispatch_worker",
-		"idempotency_key": "escalated-convergence-5", "fields": map[string]any{"attempt_id": secondID, "worker_packet": retryMutationPacket(t, s, secondID, verifyWallPinCorrection(t, s))},
+		"idempotency_key": "escalated-convergence-5", "fields": map[string]any{"attempt_id": secondID, "worker_packet": deliveryRecoveryPacket(t, s, "work-1", "execution", secondID, "implementation")},
 	}
 	renewedRaw, err := json.Marshal(renewedInput)
 	if err != nil {
@@ -117,9 +130,11 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 	if got := verifyWallChallenges(t, s); got != seedChallenges {
 		t.Fatalf("the whole escalated journey minted %d approval challenges, want 0", got)
 	}
-	renewedWantEpoch := attemptEpoch(t, s, retryID) + 1
 	if epoch := escalatedDispatchEpoch(t, s); epoch != renewedWantEpoch {
 		t.Fatalf("retry after contract recovery epoch=%d, want the fresh fenced epoch %d", epoch, renewedWantEpoch)
+	}
+	if renewedWantEpoch <= attemptEpoch(t, s, retryID) {
+		t.Fatal("contract recovery did not advance beyond the failed retry epoch")
 	}
 	assertDispatchHasNoRetryBudget(t, s, secondID)
 }
@@ -160,7 +175,7 @@ func escalatedDispatchEpoch(t *testing.T, s *store.Store) int64 {
 // the mutation boundary, retaining the latest correction identity and epoch.
 func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Service, grant Authority, failureAt ...time.Time) (int64, string, string) {
 	t.Helper()
-	// Contract recovery uses the retained operator-substitution policy.
+	// The fixture resolves the current workflow family.
 	if got := seedAgentWorkflowAt(t, s, grant, legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation")); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
@@ -230,6 +245,10 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 			t.Fatal(selectErr)
 		}
 		inputs["worker_job"] = json.RawMessage(selected)
+		if cycle > 1 {
+			oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
+			version = workVersion(t, s, "work-1")
+		}
 		packet := bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "execution", "inputs": inputs})
 		input := map[string]any{
 			"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker", "idempotency_key": "escalated-dispatch-" + strconv.FormatInt(cycle, 10),
@@ -260,15 +279,12 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 	return version, attemptID, path
 }
 
-// supersedeEscalatedCorrectionContract runs the operator-approved contract
-// supersession at store level. The default workflow family is Product-changing, so the successor
-// carries the complete architecture binding, and the store-level run mints
-// nothing on the agent challenge table.
+// supersedeEscalatedCorrectionContract records an engineering successor with
+// unchanged criteria and architecture. It mints no operator challenge.
 func supersedeEscalatedCorrectionContract(t *testing.T, s *store.Store, owner store.WorkflowActor, version, next int64, reason string) {
 	t.Helper()
-	approvalRef := strings.Repeat("a", 64)
-	operator := store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "approval:" + approvalRef, SessionRef: "session/escalated-supersede", ActorClass: store.ActorOperator}
 	fields := map[string]any{
+		"decision_domains": []string{},
 		"contract_version": next,
 		"premise":          fmt.Sprintf("corrected retry objective %d: %s", next, reason),
 		"outcome_predicates": []map[string]any{{
@@ -287,8 +303,6 @@ func supersedeEscalatedCorrectionContract(t *testing.T, s *store.Store, owner st
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		_, err := store.ApplyWorkflowActionTx(context.Background(), tx, store.BuiltinWorkflowRegistry(), store.WorkflowActionExecutionRequest{
 			WorkID: "work-1", ExpectedVersion: version, ActionID: "supersede_contract", Payload: raw, Actor: owner,
-			OperatorActor: &operator, OperatorApprovalRef: approvalRef,
-			ApprovalOperationDigest: "sha256:" + strings.Repeat("c", 64), ApprovalScopeJSON: `{}`, ApprovalVersionsJSON: fmt.Sprintf(`{"work":%d}`, version), ApprovalConsequence: "recovery",
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64) + operationID, IdempotencyIdentity: operationID, OperationID: operationID,
 			PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
 			ContractDigest: ManifestDigest, Now: fixedTime(),

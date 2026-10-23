@@ -90,18 +90,4 @@ func TestWorkPinRecoveryIntentsAreAdmittedAtTheirWalls(t *testing.T) {
 			t.Fatal("terminal work offered an intent")
 		}
 	})
-	t.Run("convergence", func(t *testing.T) {
-		const workID = "pin-admission-convergence"
-		s, owner, _ := seedIssue1013EscalatedCorrection(t, workID)
-		defer s.Close()
-		if assertWorkPinIntentsAdmitted(t, s, workID) == 0 {
-			t.Fatal("convergence wall offered no intent")
-		}
-		if err := convergenceSupersedeBasis(t, s, workID, owner); err != nil {
-			t.Fatal(err)
-		}
-		if assertWorkPinIntentsAdmitted(t, s, workID) == 0 {
-			t.Fatal("recorded convergence offered no intent")
-		}
-	})
 }

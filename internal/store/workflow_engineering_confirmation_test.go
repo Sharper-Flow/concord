@@ -80,16 +80,6 @@ func seedRoutineReviewersForSelection(t *testing.T, s *Store, workID string) (re
 	return reviewer, operator, coordinator
 }
 
-// reviewerForSeed reads the seeded independent reviewer for one work item.
-func reviewerForSeed(t *testing.T, s *Store, workID string) WorkflowActor {
-	t.Helper()
-	var reviewer WorkflowActor
-	if err := s.DatabaseForTesting().QueryRow(`SELECT principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE agent_ref=? AND session_ref=?`, "agent/independent-reviewer", "session/"+workID+"-reviewer").Scan(&reviewer.PrincipalRef, &reviewer.ClientRef, &reviewer.AgentRef, &reviewer.SessionRef, &reviewer.ActorClass); err != nil {
-		t.Fatalf("reviewer for %s: %v", workID, err)
-	}
-	return reviewer
-}
-
 // runEngineeringConfirmation invokes the confirm_premise constructor directly
 // on the seeded store: the sanctioned transactional seam for a definition the
 // builtin registry does not carry.

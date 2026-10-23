@@ -545,13 +545,16 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 	case "accept_worker_result":
 		// Only a result acceptance counts for repair state (CD-0205 D4):
 		// the repairing result's own acceptance opens the repair, and the
-		// exact confirming attempt's accepted ship verdict confirms it —
-		// never another attempt bound to the same repairing revision.
+		// exact confirming attempt's accepted Review confirms it when that
+		// Review requires no corrective work (continue or
+		// ready_for_final_proof) — never another attempt bound to the same
+		// repairing revision.
 		if repair := h.repairOfBinding(row.jobID, row.jobRevision); repair != nil && repair.acceptanceSeq == 0 {
 			repair.acceptanceSeq = row.seq
 		}
 		confirming := h.confirmingAttemptOf(row.actionAttempt)
-		if confirming != nil && h.reviewVerdict[row.actionAttempt] == "ship" && !confirming.voided {
+		verdict := h.reviewVerdict[row.actionAttempt]
+		if confirming != nil && (verdict == "continue" || verdict == "ready_for_final_proof") && !confirming.voided {
 			confirming.confirmed = true
 			for _, key := range confirming.namedKeys {
 				delete(h.unresolved, key)

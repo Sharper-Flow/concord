@@ -61,14 +61,6 @@ A failed worker attempt is terminal; never resume its session. Request a fresh
 attempt through `dispatch_worker` under the approved assignment. A failure alone
 does not require operator consent. Reconcile an unresolved launch outcome before
 requesting another launch; an input correction cannot repeat an unknown effect.
-At the three-attempt limit, `dispatch_worker` needs a store-derived basis:
-shrinking `open_finding_ids` or an approved `supersede_contract` that changes
-the approach. An approval cannot open the wall. A contract supersession
-recorded after the latest dispatch is a changed approach: after productive
-acceptance, truthfully admitting the next stage is one, without inventing a
-redesign. It admits exactly one fresh fenced attempt and does not renew the
-three-attempt budget. Follow the served recovery
-route or stop; a diagnosis alone is not a convergence basis.
 
 ## The operator's decisions
 

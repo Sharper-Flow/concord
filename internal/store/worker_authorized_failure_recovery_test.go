@@ -120,8 +120,8 @@ func TestWitnessAbandonedJobFailureKeepsBindingThroughUnrelatedSuccess(t *testin
 	if anchorErr != nil || anchor == nil || anchor.FailedAttemptID != abandoned || anchor.FailedAttemptEpoch != epoch {
 		t.Fatalf("anchor after the unrelated acceptance = (%#v, %v), want the abandoned job's exact binding", anchor, anchorErr)
 	}
-	if count := jobWindowCorrectionCount(t, s, workID); count != 2 {
-		t.Fatalf("count after the unrelated acceptance = %d, want both dispatches preserved", count)
+	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary != 0 {
+		t.Fatalf("unrelated acceptance closed the failed obligation at %d", boundary)
 	}
 }
 
@@ -158,23 +158,16 @@ func TestWitnessJobFailureBeforeDispositionKeepsWindowThroughUnrelatedSuccess(t 
 	unrelatedAttempt := "attempt:" + workID + ":unrelated"
 	dispatchJobBoundAttempt(t, s, workID, "repair", unrelatedAttempt, nil, worker, pin.Version, "witness-midwindow-unrelated", unrelated)
 	completeAndAcceptAttempt(t, s, workID, unrelatedAttempt, reviewGateLane(t, "implementation"), acceptor)
-	if count := jobWindowCorrectionCount(t, s, workID); count != 2 {
-		t.Fatalf("count after the unrelated acceptance = %d, want both dispatches preserved before any disposition", count)
-	}
-	// The same failed dispatch stays counted in the same-step wall's window
-	// too: the wall anchor and the counting window share the same walk's
-	// opening, and the unrelated success moved neither.
-	before, err := workflowNonProgressAttemptCount(context.Background(), s.DatabaseForTesting(), workID, "witness")
-	if err != nil || before != 1 {
-		t.Fatalf("same-step failed count after the unrelated acceptance = (%d, %v), want the one failed dispatch still counted", before, err)
+	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary != 0 {
+		t.Fatalf("unrelated acceptance closed the undispositioned obligation at %d", boundary)
 	}
 	// A satisfying follow-up leg of the failed job — the exact obligation
 	// re-recorded as a later revision and accepted — is the one resolution
 	// CD-0205 leaves open, so the walk's protection excludes only the reset
 	// through an unrelated success.
-	unchanged, anchorErr := workflowCorrectionAttemptCount(context.Background(), s.DatabaseForTesting(), workID, maxEventSeq(t, s, workID), "witness")
-	if anchorErr != nil || unchanged != 2 {
-		t.Fatalf("pre-disposition recount = (%d, %v), want the same preserved window the unrelated acceptance left", unchanged, anchorErr)
+	unchanged, anchorErr := workflowCorrectionAcceptanceBefore(context.Background(), s.DatabaseForTesting(), workID, maxEventSeq(t, s, workID)+1, "witness")
+	if anchorErr != nil || unchanged != 0 {
+		t.Fatalf("pre-disposition boundary = (%d, %v), want the failed obligation unresolved", unchanged, anchorErr)
 	}
 	// The late record_worker_failure leg is not exercised here because
 	// CD-0133's epoch fence refuses a failure disposition for an attempt

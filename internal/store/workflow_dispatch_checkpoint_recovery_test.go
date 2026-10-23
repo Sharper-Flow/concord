@@ -15,7 +15,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 )
@@ -293,12 +292,11 @@ func dispatchCorrectionAuthorize(t *testing.T, f crossAttemptFixture, attemptID 
 	return err
 }
 
-// seedResearchWalledCorrection builds the synthetic walled history on one
+// seedResearchWalledCorrection builds two rejected cycles on one
 // research@19 instance: R1 research and the V1 no_ship review complete and R1
 // is rejected, then the corrected R2 research and the V2 no_ship review
 // complete and R2 is rejected. It returns the fixture before supersession
-// with the wall armed: four non-progress attempts, an escalated standing
-// rejection correction, and both reviews undispositioned.
+// with the latest rejection standing and both reviews undispositioned.
 func seedResearchWalledCorrection(t *testing.T, workID string) crossAttemptFixture {
 	t.Helper()
 	f := seedCrossAttemptFixture(t, workID)
@@ -317,13 +315,9 @@ func seedResearchWalledCorrection(t *testing.T, workID string) crossAttemptFixtu
 	if _, err := f.invokeReject(t, readWorkVersion(t, f.s, workID), attemptR2, crossAttemptDispatchEpoch(t, f.s, workID, attemptR2), "r2", 33); err != nil {
 		t.Fatalf("reject the corrected research result: %v", err)
 	}
-	nonProgress, nonProgressErr := workflowNonProgressAttemptCount(context.Background(), f.s.DatabaseForTesting(), workID, "test")
-	if nonProgressErr != nil || nonProgress != 4 {
-		t.Fatalf("non-progress attempts after two rejected cycles = %d, %v, want 4", nonProgress, nonProgressErr)
-	}
 	correction, correctionErr := workflowCorrectionContextForDispatch(context.Background(), f.s.DatabaseForTesting(), workID, f.step, "")
-	if correctionErr != nil || correction == nil || correction.Disposition != "rejected" || correction.AttemptCount != 4 || !correction.Escalated {
-		t.Fatalf("standing correction after two rejected cycles = %#v, %v, want an escalated rejected correction counting 4 attempts", correction, correctionErr)
+	if correctionErr != nil || correction == nil || correction.Disposition != "rejected" || correction.FailedAttemptID != attemptR2 {
+		t.Fatalf("standing correction after two rejected cycles = %#v, %v, want the latest rejected source", correction, correctionErr)
 	}
 	if verdicts := f.eventCount(t, WorkflowVerdictRecorded, ""); verdicts != 0 {
 		t.Fatalf("verdicts after two rejected cycles = %d, want no workflow verdicts", verdicts)
@@ -394,7 +388,6 @@ type walledResearchSnapshot struct {
 	counters                    walledResearchCounters
 	pin, step, definitionDigest string
 	activeVersion, activeCount  int64
-	nonProgress                 int64
 	bytes                       map[string][]byte
 }
 
@@ -406,11 +399,6 @@ func walledResearchCapture(t *testing.T, f crossAttemptFixture, settled, authori
 	snapshot.step = currentStep(t, f.s, f.workID)
 	if err := f.s.DatabaseForTesting().QueryRow(`SELECT i.definition_digest,COALESCE(MAX(c.contract_version),0),count(c.contract_version) FROM workflow_instances i LEFT JOIN workflow_contracts c ON c.work_id=i.work_id AND c.superseded_by IS NULL WHERE i.work_id=?`, f.workID).Scan(&snapshot.definitionDigest, &snapshot.activeVersion, &snapshot.activeCount); err != nil {
 		t.Fatal(err)
-	}
-	var nonProgressErr error
-	snapshot.nonProgress, nonProgressErr = workflowNonProgressAttemptCount(context.Background(), f.s.DatabaseForTesting(), f.workID, "test")
-	if nonProgressErr != nil {
-		t.Fatal(nonProgressErr)
 	}
 	for _, attemptID := range settled {
 		snapshot.bytes["authorized:"+attemptID] = crossAttemptEventPayload(t, f.s, f.workID, WorkflowActionCompleted, attemptID)
@@ -453,32 +441,25 @@ func walledResearchAssertSame(t *testing.T, before, after walledResearchSnapshot
 	if !full {
 		return
 	}
-	if after.pin != before.pin || after.step != before.step || after.activeVersion != before.activeVersion || after.activeCount != before.activeCount || after.nonProgress != before.nonProgress || after.counters != before.counters {
-		t.Fatalf("the rebuild moved durable state: before %+v %+v %+v, after %+v %+v %+v", before.counters, before.pin, before.nonProgress, after.counters, after.pin, after.nonProgress)
+	if after.pin != before.pin || after.step != before.step || after.activeVersion != before.activeVersion || after.activeCount != before.activeCount || after.counters != before.counters {
+		t.Fatalf("the rebuild moved durable state: before %+v %+v, after %+v %+v", before.counters, before.pin, after.counters, after.pin)
 	}
 }
 
-// walledResearchAssertRefused classifies one refused dispatch as the
-// convergence wall's missing-evidence refusal and holds the durable effects.
+// walledResearchAssertRefused checks launch safety and zero durable effects.
 func walledResearchAssertRefused(t *testing.T, f crossAttemptFixture, err error, before walledResearchCounters, stage string) {
 	t.Helper()
 	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
-		t.Fatalf("%s = %v, want the convergence wall's missing-evidence refusal", stage, err)
-	}
-	if !strings.Contains(failure.Detail, "4 non-progress attempts since the applicable nonprogress anchor") || !strings.Contains(failure.Detail, "(step "+f.step+")") {
-		t.Fatalf("%s refusal detail = %q, want the counted population at the walled step", stage, failure.Detail)
+	if !errors.As(err, &failure) || failure.Kind != KindOperationConflict {
+		t.Fatalf("%s = %v, want the active launch window refusal", stage, err)
 	}
 	if after := walledResearchReadCounters(t, f); after != before {
 		t.Fatalf("%s changed durable effects: before %+v, after %+v", stage, before, after)
 	}
 }
 
-// TestResearchWalledCorrectionRecovery walks the walled research step through
-// its genuine recovery: the two rejected cycles arm the wall, the supersession
-// buys one fresh corrected research authorization from approach_changed, the
-// wall re-arms behind that authorization before and after materialization,
-// and a projection rebuild preserves every recorded byte and counter.
+// The research correction preserves its exact source and recorded history
+// through supersession, launch admission, materialization, and rebuild.
 func TestResearchWalledCorrectionRecovery(t *testing.T) {
 	t.Parallel()
 	const workID = "research-walled-correction-recovery"
@@ -488,75 +469,48 @@ func TestResearchWalledCorrectionRecovery(t *testing.T) {
 	settled, rejected := []string{f.attemptR, f.attemptV, attemptR2, attemptV2}, []string{f.attemptR, attemptR2}
 	before := walledResearchCapture(t, f, settled, nil, rejected)
 
-	// The supersession moves the active contract to version 2 and nothing
-	// else: no recorded byte, no wall counter, and no standing correction
-	// changes with it.
+	// Supersession moves the active contract to version 2 without changing
+	// historical bytes or consuming the standing correction.
 	supersedeResearchWalledCorrection(t, f)
 	afterSupersede := walledResearchCapture(t, f, settled, nil, rejected)
 	walledResearchAssertSame(t, before, afterSupersede, false)
-	if afterSupersede.nonProgress != 4 {
-		t.Fatalf("non-progress attempts after the supersession = %d, want 4", afterSupersede.nonProgress)
-	}
 	if issue1013Pin(t, f.s, workID).Correction == nil {
 		t.Fatal("the supersession consumed the standing rejection correction")
 	}
-	var supersessionSeq int64
-	if err := f.s.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=?`, workID, WorkflowContractSuperseded).Scan(&supersessionSeq); err != nil {
-		t.Fatal(err)
-	}
 
-	// The changed approach buys exactly one fresh corrected research
-	// authorization, and its recorded basis names the actual supersession at
-	// the next fenced epoch.
+	// The next corrected research authorization opens a fresh fenced epoch.
 	if err := dispatchCorrectionAuthorize(t, f, attemptW, f.researchLane, f.dispatcher); err != nil {
 		t.Fatalf("authorize the fresh corrected research dispatch behind the wall: %v", err)
 	}
 	if epochW := crossAttemptDispatchEpoch(t, f.s, workID, attemptW); epochW != crossAttemptDispatchEpoch(t, f.s, workID, attemptV2)+1 {
 		t.Fatalf("the fresh authorization's epoch = %d, want the next epoch after the review", epochW)
 	}
-	var rawConvergence []byte
-	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.retry_convergence') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptW).Scan(&rawConvergence); err != nil {
-		t.Fatal(err)
-	}
-	var convergence WorkflowRetryConvergence
-	if err := json.Unmarshal(rawConvergence, &convergence); err != nil {
-		t.Fatal(err)
-	}
-	if !convergence.valid() || convergence.Basis != "approach_changed" || convergence.SupersededSeq != supersessionSeq {
-		t.Fatalf("recorded convergence = %+v, want approach_changed at supersession seq %d", convergence, supersessionSeq)
-	}
-	windowAttempts, windowErr := workflowCorrectionAttemptCount(context.Background(), f.s.DatabaseForTesting(), workID, int64(1)<<62, "test")
-	if windowErr != nil || windowAttempts != 5 {
-		t.Fatalf("correction window attempts after the fresh authorization = %d, %v, want the four counted attempts plus the one authorized identity", windowAttempts, windowErr)
-	}
-	if got, nonProgressErr := workflowNonProgressAttemptCount(context.Background(), f.s.DatabaseForTesting(), workID, "test"); nonProgressErr != nil || got != 4 {
-		t.Fatalf("non-progress attempts after the fresh authorization = %d, %v, want 4 — the authorization renews no window", got, nonProgressErr)
-	}
 	if issue1013Pin(t, f.s, workID).Correction == nil {
 		t.Fatal("the authorization alone consumed the standing rejection correction")
 	}
 
-	// Half-materialized path: behind the consumed basis the next corrected
-	// research dispatch refuses at the wall before any worker evidence
-	// exists, and the refusal records nothing.
+	// A pending authorization prevents another launch before materialization.
 	refusedCounters := walledResearchReadCounters(t, f)
 	walledResearchAssertRefused(t, f, dispatchCorrectionAuthorize(t, f, refusedResearch, f.researchLane, f.dispatcher), refusedCounters, "the pre-materialization research dispatch")
 
-	// Full path: the authorized attempt materializes, consumes the standing
-	// correction, and the wall re-arms — the next review dispatch refuses
-	// without any effect either.
+	// Materialization consumes the correction and resolves the launch outcome.
+	// A subsequent review can authorize without a retry budget.
 	f.materializeDispatch(t, attemptW, f.researchLane, f.dispatcher)
 	if issue1013Pin(t, f.s, workID).Correction != nil {
 		t.Fatal("the materialized dispatch left the rejection correction standing")
 	}
-	refusedCounters = walledResearchReadCounters(t, f)
 	_, reviewErr := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.dispatcher, joinPacketFor(t, f.s, workID, f.step, refusedReview, f.reviewLane.ID, f.reviewLane.Version, f.reviewLane.Digest))
-	walledResearchAssertRefused(t, f, reviewErr, refusedCounters, "the post-materialization review dispatch")
+	if reviewErr != nil {
+		t.Fatalf("post-materialization review dispatch: %v", reviewErr)
+	}
+	f.materializeDispatch(t, refusedReview, f.reviewLane, f.dispatcher)
+	f.completeReviewNoShip(t, refusedReview, 34)
+	settled = append(settled, refusedReview)
 
 	final := walledResearchCapture(t, f, settled, []string{attemptW}, rejected)
 	walledResearchAssertSame(t, before, final, false)
-	if final.counters.dispatches != 5 || final.counters.authorizations != 5 || final.counters.reports != 4 || final.counters.attempts != 5 || final.counters.verdicts != 0 {
-		t.Fatalf("final effect counters = %+v, want four settled dispatch cycles plus the one basis-buying attempt and no verdicts", final.counters)
+	if final.counters.dispatches != 6 || final.counters.authorizations != 6 || final.counters.reports != 5 || final.counters.attempts != 6 || final.counters.verdicts != 0 {
+		t.Fatalf("final effect counters = %+v, want the four historical cycles, fresh research and review, and no verdicts", final.counters)
 	}
 	if err := RebuildFromLog(context.Background(), f.s); err != nil {
 		t.Fatalf("rebuild the projections from the log: %v", err)
@@ -579,7 +533,7 @@ func TestResearchWalledCorrectionRecovery(t *testing.T) {
 
 // walledEvaluationCheckpoint is the corrected producer round the checkpoint
 // evaluation branches continue from: the accepted corrected research result
-// with its non-progress anchor, the registered report evidence, and the
+// with its satisfied-obligation cutoff, registered report evidence, and the
 // independent registered reviewer that judged the round.
 type walledEvaluationCheckpoint struct {
 	f         crossAttemptFixture
@@ -592,8 +546,8 @@ type walledEvaluationCheckpoint struct {
 }
 
 // seedWalledEvaluationCheckpoint walks the armed walled research step through
-// its corrected producer round: the supersession buys one fresh research
-// authorization, the truthful corrected result is accepted at investigate,
+// its corrected producer round: the supersession retains the research
+// authorization route, the truthful corrected result is accepted at investigate,
 // its report is registered at findings, and an independent review completes
 // at conclude and is accepted as held evidence with the named verdict. Every
 // epoch and version comes from the persisted record, never a guessed pin.
@@ -607,8 +561,8 @@ func seedWalledEvaluationCheckpoint(t *testing.T, workID, reviewVerdict string) 
 	settled, rejected := []string{f.attemptR, f.attemptV, attemptR2, attemptV2}, []string{f.attemptR, attemptR2}
 	before := walledResearchCapture(t, f, settled, nil, rejected)
 	supersedeResearchWalledCorrection(t, f)
-	if anchor, err := workflowNonProgressWindowAnchor(ctx, f.s.DatabaseForTesting(), workID, "test", 0); err != nil || anchor != 0 {
-		t.Fatalf("non-progress anchor after the supersession = %d, %v, want 0 — the supersession renews no window", anchor, err)
+	if anchor, err := workflowCorrectionAcceptanceBefore(ctx, f.s.DatabaseForTesting(), workID, 0, "test"); err != nil || anchor != 0 {
+		t.Fatalf("acceptance boundary after supersession = %d, %v, want 0", anchor, err)
 	}
 	if err := dispatchCorrectionAuthorize(t, f, attemptR3, f.researchLane, f.dispatcher); err != nil {
 		t.Fatalf("authorize the fresh corrected research dispatch: %v", err)
@@ -628,11 +582,8 @@ func seedWalledEvaluationCheckpoint(t *testing.T, workID, reviewVerdict string) 
 	if err := f.s.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptR3).Scan(&acceptSeq); err != nil {
 		t.Fatal(err)
 	}
-	if anchor, err := workflowNonProgressWindowAnchor(ctx, f.s.DatabaseForTesting(), workID, "test", 0); err != nil || anchor != acceptSeq {
-		t.Fatalf("non-progress anchor after the acceptance = %d, %v, want the productive accept event seq %d", anchor, err, acceptSeq)
-	}
-	if nonProgress, err := workflowNonProgressAttemptCount(ctx, f.s.DatabaseForTesting(), workID, "test"); err != nil || nonProgress != 0 {
-		t.Fatalf("non-progress attempts after the acceptance = %d, %v, want 0", nonProgress, err)
+	if anchor, err := workflowCorrectionAcceptanceBefore(ctx, f.s.DatabaseForTesting(), workID, 0, "test"); err != nil || anchor != acceptSeq {
+		t.Fatalf("acceptance boundary = %d, %v, want the satisfying accept event seq %d", anchor, err, acceptSeq)
 	}
 	walledResearchAssertSame(t, before, walledResearchCapture(t, f, settled, nil, rejected), false)
 	reportHash := sha256.Sum256(crossAttemptEventPayload(t, f.s, workID, WorkerCompleted, attemptR3))
@@ -727,8 +678,8 @@ func seedWalledEvaluationCheckpoint(t *testing.T, workID, reviewVerdict string) 
 	if bound != 1 {
 		t.Fatalf("review evidence bindings for %s = %d, want the acceptance's one bound review report", attemptV3, bound)
 	}
-	if anchor, err := workflowNonProgressWindowAnchor(ctx, f.s.DatabaseForTesting(), workID, "test", 0); err != nil || anchor != acceptSeq {
-		t.Fatalf("non-progress anchor after the review acceptance = %d, %v, want the producer accept %d — no delivery or producer acceptance substitution", anchor, err, acceptSeq)
+	if anchor, err := workflowCorrectionAcceptanceBefore(ctx, f.s.DatabaseForTesting(), workID, 0, "test"); err != nil || anchor != acceptSeq {
+		t.Fatalf("acceptance boundary after held evidence = %d, %v, want the producer accept %d", anchor, err, acceptSeq)
 	}
 	return walledEvaluationCheckpoint{f: f, acceptSeq: acceptSeq, reportRef: reportRef, reviewRef: attemptV3, reviewer: checkpointReviewReviewer(t, f.s, workID), settled: append(settled, attemptR3, attemptV3), rejected: rejected}
 }
@@ -819,17 +770,12 @@ func TestResearchWalledRecoveryCheckpointEvaluation(t *testing.T) {
 			t.Fatalf("recorded correction requests = %d, want exactly the one new request (before %d)", got, requestsBefore)
 		}
 		returned := issue1013Pin(t, f.s, workID).Correction
-		if returned == nil || returned.Disposition != "verification" || returned.AttemptCount != requestsBefore+1 {
-			t.Fatalf("verification correction after step re-entry = %#v, want %d recorded requests", returned, requestsBefore+1)
+		if returned == nil || returned.Disposition != "verification" || !slices.Equal(returned.PredicateIDs, []string{"predicate:return-route"}) || !slices.Equal(returned.EvidenceRefs, []string{c.reportRef}) {
+			t.Fatalf("verification correction after step re-entry = %#v, want the current predicate and report", returned)
 		}
-		// Neither the supersession nor the corrective step re-entry renewed the
-		// window: the anchor stays at the productive acceptance, and the only
-		// counted attempt since it is the refusing review itself.
-		if anchor, err := workflowNonProgressWindowAnchor(context.Background(), f.s.DatabaseForTesting(), workID, "test", 0); err != nil || anchor != c.acceptSeq {
-			t.Fatalf("non-progress anchor after the request = %d, %v, want the producer accept %d", anchor, err, c.acceptSeq)
-		}
-		if nonProgress, err := workflowNonProgressAttemptCount(context.Background(), f.s.DatabaseForTesting(), workID, "test"); err != nil || nonProgress != 1 {
-			t.Fatalf("non-progress attempts after the request = %d, %v, want only the refusing review", nonProgress, err)
+		// Correction re-entry preserves the satisfying producer acceptance cutoff.
+		if anchor, err := workflowCorrectionAcceptanceBefore(context.Background(), f.s.DatabaseForTesting(), workID, 0, "test"); err != nil || anchor != c.acceptSeq {
+			t.Fatalf("acceptance boundary after the request = %d, %v, want the producer accept %d", anchor, err, c.acceptSeq)
 		}
 		if attempts, dispatches := workerAttemptPopulation(t, f.s, workID); attempts != attemptsBefore || dispatches != dispatchesBefore {
 			t.Fatalf("request_correction minted attempts: attempts %d->%d, dispatches %d->%d", attemptsBefore, attempts, dispatchesBefore, dispatches)
@@ -861,12 +807,6 @@ func TestResearchWalledRecoveryCheckpointEvaluation(t *testing.T) {
 		if _, err := f.invokeReject(t, readWorkVersion(t, f.s, workID), attemptR4, crossAttemptDispatchEpoch(t, f.s, workID, attemptR4), "r4", 47); err != nil {
 			t.Fatalf("reject the second corrected research result: %v", err)
 		}
-		// The old no_ship checkpoint review counts one, and the rejected R4 and
-		// its no_ship V4 review count two more: three non-progress attempts at
-		// the walled step.
-		if nonProgress, err := workflowNonProgressAttemptCount(context.Background(), f.s.DatabaseForTesting(), workID, "test"); err != nil || nonProgress != 3 {
-			t.Fatalf("non-progress attempts after the rejected cycle = %d, %v, want the checkpoint review, the rejected research, and the no_ship review", nonProgress, err)
-		}
 		if requests := walledCheckpointVerificationRequests(t, f); requests != requestsBefore+1 {
 			t.Fatalf("verification window request population after the rejected cycle = %d, want the unchanged %d", requests, requestsBefore+1)
 		}
@@ -890,9 +830,6 @@ func TestResearchWalledRecoveryCheckpointEvaluation(t *testing.T) {
 		expected.version = after.version
 		if after != expected {
 			t.Fatalf("the supersession changed durable effects beyond the one version: before %+v, after %+v", beforeSupersede, after)
-		}
-		if nonProgress, err := workflowNonProgressAttemptCount(context.Background(), f.s.DatabaseForTesting(), workID, "test"); err != nil || nonProgress != 3 {
-			t.Fatalf("non-progress attempts after the supersession = %d, %v, want the unchanged 3", nonProgress, err)
 		}
 		if requests := walledCheckpointVerificationRequests(t, f); requests != requestsBefore+1 {
 			t.Fatalf("verification window request population after the supersession = %d, want the unchanged %d", requests, requestsBefore+1)

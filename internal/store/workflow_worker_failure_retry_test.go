@@ -241,7 +241,7 @@ func TestDerivedWorkerFailureMatchesManualCorrectionProjection(t *testing.T) {
 						t.Fatalf("derived source = %q, want the original terminal pair", sourceID)
 					}
 					want := &WorkflowCorrectionContext{
-						Disposition: "failed", AttemptCount: round, AttemptLimit: 3, Escalated: round == 3,
+						Disposition:  "failed",
 						PredicateIDs: []string{}, EvidenceRefs: fields.ResultEvidence,
 						Diagnosis: detail, Strategy: "retry with a fresh fenced attempt",
 						FailureKind: string(WorkerFailureWorkerError), FailureDetail: detail,
@@ -511,12 +511,7 @@ func TestCombinedRejectRetryDispatchesThroughTheDispatchOwner(t *testing.T) {
 	}
 }
 
-// TestCombinedRejectRetryAtTheWallRefusesAndRejectionOnlyRecords proves the
-// CD-0173 wall keeps its operator-owned escape: when the rejection is the
-// attempt that reaches the limit, the combined call refuses with no
-// rejection or dispatch partial writes, and the rejection without the retry
-// payload still records.
-func TestCombinedRejectRetryAtTheWallRefusesAndRejectionOnlyRecords(t *testing.T) {
+func TestCombinedRejectRetryAfterRepeatedRejections(t *testing.T) {
 	t.Parallel()
 	const workID = "s2-combined-reject-wall"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
@@ -539,39 +534,25 @@ func TestCombinedRejectRetryAtTheWallRefusesAndRejectionOnlyRecords(t *testing.T
 	third := "attempt:" + workID + ":3"
 	dispatchJobBoundAttempt(t, s, workID, "execution", third, issue1013Pin(t, s, workID).Correction, dispatcher, 0, "s2-wall-dispatch-3-"+workID, &WorkerJobBinding{JobID: fmt.Sprintf("job:%s:3", workID)})
 	s2CompletedJobBoundAttempt(t, s, workID, third)
-	before := readWorkVersion(t, s, workID)
-	var eventsBefore int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&eventsBefore); err != nil {
+	if _, err := s2CombinedReject(t, s, workID, fixture.owner, s2CombinedRejectPayload(third, latestStepStartEpoch(t, s, workID, "execution"), json.RawMessage(`{"lane_id":"implement"}`)), "s2-combined-wall-"+workID); err != nil {
+		t.Fatalf("combined retry after repeated rejections: %v", err)
+	}
+	var rejections, retries int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, third).Scan(&rejections); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s2CombinedReject(t, s, workID, fixture.owner, s2CombinedRejectPayload(third, latestStepStartEpoch(t, s, workID, "execution"), json.RawMessage(`{"lane_id":"implement"}`)), "s2-combined-wall-"+workID); err == nil {
-		t.Fatal("the combined retry was admitted at the escalation wall")
-	} else {
-		var failure *Failure
-		if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "three-attempt limit") {
-			t.Fatalf("the combined retry at the wall refused with %v, want the wall's own convergence refusal", err)
-		}
-	}
-	if got := readWorkVersion(t, s, workID); got != before {
-		t.Fatalf("the refused combined call moved the version %d -> %d", before, got)
-	}
-	var eventsAfter int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&eventsAfter); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker'`, workID, WorkflowActionCompleted).Scan(&retries); err != nil {
 		t.Fatal(err)
 	}
-	if eventsAfter != eventsBefore {
-		t.Fatalf("the refused combined call left %d events (before %d); the wall keeps no partial writes", eventsAfter, eventsBefore)
-	}
-	// The rejection without the retry payload still records.
-	if _, err := s2CombinedReject(t, s, workID, fixture.owner, s2CombinedRejectPayload(third, latestStepStartEpoch(t, s, workID, "execution"), nil), "s2-wall-reject-only-"+workID); err != nil {
-		t.Fatalf("the rejection-only escape at the wall: %v", err)
+	if rejections != 1 || retries != 4 {
+		t.Fatalf("combined retry recorded rejections=%d dispatches=%d, want one rejection and one new dispatch after the initial three", rejections, retries)
 	}
 	correction, err := workflowCorrectionContext(context.Background(), s.db, workID, "execution")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if correction == nil || !correction.Escalated {
-		t.Fatalf("correction after the rejection-only escape = %+v, want the escalated rejected record", correction)
+	if correction == nil || correction.Disposition != "rejected" || correction.FailedAttemptID != third {
+		t.Fatalf("correction after retry authorization = %+v, want the exact rejected source", correction)
 	}
 }
 

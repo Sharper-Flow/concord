@@ -2,31 +2,15 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestOwnerOracleConvergence"
+      "value": "internal/store.TestBudgetStateAbsentFromCurrentCorrectionAndAdmission"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestOwnerOracleControlsRetained"
+      "value": "internal/agent.TestRepeatedFailedWorkersUseOrdinaryLaunchAuthority"
     },
     {
       "kind": "go_test",
       "value": "internal/agent.TestWorkerRetryWithoutConsentKeepsFreshIdentityAndReplay"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/agent.TestEscalatedFailedCorrectionWallAdmitsOnlyBehindApproachConvergence"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/agent.TestGenericOneOffFindingsConvergenceAdmitsOneEscalatedRetry"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/agent.TestGenericOneOffNonProgressBudgetSpansStepsAndNoShipAcceptances"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired"
     },
     {
       "kind": "adapter_test",
@@ -34,11 +18,7 @@
     },
     {
       "kind": "adapter_test",
-      "value": "adapter/opencode/concord.test.ts#escalated correction challenge round-trips with the failed attempt bindings"
-    },
-    {
-      "kind": "adapter_test",
-      "value": "adapter/opencode/concord.test.ts#a metadata-less escalation refusal stays a core refusal without asking the operator"
+      "value": "adapter/opencode/packet.test.ts#a rejected correction projects without retry budget authority"
     }
   ],
   "id": "CD-0148",

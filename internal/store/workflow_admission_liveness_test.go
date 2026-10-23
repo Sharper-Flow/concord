@@ -5,11 +5,7 @@ package store
 //
 // Retained families satisfy the liveness property: every
 // well-formed nonterminal state has an exit, and every reachable state has a
-// completion path or the declared stop at a missing-convergence refusal.
-// A path to a future stop never replaces an executable state's completion.
-// TestConvergenceWallWithoutBasisResolvesThroughOperatorStop proves
-// cancellation through the live lifecycle fold; seeded strands still detect
-// missing exits and completion actions.
+// completion path. Seeded strands detect missing exits and completion actions.
 //
 // Archived families cannot lawfully satisfy completion liveness: archived
 // public authoring is forbidden, so an archived state admits no public
@@ -19,11 +15,8 @@ package store
 // detector names an admitted action rather than passing vacuously.
 //
 // No state is skipped on either side. The model folds review debt, attempts,
-// whole-work nonprogress, convergence, contracts, staleness, design,
-// verdicts, artifacts, delivery, mandates, and jobs. Breaking notices and
-// external conditions stay zero. Recorded-correction dispatch-count
-// escalation is verified separately; this model folds the nonprogress wall
-// and its productive-acceptance reset.
+// contracts, staleness, design, verdicts, artifacts, delivery, mandates, and
+// jobs. Breaking notices and external conditions stay zero.
 
 import (
 	"fmt"
@@ -97,29 +90,9 @@ type admissionModelState struct {
 	dispatched      bool
 	attemptProduces bool
 	attemptFresh    bool
-	// nonprogress is the whole-work nonprogress count — distinct failed,
-	// rejected, and completed no_ship attempts since the last productive
-	// acceptance — capped at the wall. Step entries renew nothing
-	// (CD-0164 D1 as amended); only a productive acceptance resets it.
-	nonprogress int64
-	// convergence is the store-derived basis an escalated dispatch needs
-	// (CD-0148 as amended): "" none stands derivable — the missing-basis
-	// refusal —, "approach" a contract supersession recorded after the
-	// latest dispatch, "findings" a latest rejected result or correction
-	// request whose findings strictly shrank the previous comparable record
-	// at one step. The next dispatch consumes whichever stands.
-	convergence string
-	// findingsSeen is the step whose latest correction record carries a
-	// findings set, or "" when none stands in the open window. A fresh
-	// shrinking record at that step derives the findings basis; a step
-	// change keeps the memory (records compare at one step) while a
-	// productive acceptance or a fresh healthy verdict set closes the
-	// window that made the record comparable.
-	findingsSeen string
 	// jobDebt reports an unresolved recorded job obligation: some failed
 	// attempt was bound to a required revision and no acceptance since
-	// discharged it (CD-0205 D4). While set, an acceptance is productive
-	// — resets the nonprogress window — only when it discharges the debt.
+	// discharged it (CD-0205 D4).
 	jobDebt bool
 	// unboundRejectionStep is the step whose unbound rejection stands
 	// unconsumed. The model's reject_worker_result is the unbound rejection —
@@ -183,8 +156,8 @@ type admissionModelState struct {
 }
 
 func (s admissionModelState) String() string {
-	return fmt.Sprintf("(step %q debt %q ready %q attempt %q dispatched %v producer %v freshOrigin %v nonprogress %d convergence %q findingsAt %q jobDebt %v unboundRejectAt %q contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q jobs %q unsatisfied %q scope %q integration %v sizeStop %v engineering %v done %v)",
-		s.step, s.debt, s.ready, s.attempt, s.dispatched, s.attemptProduces, s.attemptFresh, s.nonprogress, s.convergence, s.findingsSeen, s.jobDebt, s.unboundRejectionStep, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.jobs, s.jobsUnsatisfied, s.jobsScope, s.integration, s.sizeStop, s.engineering, s.done)
+	return fmt.Sprintf("(step %q debt %q ready %q attempt %q dispatched %v producer %v freshOrigin %v jobDebt %v unboundRejectAt %q contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q jobs %q unsatisfied %q scope %q integration %v sizeStop %v engineering %v done %v)",
+		s.step, s.debt, s.ready, s.attempt, s.dispatched, s.attemptProduces, s.attemptFresh, s.jobDebt, s.unboundRejectionStep, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.jobs, s.jobsUnsatisfied, s.jobsScope, s.integration, s.sizeStop, s.engineering, s.done)
 }
 
 func admissionModelStart(definition WorkflowDefinition) admissionModelState {
@@ -368,7 +341,6 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		WorkerFailureRecovery:       admissionWorkerFailureRecovery(definition, state),
 		CorrectionRecovery:          state.attempt == "completed" && stepDeclaresAction(definition, state.step, "dispatch_worker"),
 		UnconsumedUnboundRejection:  workflowStepCarriesRejectionHold(definition, state.step) && state.unboundRejectionStep == state.step,
-		NonProgressAttempts:         state.nonprogress,
 		DispatchHold:                admissionDispatchHold(definition, state),
 		PendingOperatorDecision:     state.contracts == 1 && !state.engineering && workflowOperatorDecisionPending(definition, state.step) && state.artifact,
 		ApprovalPolicy:              definition.ApprovalPolicy,
@@ -384,18 +356,6 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		folded.ConfirmationAuthority = WorkflowConfirmationOperator
 		if state.engineering {
 			folded.ConfirmationAuthority = WorkflowConfirmationCoordinator
-		}
-	}
-	// The escalation the model folds is its nonprogress wall; the loader
-	// derives a basis exactly at an escalated fold, so the lift mirrors that
-	// derivation point. Below the wall a standing basis is inert history the
-	// fold does not read.
-	if state.nonprogress >= workflowCorrectionAttemptLimit {
-		switch state.convergence {
-		case "approach":
-			folded.RetryConvergence = WorkflowRetryConvergence{Basis: "approach_changed", SupersededSeq: 2}
-		case "findings":
-			folded.RetryConvergence = WorkflowRetryConvergence{Basis: "findings_shrinking", PreviousRecordSeq: 1, LatestRecordSeq: 2}
 		}
 	}
 	if folded.Delivery.ProofRequired {
@@ -525,25 +485,18 @@ func admissionModelMoves(definition WorkflowDefinition, state admissionModelStat
 }
 
 // admissionMoveFoldKey reduces one model state to the dimensions the lift
-// folds and the guards read: the findings memory, the recorded job debt, the
-// producing origin of the completed attempt, and a basis below the escalated
-// wall never reach workflowAdmit, so states equal under this key admit the
+// folds and the guards read: the recorded job debt and producing origin of
+// the completed attempt never reach workflowAdmit, so states equal under this key admit the
 // same moves. The memo the reachable search keeps on it is a harness cost
 // repair only — the decision stays the fold's own.
 func admissionMoveFoldKey(state admissionModelState) admissionModelState {
-	state.findingsSeen, state.jobDebt = "", false
+	state.jobDebt = false
 	state.attemptProduces, state.attemptFresh = false, false
-	if state.nonprogress < workflowCorrectionAttemptLimit {
-		state.convergence = ""
-	}
 	return state
 }
 
 // admissionEnterStep moves the model to a new step: the step entry anchors a
-// fresh attempt window but renews no whole-work dimension — the nonprogress
-// count, the convergence basis, the findings memory, and the job debt all
-// survive the move exactly as the event history keeps them (CD-0164 D1/D2
-// as amended).
+// fresh attempt window while preserving recorded job debt.
 func admissionEnterStep(definition WorkflowDefinition, state admissionModelState, step string) admissionModelState {
 	if step == "" || step == state.step {
 		return state
@@ -599,9 +552,6 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 	case "dispatch_worker":
 		next.started, next.proof, next.integration = true, false, false
 		next.dispatched = true
-		// The latest dispatch consumes every basis, including one whose
-		// host worker never materializes (CD-0148 as amended).
-		next.convergence = ""
 		// The materialized dispatch is the one consumption of a standing
 		// unbound rejection, whatever outcome the successors carry; hold
 		// acceptance and step entry never close it.
@@ -612,9 +562,6 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		failed := next
 		failed.attempt = "failed"
 		failed.attemptProduces, failed.attemptFresh = false, false
-		if failed.nonprogress < workflowCorrectionAttemptLimit {
-			failed.nonprogress++
-		}
 		if admissionLocalJobAcceptStep(definition, state.step) && state.jobs == "required" {
 			// The dispatched packet may bind the recorded required
 			// revision or run unbound (the payload decides), and only a
@@ -635,12 +582,6 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 			ship, noShip := completed, completed
 			ship.attemptProduces, noShip.attemptProduces = false, false
 			ship.ready, noShip.ready = "ship", "no_ship"
-			// A completed no_ship review is a nonprogress attempt the
-			// moment it completes (CD-0164 D1 as amended), whatever
-			// disposition follows.
-			if noShip.nonprogress < workflowCorrectionAttemptLimit {
-				noShip.nonprogress++
-			}
 			return append(failureSuccessors, ship, noShip)
 		}
 		if next.debt != ReviewDebtOutstanding {
@@ -658,9 +599,6 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		ship, noShip := completed, completed
 		ship.attemptProduces, noShip.attemptProduces = false, false
 		ship.ready, noShip.ready = "ship", "no_ship"
-		if noShip.nonprogress < workflowCorrectionAttemptLimit {
-			noShip.nonprogress++
-		}
 		return []admissionModelState{ship, noShip, failed}
 	case "record_worker_job":
 		// CD-0205 D1/D2: the delivery fold reads each job's latest
@@ -692,22 +630,12 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		if next.ready == "no_ship" {
 			// The no_ship accept preserves the findings and settles
 			// nothing: the debt stays outstanding and the advance waits
-			// for a settling review (CD-0201 D3). It is not a productive
-			// acceptance and opens no nonprogress window (CD-0164 D2 as
-			// amended).
+			// for a settling review (CD-0201 D3).
 			next.ready = ""
 			return []admissionModelState{next}
 		}
 		if next.ready != "" {
 			next.debt, next.ready = ReviewDebtNone, ""
-		}
-		// The productive-acceptance reset (CD-0164 D2 as amended) applies
-		// per successor below: an acceptance renews the nonprogress budget
-		// exactly when no recorded job obligation is unresolved or when the
-		// held local acceptance discharges the last one, and the new window
-		// closes every correction record the findings basis compared.
-		if !admissionLocalJobAcceptStep(definition, state.step) && !next.jobDebt {
-			admissionRenewNonProgressWindow(&next)
 		}
 	case "accept_worker_evidence":
 		next.attempt = ""
@@ -718,27 +646,12 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		// the record stands at this step until a materialized dispatch
 		// consumes it.
 		next.unboundRejectionStep = state.step
-		if state.ready != "no_ship" && next.nonprogress < workflowCorrectionAttemptLimit {
-			next.nonprogress++
-		}
 		if workflowPostRejectionReviewStep(definition, state.step) {
 			next.debt, next.ready = ReviewDebtOutstanding, ""
 		}
-		// The rejected result becomes the latest correction record: any
-		// findings basis it does not renew dies, while a supersession basis
-		// reads only the latest dispatch and survives.
-		if next.convergence != "approach" {
-			next.convergence = ""
-		}
-		return admissionFindingsSuccessors(definition, next, state, "")
+		return []admissionModelState{next}
 	case "record_worker_failure":
 		next.attempt = "failure_recorded"
-		// A latest failure record supplies no findings basis (CD-0148 as
-		// amended): it becomes the latest correction record and carries no
-		// findings of its own. A supersession basis survives it.
-		if next.convergence != "approach" {
-			next.convergence = ""
-		}
 	case "approve_contract":
 		next.contracts = 1
 		plain := admissionEnterStep(definition, next, workflowNextStep(definition, state.step))
@@ -769,10 +682,6 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		ok, bad := next, next
 		ok.verdict, bad.verdict = "ok", "bad"
 		ok.observed, bad.observed = false, false
-		// A fresh healthy verdict set closes the correction window the
-		// findings basis compared records inside: the correction-request
-		// boundary re-anchors at the healthy baseline.
-		ok.findingsSeen = ""
 		bad.artifactStale = true
 		bad.attemptFresh = false
 		return []admissionModelState{ok, bad}
@@ -785,14 +694,7 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		}
 		return []admissionModelState{admissionEnterStep(definition, next, target)}
 	case "request_correction":
-		// The correction record lands at the step that requested it, before
-		// the declared route returns the instance to its producer, and a
-		// shrinking predicate set at that step derives the findings basis
-		// like a rejected result's findings (CD-0148 as amended).
-		if next.convergence != "approach" {
-			next.convergence = ""
-		}
-		return admissionFindingsSuccessors(definition, next, state, workflowCorrectionReturnTarget(definition, state.step))
+		return []admissionModelState{admissionEnterStep(definition, next, workflowCorrectionReturnTarget(definition, state.step))}
 	case "complete":
 		next.done = true
 		return []admissionModelState{next}
@@ -829,19 +731,14 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 			if actionID == "accept_worker_result" && admissionLocalJobAcceptStep(definition, state.step) {
 				// CD-0205: on a job-capable pin the accept of a job-bound
 				// attempt is local acceptance and holds the step. The held
-				// successor keeps the whole-work nonprogress budget the
-				// failed job opened (CD-0164 D1 as amended refining
-				// CD-0205 D4) and moves the job facet: the accepted
+				// successor moves the job facet: the accepted
 				// revision is satisfied, while another required revision
 				// may remain unsatisfied. The accept advances only for an
 				// attempt without a job, or — where the step exits through
 				// delivery — only when the delivery derivation admits the
 				// assertion it carries. The held local acceptance of the
-				// recorded obligation discharges the recorded debt and is
-				// productive (CD-0164 D2 as amended); a still-required
-				// sibling revision's debt is not discharged by it, and the
-				// advancing unbound acceptance is productive exactly when
-				// no recorded debt stands.
+				// recorded obligation discharges the recorded debt; a still-required
+				// sibling revision's debt is not discharged by it.
 				held := next
 				if state.jobs == "required" {
 					heldStillRequired := held
@@ -849,20 +746,10 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 					held.jobs = "satisfied"
 					held.jobsUnsatisfied = ""
 					held.jobDebt = false
-					admissionRenewNonProgressWindow(&held)
-					if !heldStillRequired.jobDebt {
-						admissionRenewNonProgressWindow(&heldStillRequired)
-					}
-					if !advanced.jobDebt {
-						admissionRenewNonProgressWindow(&advanced)
-					}
 					if !workflowAcceptDeliveryAdmissionActive(definition, state.step) || workflowAdmitDelivery(admissionWorkflowState(definition, state), WorkflowAdmissionDecision{}).Failure == nil {
 						return []admissionModelState{heldStillRequired, held, advanced}
 					}
 					return []admissionModelState{heldStillRequired, held}
-				}
-				if !advanced.jobDebt {
-					admissionRenewNonProgressWindow(&advanced)
 				}
 				if !workflowAcceptDeliveryAdmissionActive(definition, state.step) || workflowAdmitDelivery(admissionWorkflowState(definition, state), WorkflowAdmissionDecision{}).Failure == nil {
 					successors := []admissionModelState{held}
@@ -942,16 +829,12 @@ func admissionStepProducesArtifact(definition WorkflowDefinition, stepID, action
 // unchanged content keeps its applicable association (CD-0242 D7).
 // at the pinned complete step it returns the instance to the correction
 // target; without a successor the instance returns to the contract step with
-// no contract. Every route records the supersession event, and a contract
-// supersession after the latest dispatch at any step is a changed approach —
-// the one basis that survives the correction record population (CD-0148 as
-// amended, CD-0164 D3).
+// no contract.
 func admissionSupersedeSuccessors(definition WorkflowDefinition, state admissionModelState) []admissionModelState {
 	successor := state
 	successor.contracts, successor.stale, successor.verdict, successor.observed = 1, "", "", false
 	successor.artifactStale = true
 	successor.attemptFresh = false
-	successor.convergence = "approach"
 	if workflowDerivedStepStartActive(definition) {
 		// The typed supersession opens the successor contract's pass. The
 		// old attempt still holds advances until disposition, but its
@@ -978,7 +861,6 @@ func admissionSupersedeSuccessors(definition WorkflowDefinition, state admission
 		// which every walk back to an evaluator step passes — clears it.
 		reset.mandate, reset.artifactStale = "", true
 		reset.attemptFresh = false
-		reset.convergence = "approach"
 		successors = append(successors, reset)
 	}
 	return admissionSupersedeCriterionVariants(state, successors)
@@ -1016,50 +898,6 @@ func TestCriterionAssociationModelKeepsUnchangedSupersession(t *testing.T) {
 	}
 	if !changed || !unchanged {
 		t.Fatalf("supersession lost a criterion-content class: changed=%v unchanged=%v", changed, unchanged)
-	}
-}
-
-// admissionFindingsSuccessors folds the findings half of the convergence
-// basis over one correction record that lands at the state's step: the
-// payload decides whether the record carries a findings set at all and
-// whether that set strictly shrinks the previous comparable record at this
-// step, so the successors enumerate the shrinking record that derives the
-// basis beside the records that do not (CD-0148 as amended). target names
-// the declared route's return step the record then moves the instance to, ""
-// when the record holds the step. The single-slot findings memory is the
-// model's bounded abstraction of the walk's previous-comparable record: it
-// names the one step whose latest record carries a findings set, and a
-// productive acceptance or a fresh healthy verdict set closes the window
-// that made the record comparable.
-func admissionFindingsSuccessors(definition WorkflowDefinition, next, state admissionModelState, target string) []admissionModelState {
-	move := func(record admissionModelState) admissionModelState {
-		if target == "" {
-			return record
-		}
-		return admissionEnterStep(definition, record, target)
-	}
-	withFindings := next
-	withFindings.findingsSeen = state.step
-	if state.findingsSeen == state.step {
-		shrinking := withFindings
-		if shrinking.convergence != "approach" {
-			shrinking.convergence = "findings"
-		}
-		return []admissionModelState{move(shrinking), move(next)}
-	}
-	return []admissionModelState{move(withFindings), move(next)}
-}
-
-// admissionRenewNonProgressWindow applies the productive acceptance: the
-// nonprogress budget renews and the new window closes every correction
-// record the findings basis compared, so the count and the findings memory
-// reset together (CD-0164 D2 as amended). A standing supersession basis
-// reads only the latest dispatch and survives.
-func admissionRenewNonProgressWindow(state *admissionModelState) {
-	state.nonprogress = 0
-	state.findingsSeen = ""
-	if state.convergence != "approach" {
-		state.convergence = ""
 	}
 }
 
@@ -1166,10 +1004,7 @@ func admissionStepIndex(definition WorkflowDefinition, stepID string) int {
 // under a contract, verdicts and artifact staleness only from the first
 // verdict step on — a staleness cause is a bad verdict or a successor
 // contract, and no evaluator sits before that step. Attempts exist on a step
-// that dispatches or starts work; the whole-work nonprogress wall and its
-// convergence bases exist only at such steps, the wall at zero or the limit
-// and each basis family — including the missing-basis refusal — at the wall.
-// The findings memory and the recorded job debt stay out of the enumeration:
+// that dispatches or starts work. Recorded job debt stays out of the enumeration:
 // no fold reads them, they shape only the successor model's reachable walk.
 // The review debt exists only on a definition that declares the refinement
 // shape's review steps, and a ready review implies the debt.
@@ -1283,15 +1118,11 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 			} else if i > contractIndex {
 				contracts = []int64{1, 2}
 			}
-			walls := []int64{0}
 			starts := slices.Contains(step.Actions, "dispatch_worker")
 			for _, actionID := range step.Actions {
 				if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionFenced {
 					starts = true
 				}
-			}
-			if starts {
-				walls = []int64{0, workflowCorrectionAttemptLimit}
 			}
 			// attemptDispatched pairs each attempt value with whether a dispatch
 			// happened since the step's latest pass boundary. Only the empty
@@ -1333,34 +1164,18 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 						for _, verdict := range verdicts {
 							for _, artifactStale := range artifacts {
 								for _, attemptDispatch := range attemptDispatches {
-									for _, wall := range walls {
-										// The convergence basis is folded exactly
-										// at the escalated wall — the loader derives
-										// a basis nowhere else — so the well-formed
-										// enumeration carries each basis family and
-										// the missing-basis refusal at the wall, and
-										// nothing below it: a standing basis below
-										// the wall is inert history the fold does
-										// not read.
-										convergences := []string{""}
-										if wall == workflowCorrectionAttemptLimit {
-											convergences = []string{"", "approach", "findings"}
-										}
-										for _, convergence := range convergences {
-											for _, shape := range debts {
-												for _, jobs := range stepJobShapes {
-													for _, observation := range [][2]bool{{false, false}, {true, false}, {true, true}} {
-														if !withEvidence(admissionModelState{
-															step: step.ID, debt: shape.debt, ready: shape.ready,
-															attempt: attemptDispatch.attempt, dispatched: attemptDispatch.dispatched,
-															nonprogress: wall, convergence: convergence, contracts: count, stale: stale,
-															designStale: designStale, verdict: verdict, artifactStale: artifactStale,
-															artifact: observation[0], observed: observation[1],
-															jobs: jobs, jobsUnsatisfied: admissionModelJobKeys(jobs), jobsScope: admissionModelJobScope(jobs),
-														}) {
-															return
-														}
-													}
+									for _, shape := range debts {
+										for _, jobs := range stepJobShapes {
+											for _, observation := range [][2]bool{{false, false}, {true, false}, {true, true}} {
+												if !withEvidence(admissionModelState{
+													step: step.ID, debt: shape.debt, ready: shape.ready,
+													attempt: attemptDispatch.attempt, dispatched: attemptDispatch.dispatched,
+													contracts: count, stale: stale,
+													designStale: designStale, verdict: verdict, artifactStale: artifactStale,
+													artifact: observation[0], observed: observation[1],
+													jobs: jobs, jobsUnsatisfied: admissionModelJobKeys(jobs), jobsScope: admissionModelJobScope(jobs),
+												}) {
+													return
 												}
 											}
 										}
@@ -1393,32 +1208,11 @@ func admissionModelJobScope(jobs string) string {
 	return ""
 }
 
-// admissionOperatorStopResolves reports whether the state's designed
-// terminal resolution is the operator's declared stop: the state's dispatch
-// decision is the convergence-wall refusal — the one refusal whose remedy
-// names stopping the work (CD-0148 as amended). The stop is the live fold's
-// work.transitioned cancel, an external transition the store admits at every
-// live state and that closes the instance as cancelled
-// (TestConvergenceWallWithoutBasisResolvesThroughOperatorStop is the store
-// evidence). The probe stays the real fold's own decision, so the exit
-// tracks the admission law rather than a hand-rolled predicate, and it is
-// never counted below the wall: there the workflow owes its own exit, and a
-// universal stop would vacate both checks.
-func admissionOperatorStopResolves(definition WorkflowDefinition, state admissionModelState) bool {
-	// The size stop hides the wall's dispatch refusal, not the wall: the
-	// operator's cancel stays admitted under it.
-	state.sizeStop = false
-	decision := workflowAdmit(definition, admissionWorkflowState(definition, state), "dispatch_worker")
-	return decision.ConvergenceRequired
-}
-
 // admissionHasExit reports whether some admitted action has a successor that
 // leaves the state, stopping at the first exit. A hold action whose every
 // successor equals the state is no exit (CD-0201 D2). The agent's own
 // observation record counts: it is a route the agent always holds, and it
-// changes the folded state. The operator's declared stop at the convergence
-// wall counts the same way: it is the external transition the wall's own
-// remedy names.
+// changes the folded state.
 func admissionHasExit(definition WorkflowDefinition, state admissionModelState) bool {
 	if len(admissionAgentMoves(definition, state)) != 0 {
 		return true
@@ -1433,7 +1227,7 @@ func admissionHasExit(definition WorkflowDefinition, state admissionModelState) 
 			}
 		}
 	}
-	return admissionOperatorStopResolves(definition, state)
+	return false
 }
 
 // wellFormedAdmissionExitWitnesses walks one definition version's well-formed
@@ -1633,15 +1427,14 @@ func mustBuiltinDefinition(t *testing.T, ref string) RegisteredDefinition {
 
 // admissionStrandedWitnesses walks every reachable state of one definition
 // version and returns a witness for each nonterminal state from which no
-// path reaches a terminal outcome — the completed instance or the operator's
-// declared stop at the convergence wall.
+// path reaches the completed instance.
 func admissionStrandedWitnesses(definition WorkflowDefinition) []string {
 	graph := admissionReachableGraph(definition, admissionModelStart(definition))
 	live := admissionLiveGraphStates(graph)
 	var witnesses []string
 	for i := range graph.keys {
 		state := graph.state(int32(i))
-		if state.done || live[i] || admissionOperatorStopResolves(definition, state) {
+		if state.done || live[i] {
 			continue
 		}
 		witnesses = append(witnesses, fmt.Sprintf("reachable nonterminal state %s reaches no terminal outcome; admitted moves: %s; path: %s",
@@ -1764,16 +1557,15 @@ func TestAdmissionModelKeyRejectsInvalidFields(t *testing.T) {
 }
 
 var (
-	admissionKeyDebts        = []string{string(ReviewDebtNone), string(ReviewDebtOutstanding)}
-	admissionKeyReadies      = []string{"", "ship", "absent", "no_ship"}
-	admissionKeyAttempts     = []string{"", "completed", "failed", "failure_recorded", "rejected"}
-	admissionKeyConvergences = []string{"", "approach", "findings"}
-	admissionKeyStales       = []string{"", "law", "registry"}
-	admissionKeyVerdicts     = []string{"", "ok", "bad"}
-	admissionKeyMandates     = []string{"", "missing", "bound"}
-	admissionKeyJobs         = []string{"", "required", "satisfied"}
-	admissionKeyJobKeys      = []string{"", admissionModelJobKeys("required")}
-	admissionKeyJobScopes    = []string{"", admissionModelJobScope("required")}
+	admissionKeyDebts     = []string{string(ReviewDebtNone), string(ReviewDebtOutstanding)}
+	admissionKeyReadies   = []string{"", "ship", "absent", "no_ship"}
+	admissionKeyAttempts  = []string{"", "completed", "failed", "failure_recorded", "rejected"}
+	admissionKeyStales    = []string{"", "law", "registry"}
+	admissionKeyVerdicts  = []string{"", "ok", "bad"}
+	admissionKeyMandates  = []string{"", "missing", "bound"}
+	admissionKeyJobs      = []string{"", "required", "satisfied"}
+	admissionKeyJobKeys   = []string{"", admissionModelJobKeys("required")}
+	admissionKeyJobScopes = []string{"", admissionModelJobScope("required")}
 )
 
 func admissionKeyCode(value string, vocabulary []string) uint8 {
@@ -1797,19 +1589,16 @@ func admissionKeyCount(value int64) uint8 {
 func admissionModelKeyOf(steps []string, state admissionModelState) admissionModelKey {
 	var p admissionModelKeyPacker
 	p.put(admissionKeyCode(state.step, steps), admissionModelKeyStepBits)
-	p.put(admissionKeyCode(state.findingsSeen, steps), admissionModelKeyStepBits)
 	p.put(admissionKeyCode(state.unboundRejectionStep, steps), admissionModelKeyStepBits)
 	p.put(admissionKeyCode(string(state.debt), admissionKeyDebts), 1)
 	p.put(admissionKeyCode(state.ready, admissionKeyReadies), 2)
 	p.put(admissionKeyCode(state.attempt, admissionKeyAttempts), 3)
-	p.put(admissionKeyCode(state.convergence, admissionKeyConvergences), 2)
 	p.put(admissionKeyCode(state.stale, admissionKeyStales), 2)
 	p.put(admissionKeyCode(state.verdict, admissionKeyVerdicts), 2)
 	p.put(admissionKeyCode(state.mandate, admissionKeyMandates), 2)
 	p.put(admissionKeyCode(state.jobs, admissionKeyJobs), 2)
 	p.put(admissionKeyCode(state.jobsUnsatisfied, admissionKeyJobKeys), 1)
 	p.put(admissionKeyCode(state.jobsScope, admissionKeyJobScopes), 1)
-	p.put(admissionKeyCount(state.nonprogress), 8)
 	p.put(admissionKeyCount(state.contracts), 8)
 	for _, set := range []bool{state.dispatched, state.attemptProduces, state.attemptFresh, state.jobDebt, state.designStale,
 		state.artifactStale, state.artifact, state.observed, state.started, state.proof, state.integration, state.sizeStop, state.done, state.engineering} {
@@ -1828,19 +1617,16 @@ func admissionModelStateOf(steps []string, key admissionModelKey) admissionModel
 	p := admissionModelKeyPacker{key: key}
 	var state admissionModelState
 	state.step = steps[p.get(admissionModelKeyStepBits)]
-	state.findingsSeen = steps[p.get(admissionModelKeyStepBits)]
 	state.unboundRejectionStep = steps[p.get(admissionModelKeyStepBits)]
 	state.debt = WorkflowReviewDebt(admissionKeyDebts[p.get(1)])
 	state.ready = admissionKeyReadies[p.get(2)]
 	state.attempt = admissionKeyAttempts[p.get(3)]
-	state.convergence = admissionKeyConvergences[p.get(2)]
 	state.stale = admissionKeyStales[p.get(2)]
 	state.verdict = admissionKeyVerdicts[p.get(2)]
 	state.mandate = admissionKeyMandates[p.get(2)]
 	state.jobs = admissionKeyJobs[p.get(2)]
 	state.jobsUnsatisfied = admissionKeyJobKeys[p.get(1)]
 	state.jobsScope = admissionKeyJobScopes[p.get(1)]
-	state.nonprogress = int64(p.get(8))
 	state.contracts = int64(p.get(8))
 	for _, flag := range []*bool{&state.dispatched, &state.attemptProduces, &state.attemptFresh, &state.jobDebt, &state.designStale,
 		&state.artifactStale, &state.artifact, &state.observed, &state.started, &state.proof, &state.integration, &state.sizeStop, &state.done, &state.engineering} {
@@ -1851,7 +1637,7 @@ func admissionModelStateOf(steps []string, key admissionModelKey) admissionModel
 
 // admissionModelKeyFields is the number of admissionModelState fields
 // admissionModelKeyOf encodes.
-const admissionModelKeyFields = 29
+const admissionModelKeyFields = 26
 
 func TestAdmissionModelKeyEncodesEveryField(t *testing.T) {
 	if got := reflect.TypeOf(admissionModelState{}).NumField(); got != admissionModelKeyFields {
@@ -1878,11 +1664,11 @@ func TestAdmissionModelKeyRoundTrips(t *testing.T) {
 		states := slices.Collect(wellFormedAdmissionStates(definition))
 		for range 2000 {
 			states = append(states, admissionModelState{
-				step: pick(steps), findingsSeen: pick(steps), unboundRejectionStep: pick(steps),
+				step: pick(steps), unboundRejectionStep: pick(steps),
 				debt: WorkflowReviewDebt(pick(admissionKeyDebts)), ready: pick(admissionKeyReadies), attempt: pick(admissionKeyAttempts),
-				convergence: pick(admissionKeyConvergences), stale: pick(admissionKeyStales), verdict: pick(admissionKeyVerdicts),
+				stale: pick(admissionKeyStales), verdict: pick(admissionKeyVerdicts),
 				mandate: pick(admissionKeyMandates), jobs: pick(admissionKeyJobs), jobsUnsatisfied: pick(admissionKeyJobKeys),
-				jobsScope: pick(admissionKeyJobScopes), nonprogress: random.Int64N(256), contracts: random.Int64N(256),
+				jobsScope: pick(admissionKeyJobScopes), contracts: random.Int64N(256),
 				dispatched: flip(), attemptProduces: flip(), attemptFresh: flip(), jobDebt: flip(), designStale: flip(), artifactStale: flip(),
 				artifact: flip(), observed: flip(), started: flip(), proof: flip(), integration: flip(), sizeStop: flip(), done: flip(), engineering: flip(),
 			})

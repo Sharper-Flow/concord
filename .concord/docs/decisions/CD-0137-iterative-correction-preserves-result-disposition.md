@@ -42,4 +42,6 @@ attempt what failed or prevent reuse of the same attempt identity.
 - A stale result cannot advance.
 - Work-pin admission, single-result rejection, and human-checkpoint protections
   retain the same disposition boundaries.
-- `TestOwnerOracleConvergence`, `TestOwnerOracleRequestOpenFindingsComparison`, and `TestOwnerOracleEmptyDerivedSetEquality` cover exact correction sets and supported shrinkage.
+- `internal/store.TestOwnerOracleRequestOpenFindingsShape` and
+  `internal/store.TestOwnerOracleEmptyDerivedSetEquality` validate complete
+  correction finding sets and equality of empty derived sets.

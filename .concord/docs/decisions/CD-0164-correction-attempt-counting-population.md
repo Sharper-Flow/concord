@@ -140,18 +140,15 @@ A dispatch refusal identifies whether nonprogress, correction escalation, or bot
 
 ## Verification
 
-- `internal/store.TestInfrastructureFailureKindConsumesCorrectionAttemptBound`
-  proves a `fallback_blocked` failure consumes the bound, the third such
-  failure escalates, and the work pin carries `dispatch_worker` under
-  `escalated_retry_requires_convergence`.
-- `internal/agent.TestGenericOneOffNonProgressBudgetSpansStepsAndNoShipAcceptances`
-  proves the nonprogress budget spans steps and survives `no_ship`
-  acceptances.
-- `internal/store.TestConvergenceStepAndDispositionDoNotRenewBudget`
-  proves a step change and a disposition change renew no budget.
-- `internal/store.TestAcceptedWorkerResultResetsCorrectionAttemptCount`
-  proves an accepted result opens a fresh window and the next failure counts
-  one.
-- `internal/store.TestCorrectionAttemptCountSurvivesContractSupersession`
-  proves the counted dispatches survive an operator-approved supersession
-  and still escalate under the successor.
+- `internal/store.TestBudgetStateAbsentFromCurrentCorrectionAndAdmission`
+  proves live correction and admission types carry no attempt count,
+  escalation state, convergence basis, or review funding.
+- `internal/agent.TestRepeatedFailedWorkersUseOrdinaryLaunchAuthority` proves
+  repeated failures do not create a count-derived dispatch refusal.
+- `internal/store.TestCorrectionHistoryAcceptanceCutoffs` proves obligation
+  satisfaction retains its historical prefix independently of counting.
+- `internal/store.TestCorrectionHistoryFailureDebtBeforeDisposition` proves
+  failed job obligations survive before an explicit correction disposition.
+- `internal/agent.TestWorkerRetryRequiresTerminalReconciliationAndCurrentPacket`
+  proves removing budgets preserves unresolved-launch reconciliation and
+  current correction consumption.

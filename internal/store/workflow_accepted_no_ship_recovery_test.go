@@ -122,7 +122,7 @@ func TestHistoricalAcceptedNoShipReviewWithoutRejectionRecovers(t *testing.T) {
 				t.Fatalf("correction changed delivery count from %d to %d", deliveriesBefore, count)
 			}
 			correction, err := workflowCorrectionContext(ctx, s.db, workID, pin.target)
-			if err != nil || correction == nil || correction.AttemptCount != 1 || correction.Disposition != "verification" || correction.FailedAttemptID != "" {
+			if err != nil || correction == nil || correction.Disposition != "verification" || correction.FailedAttemptID != "" {
 				t.Fatalf("recorded correction = %#v, error %v", correction, err)
 			}
 			if err := runIssue933OperatorAction(t, s, workID, "request_correction", payload, fixture.owner, fixture.operator); err == nil || !strings.Contains(err.Error(), "non-ok verification verdict") {
@@ -186,7 +186,7 @@ func acceptedNoShipRepairToRefine(t *testing.T, fixture workflowReturnRouteFixtu
 	reviewGateRequireStep(t, s, workID, "refine")
 }
 
-func TestAcceptedNoShipReviewCorrectionCounting(t *testing.T) {
+func TestAcceptedNoShipReviewRepeatedCorrection(t *testing.T) {
 	const workID = "accepted-no-ship-correction-count"
 	ctx := context.Background()
 	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.implementation", 19, "refine")
@@ -208,8 +208,8 @@ func TestAcceptedNoShipReviewCorrectionCounting(t *testing.T) {
 			t.Fatalf("correction %d: %v", cycle, err)
 		}
 		correction, err := workflowCorrectionContext(ctx, s.db, workID, "execution")
-		if err != nil || correction == nil || correction.AttemptCount != cycle || correction.Escalated != (cycle > workflowCorrectionAttemptLimit) {
-			t.Fatalf("correction %d count/escalation = %#v, error %v", cycle, correction, err)
+		if err != nil || correction == nil || correction.Disposition != "verification" || len(correction.PredicateIDs) != 1 || correction.PredicateIDs[0] != "predicate:return-route" {
+			t.Fatalf("correction %d source = %#v, error %v", cycle, correction, err)
 		}
 	}
 	registered, _ := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 19)
@@ -223,8 +223,8 @@ func TestAcceptedNoShipReviewCorrectionCounting(t *testing.T) {
 		t.Fatal(loadErr)
 	}
 	decision := workflowAdmit(registered.Definition, state, "dispatch_worker")
-	if decision.Admitted || !decision.ConvergenceRequired || decision.Failure == nil || decision.Failure.Kind != KindMissingEvidence {
-		t.Fatalf("escalated dispatch admission = %#v, want the missing-basis convergence refusal", decision)
+	if !decision.Admitted {
+		t.Fatalf("repeated correction dispatch admission = %#v, want admitted", decision)
 	}
 }
 

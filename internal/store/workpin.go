@@ -412,7 +412,7 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 	kept := pin.NextValidIntents[:0:0]
 	for _, intent := range pin.NextValidIntents {
 		decision := workflowAdmit(definition, state, intent.ActionID)
-		if !decision.Admitted && !decision.ConvergenceRequired {
+		if !decision.Admitted {
 			continue
 		}
 		// A consequence_v1 confirm_premise declares the human digest
@@ -526,8 +526,8 @@ func workPinReadAttemptTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 
 // workPinRecoveryIntentsTx completes the intent set with every recovery and
 // correction route the folded admission state admits: worker-failure and
-// contract correction, the delivery-gate correction request, escalated
-// retry, the rejected-worker-result correction, and the terminal-state
+// contract correction, the delivery-gate correction request,
+// the rejected-worker-result correction, and the terminal-state
 // selections that close the set. Every append consumes the pure decision,
 // so a route the folded state owns but another folded condition refuses —
 // staleness, terminal immutability, the hold — stays hidden.
@@ -572,9 +572,8 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 
 // workPinCorrectionRequestIntentsTx applies the correction-request routes
 // over the folded admission state: the delivery gate replaces
-// request_correction with its own bounded intent, an unescalated
-// verification correction is advertised once, and an escalated correction
-// collapses the set to the retry intents. The correction context read below
+// request_correction with its own bounded intent, and a
+// verification correction is advertised once. The correction context read below
 // carries the pin's correction display; the admission decisions read the
 // folded state.
 func workPinCorrectionRequestIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, state WorkflowAdmissionState) error {
@@ -583,13 +582,13 @@ func workPinCorrectionRequestIntentsTx(ctx context.Context, tx *sql.Tx, workID s
 	if workflowStepIsDeliveryGate(workflowStep(definition, pin.Step)) {
 		// The gate's corrective return carries one reason code on every
 		// pinned shape, and it is advertised only when the folded admission
-		// proves the route, no escalation stands behind it, and the pure
+		// proves the route and the pure
 		// decision admits the return.
 		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "request_correction")
-		if state.CorrectionRequestRecovery && !state.CorrectionEscalated && admitted {
+		if state.CorrectionRequestRecovery && admitted {
 			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinitionFor(definition, "request_correction"), pin.Version, "delivery_gate_correction"))
 		}
-	} else if state.CorrectionRequestRecovery && !state.CorrectionEscalated && admitted && !workPinContainsAction(pin.NextValidIntents, "request_correction") {
+	} else if state.CorrectionRequestRecovery && admitted && !workPinContainsAction(pin.NextValidIntents, "request_correction") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinitionFor(definition, "request_correction"), pin.Version, "verification_correction"))
 	}
 	correction, correctionErr := workflowCorrectionContext(ctx, tx, workID, pin.Step)
@@ -597,9 +596,6 @@ func workPinCorrectionRequestIntentsTx(ctx context.Context, tx *sql.Tx, workID s
 		return correctionErr
 	}
 	pin.Correction = correction
-	if state.retryEscalated() {
-		pin.NextValidIntents = workPinEscalatedRetryIntents(pin.NextValidIntents, state.RetryConvergence.valid())
-	}
 	return nil
 }
 
@@ -787,23 +783,6 @@ func workPinWithoutAction(intents []WorkPinIntent, actionID string) []WorkPinInt
 		}
 	}
 	return filtered
-}
-
-// workPinEscalatedRetryIntents keeps the dispatch_worker route visible when a
-// correction reached the three-attempt limit (CD-0173). The reason names
-// whether the store has derived the convergence basis the dispatch needs.
-func workPinEscalatedRetryIntents(intents []WorkPinIntent, converging bool) []WorkPinIntent {
-	out := make([]WorkPinIntent, 0, len(intents))
-	for _, intent := range intents {
-		if intent.ActionID == "dispatch_worker" {
-			intent.ReasonCode = "escalated_retry_requires_convergence"
-			if converging {
-				intent.ReasonCode = "escalated_retry_convergence_recorded"
-			}
-		}
-		out = append(out, intent)
-	}
-	return out
 }
 
 func workPinIntentForAction(action WorkflowActionDefinition, version int64, reason string) WorkPinIntent {

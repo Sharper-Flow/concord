@@ -2,11 +2,11 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkPinEscalatedCorrectionAdvertisesApprovalGatedRetry"
+      "value": "internal/store.TestBudgetStateAbsentFromCurrentCorrectionAndAdmission"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired"
+      "value": "internal/agent.TestRepeatedFailedWorkersUseOrdinaryLaunchAuthority"
     },
     {
       "kind": "go_test",

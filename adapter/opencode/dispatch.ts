@@ -244,9 +244,6 @@ export interface AgentLanePacketOutcomePredicate {
 
 export interface AgentLanePacketCorrection {
   disposition: "failed" | "rejected" | "verification"
-  attempt_count: number
-  attempt_limit: 3
-  escalated: boolean
   diagnosis: string
   strategy: string
   failure_kind?: string

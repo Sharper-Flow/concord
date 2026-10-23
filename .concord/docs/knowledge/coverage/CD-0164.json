@@ -2,15 +2,15 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestInfrastructureFailureKindConsumesCorrectionAttemptBound"
+      "value": "internal/store.TestBudgetStateAbsentFromCurrentCorrectionAndAdmission"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestAcceptedWorkerResultResetsCorrectionAttemptCount"
+      "value": "internal/agent.TestRepeatedFailedWorkersUseOrdinaryLaunchAuthority"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestCorrectionAttemptCountSurvivesContractSupersession"
+      "value": "internal/store.TestCorrectionHistoryAcceptanceCutoffs"
     }
   ],
   "id": "CD-0164",

@@ -235,9 +235,6 @@ test("sequential dispatches bound each attempt to its own lane's assigned result
 test("a correction projects recorded failure fields into the packet", async () => {
   const correction: AgentLanePacketCorrection = {
     disposition: "failed",
-    attempt_count: 1,
-    attempt_limit: 3,
-    escalated: false,
     diagnosis: "worker attempt failed",
     strategy: "retry with a fresh fenced attempt",
     failure_kind: "transport_failure",
@@ -265,9 +262,6 @@ test("a correction projects recorded failure fields into the packet", async () =
 test("a checkpoint failed-review correction projects its bounded verdict evidence into the packet", async () => {
   const correction: AgentLanePacketCorrection = {
     disposition: "failed",
-    attempt_count: 1,
-    attempt_limit: 3,
-    escalated: false,
     diagnosis: "the checkpoint review attempt failed and the latest verification verdict is not healthy",
     strategy: "return to the repair step and dispatch a fresh attempt",
     predicate_ids: ["predicate:return-route"],
@@ -283,18 +277,9 @@ test("a checkpoint failed-review correction projects its bounded verdict evidenc
   expect(built.packet!.inputs.work_record).toEqual({ narrative: NARRATIVE })
 })
 
-// A correction counts every operator-authorized retry, so its count passes
-// attempt_limit once the operator allows work past the limit. Dropping such a
-// correction left the packet unable to consume it, and the core refuses a
-// dispatch that carries no correction while one is durable. Because a
-// correction clears only when a dispatch follows it, that stranded the work
-// item: no lane could ever be dispatched again, review and verify included.
-test("a correction past the attempt limit still projects into the packet", async () => {
+test("a rejected correction projects without retry budget authority", async () => {
   const correction: AgentLanePacketCorrection = {
     disposition: "rejected",
-    attempt_count: 6,
-    attempt_limit: 3,
-    escalated: true,
     diagnosis: "the attempt did not repair the reported defects",
     strategy: "repair the reported defects with a failing regression before each fix",
     predicate_ids: [],
@@ -306,8 +291,9 @@ test("a correction past the attempt limit still projects into the packet", async
   })
   expect(built.failure).toBeUndefined()
   expect(built.packet!.inputs.correction).toEqual(correction)
-  expect(built.packet!.inputs.correction!.attempt_count).toBe(6)
-  expect(built.packet!.inputs.correction!.escalated).toBe(true)
+  expect(built.packet!.inputs.correction).not.toHaveProperty("attempt_count")
+  expect(built.packet!.inputs.correction).not.toHaveProperty("attempt_limit")
+  expect(built.packet!.inputs.correction).not.toHaveProperty("escalated")
 })
 
 // The pin's work-context view rides the packet verbatim. The core
@@ -792,9 +778,6 @@ test("the packet carries bounded correction data outside the work record", async
     next_valid_intents: [],
     correction: {
       disposition: "rejected",
-      attempt_count: 1,
-      attempt_limit: 3,
-      escalated: false,
       predicate_ids: ["predicate:primary"],
       evidence_refs: ["evidence:review"],
       diagnosis: "the result misses the boundary case",
@@ -1277,9 +1260,6 @@ const EIGHT_CONTRACT = {
 }
 const EIGHT_CORRECTION: AgentLanePacketCorrection = {
   disposition: "verification",
-  attempt_count: 2,
-  attempt_limit: 3,
-  escalated: false,
   diagnosis: "the first attempt skipped the astral premise control",
   strategy: "rerun with the full fixture",
   predicate_ids: ["predicate:con795-eight-3"],
@@ -1406,7 +1386,7 @@ test("a checks repair review binds the satisfied revision and its old checks ver
   expect(validateAgentLanePacket(built.packet!)).toBe(true)
 })
 
-test("a checks repair review never funds an implementation or verification packet", async () => {
+test("a checks repair review never supplies an implementation or verification job", async () => {
   const continuity = jobContinuity(["dispatch_worker", "record_worker_job"], [])
   continuity.result.pinned.checks_repair_review_jobs = [READY_JOB]
   for (const laneId of ["implement", "verify"]) {
@@ -1622,9 +1602,6 @@ const PAGED_WORK_CONTEXT = {
 }
 const PAGED_CORRECTION: AgentLanePacketCorrection = {
   disposition: "failed",
-  attempt_count: 2,
-  attempt_limit: 3,
-  escalated: false,
   diagnosis: "the paged attempt failed",
   strategy: "retry the paged dispatch with a fresh fenced attempt",
   predicate_ids: [],
@@ -1799,7 +1776,7 @@ test("a paged oversized continuity builds the exact packet the inline result bui
   expect(built.packet!.inputs.worker_job).toEqual(ORACLE_JOB)
   expect(built.packet!.inputs.work_context).toEqual(PAGED_WORK_CONTEXT)
   expect(built.packet!.inputs.checkpoint).toEqual(CHECKPOINT)
-  expect(built.packet!.inputs.correction!.attempt_count).toBe(2)
+  expect(built.packet!.inputs.correction).toEqual(PAGED_CORRECTION)
   expect(validateAgentLanePacket(built.packet!)).toBe(true)
 })
 

@@ -26,7 +26,7 @@ func TestWorkflowCorrectionFoldAcceptsLegacySchemaNBSPReference(t *testing.T) {
 
 func TestSameWorkflowCorrectionIncludesFailureDetails(t *testing.T) {
 	base := &WorkflowCorrectionContext{
-		Disposition: "failed", AttemptCount: 1, AttemptLimit: 3, Diagnosis: "diagnosis", Strategy: "strategy",
+		Disposition: "failed", Diagnosis: "diagnosis", Strategy: "strategy",
 		PredicateIDs: []string{"predicate:test"}, EvidenceRefs: []string{"evidence:test"},
 	}
 	for name, mutate := range map[string]func(*WorkflowCorrectionContext){
@@ -439,12 +439,8 @@ func TestCorrectionDispatchClearsPinContextForLaterLane(t *testing.T) {
 	}
 }
 
-// convergenceSupersedeBasis pins one active contract on a worker-correction
-// fixture and supersedes it through the real operator action, so the
-// supersession event the escalation wall reads is a store-recorded contract
-// change with a complete architecture binding. A supersession recorded after
-// the latest dispatch is a changed approach, and a changed approach is the
-// CON-885 convergence basis that admits one escalated dispatch.
+// convergenceSupersedeBasis supersedes a worker-correction fixture's active
+// contract through the real operator action with a complete architecture binding.
 func convergenceSupersedeBasis(t *testing.T, s *Store, workID string, owner WorkflowActor) error {
 	t.Helper()
 	ownerRef, err := WorkflowActorRef(owner)
@@ -460,14 +456,8 @@ func convergenceSupersedeBasis(t *testing.T, s *Store, workID string, owner Work
 	return runIssue933OperatorAction(t, s, workID, "supersede_contract", successor, owner, operatorVerdictActor(t, workID))
 }
 
-// The escalation wall is basis-gated: the fourth correction dispatch refuses
-// with missing_evidence, the operator approval representation the
-// below-limit retry once consumed cannot bypass the missing basis, no retry
-// approval binding exists at the wall, and a contract supersession recorded
-// after the latest dispatch derives the approach_changed basis that admits
-// exactly one fresh dispatch. The admitted dispatch consumes its basis —
-// materialized or not — so the fifth dispatch faces the wall again.
-func TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired(t *testing.T) {
+// Repeated failed corrections retain their source without a retry budget.
+func TestWorkflowFourthCorrectionDispatchRetainsLaunchWindow(t *testing.T) {
 	const workID = "issue1013-fourth-correction-preflight"
 	s, owner, pin := seedIssue1013EscalatedCorrection(t, workID)
 	defer s.Close()
@@ -479,44 +469,10 @@ func TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired(t *testing.
 		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "issue1013-escalated-dispatch", OperationID: "issue1013-escalated-dispatch",
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "issue1013-escalated-dispatch", RequestID: "request:issue1013-escalated-dispatch", ContractDigest: testManifestDigest, Now: time.Unix(50, 0).UTC(),
 	}
-	_, err := invokeWorkflowActionForCD0059(context.Background(), t, s, base)
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "without a convergence basis") {
-		t.Fatalf("fourth correction dispatch failure=%v, want the missing-basis refusal", err)
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, base); err != nil {
+		t.Fatalf("fourth correction dispatch: %v", err)
 	}
-
-	if version := readWorkVersion(t, s, workID); version != pin.Version {
-		t.Fatalf("refused dispatch changed the work version: %d -> %d", pin.Version, version)
-	}
-
-	// A contract supersession recorded after the latest dispatch is a
-	// changed approach, and a changed approach is the basis that admits
-	// exactly one dispatch.
-	if err := convergenceSupersedeBasis(t, s, workID, owner); err != nil {
-		t.Fatalf("supersede the contract behind the escalation wall: %v", err)
-	}
-	pin = issue1013Pin(t, s, workID)
-	payload = issue1013CorrectionDispatchPayload(t, s, workID, "repair", attemptID, pin.Correction)
-	converging := base
-	converging.ExpectedVersion = pin.Version
-	converging.Payload = payload
-	converging.IdempotencyIdentity = "issue1013-escalated-dispatch-converging"
-	converging.OperationID = converging.IdempotencyIdentity
-	converging.IdempotencyKey = converging.IdempotencyIdentity
-	converging.RequestID = "request:" + converging.IdempotencyIdentity
-	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, converging); err != nil {
-		t.Fatalf("converging fourth correction dispatch: %v", err)
-	}
-	var basis string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.retry_convergence.basis') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&basis); err != nil {
-		t.Fatal(err)
-	}
-	if basis != "approach_changed" {
-		t.Fatalf("escalated dispatch recorded basis = %q, want approach_changed", basis)
-	}
-
-	// The interrupted dispatch still consumed its basis, so the fifth
-	// dispatch faces the wall again with no approval escape.
+	// An unresolved launch outcome still owns the authorization window.
 	fifth := "attempt:" + workID + ":5"
 	payload = issue1013CorrectionDispatchPayload(t, s, workID, "repair", fifth, pin.Correction)
 	retry := base
@@ -526,27 +482,20 @@ func TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired(t *testing.
 	retry.OperationID = retry.IdempotencyIdentity
 	retry.IdempotencyKey = retry.IdempotencyIdentity
 	retry.RequestID = "request:" + retry.IdempotencyIdentity
-	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, retry); !hasFailureKind(err, KindMissingEvidence) {
-		t.Fatalf("fifth correction dispatch after the consumed basis = %v, want the missing-basis refusal", err)
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, retry); !hasFailureKind(err, KindOperationConflict) {
+		t.Fatalf("second dispatch beside pending authorization = %v, want operation_conflict", err)
 	}
+	issue1013RecordWorkerDispatch(t, s, workID, attemptID)
 }
 
-// An escalated correction keeps dispatch_worker visible as the
-// convergence-gated route: without a derivable basis the pin advertises the
-// action under escalated_retry_requires_convergence, and a recorded basis
-// replaces the reason with escalated_retry_convergence_recorded, so an agent
-// finds the CON-885 boundary instead of a dead end (CD-0173 D1).
-func TestWorkPinEscalatedCorrectionAdvertisesApprovalGatedRetry(t *testing.T) {
+func TestWorkPinRepeatedCorrectionAdvertisesRetry(t *testing.T) {
 	t.Parallel()
 	const workID = "issue1013-escalated-correction-pin"
-	s, owner, pin := seedIssue1013EscalatedCorrection(t, workID)
+	s, _, pin := seedIssue1013EscalatedCorrection(t, workID)
 	defer s.Close()
 
-	if workflowCorrectionAttemptLimit != 3 {
-		t.Fatalf("workflow correction attempt limit = %d, want 3", workflowCorrectionAttemptLimit)
-	}
-	if pin.Correction == nil || pin.Correction.AttemptCount != 3 || !pin.Correction.Escalated {
-		t.Fatalf("correction = %#v, want three attempts and escalation", pin.Correction)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != "attempt:"+workID+":3" {
+		t.Fatalf("correction = %#v, want the latest failed attempt", pin.Correction)
 	}
 	advertised := false
 	for _, intent := range pin.NextValidIntents {
@@ -554,43 +503,13 @@ func TestWorkPinEscalatedCorrectionAdvertisesApprovalGatedRetry(t *testing.T) {
 			continue
 		}
 		advertised = true
-		if intent.ReasonCode != "escalated_retry_requires_convergence" {
-			t.Fatalf("escalated dispatch intent reason = %q, want escalated_retry_requires_convergence", intent.ReasonCode)
-		}
 	}
 	if !advertised {
 		t.Fatalf("escalated correction hid dispatch_worker: %#v", pin.NextValidIntents)
 	}
-	// A store-derived basis replaces the reason, so an agent reading the pin
-	// finds the recorded convergence.
-	if err := convergenceSupersedeBasis(t, s, workID, owner); err != nil {
-		t.Fatalf("supersede the contract behind the escalation wall: %v", err)
-	}
-	converged := false
-	for _, intent := range issue1013Pin(t, s, workID).NextValidIntents {
-		if intent.ActionID != "dispatch_worker" {
-			continue
-		}
-		converged = true
-		if intent.ReasonCode != "escalated_retry_convergence_recorded" {
-			t.Fatalf("converging dispatch intent reason = %q, want escalated_retry_convergence_recorded", intent.ReasonCode)
-		}
-	}
-	if !converged {
-		t.Fatalf("converging escalation hid dispatch_worker: %#v", issue1013Pin(t, s, workID).NextValidIntents)
-	}
 }
 
-// CD-0164 D4 fixes the verification wall to the request population with a
-// strict comparator: the request path records every correction the verdict
-// admits while the dispatch wall arms only when the recorded count passes the
-// limit. Each correction is one declared cycle — the reviewer records the
-// outcome_mismatch verdict, then the correction request records through the
-// same declared action — so the log holds four recorded requests with no
-// synthetic events. Three recorded verification corrections keep dispatch
-// approval-free; the fourth request arms the wall, and its dispatch refuses
-// without a store-derived convergence basis.
-func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
+func TestRepeatedVerificationCorrectionRequiresFreshVerdict(t *testing.T) {
 	t.Parallel()
 	const workID = "verification-wall-fourth-request"
 	ctx := context.Background()
@@ -600,9 +519,6 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
-	if workflowCorrectionAttemptLimit != 3 {
-		t.Fatalf("workflow correction attempt limit = %d, want 3", workflowCorrectionAttemptLimit)
-	}
 	// One declared worker delivery per cycle: the correction request returns
 	// the workflow to execution, and the next verdict needs a fresh accepted
 	// delivery to be recordable at its normal verification step. The loop's
@@ -670,19 +586,18 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 		if pinErr != nil {
 			t.Fatal(pinErr)
 		}
-		if pin.Correction == nil || pin.Correction.Disposition != "verification" || pin.Correction.AttemptCount != count || pin.Correction.Escalated != (count > workflowCorrectionAttemptLimit) {
-			t.Fatalf("verification correction after cycle %d = %#v, want count %d escalated=%v", count, pin.Correction, count, count > workflowCorrectionAttemptLimit)
+		if pin.Correction == nil || pin.Correction.Disposition != "verification" || len(pin.Correction.PredicateIDs) != 1 || pin.Correction.PredicateIDs[0] != "predicate:return-route" {
+			t.Fatalf("verification correction after cycle %d = %#v, want the current predicate source", count, pin.Correction)
 		}
 	}
 	for count := int64(1); count <= 3; count++ {
 		recordCorrectionCycle(count)
 	}
 	recordCorrectionCycle(4)
-	// The armed wall admits no fresh delivery, so no new verdict exists for a
-	// fifth request to correct, and the wall stays armed without a binding.
+	// No fresh verdict exists for a fifth request to correct.
 	payload := json.RawMessage(`{"diagnosis":"the delivered subject still fails","strategy":"repeat the external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
 	if err := runIssue933OperatorAction(t, fixture.store, workID, "request_correction", payload, fixture.owner, fixture.operator); err == nil {
-		t.Fatal("fifth request_correction recorded while the escalation wall is armed")
+		t.Fatal("request_correction reused a consumed verdict")
 	}
 }
 
@@ -1467,46 +1382,31 @@ func correctionCountingJourney(t *testing.T, s *Store, workID string, owner, wor
 	return pin
 }
 
-// The bound counts every dispatched attempt since the last accepted
-// productive result (CD-0164), whatever the attempt returned. fallback_blocked
-// is an infrastructure failure kind: the lane never returned a judgeable
-// result, and each dispatch still consumes the bound. The third such failure
-// escalates the correction behind the convergence wall.
-func TestInfrastructureFailureKindConsumesCorrectionAttemptBound(t *testing.T) {
+func TestInfrastructureFailuresRetainCorrectionSource(t *testing.T) {
 	const workID = "correction-count-infra"
 	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
 	defer s.Close()
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 
 	pin := correctionCountingJourney(t, s, workID, owner, worker, attemptID, "attempt:"+workID+":2", 1, "infra-count-1")
-	if pin.Correction == nil || pin.Correction.AttemptCount != 1 || pin.Correction.Escalated || pin.Correction.FailureKind != WorkerFailureFallbackBlocked {
-		t.Fatalf("correction after one infrastructure failure = %#v, want one counted attempt", pin.Correction)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID || pin.Correction.FailureKind != WorkerFailureFallbackBlocked {
+		t.Fatalf("correction after infrastructure failure = %#v, want its failed attempt and kind", pin.Correction)
 	}
 
 	pin = correctionCountingJourney(t, s, workID, owner, worker, "attempt:"+workID+":2", "attempt:"+workID+":3", 3, "infra-count-2")
-	if pin.Correction == nil || pin.Correction.AttemptCount != 2 || pin.Correction.Escalated {
-		t.Fatalf("correction after two infrastructure failures = %#v, want two counted attempts without escalation", pin.Correction)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != "attempt:"+workID+":2" || pin.Correction.FailureKind != WorkerFailureFallbackBlocked {
+		t.Fatalf("correction after two infrastructure failures = %#v, want the latest source", pin.Correction)
 	}
 	if !issue1013HasIntent(pin, "dispatch_worker") {
 		t.Fatalf("correction below the limit lost dispatch_worker: %#v", pin.NextValidIntents)
 	}
 
 	pin = correctionCountingJourney(t, s, workID, owner, worker, "attempt:"+workID+":3", "", 5, "infra-count-3")
-	if pin.Correction == nil || pin.Correction.AttemptCount != 3 || !pin.Correction.Escalated {
-		t.Fatalf("correction after three infrastructure failures = %#v, want three counted attempts and escalation", pin.Correction)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != "attempt:"+workID+":3" || pin.Correction.FailureKind != WorkerFailureFallbackBlocked {
+		t.Fatalf("correction after three infrastructure failures = %#v, want the latest source", pin.Correction)
 	}
-	// CD-0173: the escalated pin advertises the retry route under the
-	// convergence-gated reason instead of hiding it.
 	if !issue1013HasIntent(pin, "dispatch_worker") {
 		t.Fatalf("escalated correction hid dispatch_worker: %#v", pin.NextValidIntents)
-	}
-	for _, intent := range pin.NextValidIntents {
-		if intent.ActionID == "dispatch_worker" && intent.ReasonCode != "escalated_retry_requires_convergence" {
-			t.Fatalf("escalated dispatch intent reason = %q, want escalated_retry_requires_convergence", intent.ReasonCode)
-		}
-	}
-	if workflowCorrectionAttemptLimit != 3 {
-		t.Fatalf("workflow correction attempt limit = %d, want 3", workflowCorrectionAttemptLimit)
 	}
 
 	payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", "attempt:"+workID+":4", pin.Correction)
@@ -1515,9 +1415,8 @@ func TestInfrastructureFailureKindConsumesCorrectionAttemptBound(t *testing.T) {
 		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "infra-count-4", OperationID: "infra-count-4",
 		PrincipalRef: worker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "infra-count-4", RequestID: "request:infra-count-4", ContractDigest: testManifestDigest, Now: time.Unix(30, 0).UTC(),
 	})
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
-		t.Fatalf("fourth dispatch after infrastructure failures error=%v, want missing_evidence", err)
+	if err != nil {
+		t.Fatalf("fourth dispatch after infrastructure failures: %v", err)
 	}
 }
 
@@ -1561,7 +1460,7 @@ func dispatchCountingAttempt(t *testing.T, s *Store, stepID, attemptID string, c
 // opens after the last accepted result, so a fresh infrastructure failure on
 // the next attempt starts a new sequence at one instead of inheriting the
 // consumed bound.
-func TestAcceptedWorkerResultResetsCorrectionAttemptCount(t *testing.T) {
+func TestAcceptedWorkerResultClosesCorrectionSource(t *testing.T) {
 	const workID = "correction-count-accept-reset"
 	ctx := context.Background()
 	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 19, "repair")
@@ -1588,8 +1487,8 @@ func TestAcceptedWorkerResultResetsCorrectionAttemptCount(t *testing.T) {
 	failWorkerAttemptWithKind(t, s, workID, attempt1, "lane fallback blocked before the model ran")
 	applyRecordWorkerFailureForTest(t, s, workID, owner, attempt1, latestStepStartEpoch(t, s, workID, "repair"), readWorkVersion(t, s, workID), "reset-count-1")
 	pin := issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.AttemptCount != 1 || pin.Correction.Escalated || pin.Correction.FailureKind != WorkerFailureFallbackBlocked {
-		t.Fatalf("correction after one infrastructure failure = %#v, want one counted attempt", pin.Correction)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != attempt1 || pin.Correction.FailureKind != WorkerFailureFallbackBlocked {
+		t.Fatalf("correction after infrastructure failure = %#v, want its exact source and kind", pin.Correction)
 	}
 
 	attempt2 := "attempt:" + workID + ":2"
@@ -1599,8 +1498,8 @@ func TestAcceptedWorkerResultResetsCorrectionAttemptCount(t *testing.T) {
 	failWorkerAttemptWithKind(t, s, workID, attempt2, "lane fallback blocked before the model ran")
 	applyRecordWorkerFailureForTest(t, s, workID, owner, attempt2, latestStepStartEpoch(t, s, workID, "repair"), readWorkVersion(t, s, workID), "reset-count-2")
 	pin = issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.AttemptCount != 2 || pin.Correction.Escalated {
-		t.Fatalf("correction after two infrastructure failures = %#v, want two counted attempts", pin.Correction)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != attempt2 {
+		t.Fatalf("correction after two infrastructure failures = %#v, want the latest failed source", pin.Correction)
 	}
 
 	attempt3 := "attempt:" + workID + ":3"
@@ -1624,15 +1523,13 @@ func TestAcceptedWorkerResultResetsCorrectionAttemptCount(t *testing.T) {
 	failWorkerAttemptWithKind(t, s, workID, attempt4, "lane fallback blocked before the model ran")
 	applyRecordWorkerFailureForTest(t, s, workID, owner, attempt4, latestStepStartEpoch(t, s, workID, "refine"), readWorkVersion(t, s, workID), "reset-count-4")
 	pin = issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.AttemptCount != 1 || pin.Correction.Escalated {
-		t.Fatalf("correction after the accepted result = %#v, want one counted attempt in a fresh sequence", pin.Correction)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != attempt4 {
+		t.Fatalf("correction after the accepted result = %#v, want the new failed source", pin.Correction)
 	}
 }
 
-// The counting window is scoped to the work item's attempt history, not to a
-// contract version (CD-0164): operator-approved contract supersession keeps
-// the counted dispatches, and the bound still escalates under the successor.
-func TestCorrectionAttemptCountSurvivesContractSupersession(t *testing.T) {
+// Operator-approved contract supersession preserves an unresolved correction source.
+func TestCorrectionSourceSurvivesContractSupersession(t *testing.T) {
 	const workID = "correction-count-supersede"
 	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
 	defer s.Close()
@@ -1648,8 +1545,8 @@ func TestCorrectionAttemptCountSurvivesContractSupersession(t *testing.T) {
 
 	correctionCountingJourney(t, s, workID, owner, worker, attemptID, "attempt:"+workID+":2", 1, "supersede-count-1")
 	pin := correctionCountingJourney(t, s, workID, owner, worker, "attempt:"+workID+":2", "", 3, "supersede-count-2")
-	if pin.Correction == nil || pin.Correction.AttemptCount != 2 || pin.Correction.Escalated {
-		t.Fatalf("correction before supersession = %#v, want two counted attempts", pin.Correction)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != "attempt:"+workID+":2" {
+		t.Fatalf("correction before supersession = %#v, want the latest failed source", pin.Correction)
 	}
 
 	successor := json.RawMessage(`{"contract_version":2,"premise":"corrected predicate subject","outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:e3d7c6e6","expected_result":"pass"}}],"required_evidence":["verification"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","architecture_binding":{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]},"supersede_reason":"the pinned subject named an unrelated commit","audit_evidence":["evidence:issue1013"]}`)
@@ -1664,8 +1561,8 @@ func TestCorrectionAttemptCountSurvivesContractSupersession(t *testing.T) {
 		t.Fatalf("active contract version = %d, want 2", activeVersion)
 	}
 	pin = issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.AttemptCount != 2 || pin.Correction.Escalated {
-		t.Fatalf("correction across supersession = %#v, want the two pre-supersession dispatches still counted", pin.Correction)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != "attempt:"+workID+":2" {
+		t.Fatalf("correction across supersession = %#v, want the same failed source", pin.Correction)
 	}
 
 	correctiveAttempt := "attempt:" + workID + ":3"
@@ -1682,11 +1579,10 @@ func TestCorrectionAttemptCountSurvivesContractSupersession(t *testing.T) {
 	failWorkerAttemptWithKind(t, s, workID, correctiveAttempt, "lane fallback blocked before the model ran")
 	applyRecordWorkerFailureForTest(t, s, workID, owner, correctiveAttempt, 5, version, "supersede-count-3-record")
 	pin = issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.AttemptCount != 3 || !pin.Correction.Escalated {
-		t.Fatalf("correction under the successor contract = %#v, want three counted attempts and escalation", pin.Correction)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != correctiveAttempt {
+		t.Fatalf("correction under the successor contract = %#v, want the new failed source", pin.Correction)
 	}
-	// CD-0173: the escalated pin keeps dispatch_worker visible as the
-	// convergence-gated route, also under a successor contract.
+	// The successor keeps the corrective dispatch route visible.
 	if !issue1013HasIntent(pin, "dispatch_worker") {
 		t.Fatalf("escalated correction under the successor hid dispatch_worker: %#v", pin.NextValidIntents)
 	}

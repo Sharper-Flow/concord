@@ -119,28 +119,22 @@ verdicts, completion, or resume a failed worker session.
 
 ## Verification
 
-- Agent mutation tests prove the challenge, fresh identity, stale approval,
-  reused approval, and retry-limit boundaries
-  (`internal/agent.TestWorkerRetryMutationRequiresExactApprovalAndFreshAttempt`,
-  `internal/agent.TestGenericOneOffBelowWallFailedRetryKeepsTheExactApproval`).
-- Agent mutation tests prove the escalated wall mints no challenge, a derived
-  basis admits one fresh fenced attempt, a dispatch without a basis refuses
-  with `missing_evidence`, the refusal holds behind an approval, and the wall
-  re-arms (`internal/agent.TestEscalatedFailedCorrectionWallAdmitsOnlyBehindApproachConvergence`,
-  `internal/agent.TestGenericOneOffEscalatedWallAdmitsOnlyBehindStoreConvergence`).
-- Agent mutation tests prove the findings basis admits one escalated retry on
-  the correction and verification paths
-  (`internal/agent.TestGenericOneOffFindingsConvergenceAdmitsOneEscalatedRetry`,
-  `internal/agent.TestEscalatedVerificationCorrectionWallGatesOnFindingsConvergence`).
-- Store tests prove failed-attempt immutability, fresh attempt identity, fresh
-  epoch fencing, and the three-attempt limit.
-- Store tests prove the escalated dispatch fold refuses without a derivable
-  basis, admits exactly the one dispatch the basis buys, and records the
-  derived basis and sequence references at dispatch completion
-  (`internal/store.TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired`,
-  `internal/store.TestConvergenceBasisAdmitsTheSameStepDispatch`,
-  `internal/store.TestHalfMaterializedDispatchConsumesTheConvergenceBasis`).
-- Adapter tests prove approval forwarding and removal of a resume task identity.
-- Adapter tests prove approval forwarding stays below the limit, and a
-  `missing_evidence` refusal fail-closes without an operator ask.
-- `TestOwnerOracleConvergence` and `TestOwnerOracleControlsRetained` cover supported strict subsets, recipe re-pins, and oracle-defect closures without widening the wall.
+- `internal/agent.TestRepeatedFailedWorkersUseOrdinaryLaunchAuthority` proves
+  repeated failures do not create a retry wall or emit convergence credits.
+- `internal/agent.TestWorkerRetryWithoutConsentKeepsFreshIdentityAndReplay`
+  proves a fresh authorization needs no failure-derived consent and replay
+  creates no second authorization.
+- `internal/agent.TestWorkerRetryRequiresTerminalReconciliationAndCurrentPacket`
+  proves an unresolved launch blocks another authorization and correction
+  consumption binds the current packet.
+- `internal/store.TestBudgetStateAbsentFromCurrentCorrectionAndAdmission`
+  proves live correction and admission types carry no budget authority.
+- `internal/agent.TestHostRestartDoesNotSupplyRetryAuthority` proves a live
+  host lease supplies no convergence credit or retry consent.
+- `internal/store.TestClaimLandingRefreshesRestartedHostIdentity` proves
+  replacement occupancy is recorded and repeated landing is idempotent.
+- `bun test adapter/opencode/packet.test.ts` proves correction packets
+  preserve failure context without retry budget fields.
+- `bun test adapter/opencode/lane_dispatch.test.ts` proves request identity
+  does not depend on correction history and an unresolved launch window
+  cannot authorize another launch.

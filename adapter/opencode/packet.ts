@@ -123,11 +123,8 @@ function decodeOutcomePredicates(workId: string, predicates: unknown[]): { predi
 function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | undefined {
   if (!isRecord(value)) return undefined
   const disposition = value.disposition === "failed" || value.disposition === "rejected" || value.disposition === "verification" ? value.disposition : null
-  const attemptCount = typeof value.attempt_count === "number" ? value.attempt_count : null
-  const attemptLimit = typeof value.attempt_limit === "number" ? value.attempt_limit : null
   const diagnosis = typeof value.diagnosis === "string" ? value.diagnosis : ""
   const strategy = typeof value.strategy === "string" ? value.strategy : ""
-  const escalated = typeof value.escalated === "boolean" ? value.escalated : null
   const failureKind = typeof value.failure_kind === "string" ? value.failure_kind : ""
   const failureDetail = typeof value.failure_detail === "string" ? value.failure_detail : ""
   const predicateIDs = Array.isArray(value.predicate_ids) ? value.predicate_ids.filter((item): item is string => typeof item === "string") : []
@@ -136,19 +133,9 @@ function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | u
   const failedAttemptEpoch = typeof value.failed_attempt_epoch === "number" ? value.failed_attempt_epoch : 0
   const sourceEventID = typeof value.source_event_id === "string" ? value.source_event_id : ""
   const sourceEventSeq = typeof value.source_event_seq === "number" ? value.source_event_seq : 0
-  // The count is not bounded by the limit. Each operator-authorized retry past
-  // the limit increments it, so a correction legitimately carries a count above
-  // attempt_limit, and `escalated` is what marks that state. Dropping the
-  // correction here would leave the packet unable to consume it, and the core
-  // refuses a dispatch whose packet carries no correction while one is durable
-  // — stranding the work item, because a correction clears only when a dispatch
-  // follows it.
-  if (disposition === null || attemptCount === null || attemptLimit !== 3 || escalated === null || diagnosis.length === 0 || strategy.length === 0) return undefined
+  if (disposition === null || diagnosis.length === 0 || strategy.length === 0) return undefined
   return {
     disposition,
-    attempt_count: attemptCount,
-    attempt_limit: 3,
-    escalated,
     diagnosis,
     strategy,
     ...(failureKind.length > 0 ? { failure_kind: failureKind } : {}),

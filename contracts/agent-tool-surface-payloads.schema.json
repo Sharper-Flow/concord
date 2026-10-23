@@ -592,9 +592,6 @@
       "additionalProperties": false,
       "required": [
         "disposition",
-        "attempt_count",
-        "attempt_limit",
-        "escalated",
         "predicate_ids",
         "evidence_refs",
         "source_event_id",
@@ -608,17 +605,6 @@
             "rejected",
             "verification"
           ]
-        },
-        "attempt_count": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 2147483647
-        },
-        "attempt_limit": {
-          "$ref": "#/$defs/version"
-        },
-        "escalated": {
-          "type": "boolean"
         },
         "predicate_ids": {
           "type": "array",
@@ -26384,7 +26370,7 @@
           "description": "Bounds: 1..128 code points inclusive"
         }
       },
-      "description": "CD-0198 D5: the retry dispatch intent a rejected result can carry on a definition that derives the worker failure record. It names only the lane; the store mints the fresh fenced attempt and derives the lane packet from the recorded state the rejection commits, through the dispatch admission every dispatch answers to. The host launch stays the post-commit dispatch boundary; a refusal, including the escalation wall, leaves the rejection unwritten and the rejection-only escape available."
+      "description": "CD-0198 D5: the retry dispatch intent a rejected result can carry on a definition that derives the worker failure record. It names only the lane; the store mints the fresh fenced attempt and derives the lane packet from the recorded state the rejection commits, through the dispatch admission every dispatch answers to. The host launch stays the post-commit dispatch boundary; a refusal leaves the rejection unwritten and the rejection-only escape available."
     },
     "worker_packet2": {
       "description": "The versioned packet2 identity the derived-failure workflow definitions record and replay. It mirrors $defs/worker_packet shape for shape under a versioned name, so the frozen decoder carries it beside the byte-exact 1.0/1.1 worker_packet baseline the released pins replay through; the live dispatch_worker surface below the derived-failure heads still records through $defs/worker_packet.",
@@ -28332,9 +28318,6 @@
       "additionalProperties": false,
       "required": [
         "disposition",
-        "attempt_count",
-        "attempt_limit",
-        "escalated",
         "predicate_ids",
         "evidence_refs",
         "source_event_id",
@@ -28348,17 +28331,6 @@
             "rejected",
             "verification"
           ]
-        },
-        "attempt_count": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 2147483647
-        },
-        "attempt_limit": {
-          "$ref": "#/$defs/version"
-        },
-        "escalated": {
-          "type": "boolean"
         },
         "predicate_ids": {
           "type": "array",

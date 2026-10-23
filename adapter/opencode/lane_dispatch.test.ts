@@ -40,7 +40,7 @@ mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 const { agentLanes, agentUtilities } = await import("./generated-agent-lanes")
 const { validateAgentLanePacket } = await import("./dispatch")
 import { DispatchWindows, TASK_TOOL_ID, laneTaskArguments, serializeLanePacket } from "./dispatch-window"
-import type { AgentLanePacket, DispatchRunner } from "./dispatch"
+import type { AgentLanePacket, AgentLanePacketCorrection, DispatchRunner } from "./dispatch"
 import type { CredentialStore } from "./credentials"
 import { fakeTool } from "./plugin-tool.fixture"
 const { dispatchAttemptID, dispatchLaneWorker } = await import("./lane_dispatch")
@@ -972,7 +972,7 @@ test("a core approval refusal forwards its exact consequence bindings", async ()
   }
   const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
   const windows = new DispatchWindows()
-  const request = { work_id: WORK_ID, expected_version: 3, idempotency_key: "escalated-approval", lane_id: lane.id }
+  const request = { work_id: WORK_ID, expected_version: 3, idempotency_key: "core-approval", lane_id: lane.id }
   const first = await dispatchLaneWorker(request, { context: contextFor(), invoke: invoke as any, runner, windows })
   expect(first.outcome).toBe("error")
   expect(first.error?.kind).toBe("approval_required")
@@ -1485,7 +1485,7 @@ test("TestDispatchRequiredReadingResolutionBeforeTask: a core-admitted dispatch 
 
 // An oversized projection travels as lossless projection pages of one
 // canonical JSON document (CD-0016 as amended). The dispatch anchors —
-// product identity, step, instance absence, correction attempt count — are
+// product identity, step, instance absence, correction source — are
 // authority-bearing, so the shared reconstruction helper joins every page
 // before any of them is read. The fixtures mirror the Go agent's page
 // emission: whole-code-point UTF-8 byte pages of the inline result's
@@ -1495,11 +1495,8 @@ const pagedDocumentOf = (result: Record<string, unknown>) => JSON.stringify(resu
 const pagedDigestOf = (document: string) => `sha256:${createHash("sha256").update(pagedUtf8.encode(document)).digest("hex")}`
 
 const PAGED_PREMISE = `境content across page boundaries 🎯 ${"p".repeat(1600)}`
-const PAGED_CORRECTION = {
+const PAGED_CORRECTION: AgentLanePacketCorrection = {
   disposition: "failed",
-  attempt_count: 2,
-  attempt_limit: 3,
-  escalated: false,
   diagnosis: "the paged attempt failed",
   strategy: "retry the paged dispatch with a fresh fenced attempt",
   predicate_ids: [],
@@ -1642,6 +1639,7 @@ test("dispatch from a paged oversized item uses request identity without a retry
   // Transport and correction history cannot change request identity.
   expect(packet.step_id).toBe(WORKFLOW_STEP)
   expect(packet.attempt_id).toBe(dispatchAttemptID(input))
+  expect(packet.inputs.correction).toEqual(PAGED_CORRECTION)
   // The joined packet is byte-identical to the same dispatch served the
   // inline result: reconstruction changes transport, never packet content.
   const inlineWorkflow: { value?: Record<string, unknown> } = {}
@@ -1663,9 +1661,9 @@ test("dispatch from a paged oversized item uses request identity without a retry
 test("new request identity does not depend on correction history", async () => {
   const attempts: string[] = []
   const request = { work_id: WORK_ID, expected_version: 3, idempotency_key: "identity-first", lane_id: lane.id }
-  for (const [count, key] of [[1, "identity-first"], [2, "identity-first"], [2, "identity-next"]] as const) {
+  for (const [sourceSeq, key] of [[1, "identity-first"], [2, "identity-first"], [2, "identity-next"]] as const) {
     const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }) => {
-      if (toolName === "concord_work_trace") return continuityEnvelope({ pinned: { work_pin: { correction: { ...PAGED_CORRECTION, attempt_count: count } } } })
+      if (toolName === "concord_work_trace") return continuityEnvelope({ pinned: { work_pin: { correction: { ...PAGED_CORRECTION, source_event_id: `failure:${sourceSeq}`, source_event_seq: sourceSeq } } } })
       if (toolName === "concord_work_browse") return scopeEnvelope()
       if (toolName === "concord_work_transition") {
         attempts.push((args.input!.fields as Record<string, unknown>).attempt_id as string)

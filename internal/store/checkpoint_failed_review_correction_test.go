@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -186,7 +187,7 @@ func TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if returned == nil || returned.AttemptCount != 1 || returned.PredicateIDs[0] != "predicate:return-route" || returned.EvidenceRefs[0] != "evidence:return-route-verification" || returned.Diagnosis != "the review failed while the delivered subject still mismatches" {
+	if returned == nil || returned.PredicateIDs[0] != "predicate:return-route" || returned.EvidenceRefs[0] != "evidence:return-route-verification" || returned.Diagnosis != "the review failed while the delivered subject still mismatches" {
 		t.Fatalf("returned correction context = %+v, want the first bounded checkpoint correction", returned)
 	}
 	if attemptErr := runIssue933OperatorAction(t, s, workID, "request_correction", correction, fixture.owner, fixture.operator); attemptErr == nil {
@@ -431,7 +432,7 @@ func TestCheckpointFailedReviewCorrectionReturnsImplementationToExecution(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if returned == nil || returned.AttemptCount != 1 || returned.PredicateIDs[0] != "predicate:return-route" || returned.EvidenceRefs[0] != "evidence:return-route-verification" || returned.Diagnosis != "the review failed while the delivered subject still mismatches" {
+	if returned == nil || returned.PredicateIDs[0] != "predicate:return-route" || returned.EvidenceRefs[0] != "evidence:return-route-verification" || returned.Diagnosis != "the review failed while the delivered subject still mismatches" {
 		t.Fatalf("returned correction context = %+v, want the first bounded checkpoint correction", returned)
 	}
 	if attemptErr := runIssue933OperatorAction(t, s, workID, "request_correction", correction, fixture.owner, fixture.operator); attemptErr == nil {
@@ -483,7 +484,7 @@ func TestCheckpointFailedReviewCorrectionReturnsImplementationToExecution(t *tes
 // failed-review correction returns and a fresh delivery verifies non-ok
 // again, the reopened correction counts the prior request, and the admitted
 // count and the recorded dispatch context agree.
-func TestCheckpointFailedReviewCorrectionSecondCycleCountsPriorRequests(t *testing.T) {
+func TestCheckpointFailedReviewCorrectionSecondCycleKeepsCurrentSource(t *testing.T) {
 	const workID = "checkpoint-correction-second-cycle"
 	fixture, attemptID, epoch := seedCheckpointFailedReviewMismatchAt(t, workID, "workflow.break_fix", 19, "verify")
 	s := fixture.store
@@ -511,7 +512,7 @@ func TestCheckpointFailedReviewCorrectionSecondCycleCountsPriorRequests(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if admission == nil || admission.AttemptCount != 2 {
+	if admission == nil || admission.Disposition != "verification" {
 		t.Fatalf("admission after the fresh verdict = %+v (missing %q), want the second correction carrying the prior request", admission, missing)
 	}
 	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, fixture.owner, fixture.operator); err != nil {
@@ -524,8 +525,8 @@ func TestCheckpointFailedReviewCorrectionSecondCycleCountsPriorRequests(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if returned == nil || returned.AttemptCount != admission.AttemptCount {
-		t.Fatalf("dispatch context = %+v, want parity with the admitted count %d", returned, admission.AttemptCount)
+	if returned == nil || !reflect.DeepEqual(returned, admission) {
+		t.Fatalf("dispatch context = %+v, want the admitted correction source %+v", returned, admission)
 	}
 	// The re-entry dispatch opens the owning step's next epoch: the accepted
 	// delivery journey started repair at epoch 1, so the post-correction
@@ -700,7 +701,7 @@ func seedCheckpointCorrectionSecondCycle(t *testing.T, workID string) (workflowR
 // correction sequence (CD-0143 D3), so the second admitted request counts the
 // first, and the recorded dispatch context reports the admitted count instead
 // of a window the incomparable ok reset.
-func TestCheckpointCorrectionDispatchCountsIncomparableOKVerdicts(t *testing.T) {
+func TestCheckpointCorrectionDispatchKeepsSourceAcrossIncomparableOKVerdicts(t *testing.T) {
 	const workID = "checkpoint-correction-incomparable-ok"
 	fixture, reviewer := seedCheckpointCorrectionSecondCycle(t, workID)
 	s := fixture.store
@@ -713,7 +714,7 @@ func TestCheckpointCorrectionDispatchCountsIncomparableOKVerdicts(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if admission == nil || admission.AttemptCount != 2 || admission.Escalated {
+	if admission == nil || admission.Disposition != "verification" {
 		t.Fatalf("admission after the incomparable ok verdict = %+v (missing %q), want the second request counting the first", admission, missing)
 	}
 	correction := json.RawMessage(`{"diagnosis":"the incomparable result still mismatches","strategy":"rebuild the helper and re-verify with a fresh review","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
@@ -727,8 +728,8 @@ func TestCheckpointCorrectionDispatchCountsIncomparableOKVerdicts(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if returned == nil || returned.AttemptCount != admission.AttemptCount || returned.Escalated != admission.Escalated {
-		t.Fatalf("dispatch context = %+v, want the admitted count %d without an incomparable-ok reset", returned, admission.AttemptCount)
+	if returned == nil || !reflect.DeepEqual(returned, admission) {
+		t.Fatalf("dispatch context = %+v, want the admitted correction source %+v", returned, admission)
 	}
 }
 
@@ -737,7 +738,7 @@ func TestCheckpointCorrectionDispatchCountsIncomparableOKVerdicts(t *testing.T) 
 // ok verdict beside another predicate's stale non-ok verdict is not a
 // comparable-healthy set, so neither the admission nor the recorded dispatch
 // context may open a fresh window at the lone ok verdict.
-func TestCheckpointCorrectionDispatchCountsMixedPredicateWindows(t *testing.T) {
+func TestCheckpointCorrectionDispatchKeepsSourceAcrossMixedPredicateWindows(t *testing.T) {
 	const workID = "checkpoint-correction-mixed-predicates"
 	fixture, reviewer := seedCheckpointCorrectionSecondCycle(t, workID)
 	s := fixture.store
@@ -763,7 +764,7 @@ func TestCheckpointCorrectionDispatchCountsMixedPredicateWindows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if admission == nil || admission.AttemptCount != 2 || admission.Escalated {
+	if admission == nil || admission.Disposition != "verification" {
 		t.Fatalf("admission after the mixed verdict set = %+v (missing %q), want the second request counting the first", admission, missing)
 	}
 	correction := json.RawMessage(`{"diagnosis":"the second predicate still mismatches","strategy":"rebuild the helper and re-verify both predicates","predicate_ids":["predicate:second"],"evidence_refs":["evidence:return-route-verification"]}`)
@@ -777,7 +778,7 @@ func TestCheckpointCorrectionDispatchCountsMixedPredicateWindows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if returned == nil || returned.AttemptCount != admission.AttemptCount || returned.Escalated != admission.Escalated {
-		t.Fatalf("dispatch context = %+v, want the admitted count %d without a lone-ok reset", returned, admission.AttemptCount)
+	if returned == nil || !reflect.DeepEqual(returned, admission) {
+		t.Fatalf("dispatch context = %+v, want the admitted correction source %+v", returned, admission)
 	}
 }

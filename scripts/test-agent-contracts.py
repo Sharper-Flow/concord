@@ -18,6 +18,53 @@ envelope_schema = json.loads((ROOT / "contracts/agent-tool-envelope.schema.json"
 payload_schema = json.loads((ROOT / "contracts/agent-tool-surface-payloads.schema.json").read_text())
 
 
+class CurrentScenarioCarrierTests(unittest.TestCase):
+    def setUp(self):
+        self.schema_path = ROOT / "contracts/workflow-engine-scenarios.schema.json"
+        corpus = json.loads((ROOT / ".concord/scenarios/workflow-engine.v1.json").read_text())
+        self.current = next(item for item in corpus["scenarios"] if "current_state" in item.get("setup", {}))
+        self.corpus = {"scenarios": [self.current]}
+
+    def test_current_carrier_checks_need_no_historical_scenario(self):
+        self.assertEqual(lane_checker._current_scenario_carrier_check(self.corpus), [])
+
+    def test_full_checker_reports_missing_inventory_without_historical_lookup(self):
+        corpus_path = ROOT / ".concord/scenarios/workflow-engine.v1.json"
+        load = lane_checker._load_json
+        corpus = load(corpus_path)
+        corpus["scenarios"] = [item for item in corpus["scenarios"] if item["id"] not in {"WF28-recorded-conditions-rebuild", "WF42-ten-worktrees-one-truth"}]
+        with unittest.mock.patch.object(lane_checker, "_load_json", side_effect=lambda path: corpus if path == corpus_path else load(path)):
+            findings = lane_checker.check_workflow_contracts()
+        self.assertTrue(any("scenario" in finding and "got" in finding for finding in findings), findings)
+        self.assertFalse(any("current-scenario" in finding for finding in findings), findings)
+
+    def test_each_current_carrier_rule_has_a_negative_control(self):
+        original = lane_checker._load_json(self.schema_path)
+        for mutation in ("history", "pin", "missing_step", "unknown_current_field"):
+            with self.subTest(mutation=mutation):
+                schema = copy.deepcopy(original)
+                if mutation == "history":
+                    del schema["$defs"]["scenarioSetup"]["oneOf"][0]["not"]
+                elif mutation == "pin":
+                    del schema["$defs"]["scenarioRequest"]["oneOf"][0]["not"]
+                elif mutation == "missing_step":
+                    schema["$defs"]["scenarioSetup"]["properties"]["current_state"]["required"] = []
+                else:
+                    schema["$defs"]["scenarioSetup"]["properties"]["current_state"]["additionalProperties"] = True
+                with unittest.mock.patch.object(lane_checker, "_load_json", return_value=schema):
+                    findings = lane_checker._current_scenario_carrier_check(self.corpus)
+                self.assertEqual(findings, [f"current-scenario-{mutation}: schema accepted malformed current fixture"])
+
+    def test_invalid_baseline_cannot_supply_negative_controls(self):
+        del self.current["setup"]["current_state"]["step"]
+        findings = lane_checker._current_scenario_carrier_check(self.corpus)
+        self.assertEqual(len(findings), 1)
+        self.assertIn("current-scenario-baseline:", findings[0])
+
+    def test_missing_current_fixture_is_reported(self):
+        self.assertEqual(lane_checker._current_scenario_carrier_check({"scenarios": []}), ["current-scenario-baseline: no current-state scenario exists"])
+
+
 class ContractGuidanceProjectionTests(unittest.TestCase):
     def test_guidance_keeps_schema_key_order(self):
         document = {"title": "Example", "$defs": {"code": {"type": "string", "minLength": 2}}}

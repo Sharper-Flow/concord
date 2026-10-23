@@ -440,6 +440,46 @@ def _validate_predicate_against_family(work_kind: str, predicate: dict) -> str |
             return "outcome token not allowed"
     return None
 
+def _current_scenario_carrier_check(corpus: dict) -> list[str]:
+    """Keep current authoring disjoint from history and released pin inputs."""
+    current = next((item for item in corpus["scenarios"] if "current_state" in item.get("setup", {})), None)
+    if current is None:
+        return ["current-scenario-baseline: no current-state scenario exists"]
+    schema = _load_json(ROOT / "contracts/workflow-engine-scenarios.schema.json")
+    scenario_schema = schema["$defs"]["scenario"]
+    try:
+        schema_validate(current, scenario_schema, schema, "scenario")
+    except ValueError as exc:
+        return [f"current-scenario-baseline: {exc}"]
+    findings = []
+    for mutation in ("history", "pin", "missing_step", "unknown_current_field"):
+        item = copy.deepcopy(current)
+        if mutation == "history":
+            event = {
+                "event_id": "fixture:forbidden-history", "kind": "work.created",
+                "work_id": item["setup"]["fixture_refs"]["work_item"],
+                "actor_ref": item["request"]["actor_ref"],
+                "occurred_at": "2026-08-09T00:00:00Z", "payload_version": 2,
+                "payload": {"work_kind": "task", "title": "Forbidden history input", "priority": 1},
+            }
+            schema_validate(event, schema["$defs"]["initialEvent"], schema, "history-control")
+            item["setup"]["event_history"] = [event]
+        elif mutation == "pin":
+            pin = {"ref": item["request"]["definition_ref"], "version": 1, "digest": "sha256:" + "0" * 64}
+            schema_validate(pin, schema["$defs"]["definitionPinInput"], schema, "pin-control")
+            item["request"]["definition_pin"] = pin
+        elif mutation == "missing_step":
+            del item["setup"]["current_state"]["step"]
+        else:
+            item["setup"]["current_state"]["unknown_field"] = True
+        try:
+            schema_validate(item, scenario_schema, schema, "scenario")
+        except ValueError:
+            continue
+        findings.append(f"current-scenario-{mutation}: schema accepted malformed current fixture")
+    return findings
+
+
 def check_workflow_contracts() -> list[str]:
     findings = []
     for schema_path in (ROOT / "contracts/workflow-definition.schema.json", ROOT / "contracts/workflow-outcome.schema.json", ROOT / "contracts/workflow-engine-scenarios.schema.json"):
@@ -463,22 +503,7 @@ def check_workflow_contracts() -> list[str]:
         if corpus_error:
             findings.append(f".concord/scenarios/workflow-engine.v1.json: schema validation failed: {corpus_error}")
         findings.extend(_structured_scenario_check(corpus))
-        current = next((item for item in corpus["scenarios"] if "current_state" in item.get("setup", {})), None)
-        if current is not None:
-            held = next(item for item in corpus["scenarios"] if item["id"] == "WF28-recorded-conditions-rebuild")
-            for mutation in ("history", "pin", "missing_step", "unknown_current_field"):
-                malformed = copy.deepcopy(corpus)
-                item = next(item for item in malformed["scenarios"] if item["id"] == current["id"])
-                if mutation == "history":
-                    item["setup"]["event_history"] = held["setup"]["event_history"]
-                elif mutation == "pin":
-                    item["request"]["definition_pin"] = held["request"]["definition_pin"]
-                elif mutation == "missing_step":
-                    del item["setup"]["current_state"]["step"]
-                else:
-                    item["setup"]["current_state"]["unknown_field"] = True
-                if _validate_instance(scenario_schema, malformed) is None:
-                    findings.append(f"current-scenario-{mutation}: schema accepted malformed current fixture")
+        findings.extend(_current_scenario_carrier_check(corpus))
         fixtures = _load_json(fixture_path)
         fixture_by_id = {case["id"]: case for case in fixtures["cases"]}
         for case in fixtures["cases"]:

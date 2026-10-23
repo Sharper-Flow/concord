@@ -25,10 +25,10 @@ const (
 	wf04RecoveryRef     = "commit:3333333333333333333333333333333333333333333333333333333333333333"
 )
 
-func TestBreakFixV6VerifyEvidenceRouteIsHoldOnly(t *testing.T) {
-	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 6)
-	if !ok {
-		t.Fatal("break-fix version 6 is not registered")
+func TestBreakFixCurrentVerifyEvidenceRouteIsHoldOnly(t *testing.T) {
+	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
 	}
 	var verify WorkflowStep
 	for _, candidate := range registered.Definition.StepGraph.Steps {
@@ -58,86 +58,17 @@ func TestBreakFixV6VerifyEvidenceRouteIsHoldOnly(t *testing.T) {
 type acceptanceRecoveryFixture struct {
 	store    *Store
 	workID   string
-	scenario workflowScenario
+	owner    WorkflowActor
+	operator WorkflowActor
+	repo     string
+	receipt  string
 }
 
-// newAcceptanceRecoveryFixture replays healthy WF05 without its premise confirmation,
-// with the named kinds added to the approved contract's required evidence, and
-// holds the instance at acceptance. The replayed history binds none of the
-// added kinds, so each one is outstanding at the checkpoint.
-func newAcceptanceRecoveryFixture(ctx context.Context, t *testing.T, extraRequiredKinds ...string) acceptanceRecoveryFixture {
+// newAcceptanceRecoveryFixture parks a current, proved candidate at acceptance
+// with only the named additional evidence kinds outstanding.
+func newAcceptanceRecoveryFixture(_ context.Context, t *testing.T, extraRequiredKinds ...string) acceptanceRecoveryFixture {
 	t.Helper()
-	corpus := readWorkflowScenarioCorpus(t)
-	var scenario workflowScenario
-	for _, candidate := range corpus.Scenarios {
-		if candidate.ID == "WF05-stronger-delivery" {
-			scenario = candidate
-			break
-		}
-	}
-	if scenario.ID == "" {
-		t.Fatal("WF05 is missing from the corpus")
-	}
-	registered, err := BuiltinWorkflowDefinitionForRef(scenario.Request.DefinitionPin.Ref)
-	if err != nil {
-		t.Fatal(err)
-	}
-	history := make([]workflowCorpusEvent, 0, len(scenario.Setup.EventHistory))
-	for _, event := range scenario.Setup.EventHistory {
-		if event.Kind == "workflow.premise_confirmed" {
-			continue
-		}
-		if event.Kind == "workflow.contract_approved" && len(extraRequiredKinds) != 0 {
-			event.Payload = withRequiredEvidenceKinds(t, event.Payload, extraRequiredKinds)
-		}
-		history = append(history, event)
-	}
-	setup := scenario.Setup
-	setup.EventHistory = history
-	store := openTemp(t)
-	if err := replayWorkflowCorpusSetup(ctx, t, store, setup, registered, scenarioActorRef(scenario), true); err != nil {
-		t.Fatal(err)
-	}
-	workID := scenario.Setup.FixtureRefs.WorkItem
-	var step string
-	if err := store.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
-		t.Fatal(err)
-	}
-	if step != "acceptance" {
-		// The corpus replays the acceptance action, so the instance settles at
-		// the next step. Hold it at the checkpoint the recovery route governs.
-		if err := applyProjectionCorruptionFault(ctx, store, projectionCorruptionFaultInput{WorkID: workID, Target: "workflow_instances", Field: "current_step", Value: "acceptance"}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return acceptanceRecoveryFixture{store: store, workID: workID, scenario: scenario}
-}
-
-// withRequiredEvidenceKinds copies one contract payload and appends the added
-// kinds to its required evidence, leaving the corpus event untouched.
-func withRequiredEvidenceKinds(t *testing.T, payload map[string]any, extra []string) map[string]any {
-	t.Helper()
-	copied := make(map[string]any, len(payload))
-	for key, value := range payload {
-		copied[key] = value
-	}
-	var required []string
-	switch declared := copied["required_evidence"].(type) {
-	case []any:
-		for _, kind := range declared {
-			text, ok := kind.(string)
-			if !ok {
-				t.Fatalf("required_evidence entry %v is not a string", kind)
-			}
-			required = append(required, text)
-		}
-	case []string:
-		required = append(required, declared...)
-	default:
-		t.Fatalf("required_evidence has unexpected type %T", copied["required_evidence"])
-	}
-	copied["required_evidence"] = append(required, extra...)
-	return copied
+	return qCurrentAcceptance(t, "work-alpha", extraRequiredKinds...)
 }
 
 func (f acceptanceRecoveryFixture) version(ctx context.Context, t *testing.T) int64 {
@@ -150,15 +81,19 @@ func (f acceptanceRecoveryFixture) version(ctx context.Context, t *testing.T) in
 }
 
 func (f acceptanceRecoveryFixture) actors() (WorkflowActor, WorkflowActor) {
-	grant := f.scenario.Request.Grant
-	invoking := WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: ActorAgent}
-	operator := WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: "agent:operator-signed", SessionRef: "session:operator-signed", ActorClass: ActorOperator}
-	return invoking, operator
+	return f.owner, f.operator
 }
 
-// run applies one declared action through the real action layer. Only
-// confirm_premise carries the signed operator actor.
+// run applies one declared action through the real action layer. Engineering
+// confirmation uses Main's choice and the sealed live candidate observation.
 func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label string, version int64, payload json.RawMessage, evidenceRefs []string) error {
+	if WorkflowActionRequiresSubjectFreshness(actionID) {
+		prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, f.store, PrepareWorkerDispatchRequest{WorkID: f.workID, SessionWorktree: f.repo})
+		if err != nil {
+			return err
+		}
+		ctx = WithWorkerDispatchPreparation(ctx, prepared)
+	}
 	invoking, operator := f.actors()
 	request := WorkflowActionExecutionRequest{
 		WorkID: f.workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, EvidenceRefs: evidenceRefs,
@@ -168,7 +103,7 @@ func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label stri
 		Now: time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC),
 	}
 	if actionID == "confirm_premise" {
-		request.OperatorActor = &operator
+		request.SelectedChoice = "confirm"
 	}
 	tx, err := f.store.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
@@ -377,20 +312,16 @@ func TestAcceptanceRecoveryClosedWhenNoRequirementOutstanding(t *testing.T) {
 func TestAcceptedWorkerRecoveryCompletesWithoutChangingAuthority(t *testing.T) {
 	ctx := context.Background()
 	const workID = "accepted-worker-recovery-completion"
-	s, owner, _ := seedItemAtAcceptance(t, workID, false)
+	f := qCurrentAcceptance(t, workID, wf04OutstandingKind)
+	s, owner := f.store, f.owner
 	defer s.Close()
-	reviewer := verdictReviewer(t, s, workID)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), 0, reviewer); err != nil {
-		t.Fatalf("recording the prior worker verdict refused: %v", err)
-	}
-	setRequiredEvidenceKinds(t, s, workID, "verification", wf04OutstandingKind)
 
 	beforeStep, beforeContract, beforeVerdicts := readRecoveryAuthority(t, s, workID)
 	beforeAttempts := countWorkflowEvents(t, s, WorkflowActionCompleted)
 	beforeEvidence := countWorkflowEvents(t, s, WorkflowEvidenceBound)
 	beforeDecisions := countWorkflowEvents(t, s, WorkflowPremiseConfirmed)
 	beforeDefinition := readDefinitionIdentity(t, s, workID)
-	missing := runRecoveryAction(ctx, t, s, workID, "confirm_premise", workID+":confirm-missing", readWorkVersion(t, s, workID), nil, owner, recoveryOperator(workID))
+	missing := f.run(ctx, "confirm_premise", "confirm-missing", f.version(ctx, t), nil, nil)
 	requireRecoveryFailure(t, missing, KindMissingEvidence, "confirmation after an accepted worker result")
 
 	bindVersion := readWorkVersion(t, s, workID)
@@ -421,10 +352,10 @@ func TestAcceptedWorkerRecoveryCompletesWithoutChangingAuthority(t *testing.T) {
 		t.Fatalf("recovery action history count=%d, want %d", got, beforeAttempts+1)
 	}
 
-	if err := runRecoveryAction(ctx, t, s, workID, "confirm_premise", workID+":confirm-recovered", readWorkVersion(t, s, workID), nil, owner, recoveryOperator(workID)); err != nil {
+	if err := f.run(ctx, "confirm_premise", "confirm-recovered", f.version(ctx, t), nil, nil); err != nil {
 		t.Fatalf("operator confirmation after recovery refused: %v", err)
 	}
-	if err := runRecoveryAction(ctx, t, s, workID, "complete", workID+":complete", readWorkVersion(t, s, workID), json.RawMessage(`{"impact_verdict":"non-breaking"}`), owner, nil); err != nil {
+	if err := f.run(ctx, "complete", "complete", f.version(ctx, t), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil); err != nil {
 		t.Fatalf("normal workflow completion after recovery refused: %v", err)
 	}
 	var state string

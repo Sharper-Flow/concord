@@ -60,38 +60,16 @@ func completedDeliveryFixture(t *testing.T, workID string) (*Store, string, int6
 // one step cannot fold twice.
 func completedDeliveryFixtureWithAssertions(t *testing.T, workID string, assertions int) *Store {
 	t.Helper()
-	s := openTemp(t)
-	seedWork(t, s, workID)
-	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	ownerRef, err := WorkflowActorRef(owner)
+	f := qCurrentAcceptanceWithDelivery(t, workID, deliveryCorrectionWrongPath)
+	s := f.store
+	ownerRef, err := WorkflowActorRef(f.owner)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
-	reviewerRef, reviewerErr := WorkflowActorRef(reviewer)
-	if reviewerErr != nil {
-		t.Fatal(reviewerErr)
+	if err := f.run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
+		t.Fatal(err)
 	}
-	definition := workflowFixtureDefinition(t, 2)
-	events := []Event{
-		workflowEvent("owner-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEventWithActor("definition-"+workID, WorkflowDefinitionSelected, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": workflowFixtureWorkKind}),
-		workflowActionCompletedFixture("proposal-"+workID, workID, ownerRef, 4, "proposal", "record_proposal"),
-		workflowActionCompletedFixture("discovery-"+workID, workID, ownerRef, 5, "discovery", "record_discovery"),
-		workflowActionCompletedFixture("design-"+workID, workID, ownerRef, 6, "design", "record_design"),
-		workflowActionCompletedFixture("approve-"+workID, workID, ownerRef, 7, "planning", "approve_contract"),
-		workflowEventWithActor("contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 8, "resulting_version": 9, "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}, "required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
-		workflowEventWithActor("delivery-"+workID, WorkflowActionCompleted, workID, ownerRef, map[string]any{
-			"work_id": workID, "expected_version": 9, "resulting_version": 10,
-			"step_id": "execution", "action_id": "record_delivery", "attempt_epoch": 1,
-			"delivery_artifact": deliveryCorrectionWrongPath, "delivery_state": "asserted",
-			"result_evidence_refs": []string{}, "changed_refs": []string{workID}, "actor_ref": ownerRef,
-		}),
-		workflowEvent("reviewer-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 10, "resulting_version": 11, "actor_ref": reviewerRef, "principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef, "agent_ref": reviewer.AgentRef, "session_ref": reviewer.SessionRef, "actor_class": "agent"}),
-		workflowEventWithActor("verdict-"+workID, WorkflowVerdictRecorded, workID, reviewerRef, map[string]any{"work_id": workID, "expected_version": 11, "resulting_version": 12, "contract_version": 1, "predicate_id": "predicate:primary", "verdict_kind": "ok", "verdict_actor_ref": reviewerRef, "verdict_model": "test/model-1", "evaluation_evidence": []string{"evidence:verification"}}),
-		workflowCompletedFixtureEvent("completed-"+workID, workID, reviewerRef, reviewerRef, 12),
-	}
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
+	if err := f.run(t.Context(), "complete", "complete", readWorkVersion(t, s, workID), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil); err != nil {
 		t.Fatal(err)
 	}
 	// Later assertions replace the first one in the log without folding on the
@@ -110,11 +88,6 @@ func completedDeliveryFixtureWithAssertions(t *testing.T, workID string, asserti
 			"delivery-"+workID+"-"+jsonInt(int64(index+1)), WorkflowActionCompleted, string(SubjectWorkItem), workID, ownerRef, time.Unix(int64(index), 0).UTC().Format(time.RFC3339Nano), 1, payload); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-		UPDATE work_items SET lifecycle='completed' WHERE id=?;
-		DELETE FROM fold_guard`, workID); err != nil {
-		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES('client/concord-1','active','principal/operator','[]','[]','[]','2026-09-10T00:00:00Z')`); err != nil {
 		t.Fatal(err)
@@ -329,7 +302,7 @@ func TestTerminalDeliveryCorrectionAdmission(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&instanceState, &currentStep); err != nil {
 		t.Fatal(err)
 	}
-	if instanceState != "completed" || currentStep != "acceptance" {
+	if instanceState != "completed" || currentStep != "release" {
 		t.Fatalf("correction moved the closed instance to %q at %q", instanceState, currentStep)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
@@ -379,6 +352,10 @@ func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 	s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
 	valid := unsignedDeliveryCorrectionRequest(t, s, workID, version, targetEventID, targetSeq, targetPayloadVersion)
 	eventsBefore := countWorkflowSubjectEvents(t, s, workID)
+	var nonAssertion string
+	if err := s.db.QueryRow(`SELECT event_id FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_proposal'`, workID, WorkflowActionCompleted).Scan(&nonAssertion); err != nil {
+		t.Fatal(err)
+	}
 
 	cases := []struct {
 		name      string
@@ -396,7 +373,7 @@ func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 			return r
 		}, wantKind: KindInvalidOperation, wantPiece: "does not match the recorded assertion"},
 		{name: "target is not an assertion", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
-			r.TargetEventID = "proposal-" + workID
+			r.TargetEventID = nonAssertion
 			return r
 		}, wantKind: KindInvalidOperation, wantPiece: "not a recorded delivery assertion"},
 		{name: "target event is not recorded", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {

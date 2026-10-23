@@ -9,7 +9,7 @@ import (
 )
 
 // The completion record must agree with the event log it summarizes (#856).
-// The fixture binds three evidence events, records one ok verdict, and
+// The fixture binds evidence, associates current criterion proof, and
 // confirms the premise; the completed payload must carry those facts, not
 // the literal zero, the absent-fields default, and the constant "ok".
 func TestCompletionRecordCarriesTheValuesTheGateComputed(t *testing.T) {
@@ -24,7 +24,7 @@ func TestCompletionRecordCarriesTheValuesTheGateComputed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	actorRef := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/record-integrity")
+	actorRef := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/owner", "session/record-integrity")
 	event, err := workflowCompletionEvent(context.Background(), tx, WorkflowActionExecutionRequest{WorkID: "record-integrity", ExpectedVersion: version, OperationID: "record-integrity-complete", Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}, actorRef, json.RawMessage(`{"impact_verdict":"non-breaking"}`))
 	if err != nil {
 		t.Fatalf("completion event was refused: %v", err)
@@ -36,18 +36,16 @@ func TestCompletionRecordCarriesTheValuesTheGateComputed(t *testing.T) {
 	if got, _ := payload["premise_confirmed"].(bool); !got {
 		t.Error("premise_confirmed is false while the log holds an operator premise confirmation for this contract")
 	}
-	if got, _ := payload["evidence_count"].(float64); got != 3 {
-		t.Errorf("evidence_count = %v, want 3 (the log binds verification, review, and artifact evidence)", got)
+	if got, _ := payload["evidence_count"].(float64); got != 5 {
+		t.Errorf("evidence_count = %v, want five bindings (three required kinds, captured receipt, and spec)", got)
 	}
 	if got, _ := payload["final_verdict_kind"].(string); got != "ok" {
 		t.Errorf("final_verdict_kind = %q, want the recorded verdict kind %q", got, "ok")
 	}
 }
 
-// A lane dispatch rotates the executing-actor lease, not authorship (#801).
-// The owner who started the delivery step stays the delivery author of
-// record, so the evaluator-distinctness check must refuse that owner even
-// while the lane holds the executing lease.
+// A lane dispatch rotates the executing-actor lease, not Main's authority to
+// associate captured proof. The worker cannot perform Main's acceptance work.
 func TestLaneDispatchRotatesTheLeaseNotTheAuthorship(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -105,15 +103,12 @@ func TestLaneDispatchRotatesTheLeaseNotTheAuthorship(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	// The owner authored the delivery: evaluating it is self-evaluation and
-	// must refuse, lane lease or no lane lease.
-	if err := workflowCompletionActorDistinct(ctx, tx, workID, ownerRef, "", false); err == nil {
-		t.Error("the delivery author cleared the evaluator-distinctness check while the lane held the executing lease")
-	} else if !strings.Contains(err.Error(), "evaluate") && !strings.Contains(err.Error(), "author") && !strings.Contains(err.Error(), "distinct") {
-		t.Errorf("owner verdict refusal came from an unexpected gate: %v", err)
+	// Main may associate proof even after authoring a delivery; the proof's
+	// captured producer, not Main's verdict word, establishes the result.
+	if err := workflowCompletionActorDistinct(ctx, tx, workID, ownerRef, "", false); err != nil {
+		t.Errorf("Main lost proof-association authority when the lease rotated: %v", err)
 	}
-	// The dispatched lane executed on the step, so it cannot sign the verdict
-	// either: independence holds against every step executor.
+	// The dispatched lane remains a worker, not Main.
 	if err := workflowCompletionActorDistinct(ctx, tx, workID, laneRef, "", false); err == nil {
 		t.Error("a lane that executed on the delivery step cleared the evaluator-distinctness check")
 	}

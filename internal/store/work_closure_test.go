@@ -139,9 +139,9 @@ func TestReadWorkClosureDegradesToThePinAlone(t *testing.T) {
 // undeclared field, and a recorded out_of_scope list survives a rebuild.
 func TestRecordProposalOutOfScopeAcrossPinnedAndCurrentVersions(t *testing.T) {
 	t.Parallel()
-	current, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 22)
-	if !ok {
-		t.Fatal("workflow.implementation v22 is not registered")
+	current, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
 	}
 	payload := json.RawMessage(`{"problem":"The recorded problem.","affected":["The affected party."],"stakes":"The recorded stakes.","user_outcomes":["The expected outcome."],"out_of_scope":["The launcher.","The release automation."]}`)
 	if err := validateWorkflowActionPayload(current.Definition, "record_proposal", payload); err != nil {

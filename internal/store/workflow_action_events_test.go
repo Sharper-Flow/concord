@@ -316,17 +316,21 @@ func TestWorkflowAuthenticatedActorBindingRejectsSpoofedVerdictAndPremise(t *tes
 		})
 	}
 
-	s, executor, evaluator, version := issue31ActorSetup(t, "valid-evaluator")
-	evaluatorRef, _ := WorkflowActorRef(evaluator)
-	valid := workflowEventWithActor("valid-verdict", WorkflowVerdictRecorded, "valid-evaluator", evaluatorRef, map[string]any{"work_id": "valid-evaluator", "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "predicate_id": "predicate:valid", "verdict_kind": "ok", "verdict_actor_ref": evaluatorRef, "evaluation_evidence": []string{"evidence:valid"}, "incomparable_with_approved": false})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{valid}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "valid-evaluator"): version}}); err != nil {
-		t.Fatalf("valid independent evaluator rejected: %v", err)
+	// The fold checks the actor binding before criterion proof, so the
+	// accepted control needs a current reviewed candidate while the spoofed
+	// verdicts above refuse on their actor alone.
+	valid := qBuildAcceptance(t, "valid-evaluator", "", false)
+	validVersion := readWorkVersion(t, valid.store, "valid-evaluator")
+	if err := runVerdictActionAs(t, valid.store, "valid-evaluator", "record_verdict", qAssociationPayload(t, valid), 0, valid.owner); err != nil {
+		t.Fatalf("valid recorded evaluator rejected: %v", err)
 	}
-	assertIssue31VersionAndVerdict(t, s, "valid-evaluator", version+1)
-	_ = executor
+	assertIssue31VersionAndVerdict(t, valid.store, "valid-evaluator", readWorkVersion(t, valid.store, "valid-evaluator"))
+	if after := readWorkVersion(t, valid.store, "valid-evaluator"); after <= validVersion {
+		t.Fatalf("valid verdict left version %d, want it advanced past %d", after, validVersion)
+	}
 
-	s, executor, evaluator, version = issue31ActorSetup(t, "valid-operator-premise")
-	evaluatorRef, _ = WorkflowActorRef(evaluator)
+	s, executor, evaluator, version := issue31ActorSetup(t, "valid-operator-premise")
+	evaluatorRef, _ := WorkflowActorRef(evaluator)
 	contract := workflowEventWithActor("valid-contract", WorkflowContractApproved, "valid-operator-premise", evaluatorRef, map[string]any{"work_id": "valid-operator-premise", "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "premise": "operator premise", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}, "required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{contract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "valid-operator-premise"): version}}); err != nil {
 		t.Fatal(err)

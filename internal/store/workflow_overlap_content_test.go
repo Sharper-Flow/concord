@@ -51,7 +51,7 @@ func contentSuccessor(t *testing.T, s *Store, actor string, version int64, bindi
 		mandate = append(mandate, addition.LawID)
 	}
 	expected := readWorkVersion(t, s, "content-left")
-	return workflowTypedEvent(fmt.Sprintf("content-successor-%d", version), WorkflowContractSuperseded, "content-left", actor, time.Unix(version, 0), expected, map[string]any{
+	return pOverlapContractFacts(t, s, workflowTypedEvent(fmt.Sprintf("content-successor-%d", version), WorkflowContractSuperseded, "content-left", actor, time.Unix(version, 0), expected, map[string]any{
 		"previous_contract_version": version - 1, "new_contract_version": version,
 		"supersede_reason": "synthetic revision", "audit_evidence": []string{"audit:content"},
 		"successor_contract": map[string]any{
@@ -62,7 +62,7 @@ func contentSuccessor(t *testing.T, s *Store, actor string, version int64, bindi
 			"law_revisions": []WorkflowLawRevision{{LawID: "spec:one", ContentHash: "sha256:" + strings.Repeat("a", 64)}},
 			"rigor_class":   "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 		},
-	})
+	}))
 }
 
 func applyContentSuccessor(t *testing.T, s *Store, event Event) {

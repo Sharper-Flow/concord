@@ -246,6 +246,9 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 		}
 		inputs["worker_job"] = json.RawMessage(selected)
 		if cycle > 1 {
+			// The Review consumes its own job, so the selected implementation
+			// revision stays ready for this cycle's dispatch.
+			recordReadyRetryJob(t, s, service, env, "job:escalated-"+strconv.FormatInt(cycle, 10)+"-review")
 			oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
 			version = workVersion(t, s, "work-1")
 		}
@@ -261,6 +264,13 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 		dispatched := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
 		if dispatched.Outcome != OutcomeOK {
 			t.Fatalf("seed escalated dispatch %d: %+v", cycle, dispatched.Error)
+		}
+		var dispatchedJob string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_job.job_id') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, store.WorkflowActionCompleted, attemptID).Scan(&dispatchedJob); err != nil {
+			t.Fatal(err)
+		}
+		if want := "job:escalated-" + strconv.FormatInt(cycle, 10); dispatchedJob != want {
+			t.Fatalf("seed cycle %d dispatched job %q, want its own job %q", cycle, dispatchedJob, want)
 		}
 		version = recordWorkflowFailureForPin(t, s, grant, attemptID, 0, "escalated-seed-"+strconv.FormatInt(cycle, 10), failureAt...)
 	}

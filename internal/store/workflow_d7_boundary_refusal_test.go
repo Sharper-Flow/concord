@@ -280,37 +280,6 @@ func runSupersedeRecoveryFold(t *testing.T, s *Store, workID string, payload jso
 	return tx.Commit()
 }
 
-// runSupersedeDuplicateRecoveryFold drives the duplicate-contract recovery
-// through the fold with the operator approval binding the recovery's
-// operator-approved route records: the operator identity names the consumed
-// approval, and the binding fields are the ones admission verified.
-func runSupersedeDuplicateRecoveryFold(t *testing.T, s *Store, workID string, payload json.RawMessage, actor WorkflowActor) error {
-	t.Helper()
-	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "approval:approval-duplicate-recovery", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
-	version := readWorkVersion(t, s, workID)
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	operationID := "supersede-duplicate-" + workID + "-" + strconv.FormatInt(version, 10)
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: payload,
-		Actor: actor, OperatorActor: &operator, OperatorApprovalRef: "approval-duplicate-recovery",
-		ApprovalOperationDigest: "sha256:" + strings.Repeat("b", 64),
-		ApprovalScopeJSON:       `{"work_ids":["` + workID + `"]}`,
-		ApprovalVersionsJSON:    `{"work":` + strconv.FormatInt(version, 10) + `}`,
-		ApprovalConsequence:     "contract_recovery",
-		AcceptedInputsDigest:    "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
-		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
-		ContractDigest: testManifestDigest, Now: time.Unix(20, version).UTC(),
-	})
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
 // TestWorkflowSupersedeOverlapRecoveryAgreesAcrossPinDiscoveryPreflightAndFold
 // holds the single admission owner at the surfaces that answer
 // supersede_contract: an unresolved Domain overlap at a step whose correction

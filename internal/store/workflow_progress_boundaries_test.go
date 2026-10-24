@@ -124,7 +124,7 @@ func TestCoordinatorSatisfactionPreservesFailedJobCorrection(t *testing.T) {
 // checks repair. Only the assigned confirming review's acceptance can.
 func TestCoordinatorFactsPreserveChecksRepairDebtUntilConfirmation(t *testing.T) {
 	t.Parallel()
-	db, appendEvent, read := progressHistory(t)
+	db, appendEvent, read := progressCorrectionHistory(t)
 	coordinator := progressActorRecord(t, db, "coordinator", "agent")
 	progressQualifiedEvidence(t, db, appendEvent, "evidence:qualified")
 

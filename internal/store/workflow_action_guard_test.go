@@ -197,7 +197,7 @@ func TestMandatedContractGuardWalksEveryBuiltinDefinition(t *testing.T) {
 				}
 			}
 
-			if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,1,?)`, "walk-bound-"+workID, WorkflowEvidenceBound, string(SubjectWorkItem), workID, actorRef, "now", `{"immutable_subject_ref":"`+lawID+`"}`); err != nil {
+			if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_evidence_bindings(work_id,binding_seq,binding_id,actor,payload) VALUES(?,1,?,?,?); DELETE FROM fold_guard`, workID, "walk-bound-"+workID, actorRef, `{"immutable_subject_ref":"`+lawID+`"}`); err != nil {
 				t.Fatal(err)
 			}
 			for _, actionID := range gated {

@@ -318,6 +318,7 @@ var migrationTailReversals = map[int][]string{
 	},
 	142: {
 		`DROP TABLE workflow_phase_exits`,
+		`DROP TABLE workflow_artifact_actions`,
 		`DROP TABLE workflow_action_obligations`,
 		`DROP TABLE workflow_worker_actors`,
 		`DROP TABLE workflow_step_completions`,

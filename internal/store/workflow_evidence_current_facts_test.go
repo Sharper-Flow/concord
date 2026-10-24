@@ -115,6 +115,8 @@ func repopulateWorkflowCurrentFactsForTest(t *testing.T, s *Store) {
 	defer tx.Rollback()
 	if _, err := tx.Exec(`
 DROP TABLE workflow_phase_exits;
+DROP TABLE workflow_action_obligations;
+DROP TABLE workflow_step_completions;
 DROP TABLE workflow_correction_state;
 DROP TABLE workflow_predicate_verdicts;
 DROP TABLE workflow_delivery_state;

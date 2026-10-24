@@ -1773,6 +1773,9 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event, sco
 			return workflowProjectionError(err, "cannot record the current dispatch start")
 		}
 	}
+	if err := advanceWorkflowActionObligationsTx(ctx, tx, event, p.StepID, p.AttemptEpoch, p.ActorRef); err != nil {
+		return err
+	}
 	return beginWorkflowLifecycleTx(ctx, tx, event)
 }
 
@@ -2577,6 +2580,9 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	}
 	if err := writeWorkerAuthorizationTx(ctx, tx, event, p); err != nil {
 		return workflowProjectionError(err, "cannot record the worker authorization or disposition")
+	}
+	if err := advanceWorkflowActionObligationsTx(ctx, tx, event, p.StepID, p.AttemptEpoch, p.ActorRef); err != nil {
+		return err
 	}
 	switch p.ActionID {
 	case "dispatch_worker", "record_worker_failure", "reject_worker_result", "request_correction":
@@ -3414,7 +3420,10 @@ func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event, scop
 		state = "running"
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=? WHERE work_id=?`, state, event.SubjectID)
-	return err
+	if err != nil {
+		return err
+	}
+	return advanceWorkflowActionObligationsTx(ctx, tx, event, p.StepID, p.AttemptEpoch, p.ActorRef)
 }
 
 // producerBindingMismatch explains why a named producer operation cannot back

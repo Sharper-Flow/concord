@@ -116,7 +116,7 @@ belong to agents under CD-0243 D3. A gap in the table's classification is not
 an independent approval requirement; each point must be classified under a
 class or as agent-owned.
 
-It includes approval of a development preview of the final candidate before it is pushed to a shared remote or merged ([CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)).
+The UI/UX class includes approval of a development preview of the final candidate before it is pushed to a shared remote or merged ([CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)).
 
 The agent asks the operator directly, with its recommendation and material
 risks. The release train engineer (RTE) coordinates dependencies; it does not decide operator choices.

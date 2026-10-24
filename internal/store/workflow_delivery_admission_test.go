@@ -47,7 +47,7 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 			pin := issue1013Pin(t, fixture.store, workID)
 			definition, state := loadedAdmissionForTest(t, fixture.store, workID, pin)
 			conformanceCheckpoint(t, fixture.store, BuiltinWorkflowRegistry(), workID, definition, admissionModelState{
-				step: pin.Step, debt: ReviewDebtNone, contracts: 1,
+				step: pin.Step, contracts: 1,
 				review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
 				jobs:   "satisfied", jobsScope: "project", integration: stage != "missing-epoch-proof",
 				dispatched: stage != "before-start", engineering: true,

@@ -14,7 +14,7 @@ package store
 // KindInvalidOperation refusal — and a seeded non-archived clone proves the
 // detector names an admitted action rather than passing vacuously.
 //
-// No state is skipped on either side. The model folds review debt, attempts,
+// No state is skipped on either side. The model folds Review, attempts,
 // contracts, staleness, design, verdicts, artifacts, delivery, mandates, and
 // jobs. Breaking notices and external conditions stay zero.
 
@@ -75,10 +75,6 @@ func workflowStepJudgesStaleArtifact(definition WorkflowDefinition, stepID strin
 type admissionModelState struct {
 	step   string
 	review admissionModelReview
-	// debt and ready are the post-rejection review debt and the typed
-	// verdict of the ready review: "", "ship", "absent", or "no_ship".
-	debt  WorkflowReviewDebt
-	ready string
 	// attempt is the latest worker attempt since the step's latest start:
 	// "", "completed", "failed", "failure_recorded", or "rejected".
 	// dispatched reports whether a dispatch happened since the step's latest
@@ -157,12 +153,12 @@ type admissionModelState struct {
 }
 
 func (s admissionModelState) String() string {
-	return fmt.Sprintf("(step %q debt %q ready %q attempt %q dispatched %v producer %v freshOrigin %v jobDebt %v unboundRejectAt %q contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q jobs %q unsatisfied %q scope %q integration %v sizeStop %v engineering %v done %v review %+v)",
-		s.step, s.debt, s.ready, s.attempt, s.dispatched, s.attemptProduces, s.attemptFresh, s.jobDebt, s.unboundRejectionStep, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.jobs, s.jobsUnsatisfied, s.jobsScope, s.integration, s.sizeStop, s.engineering, s.done, s.review)
+	return fmt.Sprintf("(step %q attempt %q dispatched %v producer %v freshOrigin %v jobDebt %v unboundRejectAt %q contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q jobs %q unsatisfied %q scope %q integration %v sizeStop %v engineering %v done %v review %+v)",
+		s.step, s.attempt, s.dispatched, s.attemptProduces, s.attemptFresh, s.jobDebt, s.unboundRejectionStep, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.jobs, s.jobsUnsatisfied, s.jobsScope, s.integration, s.sizeStop, s.engineering, s.done, s.review)
 }
 
 func admissionModelStart(definition WorkflowDefinition) admissionModelState {
-	return admissionModelState{step: definition.StepGraph.StartStep, debt: ReviewDebtNone}
+	return admissionModelState{step: definition.StepGraph.StartStep}
 }
 
 // admissionContinuityAction names the continuity actions: they record session
@@ -338,7 +334,6 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		ArtifactStale:               state.artifactStale,
 		AttemptState:                attemptState,
 		LatestResultDisposition:     disposition,
-		ReviewDebt:                  ReviewDebtNone,
 		WorkerFailureRecovery:       admissionWorkerFailureRecovery(definition, state),
 		CorrectionRecovery:          state.attempt == "completed" && stepDeclaresAction(definition, state.step, "dispatch_worker"),
 		UnconsumedUnboundRejection:  workflowStepCarriesRejectionHold(definition, state.step) && state.unboundRejectionStep == state.step,
@@ -395,22 +390,14 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 	if state.engineering && action != "" && folded.AcceptanceDeliverablesMissing == nil && !state.artifact {
 		folded.AcceptanceDeliverablesMissing = newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires the recorded investigation artifact", false, "record the investigation observation before confirming")
 	}
-	if refinement && reviewStep {
-		folded.ReviewDebt = state.debt
-		if state.debt == ReviewDebtOutstanding {
-			folded.ReadyReviewAttemptID = admissionReadyAttemptID(state)
-			folded.ReadyReviewVerdict = admissionReadyVerdict(state)
-		}
-	}
 	gate := workflowStepIsDeliveryGate(workflowStep(definition, state.step))
 	if gate {
-		// The gate's corrective return carries the post-rejection debt and
-		// the accepted-but-inapplicable Review: a successor contract changed
-		// the candidate or its depended-on revisions, the delivery
+		// The gate's corrective return carries the accepted-but-inapplicable
+		// Review: a successor contract changed the candidate or its
+		// depended-on revisions, the delivery
 		// assertion refuses, and the declared route obtains a fresh
 		// accepted Review at the producer step.
-		folded.CorrectionRequestRecovery = folded.ReviewDebt == ReviewDebtOutstanding ||
-			state.review.accepted != "" && state.review.candidate && (!state.review.current || state.review.changed)
+		folded.CorrectionRequestRecovery = state.review.accepted != "" && state.review.candidate && (!state.review.current || state.review.changed)
 		if !folded.CorrectionRequestRecovery {
 			folded.CorrectionRequestMissing = workflowCorrectionMissingGateReview
 		}
@@ -437,24 +424,6 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 	return folded
 }
 
-// admissionReadyAttemptID names the ready review the model carries, so the
-// identity-satisfying accept route counts as admitted.
-func admissionReadyAttemptID(state admissionModelState) string {
-	if state.ready == "" {
-		return ""
-	}
-	return "attempt:model:ready-" + state.ready
-}
-
-// admissionReadyVerdict is the loader's typed verdict for the model's ready
-// review: the pre-CD-0197 review carries none.
-func admissionReadyVerdict(state admissionModelState) string {
-	if state.ready == "absent" {
-		return ""
-	}
-	return state.ready
-}
-
 // admissionGuardAllows applies the guard preconditions a payload-blind
 // admission cannot see but the folded history decides: an attempt
 // disposition needs the attempt it disposes, a verdict needs one active
@@ -478,9 +447,7 @@ func admissionGuardAllows(state admissionModelState, actionID string) bool {
 
 // admissionModelMoves resolves the admitted moves of one state: every action
 // of the state's universe whose workflowAdmit decision admits it, or stands
-// behind operator approval, and whose guard precondition holds, plus the
-// debt family's deferred advance — the fresh-review refusal the review gate
-// owns, whose identity-satisfying accept the guard admits.
+// behind operator approval, and whose guard precondition holds.
 func admissionModelMoves(definition WorkflowDefinition, state admissionModelState) []string {
 	folded := admissionWorkflowState(definition, state)
 	var moves []string
@@ -489,7 +456,7 @@ func admissionModelMoves(definition WorkflowDefinition, state admissionModelStat
 			continue
 		}
 		decision := workflowAdmit(definition, folded, actionID)
-		if decision.Admitted || (workflowAdmissionDefersToReviewGate(decision, actionID) && folded.ReadyReviewAttemptID != "") {
+		if decision.Admitted {
 			moves = append(moves, actionID)
 		}
 	}
@@ -575,6 +542,7 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		failed := next
 		failed.attempt = "failed"
 		failed.attemptProduces, failed.attemptFresh = false, false
+		failureSuccessors := []admissionModelState{failed}
 		if admissionLocalJobAcceptStep(definition, state.step) && state.jobs == "required" {
 			// The dispatched packet may bind the recorded required
 			// revision or run unbound (the payload decides), and only a
@@ -582,47 +550,20 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 			// (CD-0205 D4).
 			bound := failed
 			bound.jobDebt = true
-			failureSuccessors := []admissionModelState{bound, failed}
-			if next.debt != ReviewDebtOutstanding {
-				successors := []admissionModelState{}
-				for _, produces := range admissionDispatchProductionClasses(definition, state.step) {
-					candidate := completed
-					candidate.attemptProduces = produces
-					if produces {
-						successors = append(successors, admissionProducingDispatch(definition, state, candidate)...)
-					} else {
-						successors = append(successors, candidate)
-					}
-				}
-				successors = append(successors, admissionReviewCompletions(definition, state, completed)...)
-				return append(successors, failureSuccessors...)
-			}
-			ship, noShip := completed, completed
-			ship.attemptProduces, noShip.attemptProduces = false, false
-			ship.ready, noShip.ready = "ship", "no_ship"
-			return append(failureSuccessors, ship, noShip)
+			failureSuccessors = []admissionModelState{bound, failed}
 		}
-		if next.debt != ReviewDebtOutstanding {
-			successors := []admissionModelState{}
-			for _, produces := range admissionDispatchProductionClasses(definition, state.step) {
-				candidate := completed
-				candidate.attemptProduces = produces
-				if produces {
-					successors = append(successors, admissionProducingDispatch(definition, state, candidate)...)
-				} else {
-					successors = append(successors, candidate)
-				}
+		successors := []admissionModelState{}
+		for _, produces := range admissionDispatchProductionClasses(definition, state.step) {
+			candidate := completed
+			candidate.attemptProduces = produces
+			if produces {
+				successors = append(successors, admissionProducingDispatch(definition, state, candidate)...)
+			} else {
+				successors = append(successors, candidate)
 			}
-			successors = append(successors, admissionReviewCompletions(definition, state, completed)...)
-			return append(successors, failed)
 		}
-		// A fresh review dispatch supersedes any ready review: the loader
-		// names the latest completed review whose acceptance no action has
-		// dispositioned, so the new completion replaces the standing one.
-		ship, noShip := completed, completed
-		ship.attemptProduces, noShip.attemptProduces = false, false
-		ship.ready, noShip.ready = "ship", "no_ship"
-		return []admissionModelState{ship, noShip, failed}
+		successors = append(successors, admissionReviewCompletions(definition, state, completed)...)
+		return append(successors, failureSuccessors...)
 	case "record_worker_job":
 		// CD-0205 D1/D2: the delivery fold reads each job's latest
 		// revision only, so the recording always leaves one unsatisfied
@@ -665,16 +606,6 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		// run, so the model's single bool must keep the bound evidence in
 		// scope across the same-pass accept (CD-0205 D3).
 		next.attemptProduces, next.attemptFresh = false, false
-		if next.ready == "no_ship" {
-			// The no_ship accept preserves the findings and settles
-			// nothing: the debt stays outstanding and the advance waits
-			// for a settling review (CD-0201 D3).
-			next.ready = ""
-			return []admissionModelState{next}
-		}
-		if next.ready != "" {
-			next.debt, next.ready = ReviewDebtNone, ""
-		}
 		// Main's local intake is not the delivery assertion. Only the
 		// separately admitted record_delivery edge leaves execution.
 		if workflowDefinitionProducesDelivery(definition) {
@@ -698,9 +629,6 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		// the record stands at this step until a materialized dispatch
 		// consumes it.
 		next.unboundRejectionStep = state.step
-		if workflowPostRejectionReviewStep(definition, state.step) {
-			next.debt, next.ready = ReviewDebtOutstanding, ""
-		}
 		return []admissionModelState{next}
 	case "record_worker_failure":
 		next.attempt = "failure_recorded"
@@ -940,7 +868,7 @@ func admissionSupersedeCriterionVariants(previous admissionModelState, changed [
 
 func TestCriterionAssociationModelKeepsUnchangedSupersession(t *testing.T) {
 	d := mustBuiltinDefinition(t, "workflow.research").Definition
-	before := admissionModelState{step: "complete", contracts: 1, verdict: "ok", stale: "law", debt: ReviewDebtNone}
+	before := admissionModelState{step: "complete", contracts: 1, verdict: "ok", stale: "law"}
 	changed, unchanged := false, false
 	for _, successor := range admissionSupersedeSuccessors(d, before) {
 		if successor.contracts != 1 {
@@ -1063,8 +991,6 @@ func admissionStepIndex(definition WorkflowDefinition, stepID string) int {
 // contract, and no evaluator sits before that step. Attempts exist on a step
 // that dispatches or starts work. Recorded job debt stays out of the enumeration:
 // no fold reads them, they shape only the successor model's reachable walk.
-// The review debt exists only on a definition that declares the refinement
-// shape's review steps, and a ready review implies the debt.
 func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admissionModelState] {
 	contractIndex := -1
 	if contractStep, err := workflowDefinitionContractStep(definition); err == nil {
@@ -1078,11 +1004,6 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 		}
 	}
 	design := admissionDeclaresAction(definition, "record_design")
-	// CD-0209 D3 replaces the family whitelist with the typed route table:
-	// every family's refinement step (the step declaring start_refine) is the
-	// source that decides whether post-rejection review debt can exist. The
-	// correction family filter (workflowCorrectionWorkflow) is gone.
-	refinement := workflowRefinementStepID(definition) != ""
 	// The worker-job facet exists only where a revision can be recorded
 	// (CD-0205 D2), so the well-formed enumeration carries it exactly there:
 	// no recorded revision, an unsatisfied required revision, and the fully
@@ -1202,14 +1123,6 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 			if starts {
 				attemptDispatches = []attemptDispatched{{"", false}, {"", true}, {"completed", true}, {"failed", true}, {"failure_recorded", true}, {"rejected", true}}
 			}
-			type debtShape struct {
-				debt  WorkflowReviewDebt
-				ready string
-			}
-			debts := []debtShape{{ReviewDebtNone, ""}}
-			if refinement && workflowPostRejectionReviewStep(definition, step.ID) {
-				debts = append(debts, debtShape{ReviewDebtOutstanding, ""}, debtShape{ReviewDebtOutstanding, "ship"}, debtShape{ReviewDebtOutstanding, "absent"}, debtShape{ReviewDebtOutstanding, "no_ship"})
-			}
 			for _, count := range contracts {
 				stales, designs, verdicts, artifacts := []string{""}, []bool{false}, []string{""}, []bool{false}
 				if count > 0 {
@@ -1229,19 +1142,17 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 						for _, verdict := range verdicts {
 							for _, artifactStale := range artifacts {
 								for _, attemptDispatch := range attemptDispatches {
-									for _, shape := range debts {
-										for _, jobs := range stepJobShapes {
-											for _, observation := range [][2]bool{{false, false}, {true, false}, {true, true}} {
-												if !withEvidence(admissionModelState{
-													step: step.ID, debt: shape.debt, ready: shape.ready,
-													attempt: attemptDispatch.attempt, dispatched: attemptDispatch.dispatched,
-													contracts: count, stale: stale,
-													designStale: designStale, verdict: verdict, artifactStale: artifactStale,
-													artifact: observation[0], observed: observation[1],
-													jobs: jobs, jobsUnsatisfied: admissionModelJobKeys(jobs), jobsScope: admissionModelJobScope(jobs),
-												}) {
-													return
-												}
+									for _, jobs := range stepJobShapes {
+										for _, observation := range [][2]bool{{false, false}, {true, false}, {true, true}} {
+											if !withEvidence(admissionModelState{
+												step:    step.ID,
+												attempt: attemptDispatch.attempt, dispatched: attemptDispatch.dispatched,
+												contracts: count, stale: stale,
+												designStale: designStale, verdict: verdict, artifactStale: artifactStale,
+												artifact: observation[0], observed: observation[1],
+												jobs: jobs, jobsUnsatisfied: admissionModelJobKeys(jobs), jobsScope: admissionModelJobScope(jobs),
+											}) {
+												return
 											}
 										}
 									}
@@ -1625,8 +1536,6 @@ func TestAdmissionModelKeyRejectsInvalidFields(t *testing.T) {
 }
 
 var (
-	admissionKeyDebts     = []string{string(ReviewDebtNone), string(ReviewDebtOutstanding)}
-	admissionKeyReadies   = []string{"", "ship", "absent", "no_ship"}
 	admissionKeyAttempts  = []string{"", "completed", "failed", "failure_recorded", "rejected"}
 	admissionKeyStales    = []string{"", "law", "registry"}
 	admissionKeyVerdicts  = []string{"", "ok", "bad"}
@@ -1658,8 +1567,6 @@ func admissionModelKeyOf(steps []string, state admissionModelState) admissionMod
 	var p admissionModelKeyPacker
 	p.put(admissionKeyCode(state.step, steps), admissionModelKeyStepBits)
 	p.put(admissionKeyCode(state.unboundRejectionStep, steps), admissionModelKeyStepBits)
-	p.put(admissionKeyCode(string(state.debt), admissionKeyDebts), 1)
-	p.put(admissionKeyCode(state.ready, admissionKeyReadies), 2)
 	p.put(admissionKeyCode(state.attempt, admissionKeyAttempts), 3)
 	p.put(admissionKeyCode(state.stale, admissionKeyStales), 2)
 	p.put(admissionKeyCode(state.verdict, admissionKeyVerdicts), 2)
@@ -1687,8 +1594,6 @@ func admissionModelStateOf(steps []string, key admissionModelKey) admissionModel
 	var state admissionModelState
 	state.step = steps[p.get(admissionModelKeyStepBits)]
 	state.unboundRejectionStep = steps[p.get(admissionModelKeyStepBits)]
-	state.debt = WorkflowReviewDebt(admissionKeyDebts[p.get(1)])
-	state.ready = admissionKeyReadies[p.get(2)]
 	state.attempt = admissionKeyAttempts[p.get(3)]
 	state.stale = admissionKeyStales[p.get(2)]
 	state.verdict = admissionKeyVerdicts[p.get(2)]
@@ -1707,7 +1612,7 @@ func admissionModelStateOf(steps []string, key admissionModelKey) admissionModel
 
 // admissionModelKeyFields is the number of admissionModelState fields
 // admissionModelKeyOf encodes.
-const admissionModelKeyFields = 27
+const admissionModelKeyFields = 25
 
 func TestAdmissionModelKeyEncodesEveryField(t *testing.T) {
 	if got := reflect.TypeOf(admissionModelState{}).NumField(); got != admissionModelKeyFields {
@@ -1742,8 +1647,8 @@ func TestAdmissionModelKeyRoundTrips(t *testing.T) {
 		for range 2000 {
 			check(admissionModelState{
 				step: pick(steps), unboundRejectionStep: pick(steps),
-				debt: WorkflowReviewDebt(pick(admissionKeyDebts)), ready: pick(admissionKeyReadies), attempt: pick(admissionKeyAttempts),
-				stale: pick(admissionKeyStales), verdict: pick(admissionKeyVerdicts),
+				attempt: pick(admissionKeyAttempts),
+				stale:   pick(admissionKeyStales), verdict: pick(admissionKeyVerdicts),
 				mandate: pick(admissionKeyMandates), jobs: pick(admissionKeyJobs), jobsUnsatisfied: pick(admissionKeyJobKeys),
 				jobsScope: pick(admissionKeyJobScopes), contracts: random.Int64N(256),
 				dispatched: flip(), attemptProduces: flip(), attemptFresh: flip(), jobDebt: flip(), designStale: flip(), artifactStale: flip(),
@@ -1756,8 +1661,8 @@ func TestAdmissionModelKeyRoundTrips(t *testing.T) {
 
 func TestAdmissionModelKeyKeepsEngineeringClassification(t *testing.T) {
 	steps := []string{""}
-	plain := admissionModelKeyOf(steps, admissionModelState{debt: ReviewDebtNone})
-	engineering := admissionModelKeyOf(steps, admissionModelState{debt: ReviewDebtNone, engineering: true})
+	plain := admissionModelKeyOf(steps, admissionModelState{})
+	engineering := admissionModelKeyOf(steps, admissionModelState{engineering: true})
 	if plain == engineering {
 		t.Fatalf("admissionModelKeyOf encodes %d fields but states differing only in engineering share key %#v; encode the engineering field so distinct states keep distinct keys", admissionModelKeyFields, plain)
 	}
@@ -1927,7 +1832,7 @@ func admissionModelPath(graph admissionModelGraph, i int32) string {
 }
 
 // admissionSuccessor is the primary successor of one action: the first
-// member of admissionSuccessors, the completed or ship outcome of a
+// member of admissionSuccessors, the completed outcome of a
 // dispatch, the ok verdict, and the supersession that carries a design
 // record. The conformance replay names the outcome it performs.
 func admissionSuccessor(definition WorkflowDefinition, state admissionModelState, actionID string) admissionModelState {
@@ -2090,7 +1995,6 @@ func TestAdmissionModelProductionRequiresCapabilityAndFreshOrigin(t *testing.T) 
 				step: "execution", contracts: 1, artifactStale: true,
 				attempt: "completed", attemptProduces: test.produces,
 				attemptFresh: test.fresh, started: true, proof: true,
-				debt: ReviewDebtNone,
 			}
 			if decision := workflowAdmit(definition, admissionWorkflowState(definition, state), "accept_worker_result"); !decision.Admitted {
 				t.Fatalf("acceptance refused: %v", decision.Failure)
@@ -2106,7 +2010,7 @@ func TestAdmissionModelProductionRequiresCapabilityAndFreshOrigin(t *testing.T) 
 
 func TestAdmissionModelDispatchKeepsEvaluatorAndProducerAlternatives(t *testing.T) {
 	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
-	state := admissionModelState{step: "execution", contracts: 1, artifactStale: true, debt: ReviewDebtNone}
+	state := admissionModelState{step: "execution", contracts: 1, artifactStale: true}
 	producing, evaluating := false, false
 	for _, next := range admissionSuccessors(definition, state, "dispatch_worker") {
 		if next.attempt != "completed" {
@@ -2149,7 +2053,7 @@ func TestAdmissionModelUnboundRejectionHoldsUntilMaterializedDispatch(t *testing
 
 	// The unbound rejection records its step, and the lift exposes it only
 	// at that step.
-	rejected := admissionSuccessor(definition, admissionModelState{step: "refine", contracts: 1, debt: ReviewDebtNone}, "reject_worker_result")
+	rejected := admissionSuccessor(definition, admissionModelState{step: "refine", contracts: 1}, "reject_worker_result")
 	if rejected.unboundRejectionStep != "refine" {
 		t.Fatalf("unbound rejection remembered step %q, want refine: %s", rejected.unboundRejectionStep, rejected)
 	}
@@ -2168,7 +2072,7 @@ func TestAdmissionModelUnboundRejectionHoldsUntilMaterializedDispatch(t *testing
 	// The held local job acceptance keeps the memory and its lift: the
 	// CD-0205 hold dispositions no rejection.
 	jobAccept := admissionModelState{
-		step: "repair", contracts: 1, debt: ReviewDebtNone, attempt: "completed", jobs: "required",
+		step: "repair", contracts: 1, attempt: "completed", jobs: "required",
 		jobsUnsatisfied: admissionModelJobKeys("required"), jobsScope: admissionModelJobScope("required"),
 		unboundRejectionStep: "repair",
 	}

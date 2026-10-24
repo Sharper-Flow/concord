@@ -908,14 +908,11 @@ func TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery(t *testing.T) {
 				t.Fatalf("plain accept of an unbound attempt at refine error = %v, want the delivery-assertion refusal", err)
 			}
 
-			oAcceptOracleFixtureReview(t, oracleRepairFixtureFrom(t, workID, f.fixture), workID, "continue")
-			final := &WorkerJobBinding{JobID: "job:refine-final", Revision: 1}
-			finalAttempt := "attempt:" + workID + ":final"
-			dispatchJobBoundAttempt(t, s, workID, "refine", finalAttempt, nil, owner, 0, "refine-final", final)
-			if err := completeJobBoundAttemptForTest(s, workID, finalAttempt, lane, final); err != nil {
-				t.Fatal(err)
-			}
-			asserted := mustJSONValue(map[string]any{"attempt_id": finalAttempt, "attempt_epoch": epoch(), "delivery_artifact": "artifact:accept-delivery-" + workID, "delivery_state": "asserted"})
+			oracleFixture := oracleRepairFixtureFrom(t, workID, f.fixture)
+			oAcceptOracleFixtureReview(t, oracleFixture, workID, "continue")
+			finalAttempt := oCompleteOracleFixtureReview(t, oracleFixture, workID, "ready_for_final_proof")
+			finalEpoch := epoch()
+			asserted := mustJSONValue(map[string]any{"attempt_id": finalAttempt, "attempt_epoch": finalEpoch, "delivery_artifact": "artifact:accept-delivery-" + workID, "delivery_state": "asserted"})
 			if err := runVerdictActionAs(t, s, workID, "accept_worker_result", asserted, 0, acceptor); err == nil {
 				t.Fatal("delivery-asserting accept admitted without the green refine run")
 			}

@@ -893,13 +893,9 @@ func guardDeliveryAdmission(g *workflowActionGuardContext) error {
 			if err != nil {
 				return err
 			}
-			candidate, err := workflowAcceptedResultCandidate(g.ctx, g.tx, g.request.WorkID, auth, result)
+			review, err := projectWorkflowReviewAcceptance(g.ctx, g.tx, g.request.WorkID, *state.Review, auth, result, g.actorRef)
 			if err != nil {
 				return err
-			}
-			review := *state.Review
-			if candidate != nil {
-				review.Candidate = candidate
 			}
 			projected.Review = &review
 		}

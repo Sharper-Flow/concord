@@ -332,7 +332,7 @@ func TestAcceptanceReviewRoundTrip(t *testing.T) {
 	run := j.observeRun(t, "checkpoint-proof")
 	c := acceptDeliveryCandidate{f: f, j: j, early: run}
 	attemptID := "attempt:" + workID + ":checkpoint-review"
-	epoch := acceptDeliveryCompleteReview(t, c, attemptID)
+	epoch := acceptDeliveryCompleteReview(t, c, attemptID, "ready_for_final_proof")
 	seedPremiseDeliverablesInvestigation(t, s, workID)
 
 	// The unsettled attempt keeps the confirmation closed: the report is

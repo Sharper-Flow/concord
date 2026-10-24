@@ -741,8 +741,7 @@ func seedDispatchPredicateAuthorization(t *testing.T, s *Store, workID, attemptI
 	}
 	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
 INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload) SELECT subject_id,json_extract(payload,'$.worker_attempt_id'),seq,payload FROM domain_events WHERE event_id=?;
-UPDATE store_sequences SET last=(SELECT seq FROM domain_events WHERE event_id=?) WHERE name='effect';
-DELETE FROM fold_guard;`, "dispatch-authorization-"+attemptID, "dispatch-authorization-"+attemptID); err != nil {
+DELETE FROM fold_guard;`, "dispatch-authorization-"+attemptID); err != nil {
 		t.Fatal(err)
 	}
 }

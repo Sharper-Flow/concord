@@ -6880,6 +6880,7 @@ CREATE TABLE store_sequences (
 INSERT INTO store_sequences VALUES('effect',max(
  (SELECT coalesce(max(seq),0) FROM domain_events),
  (SELECT coalesce(max(seq),0) FROM sqlite_sequence WHERE name='domain_events'),0));
+CREATE TRIGGER domain_events_advance_effect_sequence AFTER INSERT ON domain_events BEGIN UPDATE store_sequences SET last=max(last,NEW.seq) WHERE name='effect'; END;
 CREATE TEMP TABLE relation_positions_v146 AS
  SELECT event_id,row_number() OVER (ORDER BY seq) AS relation_seq FROM domain_events
  WHERE kind IN ('relation.added','work.reopened_from_superseded','work.superseded','workflow.overlap_resolved','workflow.successor_linked')

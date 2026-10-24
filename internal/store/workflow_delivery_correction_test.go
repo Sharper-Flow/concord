@@ -87,9 +87,6 @@ func completedDeliveryFixtureWithAssertions(t *testing.T, workID string, asserti
 			"delivery-"+workID+"-"+jsonInt(int64(index+1)), WorkflowActionCompleted, string(SubjectWorkItem), workID, ownerRef, time.Unix(int64(index), 0).UTC().Format(time.RFC3339Nano), 1, payload); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.db.Exec(`UPDATE store_sequences SET last=(SELECT seq FROM domain_events WHERE event_id=?) WHERE name='effect'`, "delivery-"+workID+"-"+jsonInt(int64(index+1))); err != nil {
-			t.Fatal(err)
-		}
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES('client/concord-1','active','principal/operator','[]','[]','[]','2026-09-10T00:00:00Z')`); err != nil {
 		t.Fatal(err)

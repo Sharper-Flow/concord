@@ -9,6 +9,7 @@ import (
 
 const reverseFrontiersMigration = `
 INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
+DROP TRIGGER domain_events_advance_effect_sequence;
 DROP TABLE work_version_actions;
 DROP TABLE store_sequences;
 ALTER TABLE effect_receipts DROP COLUMN relation_seq;
@@ -157,6 +158,40 @@ INSERT INTO domain_events VALUES(8,'size-one','work.sized','work_item','work','a
 			t.Fatalf("basis = %v, %v", basis, err)
 		}
 	})
+}
+
+func TestFrontierRawLogInsertAdvancesEffectSequence(t *testing.T) {
+	s := openTemp(t)
+	tx, err := s.db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO domain_events(seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES
+ (40,'raw-high','product.renamed','product','product','operator','now',1,'{}'),
+ (10,'raw-lower','product.renamed','product','product','operator','now',1,'{}')`); err != nil {
+		t.Fatal(err)
+	}
+	var last int64
+	if err := tx.QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&last); err != nil || last != 40 {
+		t.Fatalf("raw inserts left effect sequence at %d, %v; want 40", last, err)
+	}
+	if seq, err := AppendEvent(t.Context(), tx, testEvent()); err != nil || seq != 41 {
+		t.Fatalf("append after raw inserts = %d, %v; want 41", seq, err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&last); err != nil || last != 0 {
+		t.Fatalf("rollback retained sequence %d, %v; want 0", last, err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload)
+ VALUES('raw-auto','product.renamed','product','product','operator','now',1,'{}')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&last); err != nil || last != 1 {
+		t.Fatalf("automatic raw insert left sequence at %d, %v; want 1", last, err)
+	}
 }
 
 func TestFrontierSequenceRollbackAndDuplicate(t *testing.T) {

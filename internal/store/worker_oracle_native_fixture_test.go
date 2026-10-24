@@ -187,9 +187,6 @@ func seedOracleExecuteLedgerFixture(t *testing.T, s *Store, r *WorktreeVerifyRes
 		if err := s.db.QueryRow(`SELECT seq FROM domain_events WHERE event_id=?`, id).Scan(&seq); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.db.Exec(`UPDATE store_sequences SET last=? WHERE name='effect'`, seq); err != nil {
-			t.Fatal(err)
-		}
 		return seq
 	}
 	// The receipt joins the exact historical tuple: the recorded job whose

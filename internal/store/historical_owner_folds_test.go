@@ -19,18 +19,6 @@ func insertHistoricalEvent(t *testing.T, s *Store, event Event) {
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, event.EventID, event.Kind, string(event.SubjectType), event.SubjectID, event.Actor, event.OccurredAt.Format(time.RFC3339Nano), event.PayloadVersion, event.Payload); err != nil {
 		t.Fatal(err)
 	}
-	// The raw row stands in for an older writer's effect; the current
-	// allocator continues after it. Fixtures at an older schema have none.
-	var current bool
-	if err := s.DatabaseForTesting().QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='store_sequences')`).Scan(&current); err != nil {
-		t.Fatal(err)
-	}
-	if !current {
-		return
-	}
-	if _, err := s.DatabaseForTesting().Exec(`UPDATE store_sequences SET last=max(last,(SELECT max(seq) FROM domain_events)) WHERE name='effect'`); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func storedEventPayload(t *testing.T, s *Store, eventID string) []byte {

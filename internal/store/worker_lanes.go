@@ -1463,6 +1463,9 @@ func pinWorkerDispatchedLaneActor(ctx context.Context, tx *sql.Tx, event Event, 
 	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET execution_actor_ref=? WHERE work_id=?`, payload.LaneActorRef, event.SubjectID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot pin lane executing actor", true, "retry once the database is writable", err)
 	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO workflow_worker_actors(actor_ref,first_dispatch_seq) VALUES(?,?)`, payload.LaneActorRef, event.Seq); err != nil {
+		return workflowProjectionError(err, "cannot retain the actor's worker classification")
+	}
 	return nil
 }
 

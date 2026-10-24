@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -58,6 +60,37 @@ func TestWorkflowActionStartCurrentFactsWithoutLog(t *testing.T) {
 			}{seq, epoch, found}, err
 		},
 	})
+}
+
+func TestWorkflowDerivedStartPairCurrentFactsWithoutLog(t *testing.T) {
+	const work = "derived-pair-current-facts"
+	f := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
+	defer f.store.Close()
+	actor := diagnosisS1Actor(work, "checkpointer")
+	if err := runVerdictActionAs(t, f.store, work, "checkpoint_repair", json.RawMessage(`{}`), 0, actor); err != nil {
+		t.Fatal(err)
+	}
+	start, err := readWorkflowActionStartTx(t.Context(), f.store.db, work, "repair", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, err := VerifyWorkflowInstanceDefinition(t.Context(), f.store, BuiltinWorkflowRegistry(), work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func() (any, error) {
+		tx, err := f.store.db.BeginTx(t.Context(), nil)
+		if err != nil {
+			return nil, err
+		}
+		defer tx.Rollback()
+		return workflowDerivedStartPairAuthored(t.Context(), tx, entry.Definition, work, "repair", "checkpoint_repair", 1, start.Seq+1, start.Actor, strings.TrimSuffix(start.EventID, ":started")+":checkpoint")
+	}
+	want, err := read()
+	if err != nil || want != true {
+		t.Fatalf("derived pair fixture: %v, %v", want, err)
+	}
+	assertWorkerFactsLogBlind(t, f.store, map[string]func() (any, error){"G20-derived-start-pair": read})
 }
 
 func TestWorkflowHeldReviewDoesNotRecordPhaseExit(t *testing.T) {

@@ -6802,6 +6802,14 @@ UPDATE workflow_step_epochs AS s SET (latest_dispatch_start_seq,latest_dispatch_
  SELECT seq,event_id,payload FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=s.work_id AND e.kind='workflow.action_started' AND json_extract(e.payload,'$.step_id')=s.step_id AND json_extract(e.payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1)
  WHERE EXISTS(SELECT 1 FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=s.work_id AND e.kind='workflow.action_started' AND json_extract(e.payload,'$.step_id')=s.step_id AND json_extract(e.payload,'$.action_id')='dispatch_worker');
 DELETE FROM fold_guard;
+CREATE TABLE workflow_worker_actors (
+ actor_ref TEXT PRIMARY KEY REFERENCES workflow_actors(actor_ref) ON DELETE CASCADE,
+ first_dispatch_seq INTEGER NOT NULL
+);
+INSERT INTO workflow_worker_actors SELECT a.actor_ref,MIN(e.seq) FROM domain_events e JOIN workflow_actors a ON a.actor_ref=json_extract(e.payload,'$.lane_actor_ref') WHERE e.kind='worker.dispatched' GROUP BY a.actor_ref;
+CREATE TRIGGER workflow_worker_actors_guard_insert BEFORE INSERT ON workflow_worker_actors BEGIN SELECT RAISE(ABORT, 'workflow_worker_actors is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_worker_actors_immutable_update BEFORE UPDATE ON workflow_worker_actors BEGIN SELECT RAISE(ABORT, 'workflow_worker_actors is immutable'); END;
+CREATE TRIGGER workflow_worker_actors_guard_delete BEFORE DELETE ON workflow_worker_actors BEGIN SELECT RAISE(ABORT, 'workflow_worker_actors is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TABLE workflow_action_obligations (
  work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
  step_id TEXT,

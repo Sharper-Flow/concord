@@ -108,6 +108,31 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	// the planning mirror, so undoMigration124 restores the pre-step schema
 	// first: it recreates every pre-124 object the store lacks, so it must
 	// run before the earlier steps' objects drop.
+	if _, err := db.ExecContext(context.Background(), `
+DROP TABLE workflow_phase_exits;
+DROP TABLE workflow_action_obligations;
+DROP TABLE workflow_worker_actors;
+DROP TABLE workflow_step_completions;
+DROP TABLE workflow_correction_state;
+DROP TABLE workflow_predicate_verdicts;
+DROP TABLE workflow_delivery_state;
+DROP TABLE compaction_publications;
+DROP TABLE workflow_evidence_bindings;
+DROP TABLE workflow_staleness_observations;
+ALTER TABLE workflow_contracts DROP COLUMN supersession_seq;
+ALTER TABLE workflow_instances DROP COLUMN completion_payload;
+ALTER TABLE workflow_instances DROP COLUMN completion_occurred_at;
+ALTER TABLE workflow_instances DROP COLUMN unhealthy_verdict_seq;
+ALTER TABLE work_observations DROP COLUMN recorded_seq;
+ALTER TABLE workflow_step_epochs DROP COLUMN latest_start_seq;
+ALTER TABLE workflow_step_epochs DROP COLUMN latest_start_event_id;
+ALTER TABLE workflow_step_epochs DROP COLUMN latest_start_payload;
+ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_seq;
+ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_event_id;
+ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_payload;
+`); err != nil {
+		t.Fatalf("cannot restore the pre-142 workflow evidence facts: %v", err)
+	}
 	if _, err := db.ExecContext(context.Background(), workerCurrentFactsFixtureReversal); err != nil {
 		t.Fatalf("cannot restore the pre-139 worker facts: %v", err)
 	}

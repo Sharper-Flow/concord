@@ -130,6 +130,7 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 	t.Run("failed then completed", func(t *testing.T) {
 		s := openTemp(t)
 		lane := BuiltinLaneDefinitions()[0]
+		seedWork(t, s, "terminal-failed-first")
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-failed-first", "terminal-failed-first-attempt", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
@@ -245,6 +246,7 @@ func TestWorkerCompletedAndFailedEventsRetainD5Evidence(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEvent("worker-complete", "complete", dispatchID, preferredModelForLane(lane), workerFixtureDirectory(t, s, "worker-complete"), lane)}}); err != nil {
 		t.Fatal(err)
 	}
+	seedWork(t, s, "worker-failed")
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("worker-failed", "dispatch-failed", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -266,6 +268,7 @@ func TestWorkerModelReadbackFailureIsDurableWithoutModelValue(t *testing.T) {
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "model-readback-missing-attempt"
+	seedWork(t, s, "model-readback-missing")
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("model-readback-missing", attemptID, lane, map[string]any{"readback_model": ""})}}); err != nil {
 		t.Fatal(err)
 	}

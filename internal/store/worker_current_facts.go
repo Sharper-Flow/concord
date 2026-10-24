@@ -33,7 +33,15 @@ func writeWorkerAuthorizationTx(ctx context.Context, tx *sql.Tx, event Event, p 
 	switch p.ActionID {
 	case "accept_worker_result", "accept_worker_evidence", "reject_worker_result", "record_worker_failure", "record_worker_job":
 		if p.WorkerAttemptID != "" {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempt_dispositions(work_id,attempt_id,action_id,seq,event_id,payload) VALUES(?,?,?,?,?,?) ON CONFLICT(work_id,attempt_id,action_id) DO UPDATE SET seq=excluded.seq,event_id=excluded.event_id,payload=excluded.payload`, event.SubjectID, p.WorkerAttemptID, p.ActionID, event.Seq, event.EventID, string(event.Payload)); err != nil {
+			var firstSeq int64
+			firstPayload := "{}"
+			if p.ActionID == "accept_worker_result" || p.ActionID == "accept_worker_evidence" {
+				firstSeq, firstPayload = event.Seq, string(event.Payload)
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempt_dispositions(work_id,attempt_id,action_id,seq,event_id,payload,first_acceptance_seq,first_acceptance_payload) VALUES(?,?,?,?,?,?,?,?)
+ON CONFLICT(work_id,attempt_id,action_id) DO UPDATE SET seq=excluded.seq,event_id=excluded.event_id,payload=excluded.payload,
+first_acceptance_seq=CASE WHEN first_acceptance_seq=0 THEN excluded.first_acceptance_seq ELSE first_acceptance_seq END,
+first_acceptance_payload=CASE WHEN first_acceptance_seq=0 THEN excluded.first_acceptance_payload ELSE first_acceptance_payload END`, event.SubjectID, p.WorkerAttemptID, p.ActionID, event.Seq, event.EventID, string(event.Payload), firstSeq, firstPayload); err != nil {
 				return err
 			}
 		}

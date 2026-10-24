@@ -7028,13 +7028,21 @@ CREATE TABLE worker_attempt_dispositions (
  seq INTEGER NOT NULL CHECK(seq>0),
  event_id TEXT NOT NULL,
  payload TEXT NOT NULL CHECK(json_valid(payload)),
+ first_acceptance_seq INTEGER NOT NULL DEFAULT 0 CHECK(first_acceptance_seq>=0 AND first_acceptance_seq<=seq),
+ first_acceptance_payload TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(first_acceptance_payload)),
  PRIMARY KEY(work_id,attempt_id,action_id)
 );
-INSERT INTO worker_attempt_dispositions(work_id,attempt_id,action_id,seq,event_id,payload)
- SELECT e.subject_id,json_extract(e.payload,'$.worker_attempt_id'),json_extract(e.payload,'$.action_id'),e.seq,e.event_id,e.payload FROM domain_events e
+INSERT INTO worker_attempt_dispositions(work_id,attempt_id,action_id,seq,event_id,payload,first_acceptance_seq,first_acceptance_payload)
+ WITH dispositions AS (
+ SELECT e.*,MIN(seq) OVER(PARTITION BY subject_id,json_extract(payload,'$.worker_attempt_id'),json_extract(payload,'$.action_id')) AS first_seq,
+ MAX(seq) OVER(PARTITION BY subject_id,json_extract(payload,'$.worker_attempt_id'),json_extract(payload,'$.action_id')) AS latest_seq FROM domain_events e
  WHERE e.subject_type='work_item' AND e.kind='workflow.action_completed' AND json_extract(e.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure','record_worker_job')
  AND COALESCE(json_extract(e.payload,'$.worker_attempt_id'),'')<>'' AND EXISTS(SELECT 1 FROM work_items WHERE id=e.subject_id)
- AND e.seq=(SELECT MAX(d.seq) FROM domain_events d WHERE d.subject_type=e.subject_type AND d.subject_id=e.subject_id AND d.kind=e.kind AND json_extract(d.payload,'$.worker_attempt_id')=json_extract(e.payload,'$.worker_attempt_id') AND json_extract(d.payload,'$.action_id')=json_extract(e.payload,'$.action_id'));
+ )
+ SELECT e.subject_id,json_extract(e.payload,'$.worker_attempt_id'),json_extract(e.payload,'$.action_id'),e.seq,e.event_id,e.payload,
+ CASE WHEN json_extract(e.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence') THEN first.seq ELSE 0 END,
+ CASE WHEN json_extract(e.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence') THEN first.payload ELSE '{}' END
+ FROM dispositions e JOIN domain_events first ON first.seq=e.first_seq WHERE e.seq=e.latest_seq;
 CREATE TRIGGER worker_attempt_dispositions_guard_insert BEFORE INSERT ON worker_attempt_dispositions BEGIN SELECT RAISE(ABORT, 'worker_attempt_dispositions is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER worker_attempt_dispositions_guard_update BEFORE UPDATE ON worker_attempt_dispositions BEGIN SELECT RAISE(ABORT, 'worker_attempt_dispositions is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER worker_attempt_dispositions_guard_delete BEFORE DELETE ON worker_attempt_dispositions BEGIN SELECT RAISE(ABORT, 'worker_attempt_dispositions is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;

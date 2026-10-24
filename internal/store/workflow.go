@@ -1416,7 +1416,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	}
 	// The successor was folded before this update so the contract foreign
 	// key remains valid; both writes commit or roll back together.
-	return appendWorkflowContractImpactNoticesTx(ctx, tx, event, p, *p.ResultingVersion)
+	return appendWorkflowContractImpactNoticesTx(ctx, tx, event, p, *p.ResultingVersion, scope)
 }
 
 func foldCompleteStepContractCorrectionTxForRegistry(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, successor *workflowContractApprovedPayload) error {
@@ -1459,7 +1459,7 @@ func foldCompleteStepContractCorrectionTxForRegistry(ctx context.Context, tx *sq
 	return returnWorkflowInstanceFromCompleteStepTx(ctx, tx, registry, workID)
 }
 
-func appendWorkflowContractImpactNoticesTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowContractSupersededPayload, version int64) error {
+func appendWorkflowContractImpactNoticesTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowContractSupersededPayload, version int64, scope *foldScope) error {
 	rows, err := tx.QueryContext(ctx, `SELECT work_id,edge_id,edge_class FROM workflow_impact_edges WHERE target_work_id=? AND edge_kind='depends_on' AND edge_class IN ('hard','soft') ORDER BY work_id,edge_id`, event.SubjectID)
 	if err != nil {
 		return workflowProjectionError(err, "cannot inspect hard dependents")
@@ -1513,14 +1513,19 @@ func appendWorkflowContractImpactNoticesTx(ctx context.Context, tx *sql.Tx, even
 				return newFailure(KindInvalidPayload, "fold_event", "workflow impact notice payload cannot be encoded", false, "repair the workflow impact notice")
 			}
 			notice := Event{EventID: "notice-event:" + noticeID, Kind: WorkflowImpactNoticeRecorded, SubjectType: SubjectWorkItem, SubjectID: event.SubjectID, Actor: event.Actor, OccurredAt: event.OccurredAt, PayloadVersion: 2, Payload: raw}
-			result, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, notice.EventID, notice.Kind, notice.SubjectType, notice.SubjectID, notice.Actor, notice.OccurredAt.UTC().Format(time.RFC3339Nano), notice.PayloadVersion, string(notice.Payload))
+			if err := notice.validate(); err != nil {
+				return err
+			}
+			var typed workflowImpactNoticeRecordedPayload
+			if err := decodeRegisteredPayload(notice, &typed); err != nil {
+				return err
+			}
+			seq, err := appendPreparedEvent(ctx, tx, notice)
 			if err != nil {
 				return newFailure(KindOperationConflict, "fold_event", "dependent impact notice conflicted", false, "reconcile the workflow operation")
 			}
-			notice.Seq, err = result.LastInsertId()
-			if err != nil {
-				return workflowProjectionError(err, "cannot read dependent impact notice sequence")
-			}
+			notice.Seq = seq
+			scope.eventIDs = append(scope.eventIDs, notice.EventID)
 			if err := foldWorkflowImpactNoticeRecorded(ctx, tx, notice); err != nil {
 				return err
 			}
@@ -1774,6 +1779,9 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event, sco
 	if err := startWorkflowInstanceStepTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID, p.StepID, p.ActorRef, p.ExecutionModel, event.OccurredAt); err != nil {
 		return err
 	}
+	if err := recordWorkVersionActionTx(ctx, tx, event, p.ActionID, *p.ResultingVersion); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload) VALUES(?,?,?,?,?,?) ON CONFLICT(work_id,step_id) DO UPDATE SET attempt_epoch=excluded.attempt_epoch,latest_start_seq=excluded.latest_start_seq,latest_start_event_id=excluded.latest_start_event_id,latest_start_payload=excluded.latest_start_payload`, event.SubjectID, p.StepID, p.AttemptEpoch, event.Seq, event.EventID, string(event.Payload)); err != nil {
 		return workflowProjectionError(err, "cannot record the current step epoch")
 	}
@@ -1845,7 +1853,7 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	if p.StepID != currentStep || step == nil || p.StepKind != string(step.Kind) {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the pinned current workflow step kind", false, "checkpoint the pinned current workflow step and kind")
 	}
-	expectedEpoch, err := workflowCheckpointAttemptEpoch(ctx, tx, entry.Definition, step, event.SubjectID, currentStep, event.Seq)
+	expectedEpoch, err := workflowCheckpointAttemptEpoch(ctx, tx, entry.Definition, step, event.SubjectID, currentStep)
 	if err != nil {
 		return err
 	}
@@ -2601,7 +2609,11 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 			return err
 		}
 	}
-	if p.DeliveryArtifact != "" && p.DeliveryState == "asserted" {
+	_, asserted, assertionErr := workflowEventDeliveryAssertion(event)
+	if assertionErr != nil {
+		return workflowProjectionError(assertionErr, "cannot classify the current delivery assertion")
+	}
+	if asserted {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_delivery_state(work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?) ON CONFLICT(work_id) DO UPDATE SET assertion_seq=excluded.assertion_seq,assertion_id=excluded.assertion_id,actor=excluded.actor,occurred_at=excluded.occurred_at,payload_version=excluded.payload_version,payload=excluded.payload,correction_id=NULL,correction_occurred_at=NULL,correction_payload=NULL`, event.SubjectID, event.Seq, event.EventID, event.Actor, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.PayloadVersion, string(event.Payload)); err != nil {
 			return workflowProjectionError(err, "cannot record the current delivery assertion")
 		}
@@ -2617,6 +2629,9 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_artifact_actions(work_id,step_id,action_id,production_seq) VALUES(?,?,?,?) ON CONFLICT(work_id,step_id,action_id) DO UPDATE SET production_seq=excluded.production_seq`, event.SubjectID, p.StepID, p.ActionID, event.Seq); err != nil {
 			return workflowProjectionError(err, "cannot record the current artifact production")
 		}
+	}
+	if err := recordWorkVersionActionTx(ctx, tx, event, p.ActionID, *p.ResultingVersion); err != nil {
+		return err
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',last_checkpoint_at=? WHERE work_id=?`, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
 	if err != nil || p.ActionID == "" || (!advancesStep && p.ActionID != "request_correction") {
@@ -2904,12 +2919,8 @@ func latestWorkflowActionStartEpoch(ctx context.Context, tx *sql.Tx, workID, ste
 // action opens no fenced attempt. Its checkpoint epoch follows the prior
 // checkpoint on that step, so a return can produce another typed artifact
 // without reusing the checkpoint's durable identity (CD-0112 D3).
-//
-// beforeSeq bounds the start search at the caller's own sequence position: the
-// fold passes its event's seq and reads only the starts that preceded
-// the checkpoint instead of the whole log.
-func workflowCheckpointAttemptEpoch(ctx context.Context, q queryer, definition WorkflowDefinition, step *WorkflowStep, workID, stepID string, beforeSeq int64) (int64, error) {
-	_, latestEpoch, found, err := latestWorkflowActionStartAt(ctx, q, workID, stepID, beforeSeq)
+func workflowCheckpointAttemptEpoch(ctx context.Context, q queryer, definition WorkflowDefinition, step *WorkflowStep, workID, stepID string) (int64, error) {
+	_, latestEpoch, found, err := latestWorkflowActionStartAt(ctx, q, workID, stepID, 0)
 	if err != nil {
 		return 0, err
 	}
@@ -2920,14 +2931,13 @@ func workflowCheckpointAttemptEpoch(ctx context.Context, q queryer, definition W
 		return 0, newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the latest workflow action start epoch", false, "checkpoint the current workflow action attempt")
 	}
 	var epoch int64
-	err = q.QueryRowContext(ctx, `SELECT COALESCE(MAX(json_extract(payload,'$.attempt_epoch')),0)+1
-		FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND (?=0 OR seq<?)
-		AND json_extract(payload,'$.step_id')=?`, string(SubjectWorkItem), workID, WorkflowActionCheckpointed, beforeSeq, beforeSeq, stepID).Scan(&epoch)
+	err = q.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch),0)+1
+		FROM workflow_checkpoints WHERE work_id=? AND step_id=?`, workID, stepID).Scan(&epoch)
 	if err != nil {
 		return 0, workflowProjectionError(err, "cannot inspect prior workflow checkpoint epochs")
 	}
-	// Review dispatches can start on an unfenced confirmation step. Preserve
-	// their historical epochs without reusing a prior checkpoint identity.
+	// Review dispatches can start on an unfenced confirmation step. A later
+	// checkpoint must not reuse a prior checkpoint identity.
 	return max(epoch, latestEpoch), nil
 }
 

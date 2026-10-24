@@ -200,7 +200,7 @@ func workflowAcceptedWorkerDelivery(ctx context.Context, q queryer, workID strin
 		return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect worker delivery", true, "retry once the worker delivery projection is readable", err)
 	}
 	var accepted int
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts a JOIN worker_attempt_dispositions accepted ON accepted.work_id=a.work_id AND accepted.attempt_id=a.attempt_id WHERE a.work_id=? AND a.attempt_id=? AND a.lifecycle_state='completed' AND accepted.action_id IN ('accept_worker_result','accept_worker_evidence') AND accepted.seq>? AND accepted.seq<=?)`, workID, attemptID, dispatchSeq, throughSeq).Scan(&accepted); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts a JOIN worker_attempt_dispositions accepted ON accepted.work_id=a.work_id AND accepted.attempt_id=a.attempt_id WHERE a.work_id=? AND a.attempt_id=? AND a.lifecycle_state='completed' AND accepted.action_id IN ('accept_worker_result','accept_worker_evidence') AND accepted.first_acceptance_seq>? AND accepted.first_acceptance_seq<=?)`, workID, attemptID, dispatchSeq, throughSeq).Scan(&accepted); err != nil {
 		return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect accepted worker delivery", true, "retry once the worker delivery projection is readable", err)
 	}
 	return dispatchSeq, accepted != 0, nil

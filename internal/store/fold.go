@@ -15,6 +15,9 @@ import (
 type foldScope struct {
 	tx    *sql.Tx
 	depth int
+	// eventIDs records this scope's successful appends in write order, including
+	// nested operations. Callers copy only the slice their operation appended.
+	eventIDs []string
 	// Only the validated outside-repair reconciliation fold grants this exact
 	// event permission to complete held work. It is local to that fold call.
 	outsideRepairLifecycleEvent *Event

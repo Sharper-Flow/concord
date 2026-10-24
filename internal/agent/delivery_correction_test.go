@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -47,14 +49,32 @@ func completedDeliveryAgentFixture(t *testing.T, s *store.Store, grant Authority
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
+	// Seed the correction target's current owner and receipt beside its log
+	// identity, without driving the unrelated delivery and completion gates.
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
 		assertionEventID, store.WorkflowActionCompleted, string(store.SubjectWorkItem), "work-1", actorRef, fixedTime().Format(time.RFC3339Nano), 2, assertionPayload); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	// Marshal of the fixture map supplies the canonical JSON the receipt hashes.
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(assertionPayload))
+	if _, err := tx.ExecContext(ctx, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest,delivery_assertion)
+		SELECT event_id,seq,kind,subject_type,subject_id,actor,payload_version,?,1 FROM domain_events WHERE event_id=?`, digest, assertionEventID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO workflow_delivery_state(work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload)
+			SELECT subject_id,seq,event_id,actor,occurred_at,payload_version,payload FROM domain_events WHERE event_id='agent-assertion-work-1';
 		UPDATE workflow_instances SET instance_state='completed' WHERE work_id='work-1';
 		UPDATE work_items SET lifecycle='completed' WHERE id='work-1';
 		DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 	var targetSeq int64

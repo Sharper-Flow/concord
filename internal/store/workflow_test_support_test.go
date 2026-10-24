@@ -369,6 +369,9 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 	if err := CompleteWorkflowTxWithRegistry(ctx, tx.Tx, registry, event, scope); err != nil {
 		return err
 	}
+	if len(scope.eventIDs) < 2 || scope.eventIDs[len(scope.eventIDs)-2] != event.EventID || scope.eventIDs[len(scope.eventIDs)-1] != event.EventID+":lifecycle" {
+		return fmt.Errorf("completion receipts omit or reorder completion and derived lifecycle: %v", scope.eventIDs)
+	}
 	if err := scope.close(ctx); err != nil {
 		return err
 	}

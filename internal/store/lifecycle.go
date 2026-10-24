@@ -1106,9 +1106,8 @@ func relationWouldCycle(ctx context.Context, tx *sql.Tx, from, to, kind string) 
 }
 
 func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relationPayload) error {
-	// AUTOINCREMENT IDs are part of the projection snapshot. Deriving the ID
-	// from the ordered relation-creating event count reproduces gaps left by
-	// removed historical edges.
+	// The effect's reserved relation position preserves gaps from removed
+	// edges and counted effects that do not insert an edge.
 	relationID, err := relationIdentity(ctx, tx, event)
 	if err != nil {
 		return err
@@ -1136,21 +1135,14 @@ func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relati
 }
 
 func relationIdentity(ctx context.Context, tx *sql.Tx, event Event) (int64, error) {
-	var relationID int64
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(relationIdentityEventKinds)), ",")
-	args := []any{event.EventID}
-	for _, kind := range relationIdentityEventKinds {
-		args = append(args, kind)
+	var relationID sql.NullInt64
+	if err := tx.QueryRowContext(ctx, `SELECT relation_seq FROM effect_receipts WHERE event_id=?`, event.EventID).Scan(&relationID); err != nil {
+		return 0, wrapFailure(KindInvariantViolation, "fold_event", "relation effect has no assigned identity", false, "restore the effect receipt state", err)
 	}
-	query := `
-		SELECT count(*) FROM domain_events
-		WHERE seq <= (SELECT seq FROM domain_events WHERE event_id = ?)
-		AND (kind IN (` + placeholders + `) OR (kind = 'work.created' AND json_extract(payload, '$.raised_from_work_id') <> ''))`
-	if err := tx.QueryRowContext(ctx, query, args...).Scan(&relationID); err != nil {
-		return 0, wrapFailure(KindUnavailable, "fold_event", "cannot assign a deterministic relation identity", true,
-			"retry once the event log is readable", err)
+	if !relationID.Valid || relationID.Int64 <= 0 {
+		return 0, newFailure(KindInvariantViolation, "fold_event", "relation effect has no assigned identity", false, "restore the effect receipt state")
 	}
-	return relationID, nil
+	return relationID.Int64, nil
 }
 
 func readWorkKind(ctx context.Context, tx *sql.Tx, id string) (string, error) {

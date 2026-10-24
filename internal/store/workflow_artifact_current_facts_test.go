@@ -34,7 +34,8 @@ func TestWorkflowWorkerProductionCurrentOrigin(t *testing.T) {
 		{name: "late authorization", stale: 2, mutation: `UPDATE worker_authorizations SET seq=8`},
 		{name: "late dispatch", stale: 2, mutation: `UPDATE worker_attempts SET dispatch_seq=8`},
 		{name: "wrong authorization step", stale: 2, mutation: `UPDATE worker_authorizations SET payload='{"step_id":"other"}'`},
-		{name: "wrong acceptance step", stale: 2, mutation: `UPDATE worker_attempt_dispositions SET payload='{"step_id":"other"}'`},
+		{name: "wrong acceptance step", stale: 2, mutation: `UPDATE worker_attempt_dispositions SET first_acceptance_payload='{"step_id":"other"}'`},
+		{name: "repeat preserves original origin", stale: 2, through: 9, want: 8, mutation: `UPDATE worker_attempt_dispositions SET seq=80,payload='{"step_id":"other"}'`},
 		{name: "review is not production", stale: 2, mutation: `UPDATE worker_attempts SET dispatch_payload='{"capability_class":"review"}'`},
 		{name: "missing capability", stale: 2, mutation: `UPDATE worker_attempts SET dispatch_payload='{}'`},
 		{name: "unrelated attempt", stale: 2, mutation: `UPDATE worker_attempt_dispositions SET attempt_id='other'`},
@@ -54,10 +55,10 @@ func TestWorkflowWorkerProductionCurrentOrigin(t *testing.T) {
 CREATE TABLE workflow_artifact_actions(work_id TEXT,step_id TEXT,action_id TEXT,production_seq INTEGER,verdict_seq INTEGER,verdict_production_seq INTEGER);
 CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,dispatch_seq INTEGER,dispatch_payload TEXT);
 CREATE TABLE worker_authorizations(work_id TEXT,attempt_id TEXT,seq INTEGER,payload TEXT);
-CREATE TABLE worker_attempt_dispositions(work_id TEXT,attempt_id TEXT,action_id TEXT,seq INTEGER,payload TEXT);
+CREATE TABLE worker_attempt_dispositions(work_id TEXT,attempt_id TEXT,action_id TEXT,seq INTEGER,payload TEXT,first_acceptance_seq INTEGER,first_acceptance_payload TEXT);
 INSERT INTO worker_authorizations VALUES('work','attempt',3,'{"step_id":"execution"}');
 INSERT INTO worker_attempts VALUES('work','attempt',4,'{"capability_class":"implementation"}');
-INSERT INTO worker_attempt_dispositions VALUES('work','attempt','accept_worker_result',8,'{"step_id":"execution"}');
+INSERT INTO worker_attempt_dispositions VALUES('work','attempt','accept_worker_result',8,'{"step_id":"execution"}',8,'{"step_id":"execution"}');
 `); err != nil {
 				t.Fatal(err)
 			}
@@ -72,5 +73,32 @@ INSERT INTO worker_attempt_dispositions VALUES('work','attempt','accept_worker_r
 				t.Fatalf("production frontier = %d,%v; want %d", got, err, test.want)
 			}
 		})
+	}
+}
+
+func TestWorkflowAcceptedDeliveryUsesFirstAcceptance(t *testing.T) {
+	db, err := sql.Open(driverName, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	// A repeated acceptance at 80 must not hide the first acceptance at 8.
+	if _, err := db.Exec(`
+CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,dispatch_seq INTEGER,dispatch_payload TEXT,lifecycle_state TEXT);
+CREATE TABLE worker_attempt_dispositions(work_id TEXT,attempt_id TEXT,action_id TEXT,seq INTEGER,payload TEXT,first_acceptance_seq INTEGER,first_acceptance_payload TEXT);
+INSERT INTO worker_attempts VALUES('work','attempt',4,'{}','completed');
+INSERT INTO worker_attempt_dispositions VALUES('work','attempt','accept_worker_result',80,'{}',8,'{}');
+`); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		through int64
+		want    bool
+	}{{through: 7}, {through: 9, want: true}, {through: 80, want: true}} {
+		dispatch, accepted, err := workflowAcceptedWorkerDelivery(t.Context(), db, "work", test.through, "test")
+		if err != nil || dispatch != 4 || accepted != test.want {
+			t.Fatalf("accepted delivery through %d = %d,%v,%v; want 4,%v", test.through, dispatch, accepted, err, test.want)
+		}
 	}
 }

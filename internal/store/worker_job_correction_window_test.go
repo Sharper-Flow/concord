@@ -109,6 +109,9 @@ func TestSatisfyingAcceptedJobResetsCorrectionWindow(t *testing.T) {
 		t.Fatalf("correction after failed job-bound attempt = %#v, want %s", pin.Correction, attempt1)
 	}
 	prefixAfterFirstFailure := maxEventSeq(t, s, workID)
+	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary != 0 {
+		t.Fatalf("unsatisfied corrective job borrowed a satisfying acceptance at %d", boundary)
+	}
 
 	// A later revision of the same job identity satisfies the corrective
 	// job, so the satisfying acceptance opens a fresh window.
@@ -123,9 +126,6 @@ func TestSatisfyingAcceptedJobResetsCorrectionWindow(t *testing.T) {
 	}
 	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary <= prefixAfterFirstFailure {
 		t.Fatalf("satisfying acceptance boundary = %d, want after the failed obligation at %d", boundary, prefixAfterFirstFailure)
-	}
-	if boundary := jobWindowAcceptanceBoundary(t, s, workID, prefixAfterFirstFailure+1); boundary != 0 {
-		t.Fatalf("historical prefix borrowed a later satisfying acceptance at %d", boundary)
 	}
 
 	attempt3 := "attempt:" + workID + ":3"
@@ -309,15 +309,10 @@ func TestUnrelatedAcceptedJobPreservesDerivedFailureSource(t *testing.T) {
 
 }
 
-// jobWindowAcceptanceBoundary reads the satisfied-obligation cutoff. A supplied
-// sequence excludes that event and everything after it.
-func jobWindowAcceptanceBoundary(t *testing.T, s *Store, workID string, prefix ...int64) int64 {
+// jobWindowAcceptanceBoundary reads the current satisfied-obligation cutoff.
+func jobWindowAcceptanceBoundary(t *testing.T, s *Store, workID string) int64 {
 	t.Helper()
-	seq := int64(0)
-	if len(prefix) > 0 {
-		seq = prefix[0]
-	}
-	boundary, err := workflowCorrectionAcceptanceBefore(context.Background(), s.DatabaseForTesting(), workID, seq, "workflow_correction")
+	boundary, err := workflowCorrectionAcceptanceBefore(context.Background(), s.DatabaseForTesting(), workID, 0, "workflow_correction")
 	if err != nil {
 		t.Fatalf("read satisfying acceptance for %s: %v", workID, err)
 	}

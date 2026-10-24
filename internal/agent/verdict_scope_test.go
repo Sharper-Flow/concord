@@ -127,9 +127,8 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 	return s, service, keys[0], keys[1], engine
 }
 
-// seedVerdictEvent records the terminal verdict event. domain_events is
-// append-visible to this test; the verdict payload shape is the engine's
-// completed-payload contract.
+// seedVerdictEvent seeds the terminal verdict in the log and its current read
+// owner without driving the workflow's unrelated completion gates.
 func seedVerdictEvent(t *testing.T, db *sql.DB, execActorRef string) {
 	t.Helper()
 	payload, _ := json.Marshal(map[string]any{
@@ -137,8 +136,24 @@ func seedVerdictEvent(t *testing.T, db *sql.DB, execActorRef string) {
 		"verdict_actor_ref": execActorRef, "premise_confirmed": true, "evidence_count": 1,
 		"changed_refs_digest": "sha256:" + strings.Repeat("1", 64), "impact_verdict": "non-breaking",
 	})
-	if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES('verdict-seed-completed','workflow.completed','work_item','work-1',?, '2026-08-14T00:01:00Z', 1, ?)`,
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES('verdict-seed-completed','workflow.completed','work_item','work-1',?, '2026-08-14T00:01:00Z', 1, ?)`,
 		execActorRef, string(payload)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		UPDATE workflow_instances SET
+			completion_payload=(SELECT payload FROM domain_events WHERE event_id='verdict-seed-completed'),
+			completion_occurred_at=(SELECT occurred_at FROM domain_events WHERE event_id='verdict-seed-completed')
+		WHERE work_id='work-1';
+		DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -224,8 +224,8 @@ func foldWorkflowDeliveryCorrected(ctx context.Context, tx *sql.Tx, event Event)
 	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
 }
 
-// workflowDeliveryAssertionEventTx reads one recorded delivery assertion by
-// event identity and returns its sequence, payload version, and asserted
+// workflowDeliveryAssertionEventTx classifies a receipt and reads only the
+// current delivery assertion's sequence, payload version, and asserted
 // artifact. The assertion is a completed action whose event carries the
 // asserted delivery fields (CD-0198 D4): record_delivery and the combined
 // accept_worker_result append the same shape, so the reader keys on the
@@ -233,24 +233,32 @@ func foldWorkflowDeliveryCorrected(ctx context.Context, tx *sql.Tx, event Event)
 func workflowDeliveryAssertionEventTx(ctx context.Context, tx *sql.Tx, workID, eventID string) (int64, int, string, error) {
 	var seq int64
 	var payloadVersion int
-	var payload []byte
-	if err := tx.QueryRowContext(ctx, `SELECT seq,payload_version,payload FROM domain_events WHERE event_id=? AND subject_type=? AND subject_id=? AND kind=?`, eventID, string(SubjectWorkItem), workID, WorkflowActionCompleted).Scan(&seq, &payloadVersion, &payload); err != nil {
+	var kind, subjectType, subjectID string
+	var asserted bool
+	if err := tx.QueryRowContext(ctx, `SELECT effect_seq,payload_version,kind,subject_type,subject_id,delivery_assertion FROM effect_receipts WHERE event_id=?`, eventID).Scan(&seq, &payloadVersion, &kind, &subjectType, &subjectID, &asserted); err != nil {
 		if err == sql.ErrNoRows {
 			return 0, 0, "", newFailure(KindProjectionNotFound, "fold_event", "delivery correction target event is not recorded", false, "reread the current delivery assertion")
 		}
-		return 0, 0, "", wrapFailure(KindUnavailable, "fold_event", "cannot read the delivery correction target", true, "retry once the event log is readable", err)
+		return 0, 0, "", wrapFailure(KindUnavailable, "fold_event", "cannot read the delivery correction target", true, "retry once the effect receipts are readable", err)
 	}
-	var fields struct {
-		DeliveryArtifact string `json:"delivery_artifact"`
-		DeliveryState    string `json:"delivery_state"`
-	}
-	if err := json.Unmarshal(payload, &fields); err != nil {
-		return 0, 0, "", newFailure(KindInvariantViolation, "fold_event", "delivery correction target payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-	}
-	if fields.DeliveryArtifact == "" || fields.DeliveryState != "asserted" {
+	if kind != WorkflowActionCompleted || subjectType != string(SubjectWorkItem) || subjectID != workID || !asserted {
 		return 0, 0, "", newFailure(KindInvalidOperation, "fold_event", "delivery correction target is not a recorded delivery assertion", false, "target the completed delivery event that carries the asserted artifact")
 	}
-	return seq, payloadVersion, fields.DeliveryArtifact, nil
+	var payload []byte
+	if err := tx.QueryRowContext(ctx, `SELECT payload FROM workflow_delivery_state WHERE work_id=? AND assertion_id=?`, workID, eventID).Scan(&payload); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, 0, "", newFailure(KindInvalidOperation, "fold_event", "delivery correction target is not the current delivery assertion", false, "target the latest recorded delivery assertion")
+		}
+		return 0, 0, "", workflowProjectionError(err, "cannot read the current delivery assertion")
+	}
+	artifact, valid, err := workflowEventDeliveryAssertion(Event{Kind: kind, SubjectType: SubjectType(subjectType), Payload: payload})
+	if err != nil {
+		return 0, 0, "", newFailure(KindInvariantViolation, "fold_event", "delivery correction target payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
+	}
+	if !valid {
+		return 0, 0, "", newFailure(KindInvalidOperation, "fold_event", "delivery correction target is not a recorded delivery assertion", false, "target the completed delivery event that carries the asserted artifact")
+	}
+	return seq, payloadVersion, artifact, nil
 }
 
 // workflowLatestDeliveryAssertionSeqTx returns the sequence of the latest

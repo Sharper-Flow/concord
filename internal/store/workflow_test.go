@@ -535,6 +535,7 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 		t.Fatal(err)
 	}
 	supersede := workflowEventWithActor("revision-supersede", WorkflowContractSuperseded, "revision-source", actor, map[string]any{"work_id": "revision-source", "expected_version": sourceVersion, "resulting_version": sourceVersion + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "refresh approved contract", "audit_evidence": []string{"evidence:audit"}})
+	frontierHideNewEffects(t, source)
 	tx, err := source.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -547,8 +548,13 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	if len(result.EventIDs) != 2 {
-		t.Fatalf("supersession event IDs = %v, want the contract event and dependent impact notice", result.EventIDs)
+	wantIDs := []string{supersede.EventID, "notice-event:" + WorkflowNoticeID("revision-source", 2, "workflow_contract", "contract:1", "revision-dependent", "breaking")}
+	if !reflect.DeepEqual(result.EventIDs, wantIDs) {
+		t.Fatalf("supersession event IDs = %v, want %v", result.EventIDs, wantIDs)
+	}
+	var receiptCount, lastEffect, maximumReceipt int64
+	if err := source.db.QueryRow(`SELECT count(*),max(effect_seq),(SELECT last FROM store_sequences WHERE name='effect') FROM effect_receipts WHERE event_id IN (?,?)`, wantIDs[0], wantIDs[1]).Scan(&receiptCount, &maximumReceipt, &lastEffect); err != nil || receiptCount != 2 || maximumReceipt != lastEffect {
+		t.Fatalf("derived effect receipts = %d,%d,%d; %v", receiptCount, maximumReceipt, lastEffect, err)
 	}
 	var resultingVersion int64
 	if err := source.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='revision-source'`).Scan(&resultingVersion); err != nil {
@@ -565,7 +571,7 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 		t.Fatalf("revision notice=%s/%s, want breaking/workflow_contract", severity, entityKind)
 	}
 	var frontier, latest int64
-	if err := source.DatabaseForTesting().QueryRow(`SELECT effect_seq,(SELECT MAX(seq) FROM domain_events WHERE subject_type='work_item' AND subject_id='revision-source') FROM work_items WHERE id='revision-source'`).Scan(&frontier, &latest); err != nil {
+	if err := source.DatabaseForTesting().QueryRow(`SELECT effect_seq,(SELECT MAX(effect_seq) FROM effect_receipts WHERE subject_type='work_item' AND subject_id='revision-source') FROM work_items WHERE id='revision-source'`).Scan(&frontier, &latest); err != nil {
 		t.Fatal(err)
 	}
 	if frontier != latest {

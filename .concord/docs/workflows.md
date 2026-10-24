@@ -1,10 +1,10 @@
 # Concord Workflows
 
-> **Status:** Reconciled with
+> **Authority:**
 > [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)
 > and
 > [CD-0229](./decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md).
-> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D4, D6, D13, and D14:** definitions are generated from one canonical source, and the store keeps current state and finite snapshots.
+> [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D4, D6, D13, and D14 govern generated definitions, current state, and finite snapshots.
 > Companion to [`README.md`](./README.md),
 > [`feature-inventory.md`](./feature-inventory.md),
 > [`specs-as-laws.md`](./specs-as-laws.md),
@@ -214,9 +214,9 @@ matures into a break-fix workflow, which may become an implementation change.
 The retired families — `architecture_spike`, `ops_runbook`, `static_analysis`,
 `generic_one_off` — select no new execution, and no alias maps a retired
 family to a retained one (CD-0218 D1).
-[CD-0215 D2](./decisions/CD-0215-retained-research-context.md) still requires
+[CD-0215 D2](./decisions/CD-0215-retained-research-context.md) requires
 an architecture spike to resolve through a separate reviewed and accepted
-decision; CD-0218 leaves that obligation to the cutover owner's approved
+decision; CD-0218 assigns that obligation to the cutover owner's approved
 successor set. Research reports do not enact legislation (CD-0218 D1).
 
 External analysis covers architecture-inconsistency detection, AI-slop

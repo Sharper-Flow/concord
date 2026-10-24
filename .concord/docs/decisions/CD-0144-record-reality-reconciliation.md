@@ -67,8 +67,8 @@ external service remains a separate decision.
   reclaim recommendation can discard them.
 - Content-bearing worktrees remain visible and require inspection or an
   operator-selected recovery instead of an automatic reclaim path.
-- Dormant approved contracts no longer create Domain contention before work
-  starts.
+- An approved contract without an execution start holds no active architecture
+  footprint.
 
 ## Verification
 

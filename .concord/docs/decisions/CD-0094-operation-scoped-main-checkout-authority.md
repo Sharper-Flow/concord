@@ -73,9 +73,8 @@ required. They also prove that a terminal refusal without evidence is
 
 ### D4. CD-0092 is amended at this boundary
 
-CD-0092 D2 and D3 retain the capability-level rule for every operation except
-the allowance defined here. This record is the amendment of record. Both
-records retain their historical text.
+Main-checkout authorization follows the closed capability allowlist and the
+closed operation allowlist declared in `internal/agent/authority.go`.
 
 ## Consequences
 

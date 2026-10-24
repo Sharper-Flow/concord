@@ -2,12 +2,6 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-06
-- **Amended:** 2026-10-17. D3, D5, the intent scenarios, and the
-  verification name the actions the engine admits at the pin's state
-  (CD-0133 D4, CD-0173 D1, CD-0201 D1, CD-0209 D6), as the released pin does.
-  D3 names which results keep a hand-written intent. D2 names the two kinds of
-  work item that have no pin and the one omission notice that counts them, and
-  a mutation refuses when any other pin cannot be read.
 - **Scope:** The mutation result envelope of the agent tool surface, the read
   projections that carry the same state, and the derivation of
   `next_valid_intents`
@@ -92,9 +86,7 @@ research-pack mutations, never a work mutation.
 ### D4. Reads embed the same pin
 
 `concord_work_trace.continuity` and `concord_work_browse.list` with
-`detail: full` embed the pin. `WorkflowStatus` in
-`internal/store/workflow_continuity.go` is a partial precursor of the pin and
-is removed.
+`detail: full` embed the pin.
 
 ### D5. Structural tests
 

@@ -41,8 +41,7 @@ A pure function `workflowAdmit` decides one
 action's admission over that derived state and returns the decision, the
 ready review, and the typed refusal. Preflight, the guard table, the work
 pin intents, the dispatch recording, and the correction binding call the loader
-and the pure function. They no longer re-derive the derived conditions per
-site.
+and the pure function.
 
 The loader takes a queryer, not a store, so a caller inside a transaction
 never calls back into the pooled connection (the store connection
@@ -50,13 +49,11 @@ invariant). The request payload checks and the attempt identity checks stay
 in the guards. Admission binds an accept request's attempt to the Review it
 accepts before it decides.
 
-The derived admission state covers every condition the five sites read when
-this record was accepted: the step and lifecycle, the instance state, the active
+The derived admission state covers every condition the five sites read: the step and lifecycle, the instance state, the active
 contract count, the law and registry pin staleness, the breaking impact
 notices, the design currency, the latest worker attempt and its capability
 class, the latest result disposition, the accepted Review disposition of the
-current candidate, the recovery routes, the same-step wall and its
-operator approval, the dispatch hold, the evidence-binding recovery, and
+current candidate, the recovery routes, the dispatch hold, the evidence-binding recovery, and
 the correction classifications. A duplicated contract projection follows the
 same rule: the count classifies the supersede recovery, and the singular-reader
 derivations degrade instead of refusing the route that recovery owns

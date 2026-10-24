@@ -12,19 +12,9 @@
 
 ## Context
 
-CD-0222 D9.2 specified a deterministic upcast from component-scoped knowledge
-manifests. CD-0062 D3 later required that upcast to mark a root home as
-undecided instead of inventing a Product-wide claim.
-
-The repository implemented that path as `MigrateLegacyKnowledgeManifest`, but
-no command, agent operation, or store-open path called it. The current authored
-manifest already uses schema 1.2 and Domain scopes. Concord remains pre-launch,
-so no released client or persisted installation depends on schema 1.0 or 1.1
-knowledge-manifest input.
-
-Keeping an unwired migration does not preserve compatibility. It preserves a
-second contract that no Product path performs, while the current parser still
-accepts obsolete inputs.
+A manifest migration that no command, agent operation, or store-open path
+calls supplies no compatibility guarantee. Maintaining it adds a second
+interpretation contract that no Product path performs.
 
 ## Decision
 
@@ -42,8 +32,7 @@ repository surface.
 
 ### D2. The legacy migration contract ends before launch
 
-`MigrateLegacyKnowledgeManifest` and its migration-only helpers, marker, tests,
-and validator branch are removed. Concord does not add a flag, compatibility
+Concord does not add a flag, compatibility
 shim, startup migration, or operator command for schema 1.0 or 1.1 manifests.
 
 
@@ -57,10 +46,8 @@ continues through the SQLite projection for PM1.Q10 as CD-0062 D4 requires.
 
 - The current manifest has one accepted shape and one validation path.
 - Schema 1.0 and 1.1 knowledge manifests fail before record processing.
-- The reachability exception for the unwired migration is removed with the
-  function it named.
 - Advance knowledge import remains outside this decision. Issue #295 owns that
-  work and cannot reintroduce the deleted compatibility path implicitly.
+  work and cannot implicitly add another manifest interpretation path.
 - Historical decision records keep their original text. This record states the
   current amendment without rewriting earlier decisions into false history.
 

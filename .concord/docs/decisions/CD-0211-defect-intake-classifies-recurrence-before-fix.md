@@ -13,20 +13,16 @@
   relayed by the Snowball coordinator under operator delegation. The approval
   records the executable contract of `work-b0b08d6e28a8db2bad386ee6` at
   contract version 1. It invents no earlier workflow history.
-- **Provenance:** The Decision section below is the verbatim D1 through D6 text
-  of proposal CD-0210 at [PR 1589](https://github.com/Sharper-Flow/concord/pull/1589)
+- **Approval source:** [PR 1589](https://github.com/Sharper-Flow/concord/pull/1589)
   commit `521af7ea0c03146a23e72365bb294d692795985b` (Git blob
-  `5f5e364661e1b8b91bd18eed99221056ec4b22f5`). Only the registration identity
-  CD-0211 and this accepted approval and provenance metadata changed.
+  `5f5e364661e1b8b91bd18eed99221056ec4b22f5`).
 
 ## Context
 
 ### Registration and provenance
 
-This record is accepted Product law under `.concord/docs/decisions/`. The
-outside-repair draft that proposed it stayed outside the accepted knowledge
-roots until this registration. CD allocation ran again at registration, and
-the accepted record takes CD-0211.
+This record is accepted Product law under `.concord/docs/decisions/` with
+identity CD-0211.
 
 The knowledge record, coverage record, and accepted CD-0149 amendment pointer
 for this law are registered with authority `legislated`, legislated by
@@ -223,9 +219,8 @@ prove the body contract; they do not prove that a model obeys prose.
 
 Recorded captures read back as recorded, and no existing bug is reclassified retroactively ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
-CD-0198 D2 remains authoritative for future diagnosis consolidation. This
-capture prerequisite does not add another break-fix diagnosis action or
-restore the separate steps that CD-0198 merges. A periodic review service,
+Capture classification precedes readiness; diagnosis uses `record_diagnosis`
+under CD-0198 D2. This capture prerequisite adds no diagnosis action. A periodic review service,
 lookup utility narrowing, and recovery admission changes remain out of scope.
 
 ## Alternatives considered
@@ -240,7 +235,7 @@ lookup utility narrowing, and recovery admission changes remain out of scope.
 - **Automatically turn a bug into research.** Rejected because that changes
   the caller's intent and creates a second shaping authority.
 - **Add another root-cause step to break-fix.** Rejected because it repeats
-  the outstanding CD-0198 consolidation and runs after ordinary capture.
+  CD-0198 D2's diagnosis action and runs after ordinary capture.
 - **Register the draft as accepted law before approval.** Rejected because the
   operator had not approved the proposed obligations at proposal time.
 

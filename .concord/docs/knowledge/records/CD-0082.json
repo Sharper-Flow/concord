@@ -18,7 +18,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1122c0047450b8b4941bb0e9a212524b1f888c44ead6883a68584bacd368ff5e",
+  "sha256": "sha256:18d3915240ae15ac460573b28879a0261150dae780af16a3dc2f3fbb76d24391",
   "status": "accepted",
   "summary": "Keeps migration and correction demand-driven and preserves bounded Domain, work-item, and data-integrity controls. CD-0006 D1 owns Product direction; release, maturity, and development-authority requirements keep their owning records.",
   "tags": [

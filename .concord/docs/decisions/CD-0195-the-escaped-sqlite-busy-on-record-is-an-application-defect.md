@@ -57,11 +57,7 @@ implicated.
 The escaped-`SQLITE_BUSY` occurrences on record through 2026-09-30 fall into
 the two classes the Context names, and each has a named cause in Concord
 application code. For these two classes the disposition is application
-defect, and the storage authority stays. Class 1 is repaired: PR #1462 reads
-the installation key first, v11.45.3 ships it, and the post-tag failures came
-from sessions pinned to the older release. Class 2 is repaired under CON-752,
-which moves the subprocess and filesystem work out of the write
-transactions. Neither repair touches the engine choice, so the retention in
+defect, and the storage authority stays. Neither class changes the engine choice, so the retention in
 CD-0011 stands. This record does not change what a later escape means: that
 escape falls under CD-0011's reopen condition as written, and D4 applies.
 
@@ -71,8 +67,7 @@ A store write transaction completes its work in memory and in the database.
 It must not hold the write lock across a subprocess, a network call, or a
 large filesystem operation. Probe git facts before the transaction,
 re-validate them cheaply inside it, and run bulk removal after the commit.
-The rule binds the store and every caller that opens store transactions, and
-CON-752 implements it.
+The rule binds the store and every caller that opens store transactions.
 
 ### D3. The acceptance workload covers worktree claim and reclaim concurrency
 
@@ -81,8 +76,7 @@ workload gains worktree claim and reclaim concurrency, the operation class
 that held the lock. A tool call here is a short-lived process, and many
 sessions run concurrently, so the workload must represent that shape.
 CD-0046 keeps invocation provenance as the population authority, and CD-0045
-keeps the three quantities and the zero-escaped-busy bound. CON-752 adds this
-workload together with the D2 repair.
+keeps the three quantities and the zero-escaped-busy bound.
 
 ### D4. The reopen path stands, single-writer comparison first
 
@@ -106,14 +100,11 @@ stated order, and no engine replacement occurs without a failing comparison.
 
 CD-0011's escaped-busy condition is discharged for the two classes on record,
 and every reopen condition in CD-0011 stands as written for later escapes.
-CON-752 carries the code repair, a structural guard beside
+The transaction-boundary proof requires a structural guard beside
 `internal/store/txscope_test.go` that fails when a transaction-holding
 function reaches a subprocess or a bulk filesystem call, and the claim and
-reclaim workload in the conformance harness. Until CON-752 lands, D2 and D3
-are law without an implementation, and the store still holds the write lock
-across git work. No falsifier vocabulary changes. Sessions pinned before
-v11.45.3 keep hitting class 1 until they update, and CD-0165 already binds new
-work to the current release.
+reclaim workload in the conformance harness. No falsifier vocabulary changes.
+CD-0165 binds new work to the current release.
 
 ## Verification
 

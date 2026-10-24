@@ -46,10 +46,8 @@ the host provenance digest, issue time, and a nonce. A signature captured for
 one attempt authorizes nothing for another, and a dispatch assertion cannot be
 presented as a completion.
 
-[CD-0058](CD-0058-no-model-routing.md) supersedes the model-routing part of that
-enumeration. This decision originally bound the routing policy version and
-digest and the declared model fields. Concord no longer resolves a model, so the
-readback model is the only model field the assertion carries.
+Under [CD-0058](CD-0058-no-model-routing.md), Concord does not resolve a model.
+The readback model is the only model field the assertion carries.
 
 Each verb binds the subset that applies to it, and unused fields are signed as
 empty. `worker-dispatch` binds the host provenance digest; both terminal verbs
@@ -83,14 +81,14 @@ a signature over that write.
 ### D4. A terminal attempt refuses further evidence
 
 Signing alone does not prevent an authorized caller from overwriting a recorded
-outcome. Completion and failure now refuse an attempt that already reached a
+outcome. Completion and failure refuse an attempt that already reached a
 terminal lifecycle state, checked inside the same transaction that would write
 the evidence. A recorded result is final.
 
 ### D5. The recorded actor is a verified identity
 
-The literal `worker:cli` actor is replaced by the verified client reference and
-its principal. An actor string that no mechanism checks is not attribution.
+The recorded actor is the verified client reference and its principal.
+An actor string that no mechanism checks is not attribution.
 
 ### D6. The proof never reaches the worker
 
@@ -101,14 +99,13 @@ credential is unavailable the run fails rather than recording unsigned evidence.
 
 ## Consequences
 
-- The three verb request shapes change. Under CD-0042 D3 the old unsigned shape
-  is deleted rather than shimmed; there is no pre-go-live compatibility path.
-- The adapter needs a credential to record evidence. It already held one for
-  grant and host-approval assertions; credential access moves to its own module
-  so the lane dispatcher does not pull the plugin runtime in to sign.
+- The three verb request shapes require signed assertions; there is no pre-go-live
+  unsigned compatibility path under CD-0042 D3.
+- The adapter needs a credential to record evidence. Credential access belongs
+  to its own module so the lane dispatcher does not pull the plugin runtime in to sign.
 - Operators must register the adapter client with the `worker_evidence`
   capability before lane dispatch can record anything.
-- CD-0034 provenance is now also signed: the dispatch assertion binds the
+- CD-0034 provenance is signed: the dispatch assertion binds the
   provenance digest, so evidence cannot understate which prompt surfaces were
   injected.
 

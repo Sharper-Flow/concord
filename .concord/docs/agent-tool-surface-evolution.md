@@ -1,24 +1,24 @@
 # Concord Agent Tool Surface Identity and Change (TS8)
 
 > **Status:** Accepted and binding until superseded.
-> **Decision:** TS8, amended by CD-0042.
-> **Amended by [CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 and D8:** no replay evidence exists; surface-change evidence is bound to its subject.
+> **Decision:** TS8.
 > **Current boundary:** Concord is pre-go-live. The current agent surface has one
 > generated manifest and one identity: its exact manifest digest.
-
-**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
-qualifies every operator-consent clause in this record, including tables and
-acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
 
 ## Context
 
 The agent surface needs one identity and one change law. The binding inputs
-are the accepted TS1 through TS7 contracts and CD-0042's amendment making the
+are the accepted TS1 through TS7 contracts and CD-0042's rule making the
 generated current manifest the only pre-go-live surface identity. Concord is
 pre-go-live: the current surface has one generated manifest whose exact
 digest is its identity.
 ## Contract
+
+Operator consent follows [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+throughout this record, including tables and acceptance criteria.
+Other admission, safety, evidence, and historical-pin requirements remain required.
+No replay evidence exists; surface-change evidence is bound to its subject
+([CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 and D8).
 
 CD-0013 D11 determines which overlap answers require consent; all retain exact work/version and judged-content authority. Changed closed decision-domain and consequence-summary contracts follow a major surface cutover, with regenerated projections, fail-closed old-client negotiation, historical decoders, and evidence bound to its subject ([CD-0242 D8](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d8-evidence-is-captured-by-its-producer-and-bound-to-its-subject)). Released workflow definition content and active pins do not change implicitly.
 

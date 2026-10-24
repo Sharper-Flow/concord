@@ -45,9 +45,9 @@ window.
 Register `dispatch_worker` in the workflow action registry. The dispatch
 admission opens the worker attempt window against the current step epoch in
 one transaction (each mutation writes current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))). The adapter then runs
-authorize, spawn, append evidence, in that order. The core authorizes before
-any process starts, replacing an arrangement where `worker-dispatch` records an
-attempt that already happened.
+authorize, spawn, append evidence, in that order. The core authorizes the
+dispatch before a native Task can start. The adapter binds that authorization
+to the worker and records terminal evidence.
 
 The same completion records the admitted core subject for native oracle
 execution under CD-0067 D2. This snapshot belongs to the existing fenced
@@ -106,10 +106,9 @@ does not perform: whether this actor may dispatch for this step now.
 
 ### D5. CD-0017 clauses amend as follows
 
-- D2's dispatch mechanism is reached through the registered action; the adapter
-  keeps envelope validation and the host spawn.
-- D4's step-window and nested-worker rules become structural: the fence is the
-  window, and the capability is the nesting prohibition.
+Dispatch is reached through the registered action; the adapter validates
+envelopes and spawns the worker. The fence enforces the step window, and the
+capability enforces the nested-worker prohibition.
 
 ## Consequences
 

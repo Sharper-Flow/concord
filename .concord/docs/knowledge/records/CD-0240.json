@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ea4bb3764bad10a288c5588e63f682b6431bea01eee590f6c6f6e60e14910600",
+  "sha256": "sha256:aea8dd816f3335df8544f9776f0db17fccebfa1c753ea66ae4f93710ea347bf2",
   "status": "accepted",
   "summary": "Only a core the installer placed in a managed data root (one holding a current entry), at <version>/bin/concord or .concord-transactions/<id>/stage/version/bin/concord, opens, migrates, plans, backs up into, verifies, restores into, or recovers a store whose directory is that root; any other binary, including a build in a managed worktree, refuses before touching the store, leases, locks, or fences, whatever its version stamp, and names the installed release and the isolation route.",
   "tags": [

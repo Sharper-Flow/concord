@@ -13,17 +13,6 @@
 > **Related accepted boundaries:** PM8 excludes WIP-byte CAS and generic screenshot
 > requirements; PM9 rejects a separate process-exhaust receipt. **Does not decide:** PM10
 > backup/restore, C15 resources, agent tools, or exact implementation.
-> **Amended by CD-0222:** `domain_ids` replace `component_ids` in new note
-> front matter; the bounded Domain migration rewrote existing note front matter
-> in place, and no upcaster exists
-> ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-> **Amended by [CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** the store keeps
-> current state and finite verified snapshots; no event log or replay exists.
-
-**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
-qualifies every operator-consent clause in this record, including tables and
-acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
 
 ## Context
 
@@ -33,9 +22,15 @@ membership semantics, CD-0002 invariants I1 through I6, and the compaction
 design. This record fixes canonical note placement: one eligible git home
 selected deterministically from accepted membership, in-tree markdown notes
 with bounded front matter, a typed five-field locator, and the ordered
-publish protocol with its recovery seam. CD-0222 replaces component with
-Domain identifiers in new note front matter.
+publish protocol with its recovery seam. New note front matter uses `domain_ids`
+under CD-0222.
 ## Contract
+
+The store keeps current state and finite verified snapshots; no event log or replay exists
+([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+Operator consent follows [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+throughout this record, including tables and acceptance criteria.
+Other admission, safety, evidence, and historical-pin requirements remain required.
 
 Routine canonical-note publication and proof-backed reconciliation require no operator consent under CD-0013 D11. The accepted durable publication intent, rather than an approval reference, freezes exact content, digest, home, locator, and work version until SQLite linkage. Existing terminal eligibility, salvage, Git commit verification, deterministic home selection, no-second-effect replay, and reconciliation proof remain required. This route grants no remote push, release, deletion, or legislative authority.
 
@@ -79,12 +74,12 @@ knowledge home. This is a typed reference governed by PM6, not a copied repo pat
 The Project need not be a member of every work item in the Product; it is a Product-
 level cross-cutting knowledge home.
 
-Amended 2026-10-01 by CD-0200 D1: the designated home stays the Product's single
+Under CD-0200 D1, the designated home is the Product's single
 shared-law home and is always a knowledge source. The operator may additionally
 register member Project canonical-path locators as knowledge sources; registration
 is explicit typed configuration, never discovery. Placement of each Project's own
 canonical notes and knowledge stays in that Project's `.concord/` tree, and the
-one-note-per-work-item rule is unchanged.
+one-note-per-work-item rule applies.
 
 ## 3. Deterministic selection rule
 

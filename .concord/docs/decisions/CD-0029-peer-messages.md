@@ -1,8 +1,6 @@
 # CD-0029: Peer messages addressed to durable work
 
 - **Status:** Accepted
-- **Amended:** 2026-10-18. [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
-  D2 and D14 restate messages as current rows with no historical pins.
 - **Date:** 2026-08-15
 - **Scope:** Agent tool surface; work-item messages; continuity snapshot
 - **Related:** CD-0014 (no polling), CD-0016 (continuity), CD-0028 (claims), issue #86
@@ -17,6 +15,9 @@ normal — the incident's prepared message was stale ten minutes after
 authoring because its target rebased and self-resolved.
 
 ## Decision
+
+Messages are current rows with no historical pins under
+[CD-0242 D2 and D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md).
 
 A peer message supplies neither consent nor authority. CD-0013 D11 governs terminal transitions: routine completion requires its unchanged acceptance evidence, not operator approval; cancellation and removal require operator approval only when a CD-0243 D2 class applies. A message cannot satisfy either gate or alter the recipient's classification.
 
@@ -36,9 +37,9 @@ never crosses Products; C18 §12 anti-requirement 11 stands untouched.
 
 **D3. Delivery is pull-at-next-call.** No polling, timers, or daemons (CD-0014).
 Two pull points: `concord_work_browse.messages` (PM1.Q14) returns the bounded
-message list for a work item, and the continuity snapshot now carries
+message list for a work item, and the continuity snapshot carries
 `pending_messages` — a sent-state count that points a resuming session at its
-unread findings the way it is already pointed at checkpoints and pending
+unread findings the way it is pointed at checkpoints and pending
 decisions. The pointer is re-derived per call, so it inherits CD-0016's
 restart survival by construction.
 

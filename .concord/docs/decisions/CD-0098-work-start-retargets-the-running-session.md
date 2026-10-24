@@ -17,9 +17,6 @@ CD-0088 D4 binds launch authority to a prepared worktree and agent. The host
 launches a named agent with the worktree as its process directory, then refuses
 success unless the read-back identity matches.
 
-CD-0096 D6 keeps that route as the pre-launch path and adds an in-session
-retarget beside it. Two routes then reach one worktree claim.
-
 The launch route produces a session the operator did not ask for. The work
 starts somewhere the operator is not, and the session that requested the work
 keeps no part in it. The operator rejected that outcome and required that a
@@ -74,15 +71,12 @@ be substituted by the move.
 
 ### D5. One route reaches the worktree claim
 
-CD-0096 D6 is amended. The pre-launch route is retired, so the two routes it
-reconciles are one route. The convergence guarantee it stated is now structural:
-a second owner cannot arise from a route that no longer exists.
+`concord_work_start` is the single route to claim and verified placement,
+and it replays to convergence on its derived identity.
 
 ### D6. The launch path is removed
 
-The `opencode run` invocation, its argument construction, its child session
-export, and its stream recovery are removed with the route they served. CD-0059
-keeps its authorize-before-start rule, which now applies to the move and to lane
+The authorize-before-start rule in CD-0059 applies to the move and to lane
 dispatch under CD-0102.
 
 ## Consequences
@@ -92,18 +86,10 @@ dispatch under CD-0102.
 - Concord depends on an experimental host route. A host without it cannot start
   work, which is the stated fail-closed outcome rather than a silent downgrade.
 - A dirty default checkout blocks work start until the operator resolves it.
-- Removing the launch path removes child session export and stream recovery, and
-  with them the failure class where a launched session is lost after it starts.
-- CD-0088 D5 is untouched. This record claims no replacement readiness.
-- The floor manifest moves with the route. `fc1-session-handoff` is satisfied
-  today by a launch test, so this record rewrites that item instead of leaving a
-  satisfied condition whose evidence the change deletes.
+- This record claims no replacement readiness.
+- `fc1-session-handoff` requires a live host-started managed-entry witness.
 
 ## Rejected alternatives
-
-**Keep both routes.** Rejected because two routes to one claim is the condition
-CD-0096 D6 had to reconcile. Retiring one removes the reconciliation instead of
-maintaining it.
 
 **Launch when the move route is absent.** Rejected because a fallback reproduces
 the outcome this record removes, and it does so exactly when the operator is
@@ -125,14 +111,11 @@ records why the outcome holds without a wait the route does not offer.
 - The adapter test `work start refuses a dirty default checkout` and
   `work start verifies the session directory after the move` prove D3.
 - `TestWorkStartRefusesDestinationOtherThanClaimedWorktree` proves D4.
-- A repository check proves D6: no `opencode run` invocation remains in the
-  adapter.
+- A repository check verifies D1's no-process boundary: no `opencode run`
+  invocation remains in the adapter.
 - `.concord/docs/floor-readiness.v1.json` carries `fc1-session-handoff` as
-  `unmeasured` pending the live host-started managed-entry witness; no
-  satisfied item cites the removed launch anchor, and the launch gate does
-  not transfer to the retained surface by assertion.
-- `python3 scripts/check-floor-readiness.py` passes, which it cannot do while an
-  evidence anchor names a test this record deletes.
+  `unmeasured` pending the live host-started managed-entry witness.
+- `python3 scripts/check-floor-readiness.py` passes.
 - The coverage shard `.concord/docs/knowledge/coverage/CD-0098.json`, composed by
   `scripts/knowledge_index.py`, records CD-0098 as proved once the tests above
   pass.

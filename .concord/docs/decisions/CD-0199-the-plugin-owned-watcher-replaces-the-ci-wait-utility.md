@@ -3,8 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-30
 - **Scope:** The `concord_ci_watch` tool in `adapter/opencode/ci-watch.ts` and
-  `adapter/opencode/concord-plugin.ts`; the removed `ci-wait` utility registry
-  entry, generated body, installer file list, and placement docs; the
+  `adapter/opencode/concord-plugin.ts`; the
   `concord ci-wait` verb in `cmd/concord` stays unchanged
 - **Preserves:** CD-0160 D1 through D5 and D7 in full (the verb half), CD-0161
   and CD-0168 in full (both bind the verb), CD-0166 D1 and D4 (no core prober,
@@ -59,11 +58,9 @@ queued. The watcher logs every delivery failure and swallows none.
 
 ### D4. The utility is removed in this change, behind the live proof
 
-This change removes the registry entry, the generated body, the installer
-file list entry, and the placement docs, and routes coordinators to
-`concord_ci_watch`. The change completes only when one live CI wait on this
-host proves zero model turns during the wait and a delivered wake. Until that
-proof holds, the branch does not ship. The verb stays.
+Coordinators route CI waits through `concord_ci_watch`. Verification requires
+one live CI wait that proves zero model turns during the wait and a delivered
+wake before shipment. The verb keeps its contract.
 
 ## Alternatives considered
 

@@ -1,16 +1,12 @@
 # CD-0217: Publication and research retention have separate boundaries
 
 - **Status:** Accepted
-- **Amended:** 2026-10-18.
 - **Date:** 2026-10-09
 - **Approval:** `CON-816` A1 under operator delegation on 2026-10-09, without calendar expiration.
 - **Related:** [compaction-retention-policy](../compaction-retention-policy.md),
   [CD-0215](CD-0215-retained-research-context.md),
   [CD-0216](CD-0216-research-surface-and-explicit-retirement.md),
   [CD-0142](CD-0142-operator-directed-execution-removal.md), PM8, PM9, and PM10
-
-**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
-limits this record's operator-consent requirements to its six classes; its D5 replaces an unconditional recovery veto. Retention eligibility, publication proof, and other non-consent checks remain required.
 
 ## Context
 
@@ -77,9 +73,8 @@ Owner removal must preserve retained research or refuse before a foreign-key cas
 
 ### D6. Coverage follows the replacement obligations
 
-Historical archive-cleanup tests do not prove explicit retirement or publication without deletion.
-Successor coverage must include preserved work-authority guarantees and the new research boundary witnesses.
-The manifest must not carry forward a satisfied state based only on the archive-cleanup anchors.
+Coverage must prove explicit retirement, publication without deletion, work-authority guarantees, and research boundary witnesses.
+The manifest must not claim a satisfied state without evidence for those obligations.
 
 ## Alternatives considered
 
@@ -95,7 +90,7 @@ Historical index rebuild remains derived, not a new work-authority writer.
 Explicit research retirement adds bounded destructive intent without changing deferred work pruning.
 Compaction note proof, exact history, frozen historical scope, and deduplicated query populations remain mandatory.
 
-The parent must integrate migration and replacement witnesses before deployment; no live store or activation belongs to this edit.
+Migration and conformance witnesses are required before deployment.
 
 ## Verification
 
@@ -104,4 +99,4 @@ and `internal/store.TestQ10OrphanWorkNoteRemainsNotCompacted`.
 New candidate anchors include `internal/store.TestResearchRetirementCascadesContent`
 and `internal/agent.TestResearchRetireDryRunAndReplay`.
 Publication, every terminal route, owner removal, restart/replay, restore, and the pin/retire race still need integrated assessment.
-The successor coverage remains unmeasured rather than claiming that historical cleanup proves the new policy.
+Coverage remains unmeasured until the required witnesses prove these obligations.

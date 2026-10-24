@@ -39,6 +39,6 @@ operator decision history because the blocking predicate became narrower.
 
 ## Consequences
 
-- Architecture proximity no longer creates an execution refusal.
+- Architecture proximity without a shared write does not block execution.
 - Shared Product writes still require the existing resolution choices.
 - Read-only overlap detail continues to expose every derived intersection.

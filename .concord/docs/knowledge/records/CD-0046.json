@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fa3ba5316c8df96f882cb53790b5816c59b79cbe28cb1f37af1666e133e534d7",
+  "sha256": "sha256:361d4d6b5cf07d111e301583e8003b5c05639f7eabe5f01e69d1bf02a613c031",
   "status": "accepted",
   "summary": "An accepted conformance falsifier verdict is reachable only from the acceptance entry point run with the required-check signal the workflow sets; every other invocation stays inconclusive regardless of the threshold, a CI run missing the signal fails visibly, and CD-0011 structural wording is amended to the narrower enforceable claim of invocation provenance.",
   "tags": [

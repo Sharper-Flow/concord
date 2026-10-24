@@ -2,8 +2,6 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-20
-- **Amended:** 2026-10-18. D1 admits an optional `head_sha` for a `pr`
-  selector, and D5 judges only that commit until the pull request reaches it.
 - **Scope:** The `ci-wait` utility registry entry; the generated utility body;
   the `concord ci-wait` CLI verb in `cmd/concord`; the wait state file
 - **Approval:** The operator requested deterministic bounded waiting and
@@ -107,12 +105,10 @@ supersedes the wait as above.
 
 ### D6. The utility allowance narrows to the verb
 
-The registry entry moves to version 2. Its bash allowance is `concord ci-wait`
-and `concord ci-wait *`. The `gh` query allowances, `sleep *`, and `date *`
-are removed: the verb owns polling, so the model has no command left that can
-poll or wait outside it. The generated body instructs the single invocation
-loop and forbids model-side polling. The iteration ceiling of 120 was subsumed
-by the wall-time deadline and is not carried forward as a second bound.
+The utility's bash allowance is `concord ci-wait` and `concord ci-wait *`.
+The verb owns polling, so the model has no command that can poll or wait
+outside it. The generated body instructs the single invocation loop and
+forbids model-side polling. The wall-time deadline bounds the wait.
 
 ### D7. Provider failures are report content, not wait defects
 
@@ -131,7 +127,7 @@ own words, never a success.
 - The wait state file lives under the operator's state directory and outlives
   one invocation. A state file past its deadline refuses to resume and is
   removed on the timeout report.
-- The old prompt's gh allowances are gone. A coordinator that wants ad-hoc
+- A coordinator that wants ad-hoc
   GitHub reads during a wait needs a different surface; this record does not
   provide one.
 

@@ -44,11 +44,6 @@ but a version change alone does not make the resolution stale.
 
 ### D2. Existing resolution rows stay counted
 
-An earlier count cites 2,179 existing resolutions. The store currently contains
-2,513 rows in the overlap-resolution table. This amendment therefore treats
-2,513 rows as the counted population and does not claim that every row is active
-or current.
-
 The store keeps all 2,513 recorded rows as current state
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 It does not bulk invalidate,
@@ -80,10 +75,8 @@ authority for breaking law cutovers; a law edit triggers reassessment only of th
 
 ## Consequences
 
-- Unrelated contract revisions no longer discard a valid overlap judgment.
+- A revision that does not change judged content leaves a resolution applicable.
 - Changes to judged architecture content still require a fresh resolution.
-- The 2,513-row store population is explicit, while the earlier 2,179 count is
-  not treated as a complete population.
 - Execution admission remains governed by the execution-start boundary from PR
   1084.
 

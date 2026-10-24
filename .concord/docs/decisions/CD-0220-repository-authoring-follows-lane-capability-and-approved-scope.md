@@ -5,10 +5,6 @@
 - **Scope:** Authored and generated files under `.concord/`; worker edit authority and its enforcement limits.
 - **Time zone:** Eastern Daylight Time (EDT)
 - **Approval:** Snowball coordinator, operator-delegated, 2026-10-10 01:08 EDT
-- **Amendment approval:** The operator approved the capability-enforcement
-  amendment in-session on 2026-10-17 for [Concord (CON) issue 1059](https://linear.app/sharper-flow/issue/CON-1059/move-lane-capability-enforcement-report-metadata-and-dispatch).
-- **Amended:** 2026-10-17. Snowball coordinator, operator-delegated, approved
-  the review-fix amendment in-session.
 - **Related:** [CD-0006](CD-0006-concord-root-product-policy.md), [CD-0036](CD-0036-breaking-law-cutovers.md), [CD-0072](CD-0072-unguarded-trunk-file-writes.md), [CD-0159](CD-0159-authority-tier-for-product-law.md), and [development authority](../managed-development-authority.md).
 - **Preserves:** Product-law approval, revision identity, cutover, host ownership, and the existing lane capability registry.
 

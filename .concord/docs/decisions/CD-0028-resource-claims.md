@@ -1,8 +1,6 @@
 # CD-0028: Durable resource claims for concurrent agents
 
 - **Status:** Accepted
-- **Amended:** 2026-10-18. [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
-  D2 and D14 restate the claim store as current rows with no historical pins.
 - **Date:** 2026-08-15
 - **Scope:** Agent tool surface; work-item claim state
 - **Related:** CD-0016 (continuity), CD-0006 D8 (single operator), issue #88
@@ -74,8 +72,10 @@ crash. Terminal-transition release is the structural answer.
 
 ## Consequences
 
-- The `claim` consequence class enters the closed surface vocabulary
-  (surface 3.4.0, 43 operations).
+Claims are current rows with no historical pins under
+[CD-0242 D2 and D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md).
+
+- The `claim` consequence class belongs to the closed surface vocabulary.
 - Claims ride expected-version fencing on the holder work item; a claim or
   release is one checked current-row write.
 - The incident's compounding factor — foreign mutation — stays visible in

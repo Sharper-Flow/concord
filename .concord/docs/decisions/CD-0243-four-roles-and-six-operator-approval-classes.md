@@ -110,17 +110,17 @@ ordinary maintenance, not irreversible loss merely because it removes text.
 
 ### D6. Existing approval requirements follow these classes
 
-The following are same-ID amendments, limited to approval and recovery
-requirements. They do not remove authentication, capability, scope, state,
-evidence, version, retention-eligibility, or required-review checks.
+The following approval and recovery requirements preserve authentication,
+capability, scope, state, evidence, version, retention-eligibility, and
+required-review checks.
 
-| Owner | Amended subject |
+| Owner | Subject |
 |---|---|
 | `goals.md` §1, §4, A1 axis key, R3, S, U, P1, P5, P10, P12, A2 rows 3, 4, 7, 9, Appendix C row 3 | Roles, six approval classes, law-change and data-safety decisions |
-| CD-0230 D4, D5 | Law-change authority, approval classes, listed gaps, coordinator routing, recovery |
+| CD-0230 D4, D5 | Law-change authority, approval classes, listed gaps, recovery |
 | CD-0013 D11 | Workflow consent classification and routine actions |
 | CD-0006 D5, D10; CD-0159 D4; CD-0218 D1; CD-0222 D1, D4, D5 | Law mandates and enactment require approval only under D2 |
-| CD-0033; CD-0037; CD-0096; CD-0118; CD-0122; CD-0166; CD-0187; CD-0198; CD-0215; CD-0217; CD-0222 D6; CD-0229 | Operator consent for their operations applies only under D2; D5 replaces an unconditional recovery veto |
+| CD-0033; CD-0037; CD-0096; CD-0118; CD-0122; CD-0166; CD-0187; CD-0198; CD-0215; CD-0217; CD-0222 D6; CD-0229 | Operator consent for their operations applies only under D2; D5 governs recovery |
 | CD-0154 D2 | Four roles, optional RTE and Planner, direct operator routing |
 | TS1, TS4, TS9 contracts; TS5 §5; clarifications TS1–TS9 binding; PM9 contract; CD-0028; CD-0029 | Retained approval gaps for overlap, cancellation, removal, repair, reconciliation, and research deletion apply only under D2 |
 
@@ -137,8 +137,8 @@ gate does not remove any other required check.
 
 ### D7. The remaining owners use the same approval boundary
 
-The following same-ID amendments close remaining approval restatements. They
-apply D2 through D5; they create no approval class, execution route, or permission.
+The following requirements apply D2 through D5; they create no approval class,
+execution route, or permission.
 For these owners and every owner in D6, the qualification governs ordinary
 operator-consent clauses, including tables, acceptance criteria, verification
 prose, and summaries. An ordinary operation that passes its admission gates
@@ -167,11 +167,11 @@ recorded, but an agent pauses for operator approval only under D2 or when
 information needed to decide the task is missing. An agent may evolve law
 within its scope and record why. It never silently cuts governed scope.
 Legislative standing remains unchanged. The documentation index summarizes
-these amended owners, not their superseded unconditional approval rules.
+these requirements.
 
 The predecessor operational-coverage assessment distinguishes existing
 approval-mechanism evidence from proof of the six-class classification.
-It does not establish that the new boundary is enforced at runtime.
+It does not establish that the boundary is enforced at runtime.
 
 These amendments change consent, not other admission. Authentication,
 capability, source and actor identity, exact versions, scope, execution

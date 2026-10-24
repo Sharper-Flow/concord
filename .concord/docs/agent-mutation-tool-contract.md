@@ -10,14 +10,6 @@
 > **Does not decide:** request context/authorization/idempotency envelope (TS5),
 > transport (TS6), shared result/error schema (TS7), surface evolution (TS8),
 > measurement evidence (TS9), workflow-type registration/gate vocabulary, or C15.
-> **Amended direction:** CD-0222 requires typed architecture binding for
-> Product-changing work; CD-0213 removes the Initiative route.
-> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D4, and D6:** each
-> mutation writes current rows in one transaction; no event append or replay
-> exists, and a task bigger than its size reruns the decision model instead of
-> creating a successor item.
-> CD-0042 makes the generated current manifest the only pre-go-live surface
-> identity; this contract does not authorize partial Domain writes or any planning write.
 
 ## Context
 
@@ -30,6 +22,12 @@ and the inline-versus-durable execution rule. CD-0222 requires typed
 architecture binding for Product-changing work; CD-0213 removes planning writes; CD-0042 makes the
 generated manifest the only pre-go-live surface identity.
 ## Contract
+
+CD-0222 requires typed architecture binding for Product-changing work.
+Each mutation writes current rows in one transaction; no event append or replay
+exists ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2).
+CD-0042 makes the generated current manifest the only pre-go-live surface
+identity. This contract does not authorize partial Domain writes or any planning write.
 
 Approval prerequisites in the operation tables follow CD-0013 D11 and CD-0243 D2: an operation requires operator consent only when one of CD-0243's six approval classes applies. Overlap answers including `merged_into` and `supersedes`, cancellation, removal, delivery correction, same-authorized-Product memberships, ordinary completion, outside repair and both reconciliation modes, local compaction publication/reconciliation, and physical research-pack deletion are agent-owned unless such a class applies. A governing-requirement scope cut remains a product decision. Authority-expanding Product or client-policy changes grant access and require security approval. Explicit cross-Product mutations keep their capability checks. A publication intent replaces approval as the exact content/home lock. Workflow action consent remains definition-pinned. All authentication, capability, version, authorization, evidence, native proof, retention-eligibility, atomicity, and durable-operation checks remain required.
 
@@ -103,8 +101,7 @@ offered by the work item's accepted workflow definition.
 | `lifecycle` | work ID, expected version, target `needed|in_progress|completed|cancelled`, reason, required evidence/approval | Validate PM4 transition and workflow obligations; write the current rows atomically. |
 | `workflow_action` | work ID, expected version, stable action ID offered by the current workflow version, required fields/evidence/approval | Execute the workflow-defined domain action atomically or reject it; action ID is authoritative data, not a caller-invented command. |
 
-`superseded` is excluded from lifecycle input. The `supersede` operation
-retired: contract supersession goes through the operator-approved
+`superseded` is excluded from lifecycle input. Contract supersession goes through the operator-approved
 `supersede_contract` action, and an overlap resolution that terminalizes a
 work item goes through `concord_work_relate.resolve_overlap` with `supersedes`
 or `merged_into`, which commits the relation and the terminal transition

@@ -1,10 +1,6 @@
 # Concord Process-Exhaust Salvage and Receipt (PM9)
 
 > **Status:** **Accepted — binding until superseded.**
-> **Amended:** 2026-10-21.
-> **Amended by CD-0242 D2, D8, D9:** closure publishes one completion receipt,
-> evidence is captured by its producer and bound to its subject, and the store
-> keeps current state and finite verified snapshots with no event log or replay.
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** PM9; binding CD-0002 amendment.
 > **Binding inputs:** PM1 Q7/Q9/Q10, accepted PM2–PM8, CD-0002 I1–I6,
@@ -65,14 +61,8 @@ CD-0242 D9 nor the salvage obligation for external reports and traces. compactio
 
 ### Required acceptance synchronization
 
-This accepted change closes the receipt/salvage deferrals across:
-
-- CD-0002's process-exhaust rule and its assumed salvage/receipt handoff;
-- PM6 and compaction-retention-policy header/scope/Q7/retention-table PM9 pointers;
-- PM8's PM9 receipt-versus-durable-knowledge deferral;
-- README, storage-slice, lifecycle, and clarification PM9/PM10 status wording; and
-- the PM9 clarification lean, explicitly recording the operator's choice of no
-  separate receipt because the listed fields already exist in accepted authorities.
+PM6 and compaction-retention-policy govern publication and retention.
+The bounded note fields in section 2 carry salvage; no separate process-exhaust receipt is required.
 
 ## 2. Named value and salvage rule
 

@@ -26,20 +26,9 @@
 - **Approval:** The Snowball coordinator approved this record on 2026-10-17
   under the operator's delegation. The record is serious under P12 because it
   affects more than one Domain.
-- **Amended:** 2026-10-18.
-- **Revision choice:** Compatible amendment under
-  [CD-0036](CD-0036-breaking-law-cutovers.md) D2; the law ID stays unchanged.
-- **Amendment reason:** D5 already fixes the small implementation composition;
-  its relationship to CD-0138 D1 must be explicit. No composition, released
-  definition, pin, or runtime behavior changes in this amendment.
-- **P12:** This amendment affects only the workflow-engine Domain. It removes
-  or reverses no user-visible behavior, touches no security or data-safety
-  rule, and changes no UI/UX. It is not serious under
-  [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
-  D4.
 
-**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
-limits operator consent to its six classes. It does not transfer the operator's size-override authority to agents; agents may still request the model to run again.
+[CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+limits operator consent to its six classes. The operator owns size overrides; agents may request the model to run again.
 
 ## Context
 

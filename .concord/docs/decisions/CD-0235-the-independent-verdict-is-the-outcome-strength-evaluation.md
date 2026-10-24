@@ -12,10 +12,9 @@
 
 ## Context
 
-CD-0012 D3 calls the refusal of a weaker delivery "a structural refusal
-rather than a reviewer's opinion". CD-0013 D4 makes strength comparison
-mechanical for `exists` and `absent`, trivial for `outcome`, and delegated to a
-registered evaluator for `check`. No delivered predicate is recorded:
+CD-0013 D4 makes strength comparison mechanical for `exists` and `absent`,
+trivial for `outcome`, and delegated to a registered evaluator for `check`.
+No delivered predicate is recorded:
 `workflow.verdict_recorded` carries the verdict kind and the incomparable flag
 (CD-0013 D3). No ground-truth surface registry or check catalog exists
 (CD-0013 deferred items 2 and 3). Completion refuses on the recorded verdict of

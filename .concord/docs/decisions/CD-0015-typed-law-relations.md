@@ -3,21 +3,18 @@
 **Status:** Accepted.
 **Approval date:** 2026-08-11.
 **Approval:** Operator approval for GitHub issue #44.
-**Amended by:** CD-0222 gives every law one Domain home and composes these
-relations with architecture-bound work contracts and overlap checks.
-**Amended:** 2026-10-17. Planning admits an explicit conflict only when
-`law_modifies` names the endpoint whose record declares it, because only that
-record can withdraw the declaration.
-**Amended:** 2026-10-21. [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 amends
-the event vocabulary in §Decision: the store keeps current rows, and no domain
-event exists.
-
-**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
-qualifies every operator-consent clause in this record, including tables and
-acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
 
 ## Decision
+
+CD-0222 gives every law one Domain home and composes these relations with
+architecture-bound work contracts and overlap checks. Planning admits an explicit
+conflict only when `law_modifies` names the endpoint whose record declares it,
+because only that record can withdraw the declaration.
+The store keeps current rows, and no domain event exists
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+Operator consent follows [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+throughout this record, including tables and acceptance criteria.
+Other admission, safety, evidence, and historical-pin requirements remain required.
 
 Concord's durable law authority remains the Git knowledge manifest. SQLite may
 hold only a derived projection of that manifest; it cannot author law, relation

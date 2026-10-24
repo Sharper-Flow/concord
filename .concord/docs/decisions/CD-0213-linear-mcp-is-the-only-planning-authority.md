@@ -10,8 +10,6 @@
   evidence, and branch and worktree isolation
 - **Related:** CD-0036, CD-0122, CD-0222, CD-0142, CD-0146, CD-0156
 - **Approval:** The operator approved this route on 2026-10-09 under CON-801.
-  The decision cancels CON-35 and CON-501 and rejects repair of the Concord
-  planning mirror.
 
 ## Context
 

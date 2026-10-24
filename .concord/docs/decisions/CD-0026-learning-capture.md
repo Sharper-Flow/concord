@@ -63,8 +63,7 @@ instead of drifting silently. This is deliberately structural — file
 reachability, not semantic verification. Semantic drift checking is analysis
 tooling, which the capability placement assigns to external native authority;
 Concord's contract is that recorded law names its implementation evidence and
-the validator keeps that naming honest. The ten decisions implemented this
-session carry evidence mappings; coverage grows as records gain evidence.
+the validator keeps that naming honest.
 
 ## Rejected alternatives
 
@@ -86,7 +85,7 @@ publication destination.
 - The knowledge manifest gains an optional `evidence` field; both the Go
   strict parser and the offline validator accept and bound it.
 - A lesson pull request commits the record shard and the coverage shard; the
-  PR review carries the authority the operator approval carried before.
+  PR review authorizes publication.
 - After a lesson merges into the canonical knowledge home, `resolve_note`
   verifies the record. Search picks it up after the next index rebuild; that
   window is reconciliation, not loss. Before merge, neither canonical read

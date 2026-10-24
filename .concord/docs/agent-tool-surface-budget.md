@@ -30,7 +30,8 @@ evidence, rejected shortcuts, and falsifiers, and carry no obligation.
 ## 1. Decision
 
 Concord exposes **at most nine always-visible domain tools** to an agent.
-CD-0213 removes the Initiative grouping tool; the Domain tool remains.
+Business grouping belongs to Linear through the Linear MCP server.
+`concord_domain` owns Domain navigation and detail intents.
 Budget: `always_visible_tools: 9`. The canonical machine-readable count is the
 generated manifest's `surface.tool_count`
 ([`contracts/agent-tool-surface.v1.json`](../../contracts/agent-tool-surface.v1.json)),
@@ -193,12 +194,6 @@ Any expansion, split, merge, discovery layer, or alias after launch follows TS8/
 it does not silently amend this budget.
 
 ## Approved amendments
-
-**Planning retirement under [CD-0213](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md).**
-The current budget is nine. Business grouping belongs to Linear through the
-Linear MCP server, not to a Concord Initiative tool. `concord_domain` retains
-its Domain navigation and detail intents. The removal changes neither the
-granularity rule nor the evidence and authority requirements for surviving tools.
 
 The budget's authority is structural in both directions: the generator refuses
 any manifest whose `surface.tool_count`

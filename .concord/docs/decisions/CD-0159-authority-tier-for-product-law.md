@@ -5,20 +5,16 @@
 - **Scope:** The standing of a Product law record, and the approval cost of
   revising one
 - **Approval:** The Snowball coordinator approved this law change on
-  2026-10-14 under the operator's delegation.
-- **Original approval:** The operator approved the contract for
+  2026-10-14 under the operator's delegation. The operator approved the contract for
   `work-c089308b507cfac61f7dd228` on 2026-09-20, then accepted D1 to D5
   below on the same date.
-- **Amended:** 2026-10-17. D4 and its verification key the tier on the record
-  that declares a conflict, the only record that can withdraw it.
-- **Amended:** 2026-10-18.
 - **Related:** CD-0006, CD-0015, CD-0036, CD-0222, and
   `.concord/docs/specs-as-laws.md`
 - **Preserves:** CD-0006's ban on a silent scope cut, CD-0012's rule against
   outcome substitution, CD-0036 revision identity and breaking-law cutovers, and
   CD-0222 Domain-bound contracts
 
-**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+**Consent:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 governs D4: law enactment requires approval only under its six classes. Operator-free revisions retain the `derived` tier under CD-0230 D4; the tests for `legislated` standing do not change.
 
 ## Context
@@ -125,7 +121,7 @@ record can withdraw the conflict. It costs no separate approval turn.
 Human approval remains required to enact a law change, and
 the approval of the contract that carries the revision supplies it. The operator
 keeps sight of every revision, because each one appears in the contract they
-approve. The change collapses many separate questions into one contract line.
+approve.
 
 A scope cut stays governed by the request, not by the tier. CD-0006 and CD-0012
 continue to forbid a silent scope cut and a substituted outcome, whatever tier
@@ -133,25 +129,28 @@ the touched law carries.
 
 ### D5. Defaults for existing records and for an import
 
-The 202 records at Git commit `fe69821f724bc8d40ec2730c9fd390bd80f1f527`
-took a default tier by kind under docs/knowledge/records.
-The closed legislative default cohort contains exactly its 149 decision
-records and three constitutional records. D5 itself establishes their
-standing; the vehicle that applied it is `work-8d7bd788b2890355460bb5b7`
-at contract version 1. No later record may name that vehicle.
+The legislative default cohort is closed: the decision and constitutional
+records present at Git commit `fe69821f724bc8d40ec2730c9fd390bd80f1f527` that
+still exist. Deleting a record removes it from the cohort; no record ever joins
+it. D5 itself establishes the members' standing; the vehicle that applied it is
+`work-8d7bd788b2890355460bb5b7` at contract version 1. No other record may name
+that vehicle.
 
 `internal/store/knowledge_authority_defaults.v1.json` is the one committed
-cohort source. It records that immutable commit and those record IDs and
-kinds. Both manifest readers must use it; the set does not follow current `HEAD`.
+cohort source. It records that commit and the IDs and kinds of the surviving
+members. Both manifest readers must use it; membership never grows with
+current `HEAD`.
 
-| Kind | Count | Default tier |
-|---|---|---|
-| `decision` | 149 | `legislated` |
-| `constitution` | 3 | `legislated` |
-| `spec` | 26 | `derived` |
-| `reference` | 18 | `derived` |
-| `lesson` | 4 | `derived` |
-| `research` | 2 | `derived` |
+The records present at that commit took their default tier by kind:
+
+| Kind | Default tier |
+|---|---|
+| `decision` | `legislated` |
+| `constitution` | `legislated` |
+| `spec` | `derived` |
+| `reference` | `derived` |
+| `lesson` | `derived` |
+| `research` | `derived` |
 
 A decision record and a constitutional record are operator-accepted by
 construction. The other kinds describe built behavior or observed material.
@@ -194,15 +193,11 @@ this correction. Promotion still requires D2. The D5 cohort stays closed.
 
 - Revising a build transcript stops costing an operator turn. Revising a real
   commitment still costs one.
-- The record schema and its `authority` object must land before the first typed
-  knowledge record exists. `work-771ff028fe5936b21685b7d0` creates that record
-  and enacts five law amendments. Those amendments must not land first, or they
-  describe a typed record with no tier and need amending again.
 - An agent cannot promote its own law. Outside the closed D5 cohort,
   only a named operator-approved contract that meets D2 sets `legislated`.
 - A Product migrated from the predecessor gains a usable law surface without a
   hand review of every requirement.
-- CD-0006 gains a qualification. Its ban on a silent scope cut is untouched.
+- CD-0006 forbids a silent scope cut.
 
 ## Verification
 
@@ -220,5 +215,5 @@ this correction. Promotion still requires D2. The D5 cohort stays closed.
 - A store test proves that a conflict a `legislated` record declares still raises
   the legislative moment at approval.
 - A validator run checks every current tier and each legislative reference.
-  A history-derived test proves the closed D5 cohort and its counts at
-  the pinned application commit, not the current checkout.
+  A history-derived test proves that every cohort member was present at the
+  pinned application commit and that the cohort lists every surviving one.

@@ -6,9 +6,8 @@
   relations, and data-integrity controls; issue #571
 - **Approval:** Operator approved the Product-law cleanup for issue #571 on
   2026-08-29.
-- **Amended:** 2026-10-17. Coordinator approval under the operator's delegation
+- **Approval:** 2026-10-17. Coordinator approval under the operator's delegation
   for [Concord (CON) issue 1063](https://linear.app/sharper-flow/issue/CON-1063).
-  The full-successor framing is removed; D2 follows current Product law.
 - **Related:** CD-0006 D1-D2, CD-0053 D4, CD-0222, PM4, C15, and issue #571
 - **Preserves:** CD-0053's three accepted predecessor-strength answers; CD-0222's
   Domain-overlap execution block and Domain `replaces` relation; PM4 work-item
@@ -63,11 +62,8 @@ by this decision. The store keeps current state in one transaction per mutation;
 
 ## Explicit amendments
 
-CD-0053 D4 still records the accepted answers to CD-0019 D3. Its statement that
-those answers are cutover-blocking for the first Product migration, and its
-required first-Product shadow framing, are amended. The answers and their cited
-mechanisms remain evidence that may inform a future demand, not a global
-cutover obligation.
+The accepted predecessor-strength answers and their cited mechanisms may
+inform a concrete migration demand. They create no global cutover obligation.
 
 ## Consequences
 
@@ -75,7 +71,6 @@ cutover obligation.
   operations.
 - Existing managed-resource and Domain-attachment operator surfaces remain in
   scope, with no generic resource-replacement model added.
-- CD-0053, CD-0007, and CD-0010 retain their governing text.
 
 ## Rejected alternatives
 
@@ -92,8 +87,7 @@ activities do not establish accepted release or maturity evidence.
 
 ## Verification
 
-- CD-0053, CD-0007, and CD-0010 remain unchanged.
-- Current non-historical documents no longer state the removed global migration
-  or generic replacement policies.
+- Current documents state local migration authority and safeguards without a
+  global migration or generic replacement policy.
 - The knowledge record and out-of-scope coverage shard identify this decision;
   generated manifests are rebuilt by their owning scripts.

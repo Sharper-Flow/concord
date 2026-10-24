@@ -4,7 +4,7 @@
 - **Date:** 2026-09-23
 - **Scope:** Work pin next intents and the investigation gate
 - **Related:** CD-0013, CD-0166
-- **Approval:** The operator approved both repairs as one dead-end removal: an agent at the escalation wall must find the wall, and a single-item Product must not be wedged out of its own premise gate.
+- **Approval:** The operator approved the dead-end removal so a single-item Product must not be wedged out of its own premise gate.
 
 ## Context
 
@@ -20,9 +20,7 @@ Each launch carries its own authority and safety checks ([CD-0242 D6](CD-0242-kn
 
 ### D2. The comparison-work condition is counted by the core
 
-CD-0129 D2 required the artifact to name a current Domain ref and another work
-item. The Domain half stays mandatory. The comparison-work half is now
-conditional: the observation names another work item only when the item's
+The artifact names a current Domain ref. The observation names another work item only when the item's
 Product holds a work item other than this one, in any lifecycle. The store
 counts that condition in the same transaction that resolves the refs, so no
 agent assertion decides it. A single-item Product admits an artifact that

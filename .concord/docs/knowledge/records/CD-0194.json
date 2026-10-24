@@ -33,7 +33,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0db96b5f42fc090d85de4dfd00ecc7290b2c86ce6b00eac13a969bad5af5b253",
+  "sha256": "sha256:388b19b5a47b97645cbee83a263d732f6276d565e2107dcfcc22c335e1fe7dee",
   "status": "accepted",
   "summary": "All repository-authored Product knowledge lives under .concord/docs, .concord/instructions, and .concord/scenarios, with one canonical copy per artifact and the manifest shards still the composed authority. A knowledge location outside .concord/ is valid only through an explicit operator override recorded in the manifest head, tied to one Product, and validated by the knowledge placement check. This repository carries no root docs, instructions, or scenarios directory and no compatibility symlink. Installed conduct stays a derived projection of .concord/instructions, and history reads in the layout each revision carries.",
   "tags": [

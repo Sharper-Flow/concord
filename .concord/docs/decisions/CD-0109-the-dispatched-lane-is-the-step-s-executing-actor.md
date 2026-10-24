@@ -86,10 +86,7 @@ Scenario: A lane cannot accept its own result
 
 ## Consequences
 
-The CLI `worker-dispatch` verb gains no request fields: the enrichment
-happens inside the evidence boundary from the authenticated assertion. The
-adapter is unchanged. `worker_authority_boundary_test.go` gains a
-production-topology test that starts, dispatches, and accepts as the owner,
-so the fixture arrangement and the produced arrangement cannot drift apart
-again. Issue #800 closes as the seventh and last blocker of this class on
-the dispatch route.
+The CLI `worker-dispatch` verb accepts no actor-enrichment request fields:
+the evidence boundary derives the actor from the authenticated assertion.
+`worker_authority_boundary_test.go` tests the production topology that starts,
+dispatches, and accepts as the owner.

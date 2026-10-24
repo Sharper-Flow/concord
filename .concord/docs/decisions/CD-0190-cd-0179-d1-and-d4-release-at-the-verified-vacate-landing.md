@@ -16,21 +16,18 @@
 
 ## Context
 
-CD-0179 D1 releases every occupancy row of a session inside the session_vacate
-commit, and D4 orders the terminal transition as a vacate that releases and a
-move that follows. The core commits the vacate before the adapter moves the
-host session. The commit is durable, and the move is a host operation that can
-refuse.
+A session_vacate released every occupancy row of a session at commit, before
+the adapter moved the host session. The commit was durable, and the move was a
+host operation that could refuse.
 
-A refused move, a destination mismatch, or an unreadable landing then leaves a
+A refused move, a destination mismatch, or an unreadable landing then left a
 live session in the worktree it asked to leave, with its occupancy rows
-already released. CD-0096 D3 reads a worktree whose occupancy rows are gone as
-empty and removable, so the removal gate can remove a directory a live session
-still runs in.
+already released. CD-0096 D3 read a worktree whose occupancy rows were gone as
+empty and removable, so the removal gate could remove a directory a live session
+still ran in.
 
-The store comment on the vacate resolution already said the release waits for
-the landing. The code released at the commit. The written law and the shipped
-release order name different moments, and the unsafe one is the shipped one.
+The store comment on the vacate resolution said the release waited for
+the landing. The code released at the commit. That release order was unsafe.
 
 ## Decision
 
@@ -42,10 +39,7 @@ checkout — as current rows in one transaction and records no landing
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 The commit leaves every occupancy row standing.
 
-CD-0179 D1 says: "A verified landing of a session, or a session_vacate of that
-session, therefore proves every other occupancy row of the same session stale,
-in any work item, and releases all of them." That sentence reads instead: the
-release a vacate produces happens at its verified landing, which the
+The release a vacate produces happens at its verified landing, which the
 adapter-only vacate-landing verb records after the host readback names the
 committed destination. Recovery restores a verified snapshot and reconciles current rows, so the release always belongs to the readback-verified landing ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
@@ -143,9 +137,7 @@ the release. A replay of a completed request records nothing and leaves the
 landing verb the only release owner: it resolves while the session holds no
 rows, and refuses once a later claim's rows stand.
 
-CD-0179 D4 says: "The adapter then runs session_vacate, which releases the
-occupancy rows, and moves the session to the derived destination." That
-sentence reads instead: the adapter runs session_vacate, which records the
+The adapter runs session_vacate, which records the
 relocation request and leaves the occupancy rows standing. The adapter then
 moves the session to the derived destination, verifies the landing by
 readback, and records the landing, which releases the occupancy rows. A failed

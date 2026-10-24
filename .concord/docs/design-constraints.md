@@ -2,7 +2,6 @@
 
 > **Status:** Aligned v3 under CD-0006 and CD-0222. Companion to [`priorities.md`](./priorities.md).
 > **Purpose:** Capture the non-functional requirements, hard constraints, and design directives that shape *how* Concord is built. These constraints are derived from the ranked priorities and operating envelope in [`priorities.md`](./priorities.md); if a companion document or future decision contradicts this file, `priorities.md` is the authority.
-> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** the store keeps current state and finite snapshots, not history; no event log, fold, upcaster, or replay exists.
 
 ---
 
@@ -84,7 +83,7 @@ This supports Priority 2 (Data governance, reliability, and safe evolution).
 
 **Requirement.** Portfolio and dashboard reads feel instant. Every read is bounded by Product scope and paginated or streamed; no query is unbounded.
 
-**Implication.** The read-path is a first-class design surface, implemented in Go as part of the Concord core ([`core-architecture.md`](./core-architecture.md) §1). The latency target and bounded-read requirement remain; the language is no longer conditional.
+**Implication.** The read-path is a first-class design surface, implemented in Go as part of the Concord core ([`core-architecture.md`](./core-architecture.md) §1), with a latency target and bounded-read requirement.
 
 **Direction.** Target sub-100ms for typical Product views; per-read latency budgets; on-disk projections as the primary read input. The read-path language is Go (see §7 and [`core-architecture.md`](./core-architecture.md)).
 
@@ -298,10 +297,9 @@ This supports Priority 2 (Data governance, reliability, and safe evolution) and 
 
 ## Architecture decision history
 
-All entries below are resolved by their cited accepted decisions. They remain for
-traceability and implementation conformance, not as active blockers.
+The cited decisions govern implementation conformance.
 
-1. **Storage model for Concord-owned state** (§4, §14). **Resolved by CD-0002** — see #8. Item 1 was previously an earlier private planning pointer and is now superseded by #8.
+1. **Storage model for Concord-owned state** (§4, §14). CD-0002 governs storage authority; see #8.
 2. **Workflow evolution semantics** (§3). **Resolved by CD-0006:** full coordination engine, code-defined versioned built-ins, one generic type, and forward-linked successors with independent authority/recovery.
 3. **Read-path implementation language** (§5, §7). Resolved — Go; see [`core-architecture.md`](./core-architecture.md).
 4. **Ambient Product context propagation** (§13). **Resolved by TS5/CD-0005:** trusted hidden call envelope, core re-resolution, explicit cross-scope intent, and inherited Product/workspace context.

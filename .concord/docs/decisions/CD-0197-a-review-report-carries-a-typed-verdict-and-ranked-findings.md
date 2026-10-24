@@ -25,7 +25,7 @@ nothing could tell them apart. `verdict_kind` on the workflow step is a
 different surface: it is the actor's own claim at `accept_worker_result`, not
 a lane output.
 
-A review exists to rank findings and to decide ship or no ship. That outcome
+A review ranks findings and reports its disposition. That outcome
 deserves a typed shape, the way `base_comparison` typed its checks in place.
 
 ## Decision
@@ -125,8 +125,6 @@ Main records its acceptance of the review's disposition, and the review report i
 - Bump the report to `schema_version` 2.0. Rejected: one lane's block would
   force every lane and the SQLite CHECK to move for a migration no stored row
   underwent.
-- Also refuse `ship` on a `P1` finding. Rejected: it turns a severity scale
-  into policy the operator has not set.
 
 ## Consequences
 
@@ -176,7 +174,7 @@ Scenario: The adapter refuses at admission and the summary carries typed counts
 ```
 
 - `go test ./internal/store/ -run TestReviewLaneCompletionRequiresTheTypedReviewBlock` proves the first and second scenarios.
-- `go test ./internal/store/ -run TestReviewLaneCompletionRefusesAFreeTextSeverityEntryBesideTheBlock` proves the fourth scenario's refusal half; the implementing change binds the current-state anchor for stored completions, which read back unchanged with no fold or replay (CD-0242 D2).
+- `go test ./internal/store/ -run TestReviewLaneCompletionRefusesAFreeTextSeverityEntryBesideTheBlock` proves the fourth scenario's refusal half.
 - `go test ./internal/store/ -run TestWorkerCompletionReviewBlockShapeIsClosed` proves the closed scales at the store boundary.
 - `go test ./internal/store/ -run TestLegacyReviewLaneDigestCompletesWithTheRequiredBlock` proves the pre-CD-0197 dispatch identity still completes, answering to its recorded dispatch requirements.
 - `bun test adapter/opencode/dispatch.test.ts` proves the adapter refusals and the typed ride-through.
@@ -184,7 +182,5 @@ Scenario: The adapter refuses at admission and the summary carries typed counts
 - `python3 scripts/generate-agent-lanes.py --check` proves the generated Go, TypeScript, docs, and lane prompts carry the requirement.
 - `python3 scripts/check-doc-contract.py` proves this record carries the current decision outline and passes the writing rules.
 - `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0197 identifier allocates once.
-- `TestOwnerOracleFinding`, `TestOwnerOracleLineage`, and `TestOwnerOracleReplay`
-  cover classified verdicts and canonical lineage; the cutover retires the
-  replay half, and its implementing change binds the current-state anchor for
-  recorded results (CD-0242 D2).
+- `TestOwnerOracleFinding` and `TestOwnerOracleLineage` cover classified
+  verdicts and canonical lineage.

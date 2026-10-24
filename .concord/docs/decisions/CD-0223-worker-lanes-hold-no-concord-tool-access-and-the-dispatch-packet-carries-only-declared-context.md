@@ -11,10 +11,6 @@
 - **Terms:** End-of-file (EOF) marks the end of a source. Git's current commit reference (HEAD) identifies the checkout commit.
 - **Approval:** Operator-delegated approval A4 for [Concord (CON) issue
   899](https://linear.app/sharper-flow/issue/CON-899).
-- **Amendment approval:** The operator approved the bounded-capability
-  amendment in-session on 2026-10-17 for [CON-1059](https://linear.app/sharper-flow/issue/CON-1059/move-lane-capability-enforcement-report-metadata-and-dispatch).
-- **Amended:** 2026-10-17. Snowball coordinator, operator-delegated, approved
-  the review-fix amendment in-session.
 
 ## Context
 

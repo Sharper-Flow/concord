@@ -55,7 +55,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ce793e651f06f8844da18596c90211c1a84478d94668a4c4d4b629eebf9875b6",
+  "sha256": "sha256:53677227e9a845aac8a9a7c50469d5a43c991381fa033de199fe659ade869dd0",
   "status": "accepted",
   "summary": "Complete retention policy preserving deferred terminal work pruning, Git and current-state authority (CD-0242 D2: finite verified snapshots, no event log or replay), canonical locator proof, historical front matter and frozen Domain scope, live/historical query composition, immutable pruned identities and PM10 separation. Replaces archive-driven research cleanup with reusable read-only terminal packs and explicit bounded idempotent retirement of terminal-owner packs with zero active required or optional pins, without calendar expiration. Live cutover and integrated conformance remain deployment obligations.",
   "tags": [

@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b1e185e67c4a7b69b63dc30fa9385876cf958969ee37c0c9c5168d9057502fe8",
+  "sha256": "sha256:7028df3408310b9ace2bc4300802eb508c7c5ad41f76a97705d52cf97bbba12c",
   "status": "accepted",
   "summary": "Worker-evidence CLI writes carry a signed worker-evidence-v1 assertion bound to the exact attempt, lane, readback, and provenance identity; the nonce is consumed in the evidence transaction, worker_evidence is client-policy authority no grant can carry, terminal attempts refuse further evidence, and the recorded actor is a verified client.",
   "tags": [

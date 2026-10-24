@@ -2,12 +2,6 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-19
-- **Amended:** 2026-09-20. D4 reclassified the model self-report from a
-  control to a disclosure for post-hoc audit, and the Consequences bullet now
-  claims audit, not detection.
-- **Amended:** 2026-10-02. D1's purpose text gains the registry when-clause
-  (CD-0184 registry descriptions): the opinion surface, tools, allowance, and
-  cap are unchanged.
 - **Scope:** The closed utility registry; the generated advisory body and tool
   allowance; the installer agent file list; [Concord (CON) issue
   315](https://linear.app/sharper-flow/issue/CON-315/add-a-concord-advisor-utility-for-coordinator-second-opinions)
@@ -45,7 +39,7 @@ problem and cite the evidence for it.` The registered
 purpose appends the when-clause `Use when a coordinator wants a second
 opinion reached without seeing the caller's own conclusion.`, so the
 generated description states what and when like every registry entry. The
-opinion surface is unchanged. It allows `bash`, `read`, `glob`, `grep`,
+utility allows `bash`, `read`, `glob`, `grep`,
 and `execute`. Its bash allowance is `git diff *`, `git log *`, `git show *`,
 `git status *`, `git ls-files *`, and `git rev-parse *`. Its wall-time cap is
 600 seconds. It has no packet, report schema, or evidence obligation.

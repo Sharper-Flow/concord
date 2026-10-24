@@ -18,21 +18,7 @@
 
 ## Context
 
-Four accepted documents claim that Concord-owned state suffers no lock
-contention and no lock waits:
-
-- [`design-constraints.md`](../design-constraints.md) §1 requires work "with
-  **no contention, no lock waits, no failed-writes-retry storms**";
-- [`design-constraints.md`](../design-constraints.md) §4 is titled *No locks, no
-  history repair* and requires that state "never suffers database-lock
-  contention";
-- [`core-architecture.md`](../core-architecture.md) §2 invariant 8 is named **No
-  lock waits**;
-- [`priorities.md`](../priorities.md) Priority 2 lists "No database lock
-  contention for agent-facing writes", and usability-floor condition 5 restates
-  it as "no locks".
-
-The accepted mechanism does something else, deliberately. SQLite permits one
+SQLite permits one
 writer at a time. CD-0002 §2b and CD-0003 select library-in-process access with
 `WAL` and `busy_timeout=5000`; writers take `BEGIN IMMEDIATE` and queue. CD-0003
 cites sqlite.org endorsing exactly this multi-process pattern — *"writers queue
@@ -47,20 +33,15 @@ wait owned the observed tail**. The harness reports what the decision describes.
 identity. Nothing in the executable evidence claims zero waiting, because
 nothing measured it.
 
-So the mechanism is coherent, the measurement is honest, and the law is wrong.
-An invariant that cannot be satisfied by the mechanism chosen to satisfy it
-cannot be evidence of anything. Worse, floor item
-`fc5-concurrent-process-conformance` inherited the same claim — *"Concurrent
-agent-facing writes do not contend"* — which made a readiness item unfalsifiable
-in the direction that matters: no run can ever demonstrate it, so no run can
-ever fail it.
+Floor item `fc5-concurrent-process-conformance` needs a falsifiable bound on
+writer-admission wait, distinct from commit duration and escaped busy failures.
 
 ## Decision
 
 ### D1. The invariant is bounded writer admission, not absent writer admission
 
 Concord's concurrency law states a measurable boundary over three distinct
-quantities that the previous wording collapsed into one:
+quantities:
 
 | Quantity | Meaning | Required bound |
 |---|---|---|
@@ -68,7 +49,7 @@ quantities that the previous wording collapsed into one:
 | **Commit duration** | Time the write lock is actually held. | Bounded, and reported separately so a lock-hold regression is distinguishable from host contention. |
 | **Escaped busy failure** | `SQLITE_BUSY` surfacing to a caller after `busy_timeout` expires. | Zero. Not bounded — zero. |
 
-Reads remain lock-free. That claim was always true and is unchanged.
+Reads remain lock-free.
 
 The three quantities are reported separately and never summed, because they fail
 for different reasons and imply different remedies. A rising admission wait on a
@@ -98,9 +79,8 @@ acceptance entry point, run in the required check, may report an accepted
 verdict of `passed` or `fired`; every other run remains `inconclusive` regardless
 of the numbers it produces.
 
-This is a restatement of CD-0011's structural population authority, promoted into
-the invariant because a bound stated without it invites exactly the averaging
-that CD-0011's calibration record already had to correct once.
+CD-0011 owns the population authority; a bound without it permits invalid
+averaging across populations.
 
 ### D4. Reopen conditions stay with CD-0011
 
@@ -109,37 +89,25 @@ sole list of conditions that reopen the storage authority, including the one
 this invariant most directly bears on: *queueing materially blocks ordinary
 operator work on the supported deployment*.
 
-That condition is the honest form of the requirement the old wording was
-reaching for. The operator's concern was never that a lock is taken; it was that
-waiting becomes visible as work not getting done. Stated that way it is
-observable, and it already has a home.
+The condition measures whether waiting prevents ordinary operator work.
 
 ### D5. Invariant 8 is renamed
 
-[`core-architecture.md`](../core-architecture.md) §2 invariant 8 becomes
-**Bounded writer admission**. The name carries the claim: *No lock waits* is
-cited by companion documents that reference the invariant rather than restating
-it, so a name that misdescribes the mechanism propagates by design.
+[`core-architecture.md`](../core-architecture.md) §2 invariant 8 is
+**Bounded writer admission**.
 
-The invariant remains derived from Priority 2 and remains non-negotiable. What
-changes is that it can now be checked.
+The invariant derives from Priority 2 and is non-negotiable and checkable.
 
 ## Consequences
 
 - Usability-floor condition 5 and floor item
   `fc5-concurrent-process-conformance` state a requirement a run can fail. The
-  item's evidence is corrected to cite `internal/store/conformance_test.go`, the
-  ten-process harness that bears the claim, rather than
-  `internal/store/workflow_conformance_test.go`, which is the workflow corpus and
-  bears no concurrency claim at all.
+  item's evidence cites `internal/store/conformance_test.go`, the ten-process
+  harness that bears the claim.
 - The floor manifest's title-equality check forces `priorities.md` and
   `floor-readiness.v1.json` to move together. That is the mechanism working.
-- No source file changes. The harness already emits the accepted vocabulary;
-  this decision adopts it upward rather than pushing new terms downward.
-- No digest, contract, schema, or generated file moves.
-- Priority 2 is not weakened. "No hand-repair of history" and "safe evolution for
-  in-flight work" are untouched, and the concurrency clause becomes stronger by
-  becoming checkable.
+- Priority 2 requires "No hand-repair of history" and "safe evolution for
+  in-flight work" alongside the checkable concurrency clause.
 
 ## Rejected alternatives
 

@@ -55,8 +55,8 @@ addressed row may hold any lifecycle.
 
 ### D3. The allowlist name states the ground
 
-`mainCheckoutTerminalWorkOperations` becomes
-`mainCheckoutWorktreeRetirementOperations`. Terminality is one tier's
+`mainCheckoutWorktreeRetirementOperations` contains the retirement operations.
+Terminality is one tier's
 condition, not the admission's ground. Each later entry requires a decision
 naming the row gate that closes the surface, as CD-0092 D3 requires at the
 capability boundary.
@@ -66,10 +66,9 @@ capability boundary.
 - A session in the main checkout runs the audit pass and clears both
   accumulated drift classes. No worktree anchor sits between the drift and
   the reclaim.
-- The structural lock moves with the name. The both-sides test pins the two
+- The both-sides test pins the two
   retirement operations and refuses a third without a decision.
-- CD-0105 D4 keeps its outcome and loses its rationale. The admission stands
-  on the tiers.
+- Main-checkout retirement admission rests on the tier gates.
 
 ## Rejected alternatives
 
@@ -83,7 +82,7 @@ capability boundary.
 ## Verification
 
 - `internal/agent.TestMainCheckoutAllowlistDeclaresBothSides` pins the
-  renamed map at exactly the two retirement operations.
+  map at exactly the two retirement operations.
 - `internal/agent.TestAuditReclaimResolvesFromMainCheckout` grants the
   operation at the authorization boundary and runs a pass from the main
   checkout through real git.

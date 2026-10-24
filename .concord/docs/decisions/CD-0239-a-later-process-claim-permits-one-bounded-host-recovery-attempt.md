@@ -8,14 +8,9 @@
 - **Approval:** The operator approved the exact text of this record and of
   the amendments it makes on 2026-10-19 (CD-0230 D4), for
   [Concord (CON) issue 1188](https://linear.app/sharper-flow/issue/CON-1188).
-- **P12 declaration:** Serious. It removes behavior the operator sees: an
-  operator approval point (CD-0230 D5) — the operator-approved contract
-  supersession a failed launch needed before another launch. It touches
-  security: a caller-supplied process claim, which an authorized agent with
-  shell access can arrange, feeds a recorded claim the admission checks.
-  It authorizes no launch, and each launch is admitted on its own scope and safety checks ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)). The Domain test counts one child Domain,
-  `workflow-engine`; CD-0178 is root-homed and no amended law declares
-  applicability. It changes no UI/UX.
+- **Security boundary:** A caller-supplied process claim, which an authorized
+  agent with shell access can arrange, feeds a recorded claim the admission checks.
+  It authorizes no launch, and each launch is admitted on its own scope and safety checks ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ## Context
 
@@ -74,10 +69,6 @@ Recorded observations grant no launch authority; each launch is one admitted req
 - Exempt host failures from a count. Rejected: no count exists (CD-0242 D6);
   the unknown-effect reconciliation and the scope, prerequisite, ownership,
   and safety checks bound launches.
-- Accept any new host process, without the time condition. Rejected: a second
-  process that was already running can carry the same fault.
-- Route host-failure recovery through contract supersession. Rejected: the
-  contract is not wrong, so an operator approves a false change.
 
 ## Consequences
 

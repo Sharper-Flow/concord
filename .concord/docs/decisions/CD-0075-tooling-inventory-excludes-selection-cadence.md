@@ -51,12 +51,6 @@ Fixture tests still prove the lexical edge cases against the checker. The new
 constant comparison proves that the schema declares the same edges without
 requiring a second JSON Schema implementation.
 
-### D3. Accepted law changes by narrow supersession
-
-CD-0074 remains the historical record of the original surface. This decision
-narrowly supersedes its cadence clauses instead of rewriting accepted law. All
-other CD-0074 decisions remain in force.
-
 ## Consequences
 
 - Agents can discover tools that never run in CI without receiving a command-
@@ -64,8 +58,7 @@ other CD-0074 decisions remain in force.
 - `tier` continues to describe cost. It never implies required or normal use.
 - Schema/checker drift fails in the repository's required Python test suite,
   including under `python3 -S`.
-- Projects with a `cadence` key must remove it when they adopt this corrected
-  contract. PR #513 introduced no other project manifest before this correction.
+- A `cadence` key fails validation as an unknown field.
 
 ## Rejected alternatives
 

@@ -5,13 +5,10 @@
 - **Scope:** The terminal-placement boundary for every Concord binary and
   command
 - **Approval:** The operator approved the launcher objective that surfaced
-  the conflict and this correcting record.
+  the conflict and this correcting record. The Snowball coordinator approved
+  session entry route removal for Concord (CON) issue CON-910 on 2026-10-13
+  under the operator's delegation.
 - **Related:** CD-0078, CD-0108, CD-0014, CD-0219, C18
-- **Amended:** CD-0219 (2026-10-09) retired the interactive launcher TUI and
-  re-homed the boundary to the session entry route. Concord (CON) issue CON-910 (2026-10-13)
-  removes the session entry route under the Snowball coordinator's
-  operator-delegated approval. The boundary now binds every Concord binary
-  and command with no entry route at all.
 - **Preserves:** The CD-0078 D1 placement boundary and the store-write-free
   managed-entry boundary of CD-0108 D4
 
@@ -20,15 +17,7 @@
 CD-0078 D1, accepted 2026-08-26, forbids every Concord component from
 knowing a terminal multiplexer. It keeps placement with the host.
 
-CD-0108 D1, accepted 2026-09-03, worded the remade launch action as opening
-a terminal tab on the work's Concord worktree. The remake record
-reintroduced the placement the earlier boundary had removed, so the two
-texts could not both govern the launcher. This record repaired the text so
-the accepted decision stated what the accepted code did.
-
-The repair outlives the surface it repaired. The entry route is removed,
-and the boundary this record states now binds every Concord
-binary and command with no session entry route at all.
+The terminal-placement boundary binds every Concord binary and command.
 
 ## Decision
 
@@ -42,8 +31,7 @@ session and creates no surface (CD-0098).
 
 ### D2. Retired: resume and prompt pass-through
 
-Resume and prompt pass-through were entry-route duties and retired with the
-route. Resumption of workflow position is the CD-0016 canonical projection,
+Resumption of workflow position is the CD-0016 canonical projection,
 delivered by work-start preparation and re-asserted by the per-turn hook
 (CD-0031, CD-0090), never a terminal session identifier.
 

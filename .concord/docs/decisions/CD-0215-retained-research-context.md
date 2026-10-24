@@ -1,7 +1,6 @@
 # CD-0215: Retained research context with explicit retirement
 
 - **Status:** Accepted
-- **Amended:** 2026-10-18.
 - **Date:** 2026-10-09
 - **Approval:** `CON-816` A1, accepted under operator delegation on 2026-10-09;
   calendar expiration was rejected.
@@ -12,9 +11,6 @@
   [CD-0217](CD-0217-publication-and-retention-boundaries.md),
   [compaction-retention-policy](../compaction-retention-policy.md)
 
-**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
-limits this record's operator-consent requirements to its six classes; its D5 replaces an unconditional recovery veto. Retention eligibility and other non-consent checks remain required.
-
 ## Context
 
 Research belongs to work but does not acquire a work lifecycle of its own.
@@ -22,8 +18,7 @@ Owner completion ends content authoring, not the usefulness of an exact research
 Publication must not destroy content that another work item still uses.
 An optional pin protects stored content without creating a workflow blocker.
 
-CD-0222 remains the authority for Initiative identity, narrative, entries, architecture, and migration.
-This replacement does not restore Epic identity or alter unrelated Initiative obligations.
+CD-0222 governs Initiative identity, narrative, entries, architecture, and migration.
 
 ## Decision
 

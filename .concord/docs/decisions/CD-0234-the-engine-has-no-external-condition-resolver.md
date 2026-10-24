@@ -47,9 +47,7 @@ wait authority exists.
 
 ## Consequences
 
-The pooled resolver and cancellation functions, the resolver parameters of the
-action boundary, and the corpus actions that drive them are deleted. The
-workflow-engine contract §10 states that no resolver exists. CD-0008 D5's
+The workflow-engine contract §10 states that no resolver exists. CD-0008 D5's
 timer, failure, and heuristic bullets bind a future resolver only.
 
 ## Verification

@@ -3,11 +3,6 @@
 Status: accepted
 Date: 2026-08-24
 
-Amended by: CD-0143 for the fresh packet and epoch required by verdict correction
-after completed and accepted worker delivery.
-
-Amended by: [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 and D6 — dispatch writes current rows; no correction budget or attempt count exists.
-
 ## Context
 
 Issue #253: the lane worker pipeline reaches no installation. The
@@ -43,6 +38,10 @@ it does not retain packet bodies or create another authorization record.
 A present commit must be a valid raw commit OID. Missing candidates remain
 absent, including historical completions and non-oracle dispatches without
 a candidate. No later write fabricates the field or rewrites an earlier completion.
+
+After verdict correction of a completed and accepted worker delivery, the next
+dispatch binds a fresh packet to the current correction context and creates a
+fresh worker attempt and epoch through the normal dispatch boundary (CD-0143 D2).
 Native oracle execution requires current clean `HEAD`, current core subject,
 and this recorded dispatch commit to be nonempty and equal.
 Missing or unequal values refuse with zero test-program launches.

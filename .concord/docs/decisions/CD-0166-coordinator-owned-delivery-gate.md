@@ -7,8 +7,7 @@
 - **Related:** CD-0156, CD-0043
 - **Preserves:** Active workflow instances, the ci-wait no-store-write boundary, and the await-health no-prober boundary
 
-**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
-limits operator consent for delivery assertions and corrective returns to its six classes. Delivery evidence, subject binding, and other non-consent checks remain required.
+Operator consent for delivery assertions and corrective returns is limited to the six classes in [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes). Delivery evidence, subject binding, and other non-consent checks remain required.
 
 ## Context
 
@@ -45,10 +44,9 @@ truth of the assertion.
 
 `workflow.implementation` and `workflow.break_fix` splice one `delivery` step
 between `refine` and the verdict step, using the CD-0156 shape: the step
-declares `record_delivery` plus the two continuity holds and nothing else, so
-its single forward edge cannot be crossed without a recorded delivery. The
-gate amendment adds one declared action to the step: `request_correction`, the
-evidence-bearing corrective return. It is a hold. Its admission returns a parked,
+declares `record_delivery`, the two continuity holds, and `request_correction`,
+the evidence-bearing corrective return, so its single forward edge cannot be
+crossed without a recorded delivery. The corrective return is a hold. Its admission returns a parked,
 unreviewed change to the correction target step for a fresh review, so
 `record_delivery` stays the gate's only forward exit; the return is a current-row write in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). The remaining workflow
 types keep the action at its existing step and gain the payload only, because
@@ -67,8 +65,7 @@ pull request stays visible instead of silently orphaned.
 
 The workflow read projection reports a `parked_delivery` object, with the
 step, the resume action, a read-time parked duration, and the unreconciled
-flag. The Product row counts live items sitting on their gate as
-`parked_deliveries`. Both are read-time derivations over the current
+flag. This is a read-time derivation over the current
 definition, in the await-health tradition: elapsed time labels, never
 resolves, and no timer, poller, or background process exists.
 
@@ -117,8 +114,7 @@ changes (CD-0242 D2, D14).
   the effect step into the gate and the gate into the verdict step, under the
   required payload.
 - `TestWorkflowReadParksDeliveryAtGate` proves the read projection parks one
-  parked delivery for a gated item and carries its duration; the Product-row
-  count retired with the row under CD-0224.
+  parked delivery for a gated item and carries its duration.
 - `TestWorkflowReadMarksUnreconciledAfterCancellation` proves a cancelled
   item reads as unreconciled.
 - `TestWorkflowCompletionRefusedAtDeliveryGate` proves the completed

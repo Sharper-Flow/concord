@@ -11,15 +11,10 @@
 - **Approval:** The operator approved this law change on 2026-10-07,
   relayed by the Snowball coordinator. The public pull request carries its
   delivery evidence. This repair creates no managed workflow approval record.
-- **Amended:** Concord (CON) issue CON-910 (2026-10-13) removes the operator repair command and
-  its launcher, states the repair setup as host obligations, and re-scopes
-  session entry as host-owned, under the Snowball coordinator's
-  operator-delegated approval. D1 and D2 are unchanged.
+- **Approval:** Concord (CON) issue CON-910 (2026-10-13), under the Snowball coordinator's operator-delegated approval.
 
-**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
-qualifies every operator-consent clause in this record, including tables and
-acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
+Operator consent for outside-repair hold and reconciliation follows [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary).
+Other admission, safety, and evidence requirements remain required.
 
 ## Context
 

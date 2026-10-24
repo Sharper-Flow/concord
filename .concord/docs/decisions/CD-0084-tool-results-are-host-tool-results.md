@@ -63,7 +63,7 @@ put adapter wording between the core result and the reader.
 `invokeConcordOperation` returns `CoreConcordEnvelope`, not `any`. Each export
 declares `Promise<ToolResult>` and reaches the host through `encodeHostResult`.
 No export reaches the host contract through `any`, so the typechecker sees the
-boundary and the TS2322 allowance is spent and removed.
+boundary.
 
 ### D4. An oversize result becomes a bounded error envelope
 
@@ -75,9 +75,8 @@ whole envelope or a valid statement that it did not fit, and never a fragment.
 
 ## Consequences
 
-An agent receives the same envelope content it received before, as JSON text
-rather than as a structured object. Callers that read fields off the tool
-result read them from parsed `output`.
+An agent receives the core envelope as JSON text in `output`. Callers read
+envelope fields from parsed `output`.
 
 `encodeHostResult` owns the conversion, so a new tool cannot reach the host
 through a different path. A test asserts that every tool the contract declares

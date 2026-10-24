@@ -2,8 +2,6 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-06
-- **Amended:** 2026-10-17. D2 withdraws the standalone workflow completion
-  family and D3 drops `ClaimStep`. No shipped route reached either site.
 - **Scope:** The mechanism that makes a CD-0050 consequential acknowledgement
   durable, the CD-0050 D3 enumeration, and the CD-0050 D4 placement rule
 - **Preserves:** CD-0050 D2, the durability guarantee; CD-0050 D5, the
@@ -59,15 +57,14 @@ discards the connection, so the pool never reuses a connection left at `FULL`.
 The acknowledgement needs no checkpoint after the commit.
 
 `internal/store/durable.go` owns the mechanism: the `writeTx` type,
-`Store.TransactDurable`, and `Store.DurableCommits`. `SyncDurable` no longer
-exists. Where CD-0050 D2 says an operation is acknowledged after `SyncDurable`
-succeeds, it reads instead: after its durable commit succeeds. The D2
-guarantee does not change.
+`Store.TransactDurable`, and `Store.DurableCommits`. An operation is acknowledged
+after its durable commit succeeds, under CD-0050 D2's durability guarantee.
 
 ### D2. The enumeration names every family the store commits durably
 
-CD-0050 D3 lists five families. Four more families carried the barrier
-before pull request 1558, but D3 never named them. The enumeration adds them:
+The consequential transaction families are grant, client, and approval authority;
+workflow action dispatch; cross-authority steps; worker evidence; and the
+following families:
 
 | Family | Sites | Why it is consequential |
 |---|---|---|
@@ -75,11 +72,8 @@ before pull request 1558, but D3 never named them. The enumeration adds them:
 | Predecessor import | `cmd/concord/predecessor_import.go` `writeProductAndProjects`, `writeSecondaryProjects`, `writeSelectedWork` | The acknowledged import is the record of which Products, Projects, and work items migrated. A loss after the acknowledgement misstates the migration. |
 | Recovery | `internal/store/recovery.go` `RecoverFoldGuard` | Recovery restores current state in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Its acknowledgement admits ordinary writes again. |
 
-Four of the five CD-0050 D3 families remain. The standalone workflow
-completion family is withdrawn: `CompleteWorkflowWithRegistry` had no shipped
-caller, and every shipped completion commits inside the workflow action
-dispatch boundary family. The site column of the cross-authority
-row now names the fence entry points of D3 of this record.
+Workflow completion commits inside the workflow action dispatch boundary
+family. Cross-authority fence entry points are declared in D3.
 
 ### D3. The public fence entry points commit durably
 

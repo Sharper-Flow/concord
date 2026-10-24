@@ -7,12 +7,6 @@
 **Amends:** CD-0005 (adds the worker-lane dimension above the D6 adapter boundary; D1–D9 unchanged)
 **Preserves:** R1 (forward-linked composition), CD-0013 (worker authority boundary and actor identity), CD-0016 (pinned continuity projections)
 **Cites:** #42/CD-0016 (context continuity — separate decision; lane dispatch consumes its pinned projections)
-**Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D6
-
-**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
-qualifies every operator-consent clause in this record, including tables and
-acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
 
 ## Context
 
@@ -27,7 +21,11 @@ process, and Concord records the executing identity through readback.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, CD-0013 D11 and CD-0059 D2 replace failed-retry consent with exact transactional attempt, epoch, contract, and job binding. The fresh attempt, capability, signed evidence, and worker boundary requirements remain. Main controls the loop, and each launch carries its own authority ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) and [D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
+Operator consent follows [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+throughout this record, including tables and acceptance criteria.
+Other admission, safety, evidence, and historical-pin requirements remain required.
+
+For `approval_policy=consequence_v1`, CD-0013 D11 and CD-0059 D2 require exact transactional attempt, epoch, contract, and job binding, not failed-retry consent. Fresh attempts, capability checks, signed evidence, and the worker authority boundary remain required. Main controls the loop, and each launch carries its own authority ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) and [D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ### D1. Concord owns a canonical lane registry
 

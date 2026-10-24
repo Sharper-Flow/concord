@@ -26,9 +26,8 @@ and may exclude scope. The delivery assertion names the delivered change, and
 a correction overlays it. The `raised_from` relations name the follow-up
 work, and a confirmed Linear link names its issue key.
 
-CD-0170 D1 limited receipt content to the verified predicates, so the gap is
-law, not a rendering defect. This record widens that law with its own record
-because CD-0169 rejected in-place amendment of a sibling record.
+The receipt needs the closure facts beside its verified predicates so the
+operator can see what the completed work delivered and what remains.
 
 ## Decision
 
@@ -172,8 +171,8 @@ Scenario: The prose width truncates visibly
 - `go test ./internal/store/ -run 'TestReadWorkClosure|TestRecordProposalOutOfScope'`
   proves the closure read, the correction overlay, the bare degrade, and the
   version boundary.
-- `go test ./internal/store/ -run 'TestWorkflowDefinitionVersionPins|TestBuiltinDefinitions'`
-  proves every released digest holds and the new version registers once.
+- `go test ./internal/store/ -run 'TestCurrentDefinitionsHaveOneSourcePerLiveFamily|TestLiveHeadsAreTheirCompiledCompositions'`
+  proves the current compiled definitions and their canonical identities.
 - `go test ./internal/store/ -run TestMigrationChecksumPinsMatchDefinitions`
   proves the additive migration and its checksum pin.
 - `python3 scripts/generate-agent-contracts.py --check` proves the projected

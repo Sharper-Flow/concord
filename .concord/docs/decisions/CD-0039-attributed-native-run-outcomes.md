@@ -173,8 +173,8 @@ Returning `ok` while the recorded row says `failed` or `rolled_back` is forbidde
 The adapter cannot synthesize `partial` from prose or provider output; the core
 derives it from the typed report committed with the durable operation.
 
-`outcome_mismatch` remains the completion-gate error for a workflow contract
-whose final predicate is not satisfied. Native-run partials use
+A workflow contract whose final predicate is not proved refuses completion with
+`missing_evidence`. Native-run partials use
 `operation_conflict` and reconciliation so the two error meanings do not drift.
 
 ### D9. The execution boundary does not move

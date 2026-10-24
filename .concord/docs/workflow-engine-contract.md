@@ -423,7 +423,7 @@ the syntax check, while the selected definition is the authority for meaning.
    every `distinguish_from` rule. A delivered absence is strengthening when its
    absent subject set contains the approved set and each approved identity is
    truly absent, not merely archived, relocated, renamed, or disabled. Relocation
-   is therefore `outcome_mismatch`, never success. Different surface or changed
+   is therefore weaker, never success. Different surface or changed
    distinction rules is incomparable.
 3. **`outcome`:** evaluate the recorded token. It passes iff the token is a member
    of the approved `allowed` set. `no_change` is a valid research result. A spike's
@@ -431,14 +431,15 @@ the syntax check, while the selected definition is the authority for meaning.
    bound decision record in §6.1, and the record's decision token must sit in the
    approved `allowed` set. A token outside the set is weaker/mismatched.
 4. **`check`:** evaluate the named check against the exact immutable subject
-   and compare its closed result with `expected_result`. The verdict actor owns
-   behavioral strength and records stronger-or-equal as `ok`; weaker and
-   incomparable are surfaced as `outcome_mismatch`, with no retry authority. A
-   changed immutable subject is stale evidence, not a new result.
+   and compare its closed result with `expected_result`. A changed immutable
+   subject is stale evidence, not a new result.
 
-For all four kinds, unreadable data produces an undetermined result, which the
-verdict actor never records as `ok`. `outcome_mismatch` is the typed refusal
-for a verdict that records a weaker or incomparable delivery.
+Review owns behavioral strength. It assesses each criterion on the final
+candidate as `supported`, `unproved`, or `mismatch`, and unreadable data is
+never `supported`. Only a `supported` assessment that cites a passing producer
+receipt can become criterion proof, so a weaker or incomparable delivery has no
+proof and completion refuses it at clause 4 with `missing_evidence`
+([CD-0235 D2](./decisions/CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md#d2-completion-refuses-on-the-recorded-verdict)).
 
 Job-oracle controls use exit-status results and retained execution references
 (CD-0205, CD-0056). Their receipts are reported evidence, not per-predicate
@@ -474,10 +475,10 @@ are stable:
 | 1 | Every required evidence binding exists, resolves to its immutable subject, and belongs to the approved contract | `missing_evidence` | `provide_evidence` |
 | 2 | Every declared condition is resolved or explicitly cancelled by its owning authority | `not_terminal` | `reread_entities` |
 | 3 | Every `modifies` edge is within the declared scope and the spec mandate is satisfied | `invariant_violation` | `reread_entities` |
-| 4 | Verdict is present, its actor tuple is complete, and it is recorded by an actor other than the executing Implement actor ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)) | `unauthorized` for same/partial actor; `missing_evidence` for absent verdict | `contact_operator` / `provide_evidence` |
-| 5 | Premise is confirmed by an operator-typed actor | `approval_required` | `request_approval` |
-| 6 | Every approved predicate's latest verdict is `ok` and comparable, and no declared blocking staleness rule drifted | `outcome_mismatch` or `stale_requires_review` | `contact_operator` / `refresh_context` |
-| 7 | Contract, verdict, evidence bindings, impact notices, terminal metadata, and the completion record commit atomically | `operation_conflict` | `reconcile_operation` |
+| 4 | Every approved predicate has a criterion-proof association on the current candidate, its actor tuple is complete, and it is recorded by Main, not the executing Implement actor ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)) | `unauthorized` for same/partial actor; `missing_evidence` for absent verdict | `contact_operator` / `provide_evidence` |
+| 5 | Premise is confirmed with the authority the contract's decision fact requires: a verified operator for decision-bearing work, and under `consequence_v1` an authenticated non-worker coordinator for engineering work (CD-0013 D11) | `approval_required` or `missing_evidence` | `request_approval` / record the coordinator confirmation |
+| 6 | Every recorded verdict answers an approved predicate, and no declared blocking staleness rule drifted | `outcome_mismatch` or `stale_requires_review` | `contact_operator` / `refresh_context` |
+| 7 | The gate reads, impact notices, terminal metadata, lifecycle change, and the completion record commit in one transaction | `operation_conflict` | `reconcile_operation` |
 
 The same transaction performs the reverse-edge impact scan and notice deduplication
 before writing the completion record. A response is not terminal until the commit
@@ -521,12 +522,12 @@ No other actor distinctness is required. Every verdict actor must still carry a
 complete tuple; any empty or partial tuple is refused. Actor rows and tuple fields cannot be
 updated or deleted; a changed tuple receives a new actor reference.
 
-Every new `record_verdict` call supplies an explicit `verdict_kind` for each
-judged predicate: `ok`, `outcome_mismatch`, or `insufficient_evidence`. An omitted,
-null, empty, or undeclared kind refuses the entire action before any recorded
-change, durable operation, or work-version update. No verdict
-kind is inferred. This authoring rule applies to new calls on any definition
-pin. Stored evidence keeps its recorded meaning
+Every `record_verdict` entry names an approved predicate and 1 to 32 producer
+receipt references. The core records the association as `ok` only when each
+receipt proves the criterion on the current candidate; a caller-supplied
+verdict kind is refused as an unknown field, and an unapproved predicate
+refuses with `outcome_mismatch`. A refusal leaves no recorded change, durable
+operation, or work-version update
 ([CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source));
 no released definition version is retained for history, and no replay or
 rebuild exists
@@ -864,13 +865,13 @@ values; approval checks their grammar and the verdict actor interprets them
 
 - Given a work item whose planning omits the required end-state
   When approve_contract is dispatched
-  Then the engine refuses with invariant_violation and the instance remains
-  planned.
+  Then the engine refuses with invalid_input, records no contract, and the
+  instance remains planned.
 
-- Given an approved outcome over two capabilities and a review verdict
-  that records a delivery over one of them as weaker
+- Given an approved outcome over two capabilities and a Review that
+  assesses the delivery over one of them as mismatch
   When complete is dispatched
-  Then the engine refuses with outcome_mismatch and records no
+  Then the engine refuses with missing_evidence and records no
   completion.
 
 - Given a completion verdict recorded by the executing Implement actor
@@ -898,10 +899,12 @@ executed against production dispatch by
 
 - Criterion 1 is proved by the bound `WF02-planning-requires-outcome`
   scenario, which dispatches approve_contract without an end-state and asserts
-  an invariant_violation refusal with the instance still planned.
+  an invalid_input refusal from the required-field check, no recorded
+  contract, and the instance still planned.
 - Criterion 2 is proved by the bound `WF04-weaker-delivery` scenario, whose
-  review verdict records the delivery as `outcome_mismatch` and which
-  asserts an outcome_mismatch refusal with no completion record (CD-0235 D2).
+  Review assesses the delivery as `mismatch`, so no criterion proof exists,
+  and which asserts a missing_evidence refusal with no completion record
+  (CD-0235 D2).
 - Criterion 3 is proved by the bound `WF13-verdict-actor-distinctness`
   scenario, whose verdict is recorded by the executing Implement actor and
   asserts the refusal (CD-0242 D5).
@@ -909,5 +912,6 @@ executed against production dispatch by
   scenario, which dispatches before the definition is registered and asserts
   an invariant_violation refusal with no fallback.
 - Criterion 5 is proved by the bound `WF19-completion-one-transaction`
-  scenario, which drives a satisfying completion and asserts the contract,
-  verdict, evidence, notices, and completion record commit together.
+  scenario, which fails a completion inside its transaction and asserts that
+  no completion record, notice, terminal metadata, or lifecycle change
+  remains.

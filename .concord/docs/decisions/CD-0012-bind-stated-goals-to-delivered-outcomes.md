@@ -331,8 +331,8 @@ follow the existing corpus conventions; this decision does not itself modify
 2. A change contract approved with no required end-state is refused at approval (D4).
 3. A change contract whose required end-state already holds before execution is refused as
    vacuous (D4).
-4. A delivery asserting a weaker end-state than approved is refused at completion, with a
-   typed outcome-mismatch result rather than a generic error (D3, TS7).
+4. A delivery asserting a weaker end-state than approved is refused at completion,
+   because Review records no passing proof for the weaker criterion (D3, CD-0235 D2).
 5. A delivery asserting a stronger end-state than approved is accepted (D3).
 6. An absence end-state over a named ground-truth surface is satisfied by removal and
    refused when the subject is relocated rather than removed (D3, D5).

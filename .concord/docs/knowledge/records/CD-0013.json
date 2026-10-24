@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c22477c69fe9e93e67293296c06dea2f4a0338c4ff6dea5e5180dd2d99f20b6a",
+  "sha256": "sha256:7541d37c5c304133a870f71270534e2d8eb167c098755e81fa94e659203a5483",
   "status": "accepted",
   "summary": "Defines the versioned workflow registry, execution evidence, fail-closed completion gate, and engine-owned correction route for completed and accepted worker results.",
   "tags": [

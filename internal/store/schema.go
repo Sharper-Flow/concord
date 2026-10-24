@@ -96,6 +96,9 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 		}
 		return backfillWorkflowHealthySequences(ctx, q)
 	}
+	if m.Name == "delivery_assertion_receipts" {
+		return backfillWorkflowDeliveryAssertionReceipts(ctx, q)
+	}
 	return nil
 }
 
@@ -7100,6 +7103,15 @@ INSERT INTO workflow_staleness_observations
 CREATE TRIGGER workflow_staleness_observations_guard_insert BEFORE INSERT ON workflow_staleness_observations BEGIN SELECT RAISE(ABORT, 'workflow_staleness_observations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER workflow_staleness_observations_guard_update BEFORE UPDATE ON workflow_staleness_observations BEGIN SELECT RAISE(ABORT, 'workflow_staleness_observations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER workflow_staleness_observations_guard_delete BEFORE DELETE ON workflow_staleness_observations BEGIN SELECT RAISE(ABORT, 'workflow_staleness_observations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
+	{
+		Version:        147,
+		Name:           "delivery_assertion_receipts",
+		Breaking:       true,
+		FoldMaintained: "advance",
+		SQL: `
+ALTER TABLE effect_receipts ADD COLUMN delivery_assertion INTEGER NOT NULL DEFAULT 0;
 `,
 	},
 }

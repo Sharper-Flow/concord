@@ -162,7 +162,11 @@ func appendEvent(ctx context.Context, tx *sql.Tx, e Event, allowCompletion bool)
 	if err != nil {
 		return 0, wrapFailure(KindInvalidPayload, "append_event", "cannot digest the event payload", false, "supply a valid JSON payload", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest) VALUES(?,?,?,?,?,?,?,?)`, e.EventID, seq, e.Kind, e.SubjectType, e.SubjectID, e.Actor, e.PayloadVersion, digest); err != nil {
+	_, asserted, err := workflowEventDeliveryAssertion(e)
+	if err != nil {
+		return 0, wrapFailure(KindInvalidPayload, "append_event", "cannot classify the delivery assertion", false, "supply a valid completed-action payload", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest,delivery_assertion) VALUES(?,?,?,?,?,?,?,?,?)`, e.EventID, seq, e.Kind, e.SubjectType, e.SubjectID, e.Actor, e.PayloadVersion, digest, asserted); err != nil {
 		return 0, wrapFailure(KindUnavailable, "append_event", "cannot record the effect receipt", true, "retry once the database is writable", err)
 	}
 	return seq, nil

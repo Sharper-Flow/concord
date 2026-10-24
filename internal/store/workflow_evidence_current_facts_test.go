@@ -148,7 +148,7 @@ ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_payload;
 		t.Fatal(err)
 	}
 	for _, m := range migrations {
-		if m.Version == 142 || m.Version == 145 {
+		if m.Version == 142 || m.Version == 145 || m.Version == 147 {
 			if err := applyMigration(t.Context(), tx, m); err != nil {
 				t.Fatal(err)
 			}

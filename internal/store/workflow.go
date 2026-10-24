@@ -2598,7 +2598,11 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 			return err
 		}
 	}
-	if p.DeliveryArtifact != "" && p.DeliveryState == "asserted" {
+	_, asserted, assertionErr := workflowEventDeliveryAssertion(event)
+	if assertionErr != nil {
+		return workflowProjectionError(assertionErr, "cannot classify the current delivery assertion")
+	}
+	if asserted {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_delivery_state(work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?) ON CONFLICT(work_id) DO UPDATE SET assertion_seq=excluded.assertion_seq,assertion_id=excluded.assertion_id,actor=excluded.actor,occurred_at=excluded.occurred_at,payload_version=excluded.payload_version,payload=excluded.payload,correction_id=NULL,correction_occurred_at=NULL,correction_payload=NULL`, event.SubjectID, event.Seq, event.EventID, event.Actor, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.PayloadVersion, string(event.Payload)); err != nil {
 			return workflowProjectionError(err, "cannot record the current delivery assertion")
 		}

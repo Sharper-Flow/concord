@@ -6563,7 +6563,7 @@ ALTER TABLE worker_attempts ADD COLUMN dispatch_seq INTEGER;
 ALTER TABLE worker_attempts ADD COLUMN terminal_payload TEXT CHECK(terminal_payload IS NULL OR json_valid(terminal_payload));
 ALTER TABLE worker_attempts ADD COLUMN terminal_event_id TEXT;
 ALTER TABLE worker_attempts ADD COLUMN terminal_payload_version INTEGER;
-ALTER TABLE worker_attempts ADD COLUMN terminal_kind TEXT;
+ALTER TABLE worker_attempts ADD COLUMN terminal_kind TEXT CHECK(terminal_kind IS NULL OR terminal_kind IN ('worker.completed','worker.failed'));
 ALTER TABLE worker_attempts ADD COLUMN failure_recorded INTEGER NOT NULL DEFAULT 0 CHECK(failure_recorded>=0);
 ALTER TABLE workflow_instances ADD COLUMN result_disposition TEXT NOT NULL DEFAULT '';
 CREATE TABLE worker_authorizations (

@@ -26,11 +26,12 @@ type migration struct {
 	// nullable or defaulted column, leave an older binary unaffected: it never
 	// names what it does not know.
 	//
-	// One additive shape is not safe under a rolling upgrade. A column the
-	// fold advances moves as later events apply, and a fold generation from
-	// before the migration never advances it, so the column drifts behind the
-	// log with no convergence (CD-0111 D3; migration 108's last_activity_at
-	// drifted this way). FoldMaintained names that shape beside the SQL, and
+	// One additive shape is not safe under a rolling upgrade: state that later
+	// effects must keep true. A column the fold advances, or a new table the
+	// write path maintains per effect, needs a writer an older binary does not
+	// run, so the state drifts behind its effects with no convergence
+	// (CD-0111 D3; migration 108's last_activity_at drifted this way).
+	// FoldMaintained names that shape beside the SQL, and
 	// scripts/check-migration-compatibility.py binds an advance declaration
 	// to this bit.
 	//

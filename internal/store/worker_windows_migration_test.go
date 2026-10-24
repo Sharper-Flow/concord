@@ -58,25 +58,8 @@ func TestWorkerWindowsMigration143Parity(t *testing.T) {
 	want := snapshot()
 	// Remove only 143's destination state. Its backfill must reconstruct the
 	// same current facts the real writing paths produced above.
-	for _, statement := range []string{
-		`DROP TABLE worker_attempt_dispositions`,
-		`ALTER TABLE work_items DROP COLUMN effect_seq`,
-		`ALTER TABLE work_items DROP COLUMN last_progress_at`,
-		`ALTER TABLE worker_authorizations DROP COLUMN event_id`,
-		`ALTER TABLE worker_authorizations DROP COLUMN start_seq`,
-		`ALTER TABLE worker_authorizations DROP COLUMN start_payload`,
-		`ALTER TABLE worker_authorizations DROP COLUMN contract_version`,
-		`ALTER TABLE worker_attempts DROP COLUMN terminal_seq`,
-		`ALTER TABLE worker_attempts DROP COLUMN terminal_occurred_at`,
-		`ALTER TABLE worker_attempts DROP COLUMN failure_recorded_seq`,
-		`ALTER TABLE worker_job_revisions DROP COLUMN recorded_seq`,
-		`ALTER TABLE worker_job_revisions DROP COLUMN recorded_event_id`,
-		`ALTER TABLE worker_job_revisions DROP COLUMN satisfied_seq`,
-		`ALTER TABLE workflow_instances DROP COLUMN latest_non_dispatch_start_seq`,
-	} {
-		if _, err := s.db.Exec(statement); err != nil {
-			t.Fatalf("%s: %v", statement, err)
-		}
+	if _, err := s.db.Exec(workerWindowFactsFixtureReversal); err != nil {
+		t.Fatal(err)
 	}
 	var migration143 migration
 	for _, m := range migrations {
@@ -98,6 +81,23 @@ func TestWorkerWindowsMigration143Parity(t *testing.T) {
 		}
 	}
 }
+
+const workerWindowFactsFixtureReversal = `
+DROP TABLE worker_attempt_dispositions;
+ALTER TABLE work_items DROP COLUMN effect_seq;
+ALTER TABLE work_items DROP COLUMN last_progress_at;
+ALTER TABLE worker_authorizations DROP COLUMN event_id;
+ALTER TABLE worker_authorizations DROP COLUMN start_seq;
+ALTER TABLE worker_authorizations DROP COLUMN start_payload;
+ALTER TABLE worker_authorizations DROP COLUMN contract_version;
+ALTER TABLE worker_attempts DROP COLUMN terminal_seq;
+ALTER TABLE worker_attempts DROP COLUMN terminal_occurred_at;
+ALTER TABLE worker_attempts DROP COLUMN failure_recorded_seq;
+ALTER TABLE worker_job_revisions DROP COLUMN recorded_seq;
+ALTER TABLE worker_job_revisions DROP COLUMN recorded_event_id;
+ALTER TABLE worker_job_revisions DROP COLUMN satisfied_seq;
+ALTER TABLE workflow_instances DROP COLUMN latest_non_dispatch_start_seq;
+`
 
 func TestWorkEffectFrontierAndLastProgress(t *testing.T) {
 	db, err := sql.Open(driverName, ":memory:")

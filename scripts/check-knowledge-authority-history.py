@@ -5,7 +5,8 @@ CD-0159 D5: the frozen legislated-by-default cohort in
 internal/store/knowledge_authority_defaults.v1.json must equal, member for
 member, the surviving (record_id, kind) pairs from the named application tree
 whose authority names the asset's vehicle contract at the asset's version.
-Deleted records have no current authority membership (CD-0242 D10).
+Deleted records leave the cohort; surviving members still come only from the
+pinned application tree (CD-0159 D5).
 The census reads Git objects at the historical docs/knowledge/
 records/ path, so it needs full history: assign it only to the
 fetch-depth-0 verify-contracts job. Every production surface stays

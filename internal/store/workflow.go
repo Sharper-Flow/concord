@@ -2902,23 +2902,29 @@ func advancingWorkflowActions(definition WorkflowDefinition) []string {
 // dispatch start, a callable start on a released pin, and every later
 // checkpoint answer to the checkpoint-writer rule; the started fold
 // authenticated the actor for the derivation pair alone.
-func workflowDerivedStartPairAuthored(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID, stepID, actionID string, epoch int64, beforeSeq int64, actorRef, checkpointEventID string) (bool, error) {
+func workflowDerivedStartPairAuthored(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID, stepID, actionID string, epoch int64, _ int64, actorRef, checkpointEventID string) (bool, error) {
 	if !workflowDerivedStepStartActive(definition) || workflowDerivedStartCheckpoints[actionID] != stepID {
 		return false, nil
 	}
-	startSeq, startEpoch, found, err := latestWorkflowActionStartAt(ctx, tx, workID, stepID, beforeSeq)
-	if err != nil || !found || startEpoch != epoch {
-		return false, err
-	}
-	var startedEventID, startedAction, startedActor string
-	if err := tx.QueryRowContext(ctx, `SELECT event_id,COALESCE(json_extract(payload,'$.action_id'),''),COALESCE(json_extract(payload,'$.actor_ref'),'') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND seq=?`, workID, startSeq).Scan(&startedEventID, &startedAction, &startedActor); err != nil {
-		return false, workflowProjectionError(err, "cannot read the derived step start")
-	}
-	operationID := strings.TrimSuffix(checkpointEventID, ":checkpoint")
-	if operationID == checkpointEventID || startedEventID != operationID+":started" || startedAction != actionID {
+	start, err := readWorkflowActionStartTx(ctx, tx, workID, stepID, false)
+	if err == sql.ErrNoRows {
 		return false, nil
 	}
-	return startedActor == actorRef, nil
+	if err != nil {
+		return false, workflowProjectionError(err, "cannot read the derived step start")
+	}
+	var payload workflowActionStartedPayload
+	if err := json.Unmarshal(start.Payload, &payload); err != nil {
+		return false, err
+	}
+	if payload.AttemptEpoch != epoch {
+		return false, nil
+	}
+	operationID := strings.TrimSuffix(checkpointEventID, ":checkpoint")
+	if operationID == checkpointEventID || start.EventID != operationID+":started" || payload.ActionID != actionID {
+		return false, nil
+	}
+	return payload.ActorRef == actorRef, nil
 }
 
 func latestWorkflowActionStartEpoch(ctx context.Context, tx *sql.Tx, workID, stepID string, beforeSeq int64) (int64, bool, error) {

@@ -116,6 +116,7 @@ func repopulateWorkflowCurrentFactsForTest(t *testing.T, s *Store) {
 	if _, err := tx.Exec(`
 DROP TABLE workflow_phase_exits;
 DROP TABLE workflow_action_obligations;
+DROP TABLE workflow_worker_actors;
 DROP TABLE workflow_step_completions;
 DROP TABLE workflow_correction_state;
 DROP TABLE workflow_predicate_verdicts;

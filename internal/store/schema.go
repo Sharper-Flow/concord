@@ -6774,9 +6774,10 @@ DROP TABLE law_subjects_v140;
 	{
 		// Requests retain their latest pending or landed state per source.
 		// Claim landings prove placement only for their exact claim generation.
-		Version:  141,
-		Name:     "session_relocation_facts",
-		Breaking: false,
+		Version:        141,
+		Name:           "session_relocation_facts",
+		Breaking:       true,
+		FoldMaintained: "advance",
 		SQL: `
 INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
 CREATE TABLE session_vacate_requests (

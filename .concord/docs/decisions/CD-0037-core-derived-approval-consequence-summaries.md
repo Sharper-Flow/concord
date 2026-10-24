@@ -8,8 +8,6 @@
   ([`agent-call-context-contract.md`](../agent-call-context-contract.md)), TS6
   ([`agent-adapter-transport-contract.md`](../agent-adapter-transport-contract.md)),
   TS7 ([`agent-result-envelope.md`](../agent-result-envelope.md))
-- **Supersedes:** nothing
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — the store keeps current rows; no event history or replay exists.
 
 **Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 limits operator consent to its six classes. Consequence summaries and operation binding do not themselves create an approval requirement; all other checks remain required.
@@ -129,7 +127,7 @@ The major-cutover obligations are closed here:
    original prompt lacked the required summary; consumed approvals remain audit
    history.
 4. Old/new adapter-core compatibility tests prove fail-closed negotiation.
-5. Durable domain operations and their current rows do not change ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no event history or replay exists).
+5. Durable domain operations and their current rows do not change.
 6. This record carries explicit operator acceptance.
 
 ## Rejected alternatives

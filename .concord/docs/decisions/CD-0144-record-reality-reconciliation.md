@@ -7,16 +7,9 @@
 - **Approval:** The operator approved this bounded reconciliation duty and its
   execution claim boundary.
 - **Related:** CD-0222, CD-0088, CD-0095, CD-0096, CD-0118
-- **Amends:** CD-0222 D6 where it binds the active architecture footprint to
-  contract approval
 - **Preserves:** Local Git and SQLite as audit authorities; the clean-tree,
   merged-branch, and observed-session reclaim gates; operator approval for
   destructive removal
-- **Amended by:** CD-0181 adds squash containment as the second way the
-  unpushed class and the durable gate pass. CD-0212 re-binds D1-D2 to one
-  immutable live `HEAD` observation, so the content classes read the checked-out
-  branch or detached tip rather than the stored claim column, and the rows
-  name the live head.
 
 **Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
@@ -74,8 +67,8 @@ external service remains a separate decision.
   reclaim recommendation can discard them.
 - Content-bearing worktrees remain visible and require inspection or an
   operator-selected recovery instead of an automatic reclaim path.
-- Dormant approved contracts no longer create Domain contention before work
-  starts.
+- An approved contract without an execution start holds no active architecture
+  footprint.
 
 ## Verification
 

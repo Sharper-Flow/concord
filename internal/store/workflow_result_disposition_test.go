@@ -156,9 +156,9 @@ func (f crossAttemptFixture) completeReport(t *testing.T, attemptID string, lane
 	}
 }
 
-// completeReviewNoShip records a corrective report whose disposition and
+// completeCorrectiveReview records a corrective report whose disposition and
 // findings must survive another attempt's rejection unchanged.
-func (f crossAttemptFixture) completeReviewNoShip(t *testing.T, attemptID string, at int64) {
+func (f crossAttemptFixture) completeCorrectiveReview(t *testing.T, attemptID string, at int64) {
 	t.Helper()
 	event := reviewCompleteEventV3(f.workID, attemptID, f.reviewLane, reviewBlockFixture(), workerFixtureDirectory(t, f.s, f.workID))
 	event.EventID, event.OccurredAt = "cross-attempt-completed-"+attemptID, time.Unix(at, 0).UTC()
@@ -175,7 +175,7 @@ func (f crossAttemptFixture) buildTwoAttemptHistory(t *testing.T) {
 	f.dispatch(t, f.attemptR, f.researchLane, f.dispatcher)
 	f.completeReport(t, f.attemptR, f.researchLane, 21)
 	f.dispatch(t, f.attemptV, f.reviewLane, f.dispatcher)
-	f.completeReviewNoShip(t, f.attemptV, 22)
+	f.completeCorrectiveReview(t, f.attemptV, 22)
 }
 
 func (f crossAttemptFixture) rejectRequest(t *testing.T, expectedVersion int64, attemptID string, epoch int64, suffix string, at int64) WorkflowActionExecutionRequest {
@@ -438,7 +438,7 @@ func TestCrossAttemptResultDisposition(t *testing.T) {
 		t.Fatal(err)
 	}
 	if reviewAfter.Review == nil || reviewAfter.Review.Disposition != "correction_required" {
-		t.Fatalf("review verdict after the rejection = %#v, want the untouched no_ship judgment", reviewAfter.Review)
+		t.Fatalf("review disposition after the rejection = %#v, want the untouched correction_required judgment", reviewAfter.Review)
 	}
 	if !reflect.DeepEqual(reviewAfter.Review.Findings, reviewBefore.Review.Findings) {
 		t.Fatalf("review findings after the rejection = %#v, want the reported finding preserved as completed", reviewAfter.Review.Findings)
@@ -742,7 +742,7 @@ func TestCrossAttemptCheckpointRejectsEachResultOnce(t *testing.T) {
 	attemptC3 := "attempt:" + workID + ":3"
 	f.dispatch(t, attemptC1, f.reviewLane, f.dispatcher)
 	epochC1 := crossAttemptDispatchEpoch(t, f.s, workID, attemptC1)
-	f.completeReviewNoShip(t, attemptC1, 31)
+	f.completeCorrectiveReview(t, attemptC1, 31)
 
 	// The next dispatch start at a checkpoint step closes the eligibility
 	// interval: the checkpoint exact-once timing retires C1's eligibility
@@ -752,7 +752,7 @@ func TestCrossAttemptCheckpointRejectsEachResultOnce(t *testing.T) {
 	if results := f.rejectableResults(t, 0); len(results) != 0 {
 		t.Fatalf("rejectable results after the later checkpoint dispatch start = %#v, want the earlier review retired", results)
 	}
-	f.completeReviewNoShip(t, attemptC2, 33)
+	f.completeCorrectiveReview(t, attemptC2, 33)
 	if results := f.rejectableResults(t, 0); !crossAttemptResultsContain(results, attemptC2, epochC2) || crossAttemptResultsContain(results, attemptC1, epochC1) {
 		t.Fatalf("rejectable results after the second review completed = %#v, want only the current review", results)
 	}
@@ -793,7 +793,7 @@ func TestCrossAttemptCheckpointRejectsEachResultOnce(t *testing.T) {
 	// Disposing one result does not dispose a later result.
 	f.dispatch(t, attemptC3, f.reviewLane, f.dispatcher)
 	epochC3 := crossAttemptDispatchEpoch(t, f.s, workID, attemptC3)
-	f.completeReviewNoShip(t, attemptC3, 38)
+	f.completeCorrectiveReview(t, attemptC3, 38)
 	if results := f.rejectableResults(t, 0); !crossAttemptResultsContain(results, attemptC3, epochC3) {
 		t.Fatalf("rejectable results after the third review completed = %#v, want the fresh review open", results)
 	}
@@ -1188,7 +1188,7 @@ func TestCrossAttemptCombinedRetryOverAnotherSessionsAttemptRefusesWhole(t *test
 		t.Fatalf("the other session's approved review dispatch: %v", err)
 	}
 	f.materializeDispatch(t, f.attemptV, f.reviewLane, other)
-	f.completeReviewNoShip(t, f.attemptV, 22)
+	f.completeCorrectiveReview(t, f.attemptV, 22)
 
 	versionBefore := readWorkVersion(t, f.s, workID)
 	combined := f.rejectRequest(t, versionBefore, f.attemptR, epochR, "combined", 51)

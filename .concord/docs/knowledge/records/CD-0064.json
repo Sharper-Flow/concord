@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9cdb0c61bd25e80e521f914d970b24c995663c869f0d99dfa1f37c44f14839d7",
+  "sha256": "sha256:68edfebd52fff3f794bc41c75a8a1ab88f85812d31b5adf31f8d689ac1ff6df2",
   "status": "accepted",
   "summary": "Execution lanes generate as hidden subagents for authorized native Task dispatch, never primary session or CLI-run targets. Native child-session readback must assert the exact dispatched executor before any worker evidence is recorded. A mismatch refuses with agent_identity_mismatch. Nesting denials, capabilities, registry digests, packet and report schemas remain unchanged; model selection remains host-owned under CD-0058.",
   "tags": [

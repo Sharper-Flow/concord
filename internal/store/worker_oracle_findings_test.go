@@ -793,7 +793,7 @@ func TestOwnerOracleFinding(t *testing.T) {
 		oracleDispatchAttempt(t, f, workID, attemptID, nil, job)
 		return ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attemptID, "oracle-finding-"+itoa(attempts), build)}})
 	}
-	// A sound no_ship blocker folds: owner bound, predicate tie,
+	// A sound correction_required blocker folds: owner bound, predicate tie,
 	// reproducible evidence, and an unavailable receipt with the empty
 	// run_ref and no exit code.
 	if err := report(func(payload *WorkerCompletedPayload) {
@@ -1413,7 +1413,7 @@ func TestOwnerOracleCorrectionLineage(t *testing.T) {
 		t.Fatalf("lineage after defect closure = %#v, %v, want the remaining sibling", lineage, err)
 	}
 
-	// An accepted no_ship stays non-progress and mints no basis family:
+	// An accepted correction_required stays non-progress and mints no basis family:
 	// the fresh attempt's retained out-of-scope P0 follow-up report is
 	// accepted, and the wall neither resets nor widens behind it.
 	attempt6 := "attempt:" + workID + ":6"
@@ -1425,14 +1425,14 @@ func TestOwnerOracleCorrectionLineage(t *testing.T) {
 			Oracle: &WorkerOracleFinding{Classification: OracleClassificationFollowUp},
 		}}}
 	})}}); err != nil {
-		t.Fatalf("accepted-no_ship round refused: %v", err)
+		t.Fatalf("accepted-correction_required round refused: %v", err)
 	}
 	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attempt6, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, f.acceptor); err != nil {
-		t.Fatalf("accept the no_ship report: %v", err)
+		t.Fatalf("accept the correction_required report: %v", err)
 	}
 	lineage, err = readWorkerOracleFindingLineageTx(context.Background(), s.DatabaseForTesting(), workID)
 	if err != nil || !slices.Equal(lineage.openFindingIDs(), []string{siblingID}) {
-		t.Fatalf("accepted no_ship changed unresolved lineage = %#v, %v", lineage, err)
+		t.Fatalf("accepted correction_required changed unresolved lineage = %#v, %v", lineage, err)
 	}
 }
 

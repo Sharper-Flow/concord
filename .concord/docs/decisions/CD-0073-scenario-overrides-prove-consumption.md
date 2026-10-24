@@ -14,8 +14,6 @@
 - **Preserves:** Every existing assertion, invariant, and deferral; the free-form
   typing of `fixture_override` in `contracts/agent-jobs-scenarios.schema.json`;
   AJ5's initial-state override and the version accounting it depends on
-- **Supersedes:** Nothing. This closes a gap the corpus never covered.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — overrides are honored by writing current state; no fold or replay exists.
 
 ## Context
 
@@ -23,7 +21,7 @@ Two of the 23 agent-jobs scenarios declare `initial_state.fixture_override`, a
 block stating the non-default world a scenario needs before its job runs.
 
 `AJ5-atomic-supersession` declares two keys, and its binding honors them by
-writing the required current state through the store ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no fold or replay exists). `AJ6-compact-terminal-work`
+writing the required current state through the store. `AJ6-compact-terminal-work`
 declares two keys, and nothing reads either one.
 
 Nothing detected the difference. The runner passes the whole scenario to a

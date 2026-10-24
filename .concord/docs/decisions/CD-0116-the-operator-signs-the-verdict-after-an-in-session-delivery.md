@@ -7,9 +7,6 @@
   in work-14241c17803dadaa82a498c5, recorded in
   [issue #923](https://github.com/Sharper-Flow/concord/issues/923).
 - **Related:** CD-0013, CD-0109, CD-0112, and issues #801, #881, #888, #923
-- **Amends:** CD-0013 D5 and CD-0109's evaluator rule by admitting verified
-  operator authority after a definition-backed advancing exit
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D6, D9, D14
 
 ## Context
 
@@ -33,7 +30,6 @@ different facts.
 ## Decision
 
 D1 and D2's operator-substitution route applies only to definitions that do not declare `approval_policy=consequence_v1`. Under that policy, no host approval is requested for a verdict or completion: Main records them against Review's accepted ready disposition and passing receipts ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls), [D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)), and a host approval never substitutes for missing proof. D3's worker boundary and D4's evidence gates stand.
-
 
 ### D1. Verified operator authority is available after a definition-backed exit
 
@@ -64,9 +60,7 @@ that executed a step or accepted a worker result requires operator approval,
 even after the lease rotates to a lane.
 A read failure refuses the operation instead of implying independence.
 
-[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)
-governs: no separate evaluator or model-distinctness requirement exists, and
-an unsigned self-evaluation remains forbidden.
+An unsigned self-evaluation remains forbidden ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 ### D3. Worker authority ends at the report
 

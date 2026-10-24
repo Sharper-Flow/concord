@@ -11,8 +11,8 @@ import (
 const checksRepairContinuityWorkID = "checks-repair-continuity"
 const checksRepairContinuityJobID = "job:checks-repair-continuity"
 
-// The continuity regression (CD-0205 D4, amended 2026-10-19, CD-0148
-// amendment): a failed confirming review voids the first repair and leaves
+// The continuity regression (CD-0205 D4): a failed confirming review voids
+// the first repair and leaves
 // its repairing revision unresolved, and that own debt cannot fold into a
 // second checks repair — recovery first re-records and accepts the repairing
 // revision's own obligation, leaving only the original revision unresolved,
@@ -367,7 +367,7 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 			EvidenceRefs: []string{run3.OperationRef},
 		})
 	checksRepairRejection(t, s, attempt3, open[:2], acceptor, false)
-	// The settling acceptance discharges the failed confirming review's
+	// The confirming acceptance discharges the failed confirming review's
 	// repairing revision, leaving only the original revision unresolved.
 	acceptChecksRepairAttempt(t, s, workID, attempt3, acceptor)
 	watermark, watermarkErr := workerChecksRepairWatermarkTx(ctx, s.DatabaseForTesting(), workID)

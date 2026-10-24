@@ -194,15 +194,15 @@ func acceptDeliveryCandidateAt(t *testing.T, workID, ref, step string, pending b
 	qAcceptCriterionReview(t, f, repo, c.early.OperationRef)
 	if pending {
 		c.attempt = "attempt:" + workID + ":review"
-		c.epoch = acceptDeliveryCompleteReview(t, c, c.attempt)
+		c.epoch = acceptDeliveryCompleteReview(t, c, c.attempt, "ready_for_final_proof")
 	}
 	return c
 }
 
 // acceptDeliveryCompleteReview dispatches one job-bound Review attempt at the
-// current step and lands its ready_for_final_proof report, leaving the result
+// current step and lands its attributed disposition, leaving the result
 // unaccepted. It returns the attempt's authorized epoch.
-func acceptDeliveryCompleteReview(t *testing.T, c acceptDeliveryCandidate, attempt string) int64 {
+func acceptDeliveryCompleteReview(t *testing.T, c acceptDeliveryCandidate, attempt, disposition string) int64 {
 	t.Helper()
 	s, workID := c.f.store, c.f.workID
 	job := reviewSubjectReadyRevision(t, c.f)
@@ -210,7 +210,7 @@ func acceptDeliveryCompleteReview(t *testing.T, c acceptDeliveryCandidate, attem
 		t.Fatalf("review dispatch %s: %v", attempt, err)
 	}
 	c.j.laneDispatch(t, attempt, "review", &job)
-	report := currentReviewBlockForTest(t, s, workID, attempt, "ready_for_final_proof")
+	report := currentReviewBlockForTest(t, s, workID, attempt, disposition)
 	for _, criterion := range report.Dependencies.Criteria {
 		report.Assessments = append(report.Assessments, WorkerReviewAssessment{PredicateID: criterion.PredicateID, Assessment: "supported", ReceiptRefs: []string{c.early.OperationRef}})
 	}
@@ -380,7 +380,7 @@ func TestDeliveryAdmissionRefusalsMatchAcrossEntryRoutes(t *testing.T) {
 				}, wantKind: KindInvalidOperation, wantDetail: "requires the delivery step's fenced start action"},
 				{name: "rejected-review", routes: []string{"record_delivery"}, seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
 					rejected := "attempt:" + c.f.workID + ":rejected"
-					epoch := acceptDeliveryCompleteReview(t, c, rejected)
+					epoch := acceptDeliveryCompleteReview(t, c, rejected, "ready_for_final_proof")
 					reviewGateRejectResult(t, c.f.store, c.f.workID, rejected, epoch, reviewGateAcceptor(c.f.workID))
 					acceptDeliveryBindFresh(t, c, "after-rejection")
 					return nil

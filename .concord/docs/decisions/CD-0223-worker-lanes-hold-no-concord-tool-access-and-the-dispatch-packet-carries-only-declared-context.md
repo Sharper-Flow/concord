@@ -5,20 +5,12 @@
 - **Scope:** The tool access of dispatched worker lanes, the adapter surface
   those lanes reach, and the packet block that carries law and Domains to a
   lane; [Concord (CON) issue 899](https://linear.app/sharper-flow/issue/CON-899)
-- **Amends:** CD-0017 D4 at its paragraph ("Workers never record step
-  transitions, verdicts, or completion, and never spawn nested workflow
-  authority."), adding the tool-access boundary the same boundary implies
 - **Preserves:** CD-0017 D1 to D9 at every other sentence, CD-0005 D6, and the
   coordinator routes every lane's parent already uses
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 - **Related:** CD-0017, CD-0020, CD-0043, CD-0102, CD-0193, and [CD-0222](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md)
 - **Terms:** End-of-file (EOF) marks the end of a source. Git's current commit reference (HEAD) identifies the checkout commit.
 - **Approval:** Operator-delegated approval A4 for [Concord (CON) issue
   899](https://linear.app/sharper-flow/issue/CON-899).
-- **Amendment approval:** The operator approved the bounded-capability
-  amendment in-session on 2026-10-17 for [CON-1059](https://linear.app/sharper-flow/issue/CON-1059/move-lane-capability-enforcement-report-metadata-and-dispatch).
-- **Amended:** 2026-10-17. Snowball coordinator, operator-delegated, approved
-  the review-fix amendment in-session.
 
 ## Context
 
@@ -114,9 +106,7 @@ resolve against the Product registry and the approved contract's affected
 scope. Recorded packets and reading sets stay readable under their recorded
 formats as history. Access to general Concord state and workflow tools remains denied.
 
-Amended 2026-10-13 for core-owned declared-context checks
-([Linear](https://linear.app/sharper-flow/issue/CON-887/one-shared-typed-work-context-packet-per-work-item-read-and-extended)):
-the core admission checks the declared context before any dispatch effect.
+The core admission checks the declared context before any dispatch effect.
 It observes the claimed worktree's clean `HEAD` against the admitted
 `subject_commit` before the action transaction opens. The review lane's
 `HEAD` and tree check against the packet subject stays the backstop for

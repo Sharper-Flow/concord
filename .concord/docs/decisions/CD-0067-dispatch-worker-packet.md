@@ -3,11 +3,6 @@
 Status: accepted
 Date: 2026-08-24
 
-Amended by: CD-0143 for the fresh packet and epoch required by verdict correction
-after completed and accepted worker delivery.
-
-Amended by: [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 and D6 — dispatch writes current rows; no correction budget or attempt count exists.
-
 ## Context
 
 Issue #253: the lane worker pipeline reaches no installation. The
@@ -42,7 +37,11 @@ field. This extends the existing packet-derived predicate binding pattern;
 it does not retain packet bodies or create another authorization record.
 A present commit must be a valid raw commit OID. Missing candidates remain
 absent, including historical completions and non-oracle dispatches without
-a candidate. No later write fabricates the field or rewrites an earlier completion ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no upcast exists).
+a candidate. No later write fabricates the field or rewrites an earlier completion.
+
+After verdict correction of a completed and accepted worker delivery, the next
+dispatch binds a fresh packet to the current correction context and creates a
+fresh worker attempt and epoch through the normal dispatch boundary (CD-0143 D2).
 Native oracle execution requires current clean `HEAD`, current core subject,
 and this recorded dispatch commit to be nonempty and equal.
 Missing or unequal values refuse with zero test-program launches.
@@ -50,9 +49,7 @@ Ordinary historical dispatch behavior remains unchanged; absent commit binding
 grants no native oracle execution. No store migration is needed for this
 completion-payload field.
 
-Amended 2026-10-09 for the packet output-protocol pin
-([Linear](https://linear.app/sharper-flow/issue/CON-891/give-the-workers-final-report-an-explicit-protocol-identity-instead-of)):
-the packet declares its output protocol. `inputs.report_protocol`, when
+The packet declares its output protocol. `inputs.report_protocol`, when
 present, names the report framing its worker must use —
 `concord-worker-result-v1` — and every new packet builder sets it. The field
 travels inside the digested packet object, so `worker_packet_digest` pins it
@@ -62,10 +59,7 @@ the field is historical, and its output follows
 the legacy report grammar; a packet that pins the protocol never falls back
 to that grammar.
 
-Amended 2026-10-13 for the consumed context frontier, the core-observed
-delivery observation, and core-owned subject freshness
-([Linear](https://linear.app/sharper-flow/issue/CON-887/one-shared-typed-work-context-packet-per-work-item-read-and-extended)):
-the dispatch completion also records `worker_context_frontier`, the
+The dispatch completion also records `worker_context_frontier`, the
 nonnegative source frontier of the admitted work-context view: the
 highest sequence among the work item's context-source records at read time. A
 present view carries its frontier, including zero, and a dispatch whose
@@ -114,7 +108,7 @@ through the existing records. Newer rejected, failed, or unaccepted results
 cannot replace the accepted delivery, and they do not let an older one
 through. A delivery from another work item, Project, or worktree cannot host
 the review, and a cancelled or superseded work item cannot review. This join
-opens no approval challenge ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) governs: no correction budget or attempt count exists). A review whose joined delivery carries no clean core observation
+opens no approval challenge. A review whose joined delivery carries no clean core observation
 refuses; the approved remedy is a fresh implementation attempt.
 
 The dispatch packet is admitted whole under the shared dispatch context

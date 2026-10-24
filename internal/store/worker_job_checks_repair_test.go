@@ -223,7 +223,7 @@ func TestChecksRepairSatisfiesNamedRevisionsAndAdmitsOneConfirmingReview(t *test
 	if ready, err := readyWorkerJobRevisions(ctx, s.db, workID); err != nil || len(ready) != 0 {
 		t.Fatalf("ready revisions behind the unconfirmed repair = %#v, %v, want none", ready, err)
 	}
-	// A later ordinary revision cannot hide an accepted repair's review debt.
+	// A later ordinary revision cannot hide an accepted repair's pending confirming Review.
 	later := jobFields("go test ./internal/store/ -run TestChecksRepair", nil)
 	later["ready"] = false
 	record(later, "later ordinary revision")
@@ -235,8 +235,8 @@ func TestChecksRepairSatisfiesNamedRevisionsAndAdmitsOneConfirmingReview(t *test
 	if _, err := loadWorkflowDeliveryJobAdmissionForAccept(ctx, s.db, workID, definition.Definition, &delivery, ""); err != nil {
 		t.Fatal(err)
 	}
-	if !delivery.ChecksRepairReviewDebt {
-		t.Fatal("a later ordinary revision hid the unconfirmed repair's review debt")
+	if !delivery.ChecksRepairUnconfirmedReview {
+		t.Fatal("a later ordinary revision hid the unconfirmed repair's pending confirming Review")
 	}
 	// The named revisions resolve prerequisite readiness through the
 	// accepted repairing result: each records the repairing acceptance as
@@ -255,10 +255,10 @@ func TestChecksRepairSatisfiesNamedRevisionsAndAdmitsOneConfirmingReview(t *test
 			t.Fatalf("named revision %s@%d = %s via %q, want satisfied through the repairing acceptance %q", named.JobID, named.Revision, state, resultRef, acceptedRef)
 		}
 	}
-	// Delivery refuses while the review debt stands; the refusal text is
+	// Delivery refuses while the confirming Review remains pending; the refusal text is
 	// implementation-owned.
 	if err := runVerdictActionAs(t, s, workID, "record_delivery", mustJSONValue(map[string]any{"delivery_artifact": "artifact:checks-repair-early", "delivery_state": "asserted"}), 0, acceptor); err == nil {
-		t.Fatal("delivery advanced while the unconfirmed checks repair's review debt stands")
+		t.Fatal("delivery advanced while the unconfirmed checks repair's confirming Review remains pending")
 	}
 	// At most one unconfirmed repair per job: a second repair of the same
 	// named revisions refuses while the first stands.
@@ -522,10 +522,10 @@ func TestWorkerJobChecksRepairFoldVerifiesDerivedMetadata(t *testing.T) {
 // Acceptance of a blocking confirming Review voids the repair: the named
 // revisions become unresolved again, the old and new checks stay on record,
 // and the voided repair cannot admit another confirming review (CD-0205 D4).
-func TestChecksRepairNoShipReviewVoidsRepair(t *testing.T) {
+func TestChecksRepairCorrectiveReviewVoidsRepair(t *testing.T) {
 	for _, disposition := range []string{"correction_required", "revision_required"} {
 		t.Run(disposition, func(t *testing.T) {
-			const workID = "checks-repair-no-ship-void"
+			const workID = "checks-repair-corrective-review-void"
 			const jobID = "job:checks-repair-void"
 			fixture := seedChecksRepairFixture(t, workID, "repair")
 			s := fixture.store
@@ -1184,9 +1184,9 @@ func TestChecksRepairAbandonedConfirmingReviewVoidsRepair(t *testing.T) {
 
 // The delivery-asserting accept runs the one delivery admission the
 // standalone record_delivery runs (CD-0205 D3/D5): behind an unconfirmed
-// checks repair's review debt it refuses on the same shared gate, on the
+// checks repair's pending confirming Review it refuses on the same shared gate, on the
 // combined route exactly as on the standalone route.
-func TestChecksRepairReviewDebtHoldsCombinedAcceptRoute(t *testing.T) {
+func TestChecksRepairUnconfirmedReviewHoldsCombinedAcceptRoute(t *testing.T) {
 	const workID = "checks-repair-debt-combined"
 	const jobID = "job:checks-repair-combined"
 	fixture := seedChecksRepairFixture(t, workID, "refine")
@@ -1259,20 +1259,20 @@ func TestChecksRepairReviewDebtHoldsCombinedAcceptRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The refine-exit proof stays green: the combined accept gets past the
-	// proof gate, so the refusal behind the review debt is the debt gate and
+	// proof gate, so the refusal behind the pending confirming Review is its own gate and
 	// nothing ahead of it.
 	completeChecksRepairReviewWithVerdict(t, s, workID, attempt2, "ready_for_final_proof")
 
 	// The combined accept asserts delivery in the same event that records
-	// the job disposition: behind the unconfirmed repair's review debt it
-	// refuses on the shared delivery admission, naming the review debt the
+	// the job disposition: behind the unconfirmed repair's pending confirming Review it
+	// refuses on the shared delivery admission, naming the confirming Review the
 	// standalone route names.
 	err := runDeliveryAdmissionAction(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{
 		"attempt_id": attempt2, "attempt_epoch": reviewSubjectWindow(t, s, workID, attempt2).AttemptEpoch,
 		"delivery_artifact": "artifact:checks-repair-combined", "delivery_state": "asserted",
 	}), refineProofTooling(ProjectDeclaredTool{ID: "go-vet", Invocation: "go vet ./..."}), acceptor)
-	if err == nil || !strings.Contains(err.Error(), "review debt") {
-		t.Fatalf("the combined accept behind the review debt = %v, want the shared delivery admission's review-debt refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "requires an accepted confirming Review") {
+		t.Fatalf("the combined accept behind the pending confirming Review = %v, want the shared delivery admission's confirming-Review refusal", err)
 	}
 	// The refusal recorded no disposition: on the combined route the
 	// acceptance and the delivery assertion are one event, so nothing

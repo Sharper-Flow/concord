@@ -6,15 +6,10 @@
   `human_checkpoint` steps, the dispatch hold CD-0187 D3 reads at those
   steps, and the hold-mode failure record the workflow engine admits there;
   [Concord (CON) issue 430](https://linear.app/sharper-flow/issue/CON-430)
-- **Amends:** CD-0187 D2 at its sentence ("The advancing accept and the
-  failure record stay off these steps."), and CD-0187 D3 at its sentence
-  ("The hold that keeps advancing exits off a step with an open worker
-  attempt also admits `accept_worker_evidence` as a resolution.")
 - **Preserves:** CD-0187 D1 in full, both amended clauses at every other
   sentence, the hold-mode accept, and the CD-0133 effect-step recovery routes
 - **Related:** CD-0059, CD-0133, CD-0166, CD-0179,
   [Concord (CON) issue 430](https://linear.app/sharper-flow/issue/CON-430)
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
 - **Approval:** The operator accepted the work item CON-430 contract that
   carries this record on 2026-09-29.
 
@@ -47,10 +42,9 @@ stays off their declared actions, and the engine admits
 a worker actually dispatched there is failed and no failure record
 dispositions it yet. The admission is a recovery: the record carries the
 definition's hold-mode action, the step keeps its position, and the recovery
-changes no definition, so no repin is needed; [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source.
+changes no definition, so no repin is needed.
 
-CD-0187 D2 says: "The advancing accept and the failure record stay off these
-steps." That sentence reads instead: the advancing accept stays off these
+The advancing accept stays off these
 steps, and the failure record stays off their declared actions while the
 engine admits it as the hold-mode recovery of this clause. The operator's own
 gate remains the step's only advancing exit.
@@ -63,7 +57,7 @@ and the recovery still changes no definition.
 ### D2. The checkpoint hold releases on the record, the accept, or a used window
 
 The hold rule is one rule admission and the work pin both read, with two
-step-shaped branches; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: both read current rows.
+step-shaped branches; both read current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 At a `human_checkpoint` step, the latest attempt a worker actually dispatched
 holds the step. An attempt stops holding only when an accept dispositions its
@@ -73,9 +67,7 @@ no worker used is not a disposition, so a failed attempt keeps holding the
 operator's own gate until a worker uses a window or a failure record releases
 it.
 
-CD-0187 D3 says: "The hold that keeps advancing exits off a step with an open
-worker attempt also admits `accept_worker_evidence` as a resolution." That
-sentence reads instead: at a confirmation step the hold also admits the
+At a confirmation step the hold also admits the
 failure record of D1 as a resolution, and keys on attempts a worker actually
 dispatched rather than on windows the step opened.
 

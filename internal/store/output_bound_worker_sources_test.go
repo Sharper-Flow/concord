@@ -332,7 +332,7 @@ func init() {
 		}
 	}
 
-	// The size surface (CD-0225 D1, CD-0227 D1): the recorded basis and
+	// The size surface (CD-0227 D1): the recorded basis and
 	// allowance ride the field guards validateWorkerJobSizeShape enforces
 	// on append and replay alike; the measured inventory paths and generator
 	// references ride the shared normalized-path grammar through their one

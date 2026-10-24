@@ -5,11 +5,9 @@
 - **Scope:** The break-fix verify route for an outstanding contract evidence kind
 - **Approval:** The operator approved this Product law amendment for the
   workflow recovery repair.
-- **Related:** CD-0013, CD-0115, CD-0122, CD-0143, issue #837
-- **Amends:** CD-0013 at the break-fix verify action set
+- **Related:** CD-0013, CD-0122, CD-0143, issue #837
 - **Preserves:** Contract authority, evidence provenance,
-  operator approval, and lifecycle gates; [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
+  operator approval, and lifecycle gates.
 
 ## Context
 
@@ -47,13 +45,6 @@ effect. An exact replay is idempotent and creates no duplicate binding.
 Recovery does not fabricate evidence, relabel a producer's evidence, invent an
 obligation, reset history, or bypass a lifecycle gate.
 
-### D4. Definitions generate from one source
-
-[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-governs: definitions generate from one canonical source, no released definition
-version is retained for history, and recorded work keeps its recorded recovery
-route.
-
 ### D5. Delivery evidence stays separate
 
 Source delivery, supported deployment, and recovery of the four stranded work
@@ -68,9 +59,6 @@ deployment or stranded-work recovery.
 - Refusal tests prove no effect for unrelated, satisfied, unauthorized, stale,
   and terminal requests.
 - Replay tests prove one durable binding for one recovery identity.
-- [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-  governs: definitions generate from one canonical source with no retained
-  released version.
 - Verdict correction requires a completed and accepted worker delivery, binds
   a comparable healthy predicate set, and returns break-fix work to the
   `repair` step without rewriting recorded facts.

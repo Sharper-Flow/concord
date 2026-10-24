@@ -592,7 +592,7 @@ func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work strin
 		}
 		out.ReadyWorkerJobs = append(out.ReadyWorkerJobs, job)
 	}
-	// The awaiting confirming-review jobs (CD-0205 D4, CD-0148 amendment):
+	// The awaiting confirming-review jobs (CD-0205 D4):
 	// every open accepted exact repairing revision whose one confirming
 	// review is still unconsumed.
 	// They are never ready jobs — the one review dispatch each admits reads

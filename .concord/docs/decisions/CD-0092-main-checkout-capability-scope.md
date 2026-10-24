@@ -7,8 +7,6 @@
 - **Approval:** The operator approved the decision contract in issue #627 and
   directed its completion on 2026-09-01.
 - **Related:** CD-0008, CD-0072, CD-0035, issue #611
-- **Amends:** CD-0072 D2's grant-level refusal clause and CD-0008 D1's
-  main-checkout read-only rule, at the capability boundary only
 
 ## Context
 
@@ -55,11 +53,9 @@ checkout, and each refused capability keeps its typed refusal.
 
 ### D4. CD-0072 D2 and CD-0008 D1 are amended at this boundary
 
-CD-0072 D2 names the grant-level refusal as remaining in force; this decision
-amends that clause to the capability-scoped form above. CD-0008 D1's
-read-only rule for the main checkout now governs implementation-bearing
-mutations, not Product-state capture. Both records retain their historical
-text; this record is the amendment of record.
+Main-checkout access grants no implementation authority. Product-state
+capture is distinct from implementation-bearing mutations; the closed
+capability and operation declarations govern authorization.
 
 ## Consequences
 

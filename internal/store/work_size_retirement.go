@@ -29,7 +29,7 @@ func retiredEventAppendRefused(kind string) error {
 }
 
 // WorkerJobMeasuredPath is one measured inventory entry of the retired size
-// system (CD-0225 D1): a normalized relative repository path and its
+// system: a normalized relative repository path and its
 // production, test, documentation, or generated classification. It decodes
 // the measurement content a stored acceptance may carry; no live route
 // records or reads it.

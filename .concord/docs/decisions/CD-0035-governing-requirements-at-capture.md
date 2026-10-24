@@ -6,7 +6,6 @@
 - **Related:** CD-0006 (D5, D10), CD-0012 (D6), CD-0015 (R0), TS1 AJ3, TS4
   ([`agent-mutation-tool-contract.md`](../agent-mutation-tool-contract.md)),
   [`specs-as-laws.md`](../specs-as-laws.md) §4
-- **Supersedes:** nothing
 
 ## Context
 

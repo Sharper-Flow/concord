@@ -16,7 +16,7 @@ import (
 // unfinished attempt another session holds it takes that attempt's
 // completion away: the CD-0013 criterion 25 takeover the start rule already
 // governs. A re-dispatch over the caller's own attempt, a retry after a
-// recorded failure (CD-0148), and a dispatch after the holder relinquished
+// recorded failure, and a dispatch after the holder relinquished
 // stay as they were.
 
 type dispatchTakeoverFixture struct {
@@ -213,7 +213,7 @@ func TestDispatchWorkerAfterHolderVacatesNeedsNoApproval(t *testing.T) {
 	}
 }
 
-// A failed attempt is finished: the next dispatch is a CD-0148 retry, whose
+// A failed attempt is finished: the next dispatch is a retry, whose
 // challenge binds the failed attempt and never the takeover holder.
 func TestDispatchWorkerAfterFailedAttemptConsumesCorrectionWithoutConsent(t *testing.T) {
 	t.Parallel()

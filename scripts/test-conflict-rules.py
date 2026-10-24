@@ -72,7 +72,7 @@ def table() -> dict:
             {
                 "id": "registry-approve-contract",
                 "owner": {"path": "internal/store/workflow_registry.go", "symbol": "builtinActionPolicies", "branch": "approve_contract"},
-                "holding_law": "CD-0115",
+                "holding_law": "CD-0033",
                 "reachability": ["live", "legacy_pinned", "retired"],
                 "classification": {"class": "product_preference"},
                 "evidence": ["internal/store/workflow_registry.go:1758"],
@@ -228,7 +228,7 @@ def approval_point(**overrides) -> dict:
     point = {
         "id": "contract-approval-registry",
         "owner": dict(APPROVAL_OWNER),
-        "holding_law": "CD-0115",
+        "holding_law": "CD-0033",
         # One owner serves many definition contexts, so reachability is a
         # non-empty list over the closed vocabulary.
         "reachability": ["live"],

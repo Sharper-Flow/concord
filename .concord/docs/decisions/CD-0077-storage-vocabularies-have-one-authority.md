@@ -12,9 +12,6 @@
 - **Preserves:** The live workflow-family set; the `successor_kind` work-item
   meaning on a recorded successor link; migration immutability;
   SQLite as the sole local state authority
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 keeps recorded links and rows current; D14 derives definitions from one source
-- **Supersedes:** The implicit treatment of `work_items.kind` as a workflow family
-  in composition checks; duplicated native-run status declarations
 
 ## Context
 
@@ -95,7 +92,7 @@ identity, and
 compares its workflow family with the source definition's allowed families. A
 successor without a workflow instance has no family and is refused.
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded successor links read back with their recorded meaning, and no payload version, upcast, or replay reinterprets them. The
+Recorded successor links read back with their recorded meaning, and no payload version, upcast, or replay reinterprets them ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). The
 `successor_kind` value keeps its work-item meaning, checked against
 `work_items.kind` at admission.
 
@@ -109,9 +106,8 @@ mixed value.
 
 ### D6. Product Row uses the declared defect term
 
-The Product Row projection treats active `bug` items as active problems. The
-undeclared literal `problem` is removed. The database trigger prevents that value
-from entering the store.
+The Product Row projection treats active `bug` items as active problems.
+Database membership checks reject undeclared work kinds.
 
 ## Consequences
 

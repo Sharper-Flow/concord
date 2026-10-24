@@ -7,28 +7,9 @@ import (
 	"fmt"
 )
 
-// WorkflowReviewDebt names the unresolved refinement review state the admission
-// fold derives from one work item's refinement history.
-type WorkflowReviewDebt string
-
-const (
-	// ReviewDebtNone reports no rejected result or accepted no_ship review
-	// awaits a fresh settling review.
-	ReviewDebtNone WorkflowReviewDebt = "none"
-	// ReviewDebtOutstanding reports a rejected result or accepted no_ship
-	// review whose fresh review — verdict ship or absent — remains unaccepted.
-	ReviewDebtOutstanding WorkflowReviewDebt = "outstanding"
-)
-
-// WorkflowAdmissionState is the folded abstract state workflow action
-// admission decides over. The tx-scoped loader derives it once from one work
-// item's history — step, lifecycle, contract count, law pin staleness,
-// impact and external conditions, design currency, attempt state and
-// capability class, latest result disposition, review debt and its settling
-// verdict, the recovery routes, the non-progress wall, the dispatch hold, and
-// the outstanding evidence — and workflowAdmit consumes it, so every
-// admission site that loads and admits answers identically for the same
-// state instead of re-deriving the conditions per site.
+// WorkflowAdmissionState is the abstract state workflow action admission
+// decides over. The tx-scoped loader derives it once, and workflowAdmit
+// consumes it so every admission site answers identically for the same state.
 type WorkflowAdmissionState struct {
 	Review                *WorkflowReviewState
 	ReviewLane            string
@@ -44,15 +25,8 @@ type WorkflowAdmissionState struct {
 	// OutsideRepairActive suspends every managed action, including continuity
 	// and recovery actions. Only the operator-only outside-repair APIs clear it.
 	OutsideRepairActive bool
-	// RefinementWorkflow reports whether the pinned definition declares the
-	// refinement review shape: a step that declares checkpoint_refine. The
-	// post-rejection review debt and its settling review belong to that
-	// shape (CD-0197), not to a work kind.
+	// RefinementWorkflow reports whether the definition declares checkpoint_refine.
 	RefinementWorkflow bool
-	// ReviewStep reports whether the current step's advance carries an
-	// unreviewed repaired result toward delivery: the refinement step that
-	// enters the delivery gate, and the gate itself.
-	ReviewStep bool
 	// ActiveContracts is the count of active workflow contracts.
 	ActiveContracts int64
 	// LateCriterionAssociation admits missing applicable proof at a terminal
@@ -97,22 +71,6 @@ type WorkflowAdmissionState struct {
 	// worker results: accept_worker_result, accept_worker_evidence,
 	// reject_worker_result, record_worker_failure, or "" when none stands.
 	LatestResultDisposition string
-	// ReviewDebt is the folded unresolved refinement review obligation.
-	ReviewDebt WorkflowReviewDebt
-	// ReadyReviewAttemptID names the completed review attempt whose
-	// acceptance is the settling fresh review, or "" when none stands
-	// ready: its dispatch postdates the debt's frontier and its typed
-	// verdict settles (workflowReviewSettlesDebt).
-	ReadyReviewAttemptID string
-	// ReadyReviewVerdict is that attempt's typed review verdict, "" for the
-	// pre-CD-0197 reports that carry none. A no_ship verdict stands ready like
-	// any other: its acceptance binds the findings and settles nothing
-	// (ReadyReviewSettles reports that).
-	ReadyReviewVerdict string
-	// ReadyReviewSettles reports whether that ready verdict settles the debt
-	// (workflowReviewSettlesDebt): only a ship, or absent pre-CD-0197,
-	// verdict settles, so a ready no_ship review keeps the debt outstanding.
-	ReadyReviewSettles bool
 	// WorkerFailureRecovery reports an unsettled failed attempt the
 	// record_worker_failure recovery can record.
 	WorkerFailureRecovery bool
@@ -198,11 +156,7 @@ type WorkflowAdmissionState struct {
 }
 
 // WorkflowAdmissionDecision is the pure admission answer for one action over
-// one folded state: whether the advance is admitted, whether a supersede
-// request classifies as contract recovery, whether the refusal is the
-// consequential external-conditions one the owning boundary resolves and
-// rechecks, the ready review the calling guard may bind the request's
-// attempt identity against, and the typed refusal when the advance refuses.
+// one state, including recovery classification and the typed refusal.
 type WorkflowAdmissionDecision struct {
 	Admitted      bool
 	RecoveryRoute bool
@@ -215,14 +169,7 @@ type WorkflowAdmissionDecision struct {
 	// The fold's own advance rule enforces it at event assembly, the
 	// position whose timing the admission fold and the read-only preflight
 	// do not own; the work pin's intent omission is its advertisement half.
-	AdvanceHeld bool
-	// FreshReviewRequired marks the debt-hidden advance refusal the
-	// claim-phase post-rejection review guard owns. The fold and the
-	// preflight defer exactly this refusal to that guard, whose ready-review
-	// carve-out is payload-bound; every other refusal — staleness, impact,
-	// the wall, step legality — applies at the caller's own decision point
-	// and is never deferred past it.
-	FreshReviewRequired  bool
+	AdvanceHeld          bool
 	DeliveryProofMissing bool
 	// OperatorQuestionClosed marks the closed-question answer over
 	// confirm_premise: the step declares the approval-required confirmation
@@ -234,8 +181,6 @@ type WorkflowAdmissionDecision struct {
 	// cannot judge — so the execution path leaves confirm_premise to those
 	// checks instead of refusing at the admission point.
 	OperatorQuestionClosed bool
-	ReadyReviewAttemptID   string
-	ReadyReviewSettles     bool
 	Failure                *Failure
 }
 
@@ -278,8 +223,6 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 	state := WorkflowAdmissionState{
 		Step:               currentStep,
 		RefinementWorkflow: workflowRefinementStepID(definition) != "",
-		ReviewStep:         workflowPostRejectionReviewStep(definition, currentStep),
-		ReviewDebt:         ReviewDebtNone,
 	}
 	if err := q.QueryRowContext(ctx, `SELECT wi.instance_state,(SELECT lifecycle FROM work_items WHERE id=wi.work_id),(SELECT count(*) FROM workflow_contracts wc WHERE wc.work_id=wi.work_id AND wc.superseded_by IS NULL) FROM workflow_instances wi WHERE wi.work_id=?`, workID).Scan(&state.InstanceState, &state.Lifecycle, &state.ActiveContracts); err != nil {
 		if err == sql.ErrNoRows {
@@ -422,8 +365,7 @@ func (l workflowAdmissionLoad) staleness(state *WorkflowAdmissionState) error {
 	return nil
 }
 
-// attemptAndReview folds the latest worker attempt, the latest result
-// disposition, and the refine workflow's post-rejection review debt.
+// attemptAndReview reads the latest worker attempt and result disposition.
 func (l workflowAdmissionLoad) attemptAndReview(state *WorkflowAdmissionState) error {
 	if err := l.q.QueryRowContext(l.ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND lifecycle_state='in_flight')`, l.workID).Scan(&state.PendingWorkerAuthorization); err != nil {
 		return workflowProjectionError(err, "cannot read unresolved worker authorizations")
@@ -466,7 +408,7 @@ func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) (bo
 		return false, reviewEvidenceErr
 	}
 	state.RefineReviewEvidenceAttemptID = reviewEvidenceAttempt
-	// The delivery gate's corrective return reads the review debt this fold
+	// The delivery gate's corrective return reads the Review state this fold
 	// already carries, so the gate branch derives from the folded state and
 	// never re-enters the loader; every other step folds the shared
 	// correction-request admission directly. Under a duplicated projection
@@ -670,67 +612,8 @@ func foldWorkflowConfirmationTx(ctx context.Context, q queryer, workID string, d
 	return fold, nil
 }
 
-// workflowAdmit decides one action's admission over one folded admission
-// state. It is pure and total: no store access, no clock, no request payload,
-// and a defined answer for every action the definitions declare. It decides
-// the terminal immutability, the breaking-impact and consequential-condition
-// boundaries, the supersede classification, the dispatch hold behind a stale
-// design, the staleness
-// classes, the review-debt advances, the recovery routes, and the step
-// legality. The folded conditions hide only the advances they name — the
-// recorded delivery at a review step and the refinement-step accept under
-// review debt, a dispatch behind a stale design, and a consequential action behind a breaking impact
-// notice or an open external condition — because each condition blocks a
-// result, not the work: dispatch, recovery, and continuity actions stay
-// admitted so a parked item always keeps a route. The payload and identity
-// checks stay in the guards; the accept guard binds the request's attempt
-// against the decision's ReadyReviewAttemptID.
-// A group consumes continuation once. Its remaining members do not need an
-// intermediate Review, but a changed depended-on revision still invalidates it.
-func workflowAdmitReview(state WorkflowReviewState, group string) error {
-	if admitted, found := state.Groups[group]; found && admitted.CorrectionRef != "" && state.Accepted != nil && state.Accepted.ReportRef == admitted.ReviewRef && state.DependenciesCurrent {
-		return nil
-	}
-	if blocker := state.blocker(); blocker != "" {
-		return reviewFailure(KindMissingEvidence, "open in-scope blocking finding "+blocker+" blocks execution progression", "obtain an evidenced closure of "+blocker+" and have Main accept that Review report")
-	}
-	if admitted, found := state.Groups[group]; group != "" && found {
-		applicable := state.Accepted != nil && state.Candidate != nil && state.Accepted.Report.OutputCandidate == *state.Candidate
-		if !applicable || admitted.ReviewRef == state.Accepted.ReportRef {
-			if state.Accepted == nil || state.DependenciesCurrent {
-				return nil
-			}
-		}
-	}
-	// First entry relies on the preceding stage exits and their binding guards
-	// below. A missing Review is not evidence that execution has never run.
-	if group != "" && !state.ExecutionProgressed && state.Accepted == nil {
-		return nil
-	}
-	if group != "" && state.ContinueConsumed && state.GroupID == group && state.Accepted != nil && state.DependenciesCurrent {
-		return nil
-	}
-	if state.Accepted == nil || state.Candidate == nil || state.Accepted.Report.OutputCandidate != *state.Candidate || !state.DependenciesCurrent {
-		return reviewFailure(KindMissingEvidence, "execution progression requires an accepted Review on the current candidate and depended-on revisions", "obtain and accept a Review of the current integrated candidate; only valid preceding exits admit the first group")
-	}
-	disposition := state.Accepted.Report.Disposition
-	if group != "" {
-		if disposition != "continue" {
-			return reviewFailure(KindMissingEvidence, "opening an ordinary assignment group requires accepted continue, not "+disposition, "obtain and accept continue, or follow the report's declared corrective/upstream obligation")
-		}
-		if state.ContinueConsumed && state.GroupID != group {
-			return reviewFailure(KindOperationConflict, "this continue permission has already opened group "+state.GroupID, "finish that group, integrate its results, and obtain a new accepted continue")
-		}
-		return nil
-	}
-	if disposition != "ready_for_final_proof" {
-		return reviewFailure(KindMissingEvidence, "leaving execution requires accepted ready_for_final_proof, not "+disposition, "obtain and accept ready_for_final_proof on the current candidate")
-	}
-	return nil
-}
-
 func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string) WorkflowAdmissionDecision {
-	decision := WorkflowAdmissionDecision{ReadyReviewAttemptID: state.ReadyReviewAttemptID, ReadyReviewSettles: state.ReadyReviewSettles}
+	decision := WorkflowAdmissionDecision{}
 	if workflowAdmitInstanceRefused(definition, state, actionID, &decision) {
 		return decision
 	}
@@ -747,10 +630,6 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		case "dispatch_worker":
 			if state.ReviewLane == "implementation" && !state.ReviewCorrective {
 				reviewErr = workflowAdmitReview(*state.Review, state.ReviewGroup)
-			}
-		case "record_delivery":
-			if state.Review.Candidate != nil || state.RefinementWorkflow {
-				reviewErr = workflowAdmitReview(*state.Review, "")
 			}
 		case "complete":
 			reviewErr = workflowAdmitReview(*state.Review, "")
@@ -840,25 +719,14 @@ func workflowAdmitDispatchRefused(state WorkflowAdmissionState, actionID string,
 	return false
 }
 
-// workflowAdmitDeliveryRefused answers delivery admission, the mandate, and
-// the refine workflow's fresh-review debt.
+// workflowAdmitDeliveryRefused answers delivery admission and the mandate.
 func workflowAdmitDeliveryRefused(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
-	// On a job-capable pin (CD-0205) the payload-blind accept is admissible
-	// as local acceptance of one worker job, which holds the step; the
-	// delivery-asserting accept applies workflowAdmitDelivery at its
-	// payload-bound guard instead.
-	if actionID == "accept_worker_result" && workflowAcceptDeliveryAdmissionActive(definition, state.Step) && !workflowWorkerJobsActive(definition) && !(state.ReadyReviewAttemptID != "" && !state.ReadyReviewSettles) {
-		*decision = workflowAdmitDelivery(state, *decision)
-		if decision.Failure != nil {
-			return true
-		}
-	}
 	if failure := workflowAdmitMandate(definition, state.Step, state.Mandate, actionID, "workflow_action"); failure != nil {
 		decision.Failure = failure
 		return true
 	}
 	if actionID == "record_delivery" {
-		*decision = workflowAdmitDelivery(state, *decision)
+		*decision = workflowAdmitDelivery(definition, state, *decision)
 		if decision.Failure != nil {
 			return true
 		}
@@ -1079,19 +947,6 @@ func (s WorkflowAdmissionState) stalenessRefusal(actionID string) error {
 		return s.LawPinSelfError
 	}
 	return s.LawPinStaleError
-}
-
-// workflowAdmissionDefersToReviewGate reports whether one action's refusal
-// belongs to the claim-phase post-rejection review guard instead of the
-// caller's own decision application. Only the guard's own refusal over the
-// accept defers: its ready-review carve-out is the one payload-bound member
-// of the debt family — the accept whose attempt identity names the ready
-// review. The same refusal over record_delivery admits nothing payload-blind,
-// so every site applies it. A staleness, impact, wall,
-// or step-legality refusal is never deferred, so an unrelated cause cannot
-// ride the review gate's acceptance route.
-func workflowAdmissionDefersToReviewGate(decision WorkflowAdmissionDecision, actionID string) bool {
-	return decision.FreshReviewRequired && actionID == "accept_worker_result"
 }
 
 // workflowStepCarriesRejectionHold: a named non-checkpoint step carries the hold.

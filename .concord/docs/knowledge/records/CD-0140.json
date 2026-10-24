@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b8c8a8db2c0c2cb4d6b6e4903350c5b943e31d93a783c12c954c8dd2a87216dc",
+  "sha256": "sha256:d1126c4cfac7ffc258090ccb4d7feae3818227ed01cb61c3e8a990cf87386bca",
   "status": "accepted",
   "summary": "The review capability-class binding gains external_effect so review evidence can be bound at the steps that hold produced work; CD-0138's mandatory refine step is external_effect, so without this binding no contract can ever bind review evidence. Amends CD-0117 D1 for review only; the research binding, terminal exclusion, and worker fences are unchanged; CD-0187 carries the review binding's own confirmation-step reach.",
   "tags": [

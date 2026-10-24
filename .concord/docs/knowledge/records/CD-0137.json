@@ -52,7 +52,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c321aa82a47ca32ee7cb3a3af8d8b8260e1153f3a916e1669fdb8ceae186393b",
+  "sha256": "sha256:b1da7499d6e73d4a89f710dfa7546dae40ac31057b86603e1713296d70d9a135",
   "status": "accepted",
   "summary": "Each terminal worker result is accepted or rejected once, and authorization, actual start, terminal result, and result acceptance stay distinct recorded facts. Under CD-0242 D6 each launch is one admitted request with its own scope and subject bindings, and no attempt count, correction count, or escalation wall exists.",
   "tags": [

@@ -7,12 +7,10 @@
 - **Approval:** The operator approved this bounded contract change on
   2026-09-13 after the binding made review evidence unreachable in two live
   Toolbox work items.
-- **Related:** CD-0117, CD-0138, CD-0059, CD-0115
-- **Amends:** CD-0117 D1, which bound read-only classes to read steps only
+- **Related:** CD-0117, CD-0138, CD-0059
 - **Preserves:** CD-0117 D2–D5, the research binding, the terminal-step
   exclusion, and worker fences; CD-0187 carries the review binding's own
   confirmation-step reach
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14
 
 ## Context
 
@@ -39,8 +37,8 @@ produced work, so the steps that hold produced work are its natural site.
 
 ### D1. Review reaches fenced steps
 
-The `review` capability-class binding gains `external_effect`. The `research`
-binding is unchanged: nothing in this decision admits research at a step that
+The `review` capability-class binding includes `external_effect`. The `research`
+binding does not admit research at a step that
 produces work, and the existing refusal test keeps that property.
 
 ### D2. No other surface moves
@@ -48,9 +46,7 @@ produces work, and the existing refusal test keeps that property.
 Definition composition already places the dispatch pair on `external_effect`
 steps, so the canonical source and its derived digest are unchanged
 ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
-The generated
-projection is regenerated from the amended contract, and its digest moves with
-the contract.
+The generated projection and its digest derive from the join contract.
 
 ## Acceptance Criteria
 
@@ -66,7 +62,7 @@ Scenario: The research lane is still refused at an effect step
   Then the core refuses with unauthorized_dispatch
 
 Scenario: The generated projection matches the contract
-  Given the amended join contract
+  Given the join contract
   When the generator runs in check mode
   Then generation passes
 ```
@@ -74,7 +70,6 @@ Scenario: The generated projection matches the contract
 ## Consequences
 
 A coordinator at `refine`, `execution`, or `repair` can dispatch the review
-lane and bind review evidence where the produced work exists. Contracts that
-require review evidence become reachable again. The change widens where a
-read-only lane may run; it grants the lane no write capability, and the
+lane and bind review evidence where the produced work exists. Review dispatch
+grants the lane no write capability, and the
 attempt fence at `external_effect` steps is unchanged.

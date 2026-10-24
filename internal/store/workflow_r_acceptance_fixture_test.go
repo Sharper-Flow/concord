@@ -89,7 +89,7 @@ func rComplete(t *testing.T, f acceptanceRecoveryFixture) error {
 // (the model's ok verdict), and the recorded investigation.
 func rAcceptanceModel(engineering bool) admissionModelState {
 	return admissionModelState{
-		step: "acceptance", debt: ReviewDebtNone, contracts: 1, verdict: "ok", artifact: true, engineering: engineering,
+		step: "acceptance", contracts: 1, verdict: "ok", artifact: true, engineering: engineering,
 		jobs: "satisfied", jobsScope: "project",
 		review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
 	}

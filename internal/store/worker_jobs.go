@@ -584,8 +584,7 @@ func authorWorkerJobRevisionTx(ctx context.Context, tx *sql.Tx, request Workflow
 // revision (CD-0205 D4). The check runs in the fold, so it holds for live
 // appends and for log-ordered replay alike: a recording always precedes its
 // dispatches, and a satisfaction always precedes the redispatch it refuses,
-// in any legal log. A job a split replaced dispatches no revision again
-// (CD-0225 D3).
+// in any legal log. A job a split replaced dispatches no revision again.
 func verifyWorkerDispatchedJobBindingTx(ctx context.Context, tx *sql.Tx, event Event, attemptID string, binding *WorkerJobBinding) error {
 	workID := event.SubjectID
 	var digest, state string

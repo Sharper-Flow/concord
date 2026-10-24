@@ -12,24 +12,14 @@
   2026-09-08 in Concord work-8bc9259e3a54d5db68e3a60e.
 - **Related:** CD-0013, CD-0016, CD-0027, CD-0109, and issues #801, #833, #837,
   and #869
-- **Amends:** CD-0016 (context continuity) by fixing the execution mode of
-  `checkpoint_context` and `cross_context_boundary` to hold; extends CD-0013
-  §12 with `record_delivery`; extends CD-0059 with failed-result recording
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D3, D5, D14
 
 ## Context
 
 A worker-dispatch step can receive a completed or failed lane result.
 `accept_worker_result` requires a completed attempt with a readback model.
-Before this amendment, no workflow action could record a failed attempt.
-`record_delivery` also refused every post-dispatch advance, so the step had no
-recorded recovery route after `worker.failed`.
-
-`cross_context_boundary` also appeared to advance a step, but its runtime event
-never moved `current_step`. The declared mode and the recorded effect differed.
-The architecture-spike `decision_record` and `review` steps had no live exits.
-The original decision repaired those two gaps with hold and advance modes that
-match the events the runtime records.
+A failed attempt needs a recorded recovery route that does not claim delivery.
+Context continuity needs to preserve a session's findings without claiming
+that its step finished.
 
 ## Decision
 
@@ -37,8 +27,8 @@ match the events the runtime records.
 
 `checkpoint_context` and `cross_context_boundary` are `hold` actions on every
 step. They record a durable summary for the next session and move nothing.
-The declared hold mode matches the recorded admission behavior, and the
-scenario corpus no longer leaves a step through either action
+The declared hold mode matches the recorded admission behavior. Neither
+continuity action advances a stage
 ([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).
 
 ### D2. record_delivery is the exit for a step the session executed
@@ -48,9 +38,7 @@ Every external-effect step declares `record_delivery` as its exit, with an
 ([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).
 The dispatcher admits it only when the step's fenced start action ran in the
 current attempt, since delivery states that the step's own work finished.
-[CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)
-governs: admission refuses `record_delivery` after a lane dispatch in that
-attempt. A completed lane exits through `accept_worker_result`. A failed lane
+Admission refuses `record_delivery` after a lane dispatch in that attempt ([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)). A completed lane exits through `accept_worker_result`. A failed lane
 holds the step until the owner records the failure and starts a fresh attempt.
 
 ### D3. The decision record advances, and acceptance of it lives on review
@@ -72,8 +60,7 @@ the attempt ID and the current step epoch.
 Admission requires an exact failed attempt from this work item, and checks
 the dispatch order, step epoch, and authenticated actor
 ([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).
-[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)
-governs: no evaluator distinctness beyond its rules is checked. The action
+The action
 refuses active, completed, foreign, stale, and previously recorded attempts
 without mutation.
 
@@ -125,9 +112,6 @@ Scenario: A fresh attempt exits after a recorded lane failure
 
 ## Consequences
 
-[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-governs: the worker-action set is generated from the one canonical source, and
-no prior definition bytes or digest pins are retained.
-`record_worker_failure` joins the worker-action set in current definitions and
-the generated agent payload contract. The conformance corpus keeps successful
+`record_worker_failure` belongs to the worker-action set in current definitions
+and the generated agent payload contract. The conformance corpus keeps successful
 lane exits on `accept_worker_result` and session exits on `record_delivery`.

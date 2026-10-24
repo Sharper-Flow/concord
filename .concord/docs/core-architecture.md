@@ -1,10 +1,9 @@
 # Concord Core Architecture
 
-> **Status:** Direction recorded (2026-08-02; storage layer hardened 2026-08-05).
+> **Status:** Direction recorded.
 > Companion to [`priorities.md`](./priorities.md) and [`design-constraints.md`](./design-constraints.md).
 > **Purpose:** Record the Go-core language direction and the consolidated resilience invariant set that any core topology must satisfy. State authority is settled elsewhere (see §0).
 > This is the single place a reader looks to understand how the runtime is layered.
-> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D6, and D14:** the store keeps current state and finite snapshots, not history; attempts carry their own authority, not a budget; generated contracts derive from one source.
 
 > **Authority:** [`priorities.md`](./priorities.md) is canonical for ranked priorities and the operating envelope; this document is a companion that records an architecture direction within those constraints.
 
@@ -12,7 +11,7 @@
 
 ## 0. SQLite execution authority and Linear planning authority
 
-The storage-engine authority question is **resolved.** SQLite is Concord's sole
+SQLite is Concord's sole
 durable local execution authority: transactional current state and finite
 verified snapshots, `synchronous=NORMAL`, WAL, and `busy_timeout=5000`; six binding invariants I1–I6
 map 1:1 to the Advance failure modes. **PM2 selects one global local SQLite
@@ -129,27 +128,26 @@ is stated once; companion documents reference this section rather than restating
 | 11 | **Single-source definitions** | Priority 2, 6 | Workflow and schema changes are safe for in-flight work. Workflow definitions and derived schemas are generated from one canonical source; no released workflow-definition version is retained for history and no hand-maintained version, pin, or catalog duplicates it ([CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)). |
 | 12 | **Architecture-bound Product truth** | Priority 1 | Every current law has one Domain home. Product-changing work pins its Domain/law footprint, and unresolved concurrent Domain overlap cannot enter Product truth. Git merge success and heuristics confer no authority. |
 
-A Go core topology must satisfy all twelve invariants. The first eleven are derived
-from the public predecessor postmortem's failure classes; they are not aspirational,
-they are evidence-backed. CD-0222 adds the twelfth from Concord's defining
-many-agent Product-concordance requirement.
+A Go core topology must satisfy all twelve invariants. The first eleven derive
+from the public predecessor postmortem's failure classes. Architecture-bound
+Product truth follows CD-0222's many-agent Product-concordance requirement.
 
 ---
 
 ## 3. Architecture decision tracker
 
-This table records accepted architecture decisions that previously remained open:
+This table records accepted architecture decisions:
 
-| Question | Why deferred | Where tracked |
+| Question | Current decision | Where tracked |
 |---|---|---|
 | **Product-memory membership** | **Resolved by PM5:** many-to-many role-only memberships, one canonical work identity, optional singular primary, derived cross-Product scope. | [`product-memory-membership.md`](./product-memory-membership.md). |
-| **Minimal agent tool surface** | **Resolved by CD-0005 and amended by CD-0042:** generated current tools, hidden verified context, `concord.ts` adapter, strict envelope, exact manifest digest, and deterministic pre-go-live evidence. | [`decisions/CD-0005-concord-agent-tool-surface.md`](./decisions/CD-0005-concord-agent-tool-surface.md). |
+| **Minimal agent tool surface** | **CD-0005 and CD-0042:** generated current tools, hidden verified context, `concord.ts` adapter, strict envelope, exact manifest digest, and deterministic pre-go-live evidence. | [`decisions/CD-0005-concord-agent-tool-surface.md`](./decisions/CD-0005-concord-agent-tool-surface.md). |
 | **Evidence-resolution architecture** | **Resolved by CD-0008 D2:** immutable-subject binding records the attributable producer proof that authorized a transition; the producer remains verdict authority and current re-resolution is typed when unavailable. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D2; [`design-constraints.md`](./design-constraints.md) Research backlog item 6. |
 | **Validation-failure isolation** | **Resolved by CD-0008 D3:** unreadable records contribute unknown; typed degraded omissions are allowed for independently provable positive reads, while safety conclusions fail closed only over their bounded dependency/touch closure. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D3; [`design-constraints.md`](./design-constraints.md) Research backlog item 7. |
 | **Migrations / schema evolution** | **Resolved by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md):** schema and workflow-definition changes migrate current rows and keep finite verified snapshots; no upcasters, deterministic replay, or retained released-definition versions exist ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history), [CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)). | [`decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md`](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) (D2, D14); CD-0002 §7. |
 | **Product architecture and concurrent-law coordination** | **Resolved by CD-0222:** canonical Domains own law; Product-changing contracts declare architecture footprints; overlapping work requires a version-pinned resolution. CD-0213 places business grouping in Linear. | [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md); [`decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md`](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md). |
 
-All rows in this table are resolved explicitly by PM1–PM10/CD-0005/CD-0008/CD-0222—not by
+All rows in this table are defined explicitly by PM1–PM10/CD-0005/CD-0008/CD-0222—not by
 implication from Go, storage, or CLI choice.
 
 ---

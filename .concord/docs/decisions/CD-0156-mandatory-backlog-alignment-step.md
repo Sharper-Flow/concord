@@ -4,11 +4,10 @@
 - **Date:** 2026-09-19
 - **Scope:** Built-in implementation and break-fix workflow definitions, and the alignment projection
 - **Approval:** The operator approved this bounded workflow change.
-- **Related:** CD-0013, CD-0115, CD-0138
+- **Related:** CD-0013, CD-0138
 - **Preserves:** Worker fences, relation authority, and the definitions active
   work derives from the canonical source
   ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14)
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
 
 ## Context
 
@@ -67,12 +66,6 @@ step runs before planning approves a contract, so no parent row exists.
 The action records the candidate set only. It creates no relation: the relation
 kind is a semantic judgement that stays with `resolve_overlap`.
 
-### D6. The step joins the canonical families
-
-[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-governs: the `alignment` step is composed into the families' one canonical
-source, and no prior version, replay graph, or pin row is retained.
-
 ### D7. Two workflow types only
 
 `workflow.implementation` and `workflow.break_fix` take the step. These two
@@ -90,7 +83,6 @@ collision refusal, or the other five workflow types.
 - `TestRecordAlignmentRefusesInconsistentOutcomeAndRelatedIds` proves the
   guard refuses an inconsistent payload and a consistent one records and
   advances.
-- [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) retires prior-definition replay and digest-pin witnesses: definitions derive from one canonical source without retained versions or in-flight pins.
 - `TestWorkRemovalClearsBacklogAlignmentAtBothEnds` proves work removal clears
   rows naming the removed item in either column. Both foreign keys are
   `RESTRICT`, so a projection delete covering only `work_id` would strand the

@@ -24,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a88a33f0a658a5f7ff8087c65d54065fbd38df085d3cfbdfebc7d0692cf3b1d7",
+  "sha256": "sha256:1f849de7ed63c667b9b2e7f2fc9eafefd0680b549419f5c8b6a34f5564f02c21",
   "status": "accepted",
   "summary": "CD-0016's re-derived pinned continuity already prevents silent authority loss across boundaries; restart-into-lane would only preserve in-flight working memory, which the host's session management owns.",
   "tags": [

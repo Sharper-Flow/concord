@@ -11,9 +11,6 @@
 > **Related accepted boundary:** PM9 rejects a separate process-exhaust receipt.
 > **Does not decide:** PM10 backup/restore/GC,
 > C15, TS1–TS9, artifact encryption, or external-system retention.
-> **Amended by CD-0242 D2:** the store keeps current state and finite verified
-> snapshots, not an event log or replay; event-history wording in this record
-> states the store's current state.
 
 ## Context
 
@@ -48,8 +45,7 @@ No generic Concord task, workflow, acceptance, or compaction rule may require a
 screenshot. A product-specific contract may require direct human visual inspection, but
 PM8 does not turn that into screenshot capture, upload, retention, or hashing.
 
-This narrows CD-0002 §2d: its proposed external evidence files with “hash + path” are
-not a v1 Concord feature. Small, structured Concord artifacts remain SQLite text under
+Small, structured Concord artifacts remain SQLite text under
 the existing decision; durable markdown knowledge remains PM6 and compaction-retention-policy git content. Neither
 is a general binary-evidence store.
 
@@ -61,9 +57,6 @@ are promoted to their existing PM6/CD-0006 homes before deletion; that promotion
 not pack retention.
 
 ### 1.1 Native oracle producer streams
-
-This exception reuses the [approved law patch `4e9144477b0cf71e2ecbb5a913e9f973704eb408`](https://github.com/Sharper-Flow/concord/commit/4e9144477b0cf71e2ecbb5a913e9f973704eb408).
-The scope and consequence remain those of that approval.
 
 Only `worktree_verify_leases.stdout_blob` and `worktree_verify_leases.stderr_blob`
 may retain native oracle command streams, at most 2 MiB each.
@@ -82,20 +75,7 @@ That measurement remains deferred; this exception claims no measured result.
 
 ### Accepted synchronization
 
-This accepted change retires the previous external-blob assumption across:
-
-- CD-0002 §2a's blob-placement framing, §2d, its evidence-blob falsifier, and §7's
-  “Closed earlier by this record” evidence-placement clause;
-- CD-0003's `blobs(...)` spine row;
-- PM2 backup/export wording that currently names CAS or an evidence manifest;
-- PM3's `artifacts / blobs` row;
-- PM1's external-blob budget exception; PM6 and compaction-retention-policy PM8 deferrals; the PM6 dependency
-  cell; the PM8 and PM10 rows in both clarification tables; and the TS7 durable-ID/
-  hash claim and PM8 dependency;
-- README and storage-slice cross-references.
-
-The accepted edits remove only the retired Concord blob mechanism. They preserve normal
-PM3 `external_refs` for PRs, commits, upstream systems, and URLs; those are ordinary
+PM3 `external_refs` for PRs, commits, upstream systems, and URLs are ordinary
 locators, not retained WIP-byte paths.
 
 ## 2. Named value and boundary

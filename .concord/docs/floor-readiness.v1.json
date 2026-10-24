@@ -274,7 +274,7 @@
    "id": "fc3-completion-evidence",
    "condition": "fc3",
    "title": "Completion is gated on bound evidence and an operator premise confirmation",
-   "requirement": "Completion requires durable evidence bound to the approved contract, terminal external conditions, satisfied spec mandates, a verdict authored by a distinct actor, and an operator-class premise confirmation, all in one transaction.",
+   "requirement": "Completion requires durable evidence bound to the approved contract, terminal external conditions, satisfied spec mandates, criterion proof associated by Main rather than the executing Implement actor, and the premise confirmation the contract's decision fact requires (CD-0013 D11); the completion's own writes commit in one transaction.",
    "state": "satisfied",
    "evidence": [
     {

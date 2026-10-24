@@ -27,7 +27,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:aefd8eded6ced729345d78da04fb4527b8c8696802f835da1df1aaec79f850b2",
+  "sha256": "sha256:62b9003d0ff494cc9935608d02eb417976049cc9be58ddcced59df7b30b1f3d2",
   "status": "accepted",
   "summary": "Replaces the concord-ci-wait utility with a plugin-owned concord_ci_watch adapter tool that spawns the unchanged concord ci-wait verb slice by slice, returns at once, and wakes the calling session through the host's in-process client with a synthetic part carrying the session agent, model, and model variant. Delivery waits for an idle session, confirms an assistant reply follows, and queues any unconfirmed report for the next chat.message. The utility registry entry, generated body, installer entry, and placement docs are removed; the branch ships only behind a live proof of zero model turns and a delivered wake.",
   "tags": [

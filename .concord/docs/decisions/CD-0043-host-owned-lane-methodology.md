@@ -13,7 +13,6 @@
 - **Preserves:** The closed lane registry and its digest; `agent-lane-packet.v1` and
   `agent-lane-report.v1`; CD-0034 provenance recording; CD-0017 D7's evaluation
   boundary
-- **Supersedes:** nothing
 
 ## Context
 
@@ -84,25 +83,20 @@ rather than an unfinished one.
 
 ### D4. The coverage rows name the owner
 
-The rows that defer methodology are amended to state that the deferred capability is
-host-owned. The row already excluding behavioural methodology is the governing
-precedent, not an exception to it. A reader can then tell, from the coverage record
-alone, that Concord owes nothing further.
+Coverage rows that defer methodology name the host as its owner. The coverage
+record alone must show that Concord owes no further methodology capability.
 
 ## Consequences
 
 - Methodology is not versioned with the lane registry. It is hashed per dispatch.
 - A methodology change moves the `host_provenance` digest while the lane digest
-  holds. This is the visibility CD-0034 was accepted to produce, now carrying real
-  content rather than only operator safety policy.
+  holds.
 - A D7 evaluation baseline is reproducible only against both digests. Methodology
   authored after a baseline invalidates that baseline by construction, so the
   baseline in issue #212 must be taken after methodology is in place.
 - Lane behaviour is not reproducible from the release artifact alone. Reproducing a
   run requires the recorded provenance manifest as well as the release. This is the
   accepted cost of D1.
-- `contracts/agent-lanes.v1.json` and `contracts/agent-lane-packet.schema.json` are
-  unchanged by this decision. No version moves and no digest churns.
 
 ## Rejected alternatives
 

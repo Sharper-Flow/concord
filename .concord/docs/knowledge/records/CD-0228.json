@@ -25,7 +25,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fd6fbbe14af1be3439b654345bb47d59f8663b3c0b754135808df55a7322170c",
+  "sha256": "sha256:df5af95410fa8e846c56c43da06a7a2c710348b62fb611677f1cfc38bc469d8d",
   "status": "accepted",
   "summary": "Merge waits select the newest attempt per CheckRun name/workflow or StatusContext context from the existing rollup. A selected failed or cancelled check ends an open wait unless GitHub reports UNSTABLE. Newer passing and pending reruns replace older failures, different identities remain distinct, and lifecycle outcomes retain precedence. Checks-mode completeness and the query boundary remain unchanged.",
   "tags": [

@@ -50,7 +50,7 @@ func WorkflowStartTakeoverRead(ctx context.Context, s *Store, action WorkflowAct
 //
 // A worker-lane dispatch takes over only an unfinished lane attempt another
 // session dispatched: its worker is running or its result awaits a decision.
-// A failed attempt is finished, and the next dispatch is a CD-0148 retry
+// A failed attempt is finished, and the next dispatch is a retry
 // whose approval binds the failed attempt.
 func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, callerActorRef string) (*WorkflowStartTakeover, error) {
 	var step, executionActor string

@@ -563,7 +563,7 @@ func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) 
 	// The manifest hashes the definition's actual content with no carve-out:
 	// cross-field rules are engine-registry declarations and never appear
 	// here, so a released definition cannot change behavior without its
-	// digest detecting it (CD-0115 D1, CON-412).
+	// digest detecting it (CON-412).
 	definition = normalizeWorkflowDefinition(definition)
 	manifest := struct {
 		SchemaVersion         string                        `json:"schema_version"`
@@ -1268,7 +1268,7 @@ func actionPremiseField() WorkflowPayloadField {
 	// that floor through promoted definition versions
 	// (withCurrentPremiseFloor, CON-412): this builder keeps returning the
 	// released declared minimum because every frozen historical version is
-	// digest-pinned to it (CD-0115 D1), and the contract-payload
+	// digest-pinned to it, and the contract-payload
 	// workflowString guard refused a one-byte premise everywhere even before
 	// the promotion.
 	return WorkflowPayloadField{Name: "premise", ValueType: PayloadString, Required: true, NonBlank: true, Forbidden: []string{workflowPremiseFallback}, MinLength: workflowInt(1), MaxLength: workflowInt(WorkflowPremiseMaxLength)}

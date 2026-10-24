@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ec85cb2abc4387576b2515407f365e4a5bacbb3f673bbcdedd9d78b50276afc9",
+  "sha256": "sha256:4a08cc3619783832e2b6047f5bbf84bca1e4643f3550c6b910d389dfa273dd5a",
   "status": "accepted",
   "summary": "The conformance corpus runs current production definitions, not retained released-definition versions (CD-0242 D14). Its two scenarios and three nested cases prove capture without an approved outcome and refusal of condition actions. No definition exists solely to give the corpus a non-Product-changing target. Broader workflow obligations require their own current behavioral controls.",
   "tags": [

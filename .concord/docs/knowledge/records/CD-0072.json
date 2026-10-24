@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:80b510a856b3ec8ce85ddf2318ada6b8f689e21fc994121f9a91dc153c021af2",
+  "sha256": "sha256:d456526548341ad0766e56daf9f11af38e15e34e4a29a78300e023015da2f44c",
   "status": "accepted",
   "summary": "Ordinary trunk file writes remain deliberately unguarded by Concord. Managed-worker admission may enforce the lane capability registry against tool identities before execution, including editors and shell tools, without inspecting write destinations or restricting unmanaged host work. This is not a filesystem sandbox. Grant-level main-checkout refusal, the one-active-worktree-per-Project refusal, and Git-fact reclamation retain their existing authority.",
   "tags": [

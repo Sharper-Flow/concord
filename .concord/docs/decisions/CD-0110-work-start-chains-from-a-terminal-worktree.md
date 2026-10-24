@@ -6,13 +6,10 @@
   base used by a chained worktree
 - **Approval:** The operator approved this amendment for issue #829.
 - **Related:** CD-0098, CD-0092, CD-0093, CD-0096, CD-0105, issue #829
-- **Amends:** CD-0098 D1 and D3
 
 ## Context
 
-CD-0098 admits work start only from the Project default checkout. After work
-becomes terminal, the session remains in its claimed worktree and cannot start
-another item without a relaunch.
+A session left in a terminal worktree needs a safe route to its next item.
 
 The session can chain safely when the origin is a clean, terminal Concord
 worktree. A live item, dirty tree, active verify lease, or open worker attempt
@@ -61,6 +58,6 @@ Scenario: work_start refuses a live, dirty, leased, or dispatched origin
 
 - Core tests cover terminal admission, live refusal, dirty refusal, lease refusal,
   worker-attempt refusal, default-branch base selection, and origin retention.
-- Adapter tests cover terminal-origin forwarding and removal of the duplicate
-  default-checkout refusal.
+- Adapter tests cover terminal-origin forwarding and agreement with the core's
+  origin refusal.
 - `python3 scripts/check-knowledge-index.py` and the repository test tier pass.

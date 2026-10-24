@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e14ae450932d9befffedd4ac0999f1e1b7ed76973525985fe2f10dd4186aeed5",
+  "sha256": "sha256:38c9e40f178373bbb1149573e3995e80fd65cc26d43cda64f7f1996ec437599e",
   "status": "accepted",
   "summary": "checkpoint_context and cross_context_boundary hold every step. record_delivery advances an external-effect step only after a fenced start with no later dispatch. accept_worker_result advances only for the exact completed attempt. record_worker_failure records the exact failed attempt without advancing, after which a fresh fenced start can lead to record_delivery or a successful lane acceptance. record_decision and accept_decision advance the architecture-spike path to premise confirmation.",
   "tags": [

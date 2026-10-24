@@ -12,9 +12,6 @@
   `agent_definitions` table), CD-0017 (typed workers and model routing), CD-0031
   (core-derived session context packet), CD-0034 (host prompt provenance),
   CD-0043 (host-owned lane methodology)
-- **Amended:** Concord (CON) issue CON-910 (2026-10-13) re-homes the identity
-  assertion from session start to session-prepare under the Snowball
-  coordinator's operator-delegated approval.
 
 ## Context
 
@@ -52,9 +49,6 @@ placement is refused for lane definitions because `host_provenance` under CD-003
 is computed by hashing agent definitions read from the filesystem, and a
 definition carried in the environment presents no file to hash.
 
-The installer has no project concept today. Acquiring one is the cost of this
-decision and is owned by issue #253.
-
 ### D2. Concord asserts agent identity before managed action
 
 Concord enumerates the agents available to a session and asserts that the
@@ -88,13 +82,6 @@ point of failure.
 
 ### D5. The trusted client policy bounds the agent a caller may present
 
-D2 asserts identity before launch. It says nothing about the agent reference an
-invocation carries afterwards, and that reference was accepted verbatim: a
-registered client could name any agent, and attribution recorded whatever
-string it was handed. Assertion at launch and an unbounded reference at
-invocation are the same silent-substitution failure D2 refuses, moved one
-boundary later.
-
 The agent gains the standing the Product and the Project already have. A
 trusted client policy names the agents it may present, and authorization
 refuses any other. The scope is fail-closed: a client that names no agent
@@ -121,15 +108,8 @@ unsolved and is not settled here.
 
 ## Consequences
 
-Issue #253 gains a defined delivery target, and its substantive remaining work
-is the installer's missing project concept rather than an allowlist edit.
-
-Issue #254 gains a shape that survives CD-0016's exclusion of an
-`agent_definitions` table.
-
-CD-0016's clean-restart boundary becomes reachable. The assertion required by D2
-is what populates the reserved `typed_agent_*` columns that have been unwritten
-since that decision was accepted.
+Session preparation records the asserted orchestrator identity separately from
+workflow continuity boundaries, as CD-0061 D2 and D4 require.
 
 Work-start preparation carries the identity assertion, so a session reaches
 managed work with its asserted identity already recorded.

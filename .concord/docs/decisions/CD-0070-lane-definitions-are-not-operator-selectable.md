@@ -10,12 +10,8 @@
   emits `mode: subagent`), CD-0043 (host-owned lane methodology)
 - **Preserves:** CD-0064 D2 and D3 in full; the closed lane registry and its
   digests; `agent-lane-packet.v1` and `agent-lane-report.v1`
-- **Supersedes:** nothing
-- **Amendment reason:** Native Task dispatch resolves hidden subagent-only
-  lanes without making them primary-capable.
-- **Revision choice:** In-place amendment under CD-0036. D1's hidden field
-  remains, D2 follows CD-0064 D1's subagent mode, and D3's digest rule is unchanged.
-- **P12:** Serious: generated lanes cease to be primary-capable agents.
+- **P12:** Serious: generated lanes are hidden, subagent-only native Task
+  targets, not primary-capable agents.
 
 ## Context
 
@@ -47,9 +43,8 @@ remain required under CD-0178 D1.
 
 ### D3. The lane registry digest does not move
 
-The registry digest covers the manifest. A lane definition body is a projection
-of that manifest and contributes no bytes to the digest, so this change alters
-no digest and no schema version.
+The registry digest covers the canonical manifest. A lane definition body is
+a projection of that manifest and contributes no bytes to the digest.
 
 ## Invariants
 
@@ -78,4 +73,5 @@ no digest and no schema version.
 - `adapter/opencode/evals/native-lane.native.case.ts` completes each of the five
   hidden subagent identities through the native Task executor on OpenCode
   1.18.35, with exact child assistant-agent readback and a fixture model.
-- `contracts/agent-lanes.digest` is byte-identical before and after the change.
+- `contracts/agent-lanes.digest` derives from the canonical manifest. Generated
+  lane frontmatter is validated against its generator.

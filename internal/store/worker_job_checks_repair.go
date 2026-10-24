@@ -14,7 +14,8 @@ import (
 // own checks no admitted lane can execute is repaired by a newer revision of
 // the same job whose only content change is the checks. The correction
 // history walk owns the repair state — recorded, accepted, confirmed through
-// the exact confirming review's accepted ship verdict, or voided — and every
+// the exact confirming Review's accepted continue or ready_for_final_proof
+// disposition, or voided — and every
 // read here derives from one walk at an explicit prefix, so live reads,
 // guards, and folds answer from the same walked truth. A failed or rejected
 // confirming review that leaves its repairing revision unresolved owes that
@@ -51,7 +52,7 @@ type WorkerChecksRepairReviewAdmission struct {
 // checks repair: the record_worker_job action's declared payload names the
 // repair_revisions member. The capability derives from the pinned payload
 // exactly as the acceptance oracle does, so released pins keep the rule they
-// shipped with (CD-0115) and no behavior flag exists.
+// shipped with and no behavior flag exists.
 func workflowChecksRepairActive(definition WorkflowDefinition) bool {
 	for _, action := range definition.ActionDefinitions {
 		if action.ID != "record_worker_job" {
@@ -155,7 +156,7 @@ func workerChecksRepairAwaitingReviewTx(ctx context.Context, q queryer, workID s
 
 // openUnconfirmed reports whether the repair stands accepted but neither
 // confirmed nor voided: its named revisions hold their provisional
-// readiness, its review debt stands, and at most one confirming review may
+// readiness, its confirming Review remains pending, and at most one such Review may
 // still dispatch for it.
 func (s *workflowChecksRepairState) openUnconfirmed() bool {
 	return s.acceptanceSeq != 0 && !s.confirmed && !s.voided
@@ -187,7 +188,7 @@ func workerJobUnresolvedRevisions(history *workflowCorrectionHistory, jobID stri
 // comparison is over the typed full payload minus the approved exceptions, so
 // only the named exceptions ever leave it. One correction-history walk at the
 // deriving prefix answers the unresolved set, the open repair, and the
-// failed-review debt together: a second unconfirmed repair of the same job
+// failed confirming attempt's obligation together: a second unconfirmed repair of the same job
 // refuses while one stands, and while a voided repair's exact confirming
 // attempt failed or was rejected and its repairing revision still stands
 // unresolved, no checks repair may fold that own obligation into its named

@@ -5,14 +5,12 @@
 - **Scope:** The adapter's installed-versus-session release comparison at the
   tool boundary, the results and `dispatch_worker` refusal of a stale
   session, and the installer's retention output
-- **Amends:** CD-0111 (adds the lane-surface staleness rule beside D1 and D2)
 - **Related:** CD-0102, CD-0111, CD-0132
 - **Approval:** The operator approved this decision on work item
   `work-fd94329981b8575144fe93ed`, with the objective and the design
   recorded in its dispatch packet.
 - **Preserves:** CD-0111 D1's pinned pair, CD-0111 D2's lease-held retention,
   and the closed envelope and refusal vocabulary
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D6
 
 ## Context
 
@@ -31,8 +29,7 @@ held in memory after a lane fix shipped.
 
 ## Decision
 
-The release-currency boundary stands: stale packet and release checks remain, and no relaunch repairs stale authority by itself. [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) governs: no approval-gated fresh-retry route exists; each launch carries its own authority and safety checks.
-
+The release-currency boundary stands: stale packet and release checks remain, and no relaunch repairs stale authority by itself. Each launch carries its own authority and safety checks ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ### D1. The adapter owns installed-versus-session staleness
 

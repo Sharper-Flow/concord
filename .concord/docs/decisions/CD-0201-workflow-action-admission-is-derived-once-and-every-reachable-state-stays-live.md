@@ -2,29 +2,12 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-01
-- **Scope:** Workflow action admission in the store; the post-rejection
-  review debt settlement clause; the workflow liveness checks
-- **Extends:** CD-0172 at D1 and CD-0193 at D2, which require shared
-  predicates
-- **Amends:** CD-0166's settlement clause in one point — a fresh accepted
-  review settles the post-rejection review debt only when its verdict is
-  ship, or absent for the pre-CD-0197 reports
-- **Amended by:** CD-0209 D1, the typed `WorkflowRecoveryRoute` table and
-  the producer rule the route target must carry; CD-0209 D2, the
-  registration gate that refuses an undeclared or non-producer route;
-  CD-0209 D3, the one reader every runtime cross-step correction feeds
-  from; CD-0209 D4, the closed positive production classification;
-  CD-0209 D5, the artifact-staleness derivation and its admission halves;
-  CD-0209 D6, the work-pin sequence that names the next step;
-  CD-0209 D7, the liveness and conformance replay that read the
-  artifact-staleness bit;
-  [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
-  D3, equal answers require equal history and equal host observations
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D6, D14
+- **Scope:** Workflow action admission in the store; the workflow liveness
+  checks
 - **Preserves:** every other route refusal keeps its own scope (CD-0186);
   payload and identity checks stay in the guards; no generated contract
   changes
-- **Related:** CD-0043, CD-0133, CD-0137, CD-0143, CD-0164, CD-0166,
+- **Related:** CD-0043, CD-0133, CD-0137, CD-0143, CD-0166,
   CD-0173, CD-0187, CD-0197
 - **Approval:** The operator approved the approach in session chat on
   2026-10-01, including the well-formed-state exit check and excluding
@@ -38,7 +21,7 @@ recovery action refuses. The item strands.
 
 Admission for each action is computed by hand at four or more sites:
 preflight, the guard table, the work pin intents, the dispatch recording, and
-the correction binding. Conditions such as settled review debt, the same-step
+the correction binding. Conditions such as the accepted Review disposition, the same-step
 wall, and an unsettled attempt are re-derived per site. The copies drift, and
 each drift ships as another guard clause fix.
 
@@ -58,22 +41,19 @@ A pure function `workflowAdmit` decides one
 action's admission over that derived state and returns the decision, the
 ready review, and the typed refusal. Preflight, the guard table, the work
 pin intents, the dispatch recording, and the correction binding call the loader
-and the pure function. They no longer re-derive the derived conditions per
-site.
+and the pure function.
 
 The loader takes a queryer, not a store, so a caller inside a transaction
 never calls back into the pooled connection (the store connection
 invariant). The request payload checks and the attempt identity checks stay
-in the guards. The accept guard binds the request's attempt against the
-ready review the decision names.
+in the guards. Admission binds an accept request's attempt to the Review it
+accepts before it decides.
 
-The derived admission state covers every condition the five sites read when
-this record was accepted: the step and lifecycle, the instance state, the active
+The derived admission state covers every condition the five sites read: the step and lifecycle, the instance state, the active
 contract count, the law and registry pin staleness, the breaking impact
 notices, the design currency, the latest worker attempt and its capability
-class, the latest result disposition, the post-rejection review debt and
-its settling verdict, the recovery routes, the same-step wall and its
-operator approval, the dispatch hold, the evidence-binding recovery, and
+class, the latest result disposition, the accepted Review disposition of the
+current candidate, the recovery routes, the dispatch hold, the evidence-binding recovery, and
 the correction classifications. A duplicated contract projection follows the
 same rule: the count classifies the supersede recovery, and the singular-reader
 derivations degrade instead of refusing the route that recovery owns
@@ -146,12 +126,6 @@ integration boundary
   actions forever, so the weaker property passes hold loops.
 - Raise the sampler depth and budget. Rejected: still bounded, still slow,
   still inconclusive.
-- Treat a no_ship review as settled debt. Rejected: it advertises delivery
-  for a result the review refused.
-- Add a delivery-gate special case for no_ship. Rejected: one more clause at
-  one site is the pattern this record removes.
-- Require reject_worker_result for a no_ship review. Rejected: it discards
-  valid findings and blames the reviewer.
 
 ## Consequences
 

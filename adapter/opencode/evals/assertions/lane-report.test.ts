@@ -586,7 +586,7 @@ test("a typed high-severity blocker remains reported content, not progression au
   expect(result).toMatchObject({ pass: true, score: 1 })
 })
 
-test("a ship verdict with only non-blocking severities passes", () => {
+test("a ready disposition with only non-blocking severities passes", () => {
   const ship = {
     ...reviewBlock({ disposition: "ready_for_final_proof" }),
     findings: [finding({ severity: "P1" }), finding({ severity: "P2" }), finding({ severity: "P3" })],
@@ -594,7 +594,7 @@ test("a ship verdict with only non-blocking severities passes", () => {
   expect(run(report({ review: ship }))).toMatchObject({ pass: true, score: 1 })
 })
 
-test("a ship verdict with zero findings passes", () => {
+test("a ready disposition with zero findings passes", () => {
   expect(run(report({ review: reviewBlock({ disposition: "ready_for_final_proof", findings: [] }) }))).toMatchObject({ pass: true, score: 1 })
 })
 

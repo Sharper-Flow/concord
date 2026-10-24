@@ -80,7 +80,7 @@ func TestMandateAdmissionAgreement(t *testing.T) {
 			mandate = "bound"
 		}
 		conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, definition, admissionModelState{
-			step: pin.Step, debt: ReviewDebtNone, contracts: 1, mandate: mandate, engineering: true,
+			step: pin.Step, contracts: 1, mandate: mandate, engineering: true,
 		}, mandate)
 		decision := workflowAdmit(definition, state, "record_verdict")
 		payload := json.RawMessage(`{"verdicts":[{"predicate_id":"predicate:return-route","receipt_refs":["worktree_verify:mandate-unreachable"]}]}`)
@@ -154,7 +154,7 @@ func TestReadyReviewCannotBypassMandate(t *testing.T) {
 					continue
 				}
 				var preflightFailure, executionFailure *Failure
-				if decision.Admitted || decision.FreshReviewRequired || advertised ||
+				if decision.Admitted || advertised ||
 					!failureAs(preflightErr, &preflightFailure) || !failureAs(executionErr, &executionFailure) ||
 					preflightFailure.Kind != KindMissingEvidence || executionFailure.Kind != KindMissingEvidence ||
 					decision.Failure.Detail != preflightFailure.Detail || decision.Failure.Detail != executionFailure.Detail ||

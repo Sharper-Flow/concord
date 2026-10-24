@@ -14,7 +14,6 @@
 - **Preserves:** the worker authority boundary in full;
   `agent-lane-packet.v1` and `agent-lane-report.v1` at `schema_version` 1.0;
   the four pre-existing lane digests
-- **Supersedes:** nothing
 
 ## Context
 
@@ -60,10 +59,8 @@ the two enums identical and every lane's obligations a subset.
 
 ### D3. The manifest digest moves and the existing lane digests do not
 
-The manifest digest covers the whole manifest, so admitting a lane moves it.
-A lane digest covers only its own definition, so the four pre-existing
-digests stay byte-identical. No persisted worker event can name the design
-lane, so the registry needs no legacy digest entry for it.
+The manifest digest derives from the complete current manifest. Each lane
+digest derives from that lane's current canonical definition.
 
 ### D4. Model resolution stays with the host
 
@@ -77,7 +74,8 @@ through its own routing chain, exactly as for the other four lanes.
    review, verify.
 2. A design completion that leaves `visual_artifacts` undischarged is
    refused under CD-0056 D4.
-3. The four pre-existing lane digests equal their CD-0056 values.
+3. Each lane digest derives from its current canonical definition; the
+   manifest digest derives from the complete current manifest.
 4. The generated `concord-design.md` stays hidden from the operator agent
    cycle under CD-0070.
 

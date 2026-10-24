@@ -6,7 +6,6 @@
 - **Approval:** The operator approved the narrower write-conflict predicate on
   2026-09-13.
 - **Related:** CD-0222 D5–D7, CD-0144
-- **Amends:** CD-0222 D6
 - **Preserves:** Domain-overlap detail, write classifications, version-pinned
   resolutions, and the transactional execution guard
 
@@ -40,6 +39,6 @@ operator decision history because the blocking predicate became narrower.
 
 ## Consequences
 
-- Architecture proximity no longer creates an execution refusal.
+- Architecture proximity without a shared write does not block execution.
 - Shared Product writes still require the existing resolution choices.
 - Read-only overlap detail continues to expose every derived intersection.

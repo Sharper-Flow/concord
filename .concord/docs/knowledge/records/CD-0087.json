@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ef20fcdf1bf6f2d589003c3815c5613362d4b3d8b6bdc67c8559d543c934e3e1",
+  "sha256": "sha256:094c09a4c582b91c2dd07467eef77b5d57754326880d54ae4dbc75e0538903ce",
   "status": "accepted",
   "summary": "Credential reads remain provider-independent through the single Secret Service custody adapter, while first-use provisioning may use provider-specific controls. The Linux reference provisioner can create an unencrypted user-scoped gnome-keyring collection, refuses to stop a provider with live items, verifies restricted permissions, and installs automatic unlock after daemon restart.",
   "tags": [

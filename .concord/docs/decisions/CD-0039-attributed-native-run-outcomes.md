@@ -10,8 +10,6 @@
   ([`agent-result-envelope.md`](../agent-result-envelope.md)), TS8
   ([`agent-tool-surface-evolution.md`](../agent-tool-surface-evolution.md)),
   [`workflow-engine-contract.md`](../workflow-engine-contract.md)
-- **Supersedes:** nothing
-- **Amended by:** CD-0040 external observation provenance, verification, and consumption rules; [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 records native-run reports as current rows
 
 ## Context
 
@@ -83,7 +81,7 @@ actor_ref
 time, must be RFC3339, and may not be more than two minutes after `recorded_at`.
 The named two-minute native-report skew uses the existing authority clock-skew
 bound; a different value requires contract evidence. The record identity
-and accepted-input digest provide retry identity. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the report is a current row written in one transaction, not an appended event.
+and accepted-input digest provide retry identity. The report is a current row written in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 Phase controls the status vocabulary:
 
@@ -102,7 +100,7 @@ reused run ID with different subject/authority/content fail structurally.
 ### D4. The stored row preserves the claim, not a copied verdict
 
 `workflow_native_runs` keeps the latest phase/status for each
-`(work_id, run_id)` as current rows. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the row is written in the report's one transaction, and no fold or rebuild exists. It stores the report identity,
+`(work_id, run_id)` as current rows. The row is written in the report's one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). It stores the report identity,
 reporting authority, actor, subject, evidence, and both times alongside status.
 
 `native_change.status=rolled_back` in TS1 is a read projection over that row. The
@@ -175,8 +173,8 @@ Returning `ok` while the recorded row says `failed` or `rolled_back` is forbidde
 The adapter cannot synthesize `partial` from prose or provider output; the core
 derives it from the typed report committed with the durable operation.
 
-`outcome_mismatch` remains the completion-gate error for a workflow contract
-whose final predicate is not satisfied. Native-run partials use
+A workflow contract whose final predicate is not proved refuses completion with
+`missing_evidence`. Native-run partials use
 `operation_conflict` and reconciliation so the two error meanings do not drift.
 
 ### D9. The execution boundary does not move

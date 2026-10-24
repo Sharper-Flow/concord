@@ -5,15 +5,10 @@
 - **Scope:** The closure receipt rows and content law, the `record_proposal`
   payload, the `workflow_proposal_records` projection, and the closure store
   read
-- **Amends:** CD-0169 at D2 — the single-column table gains four optional
-  sections and a prose cell width; CD-0170 at D1 — a completed receipt may
-  restate recorded proposal, delivery, and relation facts beside the verified
-  predicates
 - **Preserves:** CD-0169 D1's one-renderer rule and D3's adapter delegation;
   CD-0170 D2's degrade-by-omission rule; the digests derived from the one
   canonical source ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14)
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14
-- **Related:** CD-0115, CD-0166, CD-0169, CD-0170, CD-0184
+- **Related:** CD-0166, CD-0169, CD-0170, CD-0184
 - **Approval:** The operator approved the approach in session chat on
   2026-10-02, including the dedicated closure read, the proposal
   `out_of_scope` list, the one-hundred-twenty-code-point prose width, and the
@@ -31,9 +26,8 @@ and may exclude scope. The delivery assertion names the delivered change, and
 a correction overlays it. The `raised_from` relations name the follow-up
 work, and a confirmed Linear link names its issue key.
 
-CD-0170 D1 limited receipt content to the verified predicates, so the gap is
-law, not a rendering defect. This record widens that law with its own record
-because CD-0169 rejected in-place amendment of a sibling record.
+The receipt needs the closure facts beside its verified predicates so the
+operator can see what the completed work delivered and what remains.
 
 ## Decision
 
@@ -83,10 +77,7 @@ and the entries are unique.
 
 The implementation family's canonical source ships the payload declaration. The
 column `workflow_proposal_records.out_of_scope` is additive and defaulted to
-an empty array, and the migration is recorded as non-breaking. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-governs: the generated contracts publish one `record_proposal` payload shape
-that admits the field, and validation refuses the field for an item whose
-declared shape lacks it.
+an empty array, and the migration is recorded as non-breaking.
 
 ### D5. Follow-ups are the direct raised_from successors
 
@@ -97,7 +88,7 @@ issue key renders before the work ID fallback.
 
 ### D6. Content law
 
-CD-0170 D1 as amended: a completed receipt restates the verified contract
+CD-0170 D1: a completed receipt restates the verified contract
 predicates and the recorded proposal, delivery, exclusion, and relation facts
 the store holds. The verified predicates remain the only proof rows. The
 degrade rule stays CD-0170 D2, and the adapter keeps zero formatting logic
@@ -180,8 +171,8 @@ Scenario: The prose width truncates visibly
 - `go test ./internal/store/ -run 'TestReadWorkClosure|TestRecordProposalOutOfScope'`
   proves the closure read, the correction overlay, the bare degrade, and the
   version boundary.
-- `go test ./internal/store/ -run 'TestWorkflowDefinitionVersionPins|TestBuiltinDefinitions'`
-  proves every released digest holds and the new version registers once.
+- `go test ./internal/store/ -run 'TestCurrentDefinitionsHaveOneSourcePerLiveFamily|TestLiveHeadsAreTheirCompiledCompositions'`
+  proves the current compiled definitions and their canonical identities.
 - `go test ./internal/store/ -run TestMigrationChecksumPinsMatchDefinitions`
   proves the additive migration and its checksum pin.
 - `python3 scripts/generate-agent-contracts.py --check` proves the projected

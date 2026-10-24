@@ -274,7 +274,7 @@ func TestWitnessCombinedAcceptAfterEarlierReview(t *testing.T) {
 				t.Fatalf("integrated candidate = %s, earlier proof subject = %s, want changed=%t", candidate, proofSubject, changed)
 			}
 			c.attempt = "attempt:" + id + ":final"
-			c.epoch = acceptDeliveryCompleteReview(t, c, c.attempt)
+			c.epoch = acceptDeliveryCompleteReview(t, c, c.attempt, "ready_for_final_proof")
 			before := c.j.effects(t)
 			err := runDeliveryAdmissionAction(t, s, id, "accept_worker_result", acceptDeliveryCombinedPayload(c, "artifact:witness-final"),
 				refineProofTooling(ProjectDeclaredTool{ID: "head", Invocation: "git rev-parse --verify HEAD^{commit}"}), reviewGateAcceptor(id))

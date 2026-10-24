@@ -25,7 +25,7 @@ Each is decided below with reasoning. None violates CD-0002 invariants I1–I6.
 
 ### Decision
 A later accepted decision, PM3, replaces the generic materialized `entities`
-projection below with explicit typed Product-memory projections. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current state in current rows, and no append-only event log exists; the typed-edge integrity principle remains current. The
+projection below with explicit typed Product-memory projections. The store keeps current state in current rows; the typed-edge integrity principle remains current ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). The
 original decision follows for rationale and supersession history.
 
 A **universal spine** serves every entity type:
@@ -104,7 +104,7 @@ The Go core uses **[`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)
 ### What this gives
 - **A coherent current storage/schema baseline.** PM2 fixes one global local DB;
   PM3 fixes one authoritative current-row store plus explicit typed Product-memory
-  projections ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no event log exists). PM4 fixes lifecycle/relation semantics; PM5 fixes membership/scope. This
+  projections. PM4 fixes lifecycle/relation semantics; PM5 fixes membership/scope. This
   record remains binding only where PM3 did not supersede it.
 - **Explicit core + bounded extension richness.** Stable identity, joins,
   invariants, and PM1 filters are typed; versioned JSON is reserved for rare

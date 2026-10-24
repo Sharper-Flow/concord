@@ -4,22 +4,11 @@
 - **Date:** 2026-10-04
 - **Scope:** The admission of `confirm_premise` and `record_delivery` at the
   preflight, the work pin, and execution; the late `record_verdict` route
-- **Extends:** CD-0201 D1, the single admission owner, to the acceptance
-  deliverables and to the fresh-review refusal over `record_delivery`
-- **Amends:** CD-0203 D2 at its consequence: a recorded ops runbook that
-  reaches cleanup without a verdict records the verdict there before the
-  premise question can be confirmed
-- **Amended by:** CD-0209 D1, the closed two-trigger set the late
-  `record_verdict` route serves through the unhealthy_verdict trigger;
-  CD-0209 D2, the registration gate that refuses a late-verdict step
-  that declares no declared return; CD-0209 D6, the work-pin sequence
-  the late-verdict step reaches the producer through
 - **Preserves:** CD-0201 D2, the liveness law; the digests derived from the
   one canonical source
   ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14);
   every other route refusal keeps its scope
   (CD-0186)
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D3, D14
 - **Related:** CD-0116, CD-0197, CD-0203
 - **Approval:** The operator directed in session chat on 2026-10-02 that the
   checks stay strict, with no named exception, and that the engine routes
@@ -36,7 +25,7 @@ enforced and the folded state did not carry:
    recorded verdict, a verdict for each approved predicate, or a bound
    required evidence kind. The preflight and the work pin did not read that
    gate. They offered a confirmation that execution then refused.
-2. Behind outstanding post-rejection review debt, admission refuses
+2. Behind a blocking Review disposition, admission refuses
    `record_delivery` at a review step with the fresh-review refusal. The
    preflight deferred that refusal to the guards, as it does for the accept
    that can name the ready review. No guard owns the refusal over
@@ -75,29 +64,21 @@ hosts the premise question for `confirm_premise` without declaring
 earlier step that declares `record_verdict`, and a predicate without an `ok`
 verdict. A late verdict does not move the step.
 
-[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-governs: the gate lives in the admission code derived from the one canonical
-source, not in declared definition content.
-
 ## Alternatives considered
 
 - Keep the deliverables check at execution only, and add a preflight copy.
   Rejected: a second copy is the drift that CD-0201 D1 removes.
 - Defer every fresh-review refusal and give `record_delivery` a guard.
   Rejected: the refusal reads no payload, and a guard copy is a second owner.
-- Publish the `record_verdict` declaration for cleanup in the canonical source.
-  Rejected: the recorded runbook items keep their recorded state, and the
-  late-verdict route already serves them
-  ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
-- Let the cleanup confirmation pass without a verdict. Rejected: completion
+- Let confirmation pass without a verdict. Rejected: completion
   requires the verdict, so the work strands one step later.
 
 ## Consequences
 
 A caller that asks the preflight or reads the work pin gets the refusal that
-execution applies, for the confirmation and for a delivery behind review
-debt. A recorded ops runbook at cleanup without a verdict records the verdict
-there, then confirms. The liveness checks read the recorded verdict at the
+execution applies, for the confirmation and for a delivery behind a blocking
+Review disposition. At a supported premise-question or terminal step, a missing
+verdict records through the late route without moving the step. The liveness checks read the recorded verdict at the
 premise question
 ([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).
 

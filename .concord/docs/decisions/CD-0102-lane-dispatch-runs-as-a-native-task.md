@@ -17,9 +17,6 @@
   in
   [CON-1271](https://linear.app/sharper-flow/issue/CON-1271/use-native-opencode-task-or-separate-sessions-for-concord-worker#comment-c61eaa2b-eb1a-42ec-9458-eced361746cc).
 - **Related:** CD-0059, CD-0088, CD-0092, CD-0093, CD-0096, issue #689
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5
-- **Amends:** CD-0059 D1 for the worker execution route, not for its
-  authorize-before-start rule
 - **Preserves:** The lane packet contract, the lane report contract, and the
   rule that a lane records no workflow state
 
@@ -201,7 +198,6 @@ the terminal tool-part event. That event owns failure settlement. Its part
 identity must match the hook identity retained for the attempt, whether the
 host hook identifies the part or its separate tool call.
 
-*(Amended 2026-10-09, [Linear](https://linear.app/sharper-flow/issue/CON-891/give-the-workers-final-report-an-explicit-protocol-identity-instead-of) — the final part carries a framed report.)*
 The worker emits its lane report as one Markdown fence with the info string
 `concord-worker-result-v1`, as the last text part of its session, with no
 report content after it. One shared report-protocol parser selects the report
@@ -216,9 +212,8 @@ the report is identified, not how the worker is authorized.
 
 ### D6. The child-process route is removed
 
-`dispatch_worker` starts a worker one way. The `opencode run` spawn, its
-argument construction, its standard-output parsing, and its stream recovery are
-removed. No second route survives as a fallback.
+An authorized worker starts only through its bound native Task. No second
+route is available as a fallback.
 
 ### D7. The worker runs where the session runs
 
@@ -227,8 +222,7 @@ session retargeted under CD-0096 therefore dispatches its lanes into the claimed
 worktree, and a session in a default checkout cannot dispatch an
 implementation-bearing lane at all.
 
-*(Amended 2026-09-06, issue #826 — the core checks this, the host does not
-promise it.)* *Before `dispatch_worker` opens a window, the core resolves the worktree claim the assignment names and compares it with
+*Before `dispatch_worker` opens a window, the core resolves the worktree claim the assignment names and compares it with
 the directory the worker will run in, by filesystem identity: absolute, symlink-resolved, cleaned.
 No active claim, an unresolvable session path, or a mismatch refuses with
 `unauthorized_dispatch`. The refusal names the sha256 identity of each path,
@@ -243,8 +237,6 @@ worker cannot run in a worktree the work item does not own.*
   permissions. Host-permitted ordinary agents, including authoring agents that
   may edit files, can run beside registered lanes. Their results are not lane
   evidence and carry no Concord workflow authority.
-- Concord no longer parses a child process. One failure class, the detached
-  worker, is removed with the route that produced it.
 - The coordinator issues one native Task after typed authorization. The
   adapter binds the recorded packet and one exact attempt reference without a
   custom executable queue or a second launcher. Authorization, observed worker

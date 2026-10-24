@@ -3,7 +3,6 @@
 - **Status:** Accepted
 - **Date:** 2026-09-23
 - **Scope:** Durable decision records and the document contract that checks them
-- **Amends:** CD-0114
 - **Related:** CD-0153
 - **Approval:** The operator approved this decision in chat after the complete first-item contract was presented.
 

@@ -18,15 +18,15 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestPostRejectionReviewGateHoldsBreakFixDelivery"
+      "value": "internal/store.TestDeliveryRequiresReviewOfCurrentCandidate"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestPostRejectionReviewGateRefusesPreRejectionReviewAccept"
+      "value": "internal/store.TestReviewOfReplacedCandidateCannotAuthorizeDelivery"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestPostRejectionReviewGateRefusesReviewDispatchedBeforeRepair"
+      "value": "internal/store.TestReviewApplicabilityFollowsCandidateNotDispatchOrder"
     },
     {
       "kind": "go_test",

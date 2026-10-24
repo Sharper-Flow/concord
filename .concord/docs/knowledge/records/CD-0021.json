@@ -24,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5cd8e8623220c1e6780aa435a6075716858241509632604ff91341bf0df8bc73",
+  "sha256": "sha256:fe5c28b114c84de6fd150606e5cea69ea520e25e65340a98001ef4d1dda129ea",
   "status": "accepted",
   "summary": "Floor condition 1 is claimable without an operator authoring surface: planning happens through an agent session, and full Product scope means every Product is reachable from the operator's session and the agent read surface rather than a result set spanning Products.",
   "tags": [

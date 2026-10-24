@@ -12,9 +12,6 @@
 > proof of concept (PoC) is part of this decision.
 > **Does not decide:** PM6 canonical note placement, C15 managed-resource identity,
 > TS5 authorization/context mechanics, exact DDL/indexes, or agent tools.
-> **Amended by CD-0242 D2:** membership operations write current rows in one
-> transaction, checked by an expected version and recorded by an idempotency key;
-> no event append exists.
 
 ## Context
 

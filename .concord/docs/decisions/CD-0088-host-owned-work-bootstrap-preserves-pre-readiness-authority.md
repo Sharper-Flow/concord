@@ -7,11 +7,6 @@
 - **Approval:** The operator approved the issue #611 implementation plan
 - **Related:** CD-0010, CD-0031, CD-0049, CD-0072, CD-0079, CD-0098, CD-0104,
   issue #611
-- **Amended by:** CD-0098 D4 at the launch clause; CD-0104 D1 at the launch
-  record. `session-prepare` verifies and derives, and records no launch.
-  Amended 2026-10-02 at D2 and D3: the bounded Git-cache preflight precedes
-  every fresh creation, and the resume freshness sample reports the typed
-  lag.
 - **Preserves:** CD-0010 and the default-checkout implementation firewall
 
 ## Context

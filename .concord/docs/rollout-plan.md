@@ -22,18 +22,10 @@ second authority. Reachable issue-backed lessons are summarized in
 
 ## 1. Work allowed after bootstrap
 
-After issue #600 ships, the following may proceed through Concord's workflow with
-GitHub Issues, branches, worktrees, pull requests, and required checks:
-
-- refine constitutional docs, specifications, and decision records;
-- implement the accepted storage/core slice after bootstrap;
-- build contract validators and synthetic conformance scenarios;
-- develop the agent adapter and workflow types within accepted decisions;
-- run public-source research and record bounded, dated findings;
-- improve documentation links, examples, and release evidence.
-
-The authority model for this work is accepted in
-[`managed-development-authority.md`](./managed-development-authority.md) and CD-0089.
+Development follows [`managed-development-authority.md`](./managed-development-authority.md).
+Explicit managed participation grants Concord workflow authority. Outside-workflow
+development follows host permissions and repository rules. Planning belongs to
+Linear; branches, worktrees, pull requests, and required checks retain their authority.
 
 ## 2. Entry conditions
 
@@ -91,7 +83,7 @@ the document and section that bears it.
 
 ## 4. Concord coordination and demand-driven correction
 
-Concord coordinates explicitly managed development after issue #600 ships.
+Concord coordinates explicitly managed development.
 Outside project work and authorized defect repair remain permitted under host
 permissions and repository rules. The first-usable floor is maturity evidence,
 not a development gate, migration trigger, or migration plan.
@@ -117,8 +109,7 @@ promotion. It imposes no schedule, so the demand-driven model above still holds.
 | [`priorities.md`](./priorities.md) | Operating envelope and standing law. |
 | [`managed-development-authority.md`](./managed-development-authority.md) | Concord development authority, explicit workflow participation, outside-work defect repair, and repository evidence. |
 | [`decisions/CD-0007-concord-repository-bootstrap.md`](./decisions/CD-0007-concord-repository-bootstrap.md) | Public repository, bootstrap, governance, release, privacy, and platform boundary. |
-| [`decisions/CD-0010-pre-readiness-development-authority.md`](./decisions/CD-0010-pre-readiness-development-authority.md) | Historical pre-readiness authority, superseded only by CD-0089 at its self-hosting boundary. |
-| [`decisions/CD-0089-concord-development-coordination.md`](./decisions/CD-0089-concord-development-coordination.md) | Concord development coordination after the issue #600 bootstrap exception. |
+| [`decisions/CD-0089-concord-development-coordination.md`](./decisions/CD-0089-concord-development-coordination.md) | Concord development coordination and explicit managed participation. |
 | [`decisions/CD-0122-concord-workflow-scope-and-defect-repair.md`](./decisions/CD-0122-concord-workflow-scope-and-defect-repair.md) | Explicit workflow participation, outside project work, authorized defect repair, and host-role preservation. |
 | [`decisions/CD-0091-maturity-promotion-ladder.md`](./decisions/CD-0091-maturity-promotion-ladder.md) | Maturity and audience-commitment promotion evidence. |
 | [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) | Public predecessor lessons; reference-only. |

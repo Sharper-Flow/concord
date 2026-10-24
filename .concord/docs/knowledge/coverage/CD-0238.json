@@ -1,5 +1,0 @@
-{
-  "id": "CD-0238",
-  "reason": "CD-0242 supersedes this decision in full. D2 removes point-in-time workflow reconstruction and retained historical interpretation; these are not current runtime coverage obligations.",
-  "state": "out_of_scope"
-}

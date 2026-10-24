@@ -246,10 +246,10 @@ func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, 
 	if err := scope.enter(ctx); err != nil {
 		return "", err
 	}
+	event.Seq = seq
 	if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
 		return "", err
 	}
-	event.Seq = seq
 	if err := advanceWorkEffectSeqTx(ctx, tx, event); err != nil {
 		return "", err
 	}

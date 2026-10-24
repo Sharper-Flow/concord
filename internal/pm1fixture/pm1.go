@@ -541,14 +541,7 @@ func fixtureEvent(id, kind string, subject store.SubjectType, subjectID, actor, 
 	if err != nil {
 		when = time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	}
-	version := 1
-	switch kind {
-	case "project.created":
-		version = 2
-	case "work.created":
-		version = 4
-	}
-	return store.Event{EventID: id, Kind: kind, SubjectType: subject, SubjectID: subjectID, Actor: actor, OccurredAt: when, PayloadVersion: version, Payload: raw}
+	return store.Event{EventID: id, Kind: kind, SubjectType: subject, SubjectID: subjectID, Actor: actor, OccurredAt: when, PayloadVersion: store.CurrentEventPayloadVersion(kind), Payload: raw}
 }
 
 func initKnowledgeRepo(dir string) (string, error) {

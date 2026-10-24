@@ -71,25 +71,6 @@ const (
 	workerDispatchedAttributionVersion = 6
 )
 
-// WorkerEvidenceEventPayloadVersion resolves the payload version the event
-// registry currently owns for the named worker evidence kind (CD-0205), so
-// callers at the emission boundary — the CLI command routes in
-// cmd/concord, and the fixture helpers in this package — cannot hand-write a
-// competing version that drifts from the registry. WorkerFailed is registered
-// at version 2, the findings-capable payload (CON-887).
-func WorkerEvidenceEventPayloadVersion(kind string) int {
-	switch kind {
-	case WorkerDispatched, WorkerCompleted, WorkerFailed:
-	default:
-		panic(fmt.Sprintf("worker evidence event %q is not recognized", kind))
-	}
-	reg, ok := registeredEventKind(kind)
-	if !ok {
-		panic(fmt.Sprintf("worker event %q is not registered", kind))
-	}
-	return reg.CurrentVersion
-}
-
 const (
 	WorkerFailureFallbackBlocked        = "fallback_blocked"
 	WorkerFailureWorkerError            = "worker_error"
@@ -1570,7 +1551,7 @@ func PrepareLaneActorDispatch(ctx context.Context, transaction *Transaction, dis
 		OccurredAt: dispatch.OccurredAt, PayloadVersion: 1, Payload: actorRaw,
 	}
 	dispatch.Payload = dispatchRaw
-	dispatch.PayloadVersion = WorkerEvidenceEventPayloadVersion(WorkerDispatched)
+	dispatch.PayloadVersion = CurrentEventPayloadVersion(WorkerDispatched)
 	return []Event{actorEvent, dispatch}, nil
 }
 

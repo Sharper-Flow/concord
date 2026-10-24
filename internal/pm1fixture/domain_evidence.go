@@ -94,9 +94,9 @@ func ContentDigest(content string) string {
 func SeedProductAndProject(ctx context.Context, s *store.Store, productID, projectID string) error {
 	membership := fmt.Sprintf(`{"product_id":%q,"project_id":%q,"role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`, productID, projectID)
 	events := []store.Event{
-		{EventID: "domain-evidence-product-" + productID, Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: productID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "domain-evidence-project-" + projectID, Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: projectID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: 2, Payload: json.RawMessage(`{"display_name":"Project"}`)},
-		{EventID: "domain-evidence-membership-" + productID + "-" + projectID, Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: productID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: 1, Payload: json.RawMessage(membership)},
+		{EventID: "domain-evidence-product-" + productID, Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: productID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: store.CurrentEventPayloadVersion("product.created"), Payload: json.RawMessage(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
+		{EventID: "domain-evidence-project-" + projectID, Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: projectID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: store.CurrentEventPayloadVersion("project.created"), Payload: json.RawMessage(`{"display_name":"Project"}`)},
+		{EventID: "domain-evidence-membership-" + productID + "-" + projectID, Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: productID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: store.CurrentEventPayloadVersion("product_project.added"), Payload: json.RawMessage(membership)},
 	}
 	versions := map[store.SubjectRef]int64{
 		store.VersionRef(store.SubjectProduct, productID): 0,
@@ -114,8 +114,8 @@ func SeedWorkItem(ctx context.Context, s *store.Store, projectID, workID, title 
 	created := fmt.Sprintf(`{"work_kind":"task","title":%q,"priority":%d}`, title, priority)
 	membership := fmt.Sprintf(`{"memberships":[{"project_id":%q,"role":"primary"}],"expected_version":1,"resulting_version":2}`, projectID)
 	events := []store.Event{
-		{EventID: "domain-evidence-work-" + workID, Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: 4, Payload: json.RawMessage(created)},
-		{EventID: "domain-evidence-work-" + workID + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: 1, Payload: json.RawMessage(membership)},
+		{EventID: "domain-evidence-work-" + workID, Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(created)},
+		{EventID: "domain-evidence-work-" + workID + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: store.CurrentEventPayloadVersion("work.memberships_replaced"), Payload: json.RawMessage(membership)},
 	}
 	versions := map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: versions}); err != nil {

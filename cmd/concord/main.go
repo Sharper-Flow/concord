@@ -764,7 +764,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 				return 1
 			}
 		}
-		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, store.Event{EventID: request.EventID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerDispatched), Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
+		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, store.Event{EventID: request.EventID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched), Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
 	case "worker-complete":
 		var request workerCompleteRequest
 		if err := decodeObject(raw, &request); err != nil {
@@ -782,7 +782,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			ReadbackModel: request.ReadbackModel,
 		}
 		payload := store.WorkerCompletedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, ReportSchemaVersion: request.ReportSchemaVersion, WorkerDirectory: request.WorkerDirectory, Evidence: request.Evidence, EvidenceOrigin: request.EvidenceOrigin, BaseComparison: request.BaseComparison, Review: request.Review, WorkerJob: request.WorkerJob, ContextFindings: request.ContextFindings, DirectCallerRepairs: request.DirectCallerRepairs}
-		event := store.Event{EventID: request.EventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerCompleted), Payload: mustMarshalWorkerPayload(payload)}
+		event := store.Event{EventID: request.EventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerCompleted), Payload: mustMarshalWorkerPayload(payload)}
 		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, event, out, errOut)
 	case "worker-fail":
 		var request workerFailRequest
@@ -805,7 +805,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			ObservationDigest: attributionDigest,
 		}
 		payload := store.WorkerFailedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, FailureKind: request.FailureKind, Detail: request.Detail, ContextFindings: request.ContextFindings, FailureAttribution: workerFailureAttribution(request.FailureAttribution)}
-		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerFailed), Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
+		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerFailed), Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
 	case "worker-abandon":
 		var request workerAbandonRequest
 		if err := decodeObject(raw, &request); err != nil {
@@ -826,7 +826,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			ObservationDigest: attributionDigest,
 		}
 		payload := store.WorkerFailedPayload{AttemptID: request.AttemptID, FailureKind: store.WorkerFailureAbandoned, Detail: request.Detail, FailureAttribution: workerFailureAttribution(request.FailureAttribution)}
-		event := store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerFailed), Payload: mustMarshalWorkerPayload(payload)}
+		event := store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerFailed), Payload: mustMarshalWorkerPayload(payload)}
 		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, event, out, errOut)
 	}
 	writeOperatorDiagnostic(errOut, command, "unsupported command")

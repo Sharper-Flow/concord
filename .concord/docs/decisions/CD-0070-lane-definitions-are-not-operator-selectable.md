@@ -70,8 +70,5 @@ a projection of that manifest and contributes no bytes to the digest.
   omits it.
 - Applying the host cycle predicate to the resolved host configuration in a
   project carrying the generated definitions returns no lane.
-- `adapter/opencode/evals/native-lane.native.case.ts` completes each of the five
-  hidden subagent identities through the native Task executor on OpenCode
-  1.18.35, with exact child assistant-agent readback and a fixture model.
 - `contracts/agent-lanes.digest` derives from the canonical manifest. Generated
   lane frontmatter is validated against its generator.

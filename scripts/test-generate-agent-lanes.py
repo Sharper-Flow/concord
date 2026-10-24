@@ -1159,22 +1159,6 @@ class AgentDirectoryInventoryTests(unittest.TestCase):
         self.assertIn("unprojected agent definition: concord-retired.md", stderr)
 
 
-class EvalPacketProjectionTests(unittest.TestCase):
-    def test_projection_replaces_lane_digest_without_manual_edit(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "packet.json"
-            path.write_text(json.dumps({"lane_id": "review", "lane_digest": "old"}, indent=2) + "\n", encoding="utf-8")
-            projected = generator.eval_packet_projection(path, {"review": "sha256:" + "a" * 64})
-            self.assertIn('"lane_digest": "sha256:' + "a" * 64 + '"', projected)
-
-    def test_projection_rejects_unknown_lane(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "packet.json"
-            path.write_text('{"lane_id":"missing"}\n', encoding="utf-8")
-            with self.assertRaises(ValueError):
-                generator.eval_packet_projection(path, {})
-
-
 class WorkerScopeProjectionTests(unittest.TestCase):
     # Each fixture carries only the fields the surface under test reads, so
     # the tests state the resolution and projection rules rather than the

@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-16
 - **Scope:** Worker dispatch evidence; adapter; issue #103
-- **Related:** CD-0017 (D1, D5, D7, Invariant 8), issue #103
+- **Related:** CD-0017 (D1, D5, Invariant 8), issue #103
 
 ## Context
 
@@ -14,7 +14,7 @@ operator's routing and safety policy, output-voice overlays,
 predecessor-coupled instruction files that retire on migration. Only the lane
 contract is versioned and digest-pinned. The rest can change without any
 contract version moving — delegation-boundary drift arriving through prompt
-content instead of packet shape, and invisible to D7 evaluation.
+content instead of packet shape.
 
 ## Decision
 
@@ -34,14 +34,9 @@ output-voice overlays, MCP tool-definition prompt content — are recorded by
 name as `unenumerated` sources: visible as present-but-unbound rather than
 silently absent.
 
-**Consequences for D7.** A prompt evaluation is reproducible from its
-evidence only when both digests match: the lane contract digest and the host
-provenance digest of the run under test. A green eval proves nothing about a
-later run whose provenance differs — and now the difference is visible in
-dispatch evidence rather than inferable only from drift. Deterministic
-authority stays in Go tests (provenance shape validation, the v3 gate at the
-CLI boundary); behavioral evaluation stays outside, as D7
-already holds.
+A difference in host provenance between two runs is visible in dispatch
+evidence. Go tests own provenance shape validation and the v3 gate at the CLI
+boundary.
 
 **Migration (predecessor-coupled instruction files).** Retiring an
 instruction file changes the manifest and therefore the total digest. Lane
@@ -61,8 +56,7 @@ permitted only when recorded, and the emitter gate is the enforcement point.
   workers less safe, not more; and the enumerability limits mean exclusivity
   could not be verified anyway.
 - **Tolerated** (injection out of scope, evals advisory-only): accepts
-  invisible drift; a green eval would prove nothing about any later run with
-  no way to notice. D7's harness would measure an unreproducible composite.
+  invisible drift with no way to notice it.
 
 ## Verification
 

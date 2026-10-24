@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"sort"
 	"strings"
 	"time"
@@ -74,40 +73,6 @@ type compactionLinkPayload struct {
 	ContentHash     string   `json:"content_hash"`
 	Reason          string   `json:"reason"`
 	ExpectedVersion int64    `json:"expected_version"`
-}
-
-// compactionLinkPayloadV2 is the recorded v2 shape: the current payload plus
-// a resulting_version that must equal expected_version+1.
-type compactionLinkPayloadV2 struct {
-	compactionLinkPayload
-	ResultingVersion int64 `json:"resulting_version"`
-}
-
-// compactionLinkPayloadV1 is kept separate from the current payload so that
-// replay can normalize legacy bytes without ever rewriting the event log.
-type compactionLinkPayloadV1 struct {
-	ID               string   `json:"id"`
-	Type             string   `json:"type"`
-	Title            string   `json:"title"`
-	CompletedAt      string   `json:"completed_at"`
-	OutcomeTag       string   `json:"outcome_tag"`
-	LessonTags       []string `json:"lesson_tags"`
-	TerminalState    string   `json:"terminal_state"`
-	Priority         int64    `json:"priority"`
-	Summary          string   `json:"summary"`
-	SuccessorID      string   `json:"successor_work_id,omitempty"`
-	ProductIDs       []string `json:"product_ids"`
-	ProjectIDs       []string `json:"project_ids"`
-	ComponentIDs     []string `json:"component_ids"`
-	TagIDs           []string `json:"tag_ids"`
-	HomeProjectID    string   `json:"home_project_id"`
-	HomeLocatorID    string   `json:"home_locator_id"`
-	NotePath         string   `json:"note_path"`
-	CommitOID        string   `json:"commit_oid"`
-	ContentHash      string   `json:"content_hash"`
-	Reason           string   `json:"reason"`
-	ExpectedVersion  int64    `json:"expected_version"`
-	ResultingVersion int64    `json:"resulting_version"`
 }
 
 // PublishCompactionLink verifies the committed note before appending the link
@@ -307,71 +272,6 @@ func validateCompactionScopeArrays(payload compactionLinkPayload) error {
 	return nil
 }
 
-// upcastCompactionLinkPublishedV1 converts only the in-memory event passed to
-// the fold. The stored v1 payload remains byte-for-byte historical evidence.
-func upcastCompactionLinkPublishedV1(event Event) (Event, error) {
-	if event.PayloadVersion != 1 {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "compaction_link.published upcaster requires payload version 1", false, "supply a legacy v1 compaction payload")
-	}
-	if err := rejectDuplicateJSONKeys(event.Payload); err != nil {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "compaction payload contains duplicate keys", false, "repair the stored event payload")
-	}
-	var fields map[string]json.RawMessage
-	decoder := json.NewDecoder(strings.NewReader(string(event.Payload)))
-	if err := decoder.Decode(&fields); err != nil {
-		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "compaction payload is not an object", false, "repair the stored event payload", err)
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "legacy compaction payload contains trailing JSON", false, "store exactly one compaction payload object")
-	}
-	if _, ok := fields["domain_ids"]; ok {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "legacy compaction payload already contains domain_ids", false, "remove mixed legacy and Domain vocabulary")
-	}
-	var legacy compactionLinkPayloadV1
-	strict := json.NewDecoder(strings.NewReader(string(event.Payload)))
-	strict.DisallowUnknownFields()
-	if err := strict.Decode(&legacy); err != nil {
-		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "legacy compaction payload contains unknown or malformed fields", false, "repair the stored event payload", err)
-	}
-	v2 := compactionLinkPayloadV2{
-		compactionLinkPayload: compactionLinkPayload{
-			ID: legacy.ID, Type: legacy.Type, Title: legacy.Title, CompletedAt: legacy.CompletedAt,
-			OutcomeTag: legacy.OutcomeTag, LessonTags: legacy.LessonTags, TerminalState: legacy.TerminalState,
-			Priority: legacy.Priority, Summary: legacy.Summary, SuccessorID: legacy.SuccessorID,
-			ProductIDs: legacy.ProductIDs, ProjectIDs: legacy.ProjectIDs, DomainIDs: append([]string{}, legacy.ComponentIDs...),
-			TagIDs: legacy.TagIDs, HomeProjectID: legacy.HomeProjectID, HomeLocatorID: legacy.HomeLocatorID,
-			NotePath: legacy.NotePath, CommitOID: legacy.CommitOID, ContentHash: legacy.ContentHash,
-			Reason: legacy.Reason, ExpectedVersion: legacy.ExpectedVersion,
-		},
-		ResultingVersion: legacy.ResultingVersion,
-	}
-	payload, err := json.Marshal(v2)
-	if err != nil {
-		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot encode v2 compaction payload", false, "repair the stored event payload", err)
-	}
-	event.Payload, event.PayloadVersion = payload, 2
-	return event, nil
-}
-
-// upcastCompactionLinkPublishedV2 keeps the v2 acceptance set: it refuses a
-// pair that is not consecutive and drops resulting_version.
-func upcastCompactionLinkPublishedV2(event Event) (Event, error) {
-	var v2 compactionLinkPayloadV2
-	if err := decodeRegisteredPayload(event, &v2); err != nil {
-		return Event{}, err
-	}
-	if v2.ResultingVersion != v2.ExpectedVersion+1 {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "compaction_link.published resulting_version is not expected_version+1", false, "repair the stored event payload")
-	}
-	payload, err := json.Marshal(v2.compactionLinkPayload)
-	if err != nil {
-		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot encode current compaction payload", false, "repair the stored event payload", err)
-	}
-	event.Payload, event.PayloadVersion = payload, 3
-	return event, nil
-}
-
 type domainProjection struct {
 	ProductID        string
 	ProductKey       string
@@ -546,7 +446,6 @@ func refuseWatermarkFromNewerBinary(ctx context.Context, q queryer, home Knowled
 }
 
 // RebuildKnowledgeIndex replaces only the git-derived tables for one home.
-// RebuildFromLog intentionally does not call this method.
 func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) error {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "rebuild_knowledge_index", "store is not open", false, "open a store before rebuilding the knowledge index")

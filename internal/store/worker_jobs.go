@@ -212,7 +212,7 @@ func validateWorkerJobRecordedPayload(event Event, payload WorkerJobRecordedPayl
 	// The retired size members decode history but record nothing new
 	// (CD-0242 D6). A live recording is payload version 2; a replayed v1
 	// revision keeps the members it may carry.
-	if event.replaySourcePayloadVersion == 0 && (payload.ProductionSizeMax != nil || len(payload.MeasurementBasis) != 0) {
+	if payload.ProductionSizeMax != nil || len(payload.MeasurementBasis) != 0 {
 		return invalidWorkerPayload("worker.job_recorded production_size_max and measurement_basis are retired by CD-0242 D6: no production-line cap, size measurement, or mandatory split applies")
 	}
 	// The oracle graph is re-proved from the payload's own retained content:

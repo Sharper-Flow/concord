@@ -243,9 +243,3 @@ func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, 
 	}
 	return eventID, nil
 }
-
-// The v1 size-bearing shape remains valid under the current payload version.
-func upcastConflictApplicationV1(event Event) (Event, error) {
-	event.PayloadVersion = 2
-	return event, nil
-}

@@ -53,30 +53,6 @@ const (
 	WorkflowOutsideRepairResumed        = "workflow.outside_repair_resumed"
 )
 
-// workflowActionCompletedWorkerJobVersion is the payload version at which a
-// workflow.action_completed completion may record a worker-job disposition
-// (CD-0205). Stored completions below it never carried one.
-const workflowActionCompletedWorkerJobVersion = 4
-
-// workflowActionCompletedAttributionVersion is the payload version at which
-// a workflow.action_completed completion may carry the typed failure
-// attribution and the derived failure record's attribution reference
-// . A stored completion whose recorded source version sits below
-// the boundary cannot carry recorded attribution content: the store never
-// derived it when that version was released. The upcast's explicit
-// legacy_unavailable marker is the one legal shape below the boundary, and
-// the recorded source version distinguishes that upcast-generated absence
-// from a forged new-legacy claim.
-const workflowActionCompletedAttributionVersion = 5
-
-// workflowActionCompletedJobSizeVersion is the payload version at which a
-// workflow.action_completed completion may carry the job-size members
-// (CD-0225 D1, CD-0227 D1): the caller exclusions a size-capable
-// implementation dispatch bound to its packet, and the supplemental
-// classifications and final production size an acceptance recorded. Stored
-// completions below it carried none of these members.
-const workflowActionCompletedJobSizeVersion = 6
-
 type WorkflowVersionFields struct {
 	WorkID           string `json:"work_id"`
 	ExpectedVersion  *int64 `json:"expected_version"`
@@ -93,16 +69,16 @@ func validateWorkflowPayload[T workflowPayload](event Event, payload T) error {
 	return workflowBase(event, payload.workflowVersionFields())
 }
 
-func workflowRegistration[T workflowPayload](currentVersion int, upcasters map[int]Upcaster, fold projectionMutation) EventKindRegistration {
-	return registerEventKind[T](currentVersion, 1, upcasters, EventAppendAuthorityWorkflow, fold, validateWorkflowPayload[T])
+func workflowRegistration[T workflowPayload](currentVersion int, fold projectionMutation) EventKindRegistration {
+	return registerEventKind[T](currentVersion, EventAppendAuthorityWorkflow, fold, validateWorkflowPayload[T])
 }
 
 // workflowScopedRegistration registers a workflow event kind whose fold reads
 // the transaction's verified definition source from the fold scope, so one
 // caller-selected registry carries selection, contract, action, confirmation,
 // and terminal folds.
-func workflowScopedRegistration[T workflowPayload](currentVersion int, upcasters map[int]Upcaster, fold scopedProjectionMutation) EventKindRegistration {
-	return registerScopedEventKind[T](currentVersion, 1, upcasters, EventAppendAuthorityWorkflow, fold, validateWorkflowPayload[T])
+func workflowScopedRegistration[T workflowPayload](currentVersion int, fold scopedProjectionMutation) EventKindRegistration {
+	return registerScopedEventKind[T](currentVersion, EventAppendAuthorityWorkflow, fold, validateWorkflowPayload[T])
 }
 
 type workflowDefinitionSelectedPayload struct {
@@ -142,21 +118,9 @@ type workflowContractApprovedPayload struct {
 	LawChange *WorkflowLawChange `json:"law_change,omitempty"`
 }
 
-// workflowContractDecisionDomainsPayloadVersion is the workflow.contract_approved
-// payload version that introduced the typed decision_domains fact. A payload
-// recorded below it carries absence, and bytes that claim the fact below the
-// boundary are authored, never replayed.
-const workflowContractDecisionDomainsPayloadVersion = 5
-
 // workflowContractLawChangePayloadVersion is the workflow.contract_approved
-// payload version that introduced law_change. Bytes that claim it below the
-// boundary are authored, never replayed.
+// current payload version.
 const workflowContractLawChangePayloadVersion = 6
-
-// workflowContractSupersededDecisionDomainsPayloadVersion is the
-// workflow.contract_superseded payload version whose successor_contract may
-// carry the typed decision_domains fact.
-const workflowContractSupersededDecisionDomainsPayloadVersion = 4
 
 // workflowContractSupersededLawChangePayloadVersion is the
 // workflow.contract_superseded payload version whose successor_contract may
@@ -219,19 +183,6 @@ type workflowOverlapResolvedPayload struct {
 
 func (p workflowOverlapResolvedPayload) workflowVersionFields() WorkflowVersionFields {
 	return p.WorkflowVersionFields
-}
-
-// upcastWorkflowOverlapResolvedV1 carries a version 1 event to version 2. The
-// v2 shape records the same fields, so the upcaster advances only the version
-// and rewrites no bytes. The fold reads the stored version back through
-// replaySourcePayloadVersion, so a recorded v1 event still replays under the
-// approval rules its writer admitted it with.
-func upcastWorkflowOverlapResolvedV1(event Event) (Event, error) {
-	if event.PayloadVersion != 1 {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.overlap_resolved upcaster requires payload version 1", false, "supply a legacy v1 overlap-resolution payload")
-	}
-	event.PayloadVersion = 2
-	return event, nil
 }
 
 type workflowContractSupersededPayload struct {
@@ -626,20 +577,6 @@ type workflowSuccessorLinkedPayload struct {
 	Resize bool `json:"resize,omitempty"`
 }
 
-// upcastWorkflowSuccessorLinkedV2 reads an ordinary link: no resize.
-func upcastWorkflowSuccessorLinkedV2(event Event) (Event, error) {
-	event.PayloadVersion = 3
-	return event, nil
-}
-
-func upcastWorkflowSuccessorLinkedV1(event Event) (Event, error) {
-	if event.PayloadVersion != 1 {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.successor_linked upcaster requires payload version 1", false, "supply a legacy v1 successor-link payload")
-	}
-	event.PayloadVersion = 2
-	return event, nil
-}
-
 type workflowImpactDeclaredPayload struct {
 	WorkflowVersionFields
 	EdgeID       string `json:"edge_id"`
@@ -977,12 +914,10 @@ func workflowDigest(value string) bool {
 }
 
 func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
-	if !isWorkflowReplay(ctx) {
-		if active, err := outsideRepairActiveTx(ctx, tx, event.SubjectID); err != nil {
-			return err
-		} else if active {
-			return workflowAdmit(WorkflowDefinition{}, WorkflowAdmissionState{OutsideRepairActive: true}, "select_definition").Failure
-		}
+	if active, err := outsideRepairActiveTx(ctx, tx, event.SubjectID); err != nil {
+		return err
+	} else if active {
+		return workflowAdmit(WorkflowDefinition{}, WorkflowAdmissionState{OutsideRepairActive: true}, "select_definition").Failure
 	}
 	var p workflowDefinitionSelectedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -998,7 +933,7 @@ func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event
 	if err != nil {
 		return err
 	}
-	if !isWorkflowReplay(ctx) && registered.Digest != p.Digest {
+	if registered.Digest != p.Digest {
 		return workflowPinFailure("requested workflow definition is not current")
 	}
 	var currentRef, currentStep string
@@ -1020,7 +955,7 @@ func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, event.SubjectID).Scan(&activeContracts); err != nil {
 			return workflowProjectionError(err, "cannot inspect contracts before changing the workflow definition")
 		}
-		if activeContracts != 0 && !isWorkflowReplay(ctx) {
+		if activeContracts != 0 {
 			return newFailure(KindInvalidOperation, "fold_event", "workflow definition change would leave an existing contract authoritative", false, "supersede the contract with the replacement definition")
 		}
 	}
@@ -1067,22 +1002,14 @@ func validateWorkflowContractApprovalLaw(ctx context.Context, tx *sql.Tx, event 
 		if p.ArchitectureBinding == nil || p.LawRevisions == nil {
 			return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract contains null architecture-bound fields", false, "supply the complete architecture binding and law pins")
 		}
-		if isWorkflowReplay(ctx) {
-			if err := validateArchitectureBindingReplayShape(registered.Definition, p.ArchitectureBinding, p.SpecMandate, p.LawModifies, p.LawRevisions); err != nil {
-				return err
-			}
-		} else if err := validateArchitectureBindingTx(ctx, tx, event.SubjectID, registered.Definition, p.ArchitectureBinding, p.SpecMandate, p.LawModifies, p.LawRevisions); err != nil {
+		if err := validateArchitectureBindingTx(ctx, tx, event.SubjectID, registered.Definition, p.ArchitectureBinding, p.SpecMandate, p.LawModifies, p.LawRevisions); err != nil {
 			return err
 		}
 	} else {
 		if p.ArchitectureBinding != nil {
 			return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing workflow cannot carry architecture_binding", false, "select a registered Product-changing workflow")
 		}
-		if len(p.LawModifies) != 0 && !isWorkflowReplay(ctx) {
-			// Live writes enforce CD-0222 D5 against the current Git tiers.
-			// Replay retains admitted revision lines without re-reading that
-			// mutable projection. The contract's law pins, when present,
-			// are still shape-checked below.
+		if len(p.LawModifies) != 0 {
 			if err := validateDerivedLawModification(ctx, tx, event.SubjectID, p.LawModifies); err != nil {
 				return err
 			}
@@ -1103,13 +1030,6 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 	}
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
-	}
-	// The typed decision fact is declared with the contract and absent from
-	// every payload a pre-boundary store recorded. Presence below the boundary
-	// is authored bytes, not history: refuse before any effect instead of
-	// folding a fact no writer ever declared.
-	if p.DecisionDomains != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowContractDecisionDomainsPayloadVersion {
-		return newFailure(KindInvalidPayload, "fold_event", "decision_domains on a payload recorded before the decision-domain boundary is authored bytes no store ever recorded", false, "replay the recorded contract without the typed fact")
 	}
 	if p.DecisionDomains != nil {
 		if err := validateWorkflowDecisionDomains(p.DecisionDomains); err != nil {
@@ -1148,10 +1068,7 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, event.SubjectID).Scan(&activeCount); err != nil {
 		return workflowProjectionError(err, "cannot inspect active workflow contracts")
 	}
-	// Replay retains a malformed non-initial approval so the typed recovery can
-	// diagnose and repair it. Live writes remain strict.
-	legacyDuplicateApproval := isWorkflowReplay(ctx) && p.ContractVersion > 1 && activeCount > 0
-	if activeCount != 0 && !inWorkflowContractSupersessionContext(ctx) && !legacyDuplicateApproval {
+	if activeCount != 0 && !inWorkflowContractSupersessionContext(ctx) {
 		return newFailure(KindInvariantViolation, "fold_event", "contract approval requires no active workflow contract", false, "supersede the active contract through the typed recovery route")
 	}
 	if activeCount == 0 && p.ContractVersion != 1 && !inWorkflowContractSupersessionContext(ctx) {
@@ -1189,21 +1106,16 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 	if p.LawChange != nil && !tracksLawChange {
 		return newFailure(KindInvalidPayload, "fold_event", "law_change is recorded only on a consequence_v1 contract", false, "omit law_change")
 	}
-	if p.LawChange == nil && tracksLawChange && workflowContractChangesLaw(p.LawModifies, p.ArchitectureBinding) && (event.replaySourcePayloadVersion == 0 || event.replaySourcePayloadVersion >= workflowContractLawChangePayloadVersion) {
+	if p.LawChange == nil && tracksLawChange && workflowContractChangesLaw(p.LawModifies, p.ArchitectureBinding) {
 		return newFailure(KindInvalidPayload, "fold_event", "a consequence_v1 contract that changes law must record law_change", false, "record the law change with its reason")
 	}
 	if p.LawChange != nil {
-		if event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowContractLawChangePayloadVersion {
-			return newFailure(KindInvalidPayload, "fold_event", "law_change on a payload recorded before the law-change boundary is authored bytes no store ever recorded", false, "replay the recorded contract without law_change")
-		}
 		if err := validateWorkflowLawChangeShape(p.LawChange, p.DecisionDomains, p.LawModifies, p.ArchitectureBinding, changesProductTruth); err != nil {
 			return err
 		}
 	}
-	if !isWorkflowReplay(ctx) {
-		if err := validateLiveWorkflowLawChangeTx(ctx, tx, event.SubjectID, p, changesProductTruth); err != nil {
-			return err
-		}
+	if err := validateLiveWorkflowLawChangeTx(ctx, tx, event.SubjectID, p, changesProductTruth); err != nil {
+		return err
 	}
 	if err := validateWorkflowContractApprovalLaw(ctx, tx, event, registered, contractFields, p, changesProductTruth); err != nil {
 		return err
@@ -1212,7 +1124,7 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 		if err := validateLawModificationSubset(p.SpecMandate, p.LawModifies); err != nil {
 			return err
 		}
-		if p.LawRevisions == nil && !isWorkflowReplay(ctx) && !changesProductTruth {
+		if p.LawRevisions == nil && !changesProductTruth {
 			if err := checkMandatedLawsTx(ctx, tx, event.SubjectID, p.SpecMandate, p.LawModifies, true); err != nil {
 				return err
 			}
@@ -1322,11 +1234,10 @@ func validateWorkflowContractSupersessionPredecessors(ctx context.Context, tx *s
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, event.SubjectID).Scan(&activeCount); err != nil {
 		return nil, workflowProjectionError(err, "cannot inspect active workflow contracts")
 	}
-	legacyReplacement := isWorkflowReplay(ctx) && p.SuccessorContract == nil && activeCount > len(predecessors)
-	if activeCount != len(predecessors) && !legacyReplacement {
+	if activeCount != len(predecessors) {
 		return nil, newFailure(KindInvariantViolation, "fold_event", "contract supersession predecessor list does not match active workflow contracts", false, "rebuild the workflow contract projection or supply the exact duplicate recovery set")
 	}
-	if activeCount > 1 && !isWorkflowReplay(ctx) {
+	if activeCount > 1 {
 		registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, event.SubjectID)
 		if definitionErr != nil {
 			return nil, definitionErr
@@ -1351,8 +1262,7 @@ func validateWorkflowContractSupersessionPredecessors(ctx context.Context, tx *s
 // authorization branch beside the pin the fold resolved. Legacy pins admit
 // only through the recorded operator approval binding; consequence_v1
 // supersedes routinely — the unsigned attributed event keeps the exact
-// predecessor set, audit evidence, and invalidation. Replay never reaches
-// this branch, so it keeps folding its recorded bytes either way.
+// predecessor set, audit evidence, and invalidation.
 func requireWorkflowDuplicateRecoveryApprovalTx(ctx context.Context, tx *sql.Tx, event Event, p workflowContractSupersededPayload, definition WorkflowDefinition) error {
 	if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
 		return nil
@@ -1395,11 +1305,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 			return newFailure(KindInvalidPayload, "fold_event", "true-definition supersession requires a fully supplied successor binding", false, "supply the complete successor architecture binding")
 		}
 		if productChanging {
-			if isWorkflowReplay(ctx) {
-				if err := validateArchitectureBindingReplayShape(registered.Definition, p.SuccessorContract.ArchitectureBinding, p.SuccessorContract.SpecMandate, p.SuccessorContract.LawModifies, p.SuccessorContract.LawRevisions); err != nil {
-					return err
-				}
-			} else if err := validateArchitectureBindingTx(ctx, tx, event.SubjectID, registered.Definition, p.SuccessorContract.ArchitectureBinding, p.SuccessorContract.SpecMandate, p.SuccessorContract.LawModifies, p.SuccessorContract.LawRevisions); err != nil {
+			if err := validateArchitectureBindingTx(ctx, tx, event.SubjectID, registered.Definition, p.SuccessorContract.ArchitectureBinding, p.SuccessorContract.SpecMandate, p.SuccessorContract.LawModifies, p.SuccessorContract.LawRevisions); err != nil {
 				return err
 			}
 		} else if len(p.SuccessorContract.LawModifies) != 0 || p.SuccessorContract.ArchitectureBinding != nil {
@@ -1409,21 +1315,17 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 			if p.SuccessorContract.ArchitectureBinding != nil {
 				return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing successor carries Product authority", false, "leave Product-changing fields empty")
 			}
-			if !isWorkflowReplay(ctx) {
-				if err := validateDerivedLawModification(ctx, tx, event.SubjectID, p.SuccessorContract.LawModifies); err != nil {
-					return err
-				}
-			}
-		}
-		if !isWorkflowReplay(ctx) {
-			if !productChanging {
-				if err := validateCurrentWorkflowLawRevisionsTx(ctx, tx, event.SubjectID, p.SuccessorContract.SpecMandate, p.SuccessorContract.LawModifies, p.SuccessorContract.LawRevisions); err != nil {
-					return err
-				}
-			}
-			if err := validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, event.SubjectID, predecessors, p.SuccessorContract.LawRevisions); err != nil {
+			if err := validateDerivedLawModification(ctx, tx, event.SubjectID, p.SuccessorContract.LawModifies); err != nil {
 				return err
 			}
+		}
+		if !productChanging {
+			if err := validateCurrentWorkflowLawRevisionsTx(ctx, tx, event.SubjectID, p.SuccessorContract.SpecMandate, p.SuccessorContract.LawModifies, p.SuccessorContract.LawRevisions); err != nil {
+				return err
+			}
+		}
+		if err := validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, event.SubjectID, predecessors, p.SuccessorContract.LawRevisions); err != nil {
+			return err
 		}
 		p.SuccessorContract.WorkflowVersionFields = p.WorkflowVersionFields
 		successorPayload, err := json.Marshal(p.SuccessorContract)
@@ -1435,20 +1337,6 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		successorEvent.Kind = WorkflowContractApproved
 		successorEvent.PayloadVersion = workflowContractLawChangePayloadVersion
 		successorEvent.Payload = successorPayload
-		// The inner contract's replay provenance is the supersession's own
-		// version boundaries: a supersession recorded below a boundary counts
-		// as pre-boundary source for that fact, and a current supersession
-		// installs its successor without a stale marker.
-		switch {
-		case event.replaySourcePayloadVersion == 0:
-			successorEvent.replaySourcePayloadVersion = 0
-		case event.replaySourcePayloadVersion < workflowContractSupersededDecisionDomainsPayloadVersion:
-			successorEvent.replaySourcePayloadVersion = workflowContractDecisionDomainsPayloadVersion - 1
-		case event.replaySourcePayloadVersion < workflowContractSupersededLawChangePayloadVersion:
-			successorEvent.replaySourcePayloadVersion = workflowContractLawChangePayloadVersion - 1
-		default:
-			successorEvent.replaySourcePayloadVersion = 0
-		}
 		if err := foldWorkflowContractApproved(workflowContractSupersessionContext(ctx), tx, successorEvent, scope); err != nil {
 			return err
 		}
@@ -1473,15 +1361,11 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		if len(predecessors) != 1 {
 			return newFailure(KindInvariantViolation, "fold_event", "duplicate active contracts require a fully supplied successor contract", false, "supply the typed successor contract")
 		}
-		if !isWorkflowReplay(ctx) {
-			if err := validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, event.SubjectID, predecessors, nil); err != nil {
-				return err
-			}
+		if err := validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, event.SubjectID, predecessors, nil); err != nil {
+			return err
 		}
 		cloned, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_version,definition_digest,decision_domains) SELECT work_id,?,premise,consequence_class,required_evidence,route_conventions,?,?,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_version,definition_digest,decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=? AND NOT EXISTS (SELECT 1 FROM workflow_contracts WHERE work_id=? AND contract_version=?)`, p.NewContractVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, event.SubjectID, p.PreviousContractVersion, event.SubjectID, p.NewContractVersion)
 		if err != nil {
-			// Legacy revision events remain replayable; new stale-law recovery
-			// events always carry a fully supplied successor contract above.
 			return workflowProjectionError(err, "cannot create superseding workflow contract")
 		}
 		count, err := cloned.RowsAffected()
@@ -1526,17 +1410,8 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 			return err
 		}
 	}
-	if p.SuccessorContract != nil {
-		// The successor was folded before this update so the contract foreign
-		// key remains valid; both writes commit or roll back together.
-		if isWorkflowReplay(ctx) {
-			return nil
-		}
-		return appendWorkflowContractImpactNoticesTx(ctx, tx, event, p, *p.ResultingVersion)
-	}
-	if isWorkflowReplay(ctx) {
-		return nil
-	}
+	// The successor was folded before this update so the contract foreign
+	// key remains valid; both writes commit or roll back together.
 	return appendWorkflowContractImpactNoticesTx(ctx, tx, event, p, *p.ResultingVersion)
 }
 
@@ -1556,25 +1431,16 @@ func foldCompleteStepContractCorrectionTxForRegistry(ctx context.Context, tx *sq
 		return newFailure(KindInvariantViolation, "fold_event", "route convention complete_step_correction does not match the supersession step", false, "declare the reserved convention exactly on the complete-step correction route")
 	}
 	if !atCompleteStep {
-		// Historical off-shape supersessions replay exactly as they folded.
-		// A new live supersession of a completed instance off the supported
-		// shape refuses here as the last admission before the effect, because
-		// the fold return that reopens the work runs on no other shape.
-		if workflowCompletedInstanceSupersedeOffShape(foldState, entry.Definition, foldStep) && !isWorkflowReplay(ctx) {
+		// The fold return that reopens the work runs on no other shape.
+		if workflowCompletedInstanceSupersedeOffShape(foldState, entry.Definition, foldStep) {
 			return newFailure(KindInvariantViolation, "fold_event", "a completed workflow instance supersedes its contract only on the pinned complete-step correction shape", false, "start a successor workflow")
 		}
 		return nil
 	}
 	if !declaresRoute {
-		// Historical stale-law supersessions at this step retain their replay
-		// behavior. Live admission refuses a missing route marker.
-		if isWorkflowReplay(ctx) {
-			return nil
-		}
 		return newFailure(KindInvariantViolation, "fold_event", "route convention complete_step_correction does not match the supersession step", false, "declare the reserved convention exactly on the complete-step correction route")
 	}
-	// Replay retains the whole log. Admission sees only the history that
-	// preceded this supersession, just as it did on the live path.
+	// Admission sees only the history that preceded this supersession.
 	beforeSeq, err := eventSequenceTx(ctx, tx, event.EventID)
 	if err != nil {
 		return err
@@ -1707,8 +1573,7 @@ func overlap(a, b []string) bool {
 // foreign key binds to workflow_contracts(work_id, contract_version) and
 // which therefore cannot hold a row before planning approves a contract. The
 // outcome/related_ids cross-field rule is the record_alignment registry
-// declaration's; the fold evaluates the same declaration here because replay
-// applies events without the action boundary, rendering its own fold refusal.
+// declaration's; the fold evaluates the same declaration here.
 func foldWorkflowBacklogAlignmentRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowBacklogAlignmentRecordedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -1873,13 +1738,10 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event, sco
 	if p.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "action start actor must match the authenticated event actor", false, "start the workflow action through the authenticated workflow actor")
 	}
-	if p.StepID != currentStep && !isWorkflowReplay(ctx) {
-		// A replay realigns the instance to the step the event pins: fold
-		// tolerance for definitions whose structure moved on can leave the
-		// projected step behind the log. The log stays the authority.
+	if p.StepID != currentStep {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "action start does not match the pinned current workflow step", false, "start the pinned current workflow step")
 	}
-	if !definitionStepAllows(entry.Definition, currentStep, p.ActionID) && !isWorkflowReplay(ctx) {
+	if !definitionStepAllows(entry.Definition, currentStep, p.ActionID) {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "action start is not declared on the pinned current workflow step", false, "start a declared action on the current workflow step")
 	}
 	latestEpoch, found, err := latestWorkflowActionStartEpoch(ctx, tx, event.SubjectID, p.StepID, event.Seq)
@@ -1963,7 +1825,7 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	if p.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "checkpoint actor must match the authenticated event actor", false, "checkpoint through the authenticated workflow actor")
 	}
-	if (p.StepID != currentStep || step == nil || p.StepKind != string(step.Kind)) && !isWorkflowReplay(ctx) {
+	if p.StepID != currentStep || step == nil || p.StepKind != string(step.Kind) {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the pinned current workflow step kind", false, "checkpoint the pinned current workflow step and kind")
 	}
 	expectedEpoch, err := workflowCheckpointAttemptEpoch(ctx, tx, entry.Definition, step, event.SubjectID, currentStep, event.Seq)
@@ -2002,15 +1864,6 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 			if err != nil {
 				return err
 			}
-		}
-	}
-	if !admitted {
-		// The recorded admission is the denial alternative only: the
-		// disposer fence stays the rule, and a stored prefix that proves the
-		// archived executor-equality policy re-admits its recorded writer.
-		admitted, err = workflowRecordedCheckpointAdmission(ctx, tx, event, p, entry.Definition, currentStep, executionActor)
-		if err != nil {
-			return err
 		}
 	}
 	if !admitted {
@@ -2122,13 +1975,12 @@ func foldWorkflowDecisionRecordForRegistry(ctx context.Context, tx *sql.Tx, regi
 			if err := json.Unmarshal(raw, &envelope); err != nil {
 				return err
 			}
-			if err := validateWorkflowActionPayloadForReplay(entry.Definition, "record_decision", envelope.Fields); err != nil {
+			if err := validateWorkflowActionPayload(entry.Definition, "record_decision", envelope.Fields); err != nil {
 				return err
 			}
 		}
 	}
-	// Typed records use their pinned payload contract for both preflight and
-	// replay. Legacy envelopes without declared fields retain their byte bounds.
+	// Typed records use their pinned payload contract for preflight and folding.
 	if !declaredBounds && (!workflowString(checkpoint.Question, 4096) || !workflowList(checkpoint.Options, 16, 1) || (checkpoint.Decision != "accepted_decision" && checkpoint.Decision != "insufficient_evidence") || !workflowString(checkpoint.Rationale, 4096) || !workflowList(checkpoint.Consequences, 16, 1) || !workflowList(checkpoint.Inputs, 32, 1) || !workflowString(checkpoint.POCFindings, 4096)) {
 		return newFailure(KindInvalidPayload, "fold_event", "record_decision checkpoint is structurally invalid", false, "supply the complete typed decision record")
 	}
@@ -2162,17 +2014,14 @@ func foldWorkflowContextCheckpointed(ctx context.Context, tx *sql.Tx, event Even
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_digest,definition_version FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep, &workflowRef, &workflowDigestValue, &workflowVersion); err != nil {
 		return workflowProjectionError(err, "cannot read workflow identity for context checkpoint")
 	}
-	// Both bindings read current state the replayed log never carried: the
-	// projected step and digest move as definitions move on, and the attempt
-	// epoch reads operational rows. Replay records the checkpoint it holds.
-	if (currentStep != p.StepID || workflowRef != p.WorkflowRef || workflowDigestValue != p.WorkflowDefinitionDigest || workflowVersion != p.WorkflowDefinitionVersion) && !isWorkflowReplay(ctx) {
+	if currentStep != p.StepID || workflowRef != p.WorkflowRef || workflowDigestValue != p.WorkflowDefinitionDigest || workflowVersion != p.WorkflowDefinitionVersion {
 		return newFailure(KindStaleAttempt, "fold_event", "context checkpoint does not bind the current workflow step and definition", false, "reread the current workflow context")
 	}
 	var activeAttempt int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch),1) FROM durable_operations WHERE work_id=?`, event.SubjectID).Scan(&activeAttempt); err != nil {
 		return workflowProjectionError(err, "cannot read workflow attempt epoch")
 	}
-	if activeAttempt != p.AttemptEpoch && !isWorkflowReplay(ctx) {
+	if activeAttempt != p.AttemptEpoch {
 		return newFailure(KindStaleAttempt, "fold_event", "context checkpoint does not bind the current attempt epoch", false, "reread the current workflow attempt")
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
@@ -2197,7 +2046,7 @@ func foldWorkflowDesignRecorded(ctx context.Context, tx *sql.Tx, event Event) er
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if err := validateWorkflowDesignContentForReplay(p.workflowDesignContent); err != nil {
+	if err := validateWorkflowDesignContent(p.workflowDesignContent); err != nil {
 		return err
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
@@ -2425,7 +2274,7 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	// outside either type would fail its own closed response schema after
 	// the effect, which the caller reads as a malformed response.
 	if p.ActionID == "reject_worker_result" {
-		if fault := workflowCorrectionSchemaValuesFaultForReplay(p.CorrectionPredicateIDs, p.CorrectionEvidenceRefs, p.ResultEvidenceRefs); fault != "" {
+		if fault := workflowCorrectionSchemaValuesFaultForAdmission(p.CorrectionPredicateIDs, p.CorrectionEvidenceRefs, p.ResultEvidenceRefs); fault != "" {
 			return newFailure(KindInvalidPayload, "fold_event", "rejected worker result carries correction values the closed response schema cannot represent: "+fault, false, "supply correction values the closed work_pin response schema accepts")
 		}
 	}
@@ -2439,27 +2288,19 @@ func workflowCorrectionID(value string) bool {
 	return err == nil && payloadschema.Validate("id", raw) == nil
 }
 
-func workflowCorrectionSchemaValuesFaultForReplay(predicateIDs, correctionRefs, resultRefs []string) string {
-	return workflowCorrectionSchemaValuesFaultWithReference(predicateIDs, correctionRefs, resultRefs, replayValidReferenceSchema)
-}
-
 func workflowCorrectionSchemaValuesFaultForAdmission(predicateIDs, correctionRefs, resultRefs []string) string {
-	return workflowCorrectionSchemaValuesFaultWithReference(predicateIDs, correctionRefs, resultRefs, ValidReference)
-}
-
-func workflowCorrectionSchemaValuesFaultWithReference(predicateIDs, correctionRefs, resultRefs []string, validReference func(string) bool) string {
 	for _, id := range predicateIDs {
 		if !workflowCorrectionID(id) {
 			return "correction_predicate_ids entry " + workflowRefExcerpt(id)
 		}
 	}
 	for _, ref := range correctionRefs {
-		if !validReference(ref) {
+		if !ValidReference(ref) {
 			return "correction_evidence_refs entry " + workflowRefExcerpt(ref)
 		}
 	}
 	for _, ref := range resultRefs {
-		if !validReference(ref) {
+		if !ValidReference(ref) {
 			return "result_evidence_refs entry " + workflowRefExcerpt(ref)
 		}
 	}
@@ -2504,20 +2345,12 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		}
 	}
 	if p.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
-		if !isWorkflowReplay(ctx) {
-			if _, recoveryErr := validateWorkerResultRejection(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", p.WorkerAttemptID, p.AttemptEpoch, event.Seq); recoveryErr != nil {
-				return recoveryErr
-			}
+		if _, recoveryErr := validateWorkerResultRejection(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", p.WorkerAttemptID, p.AttemptEpoch, event.Seq); recoveryErr != nil {
+			return recoveryErr
 		}
 		correctionRecovery = true
 	}
 	if p.ActionID == "request_correction" {
-		if isWorkflowReplay(ctx) {
-			// The admission consults the current verdict state, which replay
-			// derives only as its folds reach it. The log stays the authority
-			// for the recorded request, so replay admits it directly.
-			return nil
-		}
 		var recoveryErr error
 		var missing string
 		correctionRecovery, missing, recoveryErr = workflowCorrectionRequestAdmissionStateForRegistry(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq, registry)
@@ -2530,15 +2363,7 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		return nil
 	}
 	if !workerFailureRecovery && !correctionRecovery && p.ActionID != "request_correction" && (p.ActionID != "bind_evidence" || stepDeclaresAction(entry.Definition, currentStep, "bind_evidence")) {
-		// The admission gate polices the live caller: a replayed event can
-		// name an action the moved-on definition no longer declares on the
-		// step, and the log stays the authority for what ran. Replay admits
-		// the off-step action and records its effects without the recovery
-		// routes this gate exists to police.
-		if !isWorkflowReplay(ctx) {
-			return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
-		}
-		return nil
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
 	}
 	if !workerFailureRecovery && !correctionRecovery {
 		var raw []byte
@@ -2571,17 +2396,6 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 					return nil
 				}
 			}
-		}
-		// The recorded admission is the declared-requirement alternative
-		// only: the outstanding filter stays the rule, and a mapped archived
-		// completion whose own binding satisfied a declared requirement
-		// re-admits its recorded eligibility.
-		recorded, recordedErr := workflowRecordedRecoveryBindingAdmission(ctx, tx, event, p, entry.Definition, currentStep, binding)
-		if recordedErr != nil {
-			return recordedErr
-		}
-		if recorded {
-			return nil
 		}
 		return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind eligible recovery evidence", false, "bind an outstanding requirement or verification of an unverdicted active check")
 	}
@@ -2641,28 +2455,11 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	if err := validateWorkflowActionCompletedShape(p); err != nil {
 		return err
 	}
-	// The CD-0205 event boundary: the worker-job disposition lands only on
-	// the v4 completion shape. A stored v1–v3 completion never carried one,
-	// so a replayed payload that claims a job below the boundary is a
-	// payload no store ever recorded; refuse it instead of folding a
-	// fabricated disposition.
-	if p.WorkerJob != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowActionCompletedWorkerJobVersion {
-		return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_job is reserved for payload version >= 4", false, "record the worker-job disposition on the current completion payload")
-	}
-	if p.ActionID == "record_worker_job" && p.WorkerAttemptID != "" && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < 7 {
-		return invalidWorkerPayload("record_worker_job worker_attempt_id requires action_completed payload version >= 7")
-	}
 	// SupplementalClassifications and WorkerProductionSize are retired
-	// measurement members (CD-0242 D6). A stored v6+ acceptance replays
-	// unchanged; every live acceptance records neither member.
-	if (p.SupplementalClassifications != nil || p.WorkerProductionSize != nil) && (event.replaySourcePayloadVersion == 0 || event.replaySourcePayloadVersion < workflowActionCompletedJobSizeVersion) {
+	// measurement members (CD-0242 D6).
+	if p.SupplementalClassifications != nil || p.WorkerProductionSize != nil {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed supplemental_classifications and worker_production_size are retired by CD-0242 D6: no production-line cap, size measurement, or mandatory split applies", false, "accept without measurement content")
 	}
-	// the attribution reference is the derived record's alone, and
-	// the source-version marker rules apply to both attribution members.
-	// Below the attribution version the reference is smuggled bytes; the
-	// derived record's identity and step/epoch joins are verified beside
-	// the derivation pair below.
 	if err := verifyWorkflowActionCompletedAttributionMembersTx(ctx, tx, event, p); err != nil {
 		return err
 	}
@@ -2684,7 +2481,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	if p.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "completed action actor must match the authenticated event actor", false, "complete the workflow action through the authenticated workflow actor")
 	}
-	if (p.ActionID == "" || p.StepID != currentStep) && !isWorkflowReplay(ctx) {
+	if p.ActionID == "" || p.StepID != currentStep {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
 	}
 	if !definitionStepAllows(entry.Definition, currentStep, p.ActionID) {
@@ -2694,7 +2491,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	}
 	advancesStep := false
 	if p.ActionID != "" {
-		if _, ok := workflowActionExecutionMode(entry.Definition, p.ActionID); !ok && !isWorkflowReplay(ctx) {
+		if _, ok := workflowActionExecutionMode(entry.Definition, p.ActionID); !ok {
 			return newFailure(KindInvariantViolation, "fold_event", "workflow action execution mode is not declared", false, "repair the pinned workflow definition")
 		}
 		// A non-settling accepted review keeps the step current: refine does
@@ -2711,8 +2508,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 		// record_delivery and the delivery-asserting accept. The fold reads
 		// the recorded worker_job and delivery fields only.
 		advancesStep = workflowCompletedActionAdvances(entry.Definition, p)
-		// Replay honors recorded advances; the rejection hold polices live appends.
-		if !isWorkflowReplay(ctx) && p.ActionID == "accept_worker_result" && advancesStep && workflowStepCarriesRejectionHold(entry.Definition, currentStep) {
+		if p.ActionID == "accept_worker_result" && advancesStep && workflowStepCarriesRejectionHold(entry.Definition, currentStep) {
 			rejectionHeld, rejectionHoldErr := workflowUnconsumedUnboundRejection(ctx, tx, event.SubjectID, currentStep, "fold_event", event.Seq)
 			if rejectionHoldErr != nil {
 				return rejectionHoldErr
@@ -2748,12 +2544,9 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 				return err
 			}
 		}
-		if p.ActionID == "request_correction" && !isWorkflowReplay(ctx) {
-			// The correction admission consults the current verdict state,
-			// which replay derives only as its folds reach it. The log stays
-			// the authority for the recorded request. The fold derives the
-			// correction request once — excludeSeq keeps its own in-flight
-			// completion out of the anchor's settled-entry judgment — and
+		if p.ActionID == "request_correction" {
+			// The fold derives the correction request once — excludeSeq keeps
+			// its own in-flight completion out of the anchor's settled-entry judgment — and
 			// the payload check binds against that derivation.
 			context, missing, contextErr := workflowCorrectionRequestAdmissionForRegistry(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq, scopeDefinitionRegistry(scope))
 			if contextErr != nil {
@@ -2779,7 +2572,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 			}
 		}
 	} else if p.ActionID == "request_correction" {
-		nextStep, err = workflowFoldCorrectionReturnTarget(ctx, entry, p.StepID, currentStep)
+		nextStep, err = workflowFoldCorrectionReturnTarget(entry, currentStep)
 		if err != nil {
 			return err
 		}
@@ -2817,8 +2610,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 // route that records the failed attempt and starts a fresh fenced attempt
 // reopens the exits exactly as CD-0133 recorded it.
 //
-// beforeSeq bounds every search at the caller's own sequence position, so
-// a replay fold sees only the attempts that preceded its event.
+// beforeSeq bounds every search at the caller's own sequence position.
 func workflowDispatchHoldsStepAdvance(ctx context.Context, q queryer, definition WorkflowDefinition, workID, stepID string, beforeSeq int64) (bool, error) {
 	if step := workflowStep(definition, stepID); step != nil && step.Kind == WorkflowStepHumanCheckpoint {
 		return workflowCheckpointDispatchHoldsStepAdvance(ctx, q, workID, stepID, beforeSeq)
@@ -2937,17 +2729,6 @@ func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, definiti
 	if !held || p.ActionID == "accept_worker_result" {
 		return nil
 	}
-	// A recorded historical completion whose own stored prefix already
-	// satisfied the released hold predicate keeps folding: the recorded
-	// admission answers this hold decision alone and refuses every shape it
-	// cannot prove.
-	recorded, recordedErr := workflowRecordedHoldAdmission(ctx, tx, event, p, definition, stepID)
-	if recordedErr != nil {
-		return recordedErr
-	}
-	if recorded {
-		return nil
-	}
 	return newFailure(KindIllegalLifecycleTransition, "fold_event", "a dispatched worker attempt must advance through accept_worker_result", false, "accept the exact completed worker attempt, record the failed attempt at a human checkpoint, or dispatch a fresh worker")
 }
 
@@ -2988,8 +2769,7 @@ func bindWorkerAttemptInFlightTx(ctx context.Context, tx *sql.Tx, event Event, p
 // attempt and its late evidence refuses at a step where its authorization no
 // longer resolves. The accepted attempt itself is excluded: its report is
 // complete, which is the only lifecycle accept_worker_result admits.
-// beforeSeq bounds the binding search at the caller's own sequence position,
-// so a replay fold sees only the bindings that preceded its event.
+// beforeSeq bounds the binding search at the caller's own sequence position.
 func rejectStepAdvancePastLiveAttemptTx(ctx context.Context, tx *sql.Tx, workID, stepID, acceptedAttemptID string, beforeSeq int64) error {
 	query := `SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.attempt_id<>? AND a.lifecycle_state='in_flight' AND EXISTS (
 	 SELECT 1 FROM domain_events c WHERE c.subject_type=? AND c.subject_id=a.work_id AND c.kind=?
@@ -3128,7 +2908,7 @@ func latestWorkflowActionStartEpoch(ctx context.Context, tx *sql.Tx, workID, ste
 // without reusing the checkpoint's durable identity (CD-0112 D3).
 //
 // beforeSeq bounds the start search at the caller's own sequence position: the
-// fold passes its event's seq, so a replay reads only the starts that preceded
+// fold passes its event's seq and reads only the starts that preceded
 // the checkpoint instead of the whole log.
 func workflowCheckpointAttemptEpoch(ctx context.Context, q queryer, definition WorkflowDefinition, step *WorkflowStep, workID, stepID string, beforeSeq int64) (int64, error) {
 	_, latestEpoch, found, err := latestWorkflowActionStartAt(ctx, q, workID, stepID, beforeSeq)
@@ -3170,8 +2950,7 @@ func workflowCheckpointAttemptEpoch(ctx context.Context, q queryer, definition W
 // serving only the independence readers, so no coordinator signs its own
 // verdict and the executing pin does not move.
 //
-// beforeSeq bounds every search at the caller's own sequence position, so a
-// replay derives the same answer from the same event prefix.
+// beforeSeq bounds every search at the caller's own sequence position.
 func workflowCheckpointWriterAdmitted(ctx context.Context, q queryer, workID, executionActor, actorRef string, fenced bool, beforeSeq int64) (bool, error) {
 	if executionActor == "" || actorRef == "" {
 		return false, nil
@@ -3399,15 +3178,6 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		allowed = true
 	}
 	if !allowed {
-		// The pinned definition is code and its step graph moves on, so a
-		// replayed event can name an action the current structure no longer
-		// declares on the step. The log stays the authority for what ran, so
-		// the structural gate binds the live path only.
-		if isWorkflowReplay(ctx) {
-			allowed = true
-		}
-	}
-	if !allowed {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", payload.ActionID+" is only valid on a worker-dispatch step", false, "record the worker attempt on its pinned step")
 	}
 	if payload.WorkerAttemptID == "" {
@@ -3424,7 +3194,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt belongs to another work item", false, "record the exact worker attempt for this work item")
 	}
 	var target workflowRejectableResult
-	if payload.ActionID == "reject_worker_result" && !isWorkflowReplay(ctx) {
+	if payload.ActionID == "reject_worker_result" {
 		var rejectionErr error
 		target, rejectionErr = validateWorkerResultRejection(ctx, tx, event.SubjectID, definition, currentStep, "fold_event", payload.WorkerAttemptID, payload.AttemptEpoch, event.Seq)
 		if rejectionErr != nil {
@@ -3438,7 +3208,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		}
 		return workflowProjectionError(err, "cannot read worker attempt dispatch")
 	}
-	if payload.ActionID == "record_worker_job" || payload.ActionID == "reject_worker_result" && isWorkflowReplay(ctx) {
+	if payload.ActionID == "record_worker_job" {
 		// Recorded executor identity does not depend on current rejection eligibility.
 		var err error
 		target.ExecutorRef, err = workerExecutorAtSequenceTx(ctx, tx, event.SubjectID, payload.WorkerAttemptID, attemptSeq)
@@ -3466,7 +3236,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if err != nil {
 		return err
 	}
-	if (!found || payload.AttemptEpoch != startEpoch) && !isWorkflowReplay(ctx) && payload.ActionID != "reject_worker_result" {
+	if (!found || payload.AttemptEpoch != startEpoch) && payload.ActionID != "reject_worker_result" {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt epoch does not match the latest workflow action start", false, "record the attempt with the epoch of the workflow action start that dispatched it")
 	}
 	if attemptSeq <= startSeq && payload.ActionID != "reject_worker_result" {
@@ -3569,14 +3339,14 @@ func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event, scop
 	if p.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "action failure actor must match the authenticated event actor", false, "fail the workflow action through the authenticated workflow actor")
 	}
-	if p.StepID != currentStep && !isWorkflowReplay(ctx) {
+	if p.StepID != currentStep {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "action failure does not match the pinned current workflow step", false, "fail the pinned current workflow step")
 	}
 	_, latestEpoch, found, err := latestWorkflowActionStartAt(ctx, tx, event.SubjectID, currentStep, event.Seq)
 	if err != nil {
 		return err
 	}
-	if (!found || p.AttemptEpoch != latestEpoch) && !isWorkflowReplay(ctx) {
+	if !found || p.AttemptEpoch != latestEpoch {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "action failure does not match the latest workflow action start epoch", false, "fail the current workflow action attempt")
 	}
 	step := workflowStep(entry.Definition, currentStep)
@@ -3727,10 +3497,8 @@ func foldWorkflowVerdictRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 	if err := workflowRequireMain(ctx, tx, event.SubjectID, p.VerdictActorRef); err != nil {
 		return err
 	}
-	if !isWorkflowReplay(ctx) {
-		if err := verifyWorkflowCriterionAssociation(ctx, tx, event.SubjectID, p); err != nil {
-			return err
-		}
+	if err := verifyWorkflowCriterionAssociation(ctx, tx, event.SubjectID, p); err != nil {
+		return err
 	}
 	var approvedPredicate, contractPredicateCount int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=?`, event.SubjectID).Scan(&contractPredicateCount); err != nil {
@@ -3741,15 +3509,7 @@ func foldWorkflowVerdictRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 			return workflowProjectionError(err, "cannot inspect approved workflow predicate")
 		}
 		if approvedPredicate != 1 {
-			if event.legacyVerdictPredicate {
-				p.PredicateID = "predicate:primary"
-				if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contract_predicates WHERE work_id=? AND contract_version=? AND predicate_id=?`, event.SubjectID, p.ContractVersion, p.PredicateID).Scan(&approvedPredicate); err != nil {
-					return workflowProjectionError(err, "cannot inspect legacy approved workflow predicate")
-				}
-			}
-			if approvedPredicate != 1 {
-				return newFailure(KindInvalidPayload, "fold_event", "verdict predicate_id is not approved for the contract version", false, "name an approved contract predicate")
-			}
+			return newFailure(KindInvalidPayload, "fold_event", "verdict predicate_id is not approved for the contract version", false, "name an approved contract predicate")
 		}
 	}
 	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
@@ -3815,29 +3575,23 @@ func foldWorkflowSuccessorLinked(ctx context.Context, tx *sql.Tx, event Event) e
 	if p.SuccessorKind != "" && p.SuccessorKind != successorKind {
 		return newFailure(KindInvalidRelation, "fold_event", "successor kind does not match the authoritative work item", false, "reread the successor work item")
 	}
-	legacyUnpinned := isWorkflowReplay(ctx) && event.replaySourcePayloadVersion == 1 && p.DefinitionRef == ""
 	if err := tx.QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, p.SuccessorWorkID).Scan(&definitionRef); err != nil && err != sql.ErrNoRows {
 		return workflowProjectionError(err, "cannot read successor workflow definition")
 	}
-	if definitionRef == "" && !legacyUnpinned {
+	if definitionRef == "" {
 		return newFailure(KindInvalidRelation, "fold_event", "successor has no workflow instance, so its family is undetermined", false, "select a workflow definition for the successor before linking it")
 	}
-	if p.DefinitionRef == "" && !legacyUnpinned {
+	if p.DefinitionRef == "" {
 		return newFailure(KindInvalidRelation, "fold_event", "successor definition reference is required", false, "record the pinned successor workflow definition")
 	}
 	if p.DefinitionRef != "" && p.DefinitionRef != definitionRef {
 		return newFailure(KindInvalidRelation, "fold_event", "successor definition does not match the authoritative workflow instance", false, "reread the successor workflow definition")
 	}
-	var successorFamily WorkKind
-	if legacyUnpinned {
-		successorFamily = WorkKind(p.SuccessorKind)
-	} else {
-		successorDefinition, successorErr := BuiltinWorkflowDefinitionForRef(definitionRef)
-		if successorErr != nil {
-			return successorErr
-		}
-		successorFamily = successorDefinition.Definition.WorkKind
+	successorDefinition, successorErr := BuiltinWorkflowDefinitionForRef(definitionRef)
+	if successorErr != nil {
+		return successorErr
 	}
+	successorFamily := successorDefinition.Definition.WorkKind
 	var sourceDefinitionRef string
 	if err := tx.QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&sourceDefinitionRef); err != nil {
 		return workflowProjectionError(err, "cannot read source workflow definition")
@@ -3935,118 +3689,6 @@ func WorkflowNoticeID(sourceWorkID string, sourceContractVersion int64, entityKi
 	return "notice:" + hex.EncodeToString(sum[:])
 }
 
-func upcastWorkflowImpactNoticeRecordedV1(event Event) (Event, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.impact_notice_recorded v1 payload is not a JSON object", false, "repair the stored workflow impact notice")
-	}
-	if _, exists := fields["edge_owner_work_id"]; exists {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.impact_notice_recorded v1 cannot contain edge ownership", false, "use workflow.impact_notice_recorded v2 for edge ownership")
-	}
-	owner, _ := json.Marshal(event.SubjectID)
-	fields["edge_owner_work_id"] = owner
-	payload, err := json.Marshal(fields)
-	if err != nil {
-		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.impact_notice_recorded v1 payload", false, "repair the stored workflow impact notice", err)
-	}
-	event.Payload = payload
-	event.PayloadVersion = 2
-	return event, nil
-}
-
-func upcastWorkflowContractApprovedV1(event Event) (Event, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_approved v1 payload is not a JSON object", false, "repair the stored workflow contract")
-	}
-	// V1 contracts intentionally remain unpinned. Replay validates their
-	// recorded shape and does not reinterpret them against today's law.
-	fields["law_revisions"] = json.RawMessage("null")
-	payload, err := json.Marshal(fields)
-	if err != nil {
-		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.contract_approved v1 payload", false, "repair the stored workflow contract", err)
-	}
-	event.Payload = payload
-	event.PayloadVersion = 2
-	return event, nil
-}
-
-func upcastWorkflowVerdictRecordedV1(event Event) (Event, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.verdict_recorded v1 payload is not a JSON object", false, "repair the stored workflow verdict")
-	}
-	// V1 verdicts predate the approved predicate join. Their predicate name
-	// was derived from the operation and therefore has no contract referent.
-	fields["predicate_id"] = json.RawMessage(`"predicate:primary"`)
-	payload, err := json.Marshal(fields)
-	if err != nil {
-		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.verdict_recorded v1 payload", false, "repair the stored workflow verdict", err)
-	}
-	event.Payload = payload
-	event.PayloadVersion = 2
-	event.legacyVerdictPredicate = true
-	return event, nil
-}
-
-func upcastWorkflowContractApprovedV2(event Event) (Event, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_approved v2 payload is not a JSON object", false, "repair the stored workflow contract")
-	}
-	_, predicatesPresent := fields["outcome_predicates"]
-	if binding, present := fields["architecture_binding"]; present && string(binding) != "null" && !predicatesPresent {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_approved v2 cannot carry Product-changing authority", false, "keep historical v2 contracts explicitly non-Product-changing")
-	}
-	if _, present := fields["architecture_binding"]; !present {
-		fields["architecture_binding"] = json.RawMessage("null")
-	}
-	payload, err := json.Marshal(fields)
-	if err != nil {
-		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.contract_approved v2 payload", false, "repair the stored workflow contract", err)
-	}
-	event.Payload = payload
-	event.PayloadVersion = 3
-	return event, nil
-}
-
-func upcastWorkflowContractApprovedV3(event Event) (Event, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_approved v3 payload is not a JSON object", false, "repair the stored workflow contract")
-	}
-	if _, present := fields["self_repair"]; present {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_approved v3 cannot carry self-repair authority", false, "use workflow.contract_approved v4 for self-repair authority")
-	}
-	fields["self_repair"] = json.RawMessage("null")
-	payload, err := json.Marshal(fields)
-	if err != nil {
-		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.contract_approved v3 payload", false, "repair the stored workflow contract", err)
-	}
-	event.Payload = payload
-	event.PayloadVersion = 4
-	return event, nil
-}
-
-// upcastWorkflowContractApprovedV4 carries a v4 contract into the v5 payload
-// that may carry the typed decision_domains fact. Historical contracts never
-// carried one, so the upcast is the bytes unchanged at the new version:
-// absence stays absence — the fact is never upcast into [] — and a replayed
-// contract keeps NULL on the projection column. Bytes that already carry the
-// member stay untouched for the fold's source-version gate to refuse.
-func upcastWorkflowContractApprovedV4(event Event) (Event, error) {
-	event.PayloadVersion = 5
-	return event, nil
-}
-
-// upcastWorkflowContractApprovedV5 carries a v5 contract into the v6 payload
-// that may carry law_change. No recorded contract carried one, so the upcast
-// keeps the bytes; the fold's source-version gate refuses bytes that claim it.
-func upcastWorkflowContractApprovedV5(event Event) (Event, error) {
-	event.PayloadVersion = 6
-	return event, nil
-}
-
 // workflowPremiseConfirmedAuthorityTx validates a claimed confirmation
 // authority against the verified definition and the active contract's stored
 // decision fact: only consequence_v1 engineering admits coordinator authority,
@@ -4071,16 +3713,13 @@ func workflowPremiseConfirmedAuthorityTx(ctx context.Context, tx *sql.Tx, defini
 		return requireActorClass(ctx, tx, confirmingActor, "operator")
 	}
 	// A consequence_v1 confirmation is bound to the contract version it named.
-	// Supersession invalidates it: a live (authored) confirmation must name
-	// the active version, while replayed history keeps its recorded semantics.
-	if !isWorkflowReplay(ctx) {
-		active, activeErr := activeWorkflowContractVersion(ctx, tx, workID, "fold_event")
-		if activeErr != nil {
-			return activeErr
-		}
-		if active != contractVersion {
-			return newFailure(KindInvalidPayload, "fold_event", fmt.Sprintf("premise confirmation names contract version %d, which supersession invalidated; the active version is %d", contractVersion, active), false, "confirm the active contract version")
-		}
+	// Supersession invalidates it: a confirmation must name the active version.
+	active, activeErr := activeWorkflowContractVersion(ctx, tx, workID, "fold_event")
+	if activeErr != nil {
+		return activeErr
+	}
+	if active != contractVersion {
+		return newFailure(KindInvalidPayload, "fold_event", fmt.Sprintf("premise confirmation names contract version %d, which supersession invalidated; the active version is %d", contractVersion, active), false, "confirm the active contract version")
 	}
 	if !stored.Valid {
 		return newFailure(KindInvalidPayload, "fold_event", "consequence_v1 confirmation requires the contract's stored decision-domain fact; absence is a legacy shape", false, "record the contract's decision domains")
@@ -4112,126 +3751,6 @@ func workflowPremiseConfirmedAuthorityTx(ctx context.Context, tx *sql.Tx, defini
 	return requireActorClass(ctx, tx, confirmingActor, "operator")
 }
 
-// upcastWorkflowPremiseConfirmedV1 carries a v1 premise confirmation into the
-// v2 payload that declares its authority. Every v1 confirmation was recorded
-// under the operator class the fold required, so the upcast stamps the
-// original operator authority explicitly and refuses bytes that already claim
-// an authority member no v1 store ever wrote.
-func upcastWorkflowPremiseConfirmedV1(event Event) (Event, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.premise_confirmed v1 payload is not a JSON object", false, "repair the stored workflow premise confirmation")
-	}
-	if _, authored := fields["confirmation_authority"]; authored {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.premise_confirmed v1 cannot carry a confirmation authority member", false, "record the confirmation at its stored version")
-	}
-	fields["confirmation_authority"] = json.RawMessage(`"operator"`)
-	payload, err := json.Marshal(fields)
-	if err != nil {
-		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.premise_confirmed v1 payload", false, "repair the stored workflow premise confirmation", err)
-	}
-	event.Payload = payload
-	event.PayloadVersion = 2
-	return event, nil
-}
-
-func upcastWorkflowContractSupersededV1(event Event) (Event, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_superseded v1 payload is not a JSON object", false, "repair the stored workflow contract supersession")
-	}
-	if successorRaw, present := fields["successor_contract"]; present && string(successorRaw) != "null" {
-		var successor map[string]json.RawMessage
-		if err := json.Unmarshal(successorRaw, &successor); err != nil || successor == nil {
-			return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_superseded v1 successor is not a JSON object", false, "repair the stored workflow contract supersession")
-		}
-		if _, present := successor["self_repair"]; present {
-			return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_superseded v1 cannot carry self-repair authority", false, "use workflow.contract_superseded v2 for self-repair authority")
-		}
-		successor["self_repair"] = json.RawMessage("null")
-		encoded, err := json.Marshal(successor)
-		if err != nil {
-			return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.contract_superseded v1 successor", false, "repair the stored workflow contract supersession", err)
-		}
-		fields["successor_contract"] = encoded
-	}
-	payload, err := json.Marshal(fields)
-	if err != nil {
-		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.contract_superseded v1 payload", false, "repair the stored workflow contract supersession", err)
-	}
-	event.Payload = payload
-	event.PayloadVersion = 2
-	return event, nil
-}
-
-func upcastWorkflowContractSupersededV2(event Event) (Event, error) {
-	// Shape is unchanged; original-version provenance preserves the earlier
-	// unconditional overlap invalidation when this event folds.
-	event.PayloadVersion = 3
-	return event, nil
-}
-
-// upcastWorkflowContractSupersededV3 carries a v3 supersession into the v4
-// payload whose successor_contract may carry the typed decision_domains fact.
-// Recorded successors never carried one, so the upcast is the bytes unchanged
-// at the new version: absence stays absence — the fact is never upcast into
-// [] — and the inner contract fold's source-version gate refuses bytes that
-// claim the fact below the boundary.
-func upcastWorkflowContractSupersededV3(event Event) (Event, error) {
-	event.PayloadVersion = 4
-	return event, nil
-}
-
-// upcastWorkflowContractSupersededV4 carries a v4 supersession into the v5
-// payload whose successor_contract may carry law_change. No recorded successor
-// carried one, so the upcast keeps the bytes.
-func upcastWorkflowContractSupersededV4(event Event) (Event, error) {
-	event.PayloadVersion = 5
-	return event, nil
-}
-
-func upcastWorkflowActionCompletedV1(event Event) (Event, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.action_completed v1 payload is not a JSON object", false, "repair the stored workflow action completion")
-	}
-	if _, exists := fields["worker_attempt_id"]; exists {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.action_completed v1 cannot contain worker_attempt_id", false, "use workflow.action_completed v2 for worker result acceptance")
-	}
-	var payload workflowActionCompletedPayload
-	if err := decodeWorkflowPayload(event, &payload); err != nil {
-		return Event{}, err
-	}
-	payload.WorkerAttemptID = ""
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.action_completed v1 payload", false, "repair the stored workflow action completion", err)
-	}
-	event.Payload = encoded
-	event.PayloadVersion = 2
-	return event, nil
-}
-
-// upcastWorkflowActionCompletedV2 carries a v2 completion into the v3 payload
-// that may bind the dispatch window's lane identity. v2 completions never
-// carried one, so the upcast is the bytes unchanged at the new version: the
-// fold reads the absent identity as a pre-binding authorization and binds no
-// in-flight row for it.
-func upcastWorkflowActionCompletedV2(event Event) (Event, error) {
-	event.PayloadVersion = 3
-	return event, nil
-}
-
-// upcastWorkflowActionCompletedV3 carries a v3 completion into the v4 payload
-// that may record a worker-job disposition (CD-0205). v3 completions never
-// carried one, so the upcast is the bytes unchanged at the new version: a
-// replayed completion stays a completion without a job disposition, and the
-// held local acceptance the job-capable definitions record lands only at v4.
-func upcastWorkflowActionCompletedV3(event Event) (Event, error) {
-	event.PayloadVersion = 4
-	return event, nil
-}
-
 // workflowFailureAttributionCorrectionActions names the coordinator
 // correction completions whose payload may carry the typed failure
 // attribution . The derived failure record is deliberately absent:
@@ -4240,55 +3759,6 @@ func upcastWorkflowActionCompletedV3(event Event) (Event, error) {
 var workflowFailureAttributionCorrectionActions = map[string]bool{
 	"reject_worker_result": true,
 	"request_correction":   true,
-}
-
-// upcastWorkflowActionCompletedV4 carries a v4 completion into the v5 payload
-// that may carry the typed failure attribution . Only the two
-// coordinator correction completions record one, so the upcast stamps the
-// explicit legacy_unavailable marker there alone: an ordinary action opens
-// no attribution surface and upcasts unchanged without a block, and a
-// derived failure record keeps its reference-only shape. The recorded source
-// version keeps the marker distinguishable from a forged new-legacy claim,
-// and bytes that already carry the member stay untouched for the fold's
-// source-version gate to refuse.
-func upcastWorkflowActionCompletedV4(event Event) (Event, error) {
-	var members map[string]json.RawMessage
-	if err := json.Unmarshal(event.Payload, &members); err != nil {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.action_completed payload is not a JSON object", false, "repair the stored workflow action completion")
-	}
-	if _, authored := members["failure_attribution"]; authored {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.action_completed failure_attribution on a stored payload version below the attribution boundary is authored bytes no store ever recorded; the upcaster stamps the explicit legacy marker alone", false, "record the coordinator attribution on the current correction completion")
-	}
-	var payload workflowActionCompletedPayload
-	if err := decodeWorkflowPayload(event, &payload); err != nil {
-		return Event{}, err
-	}
-	if workflowFailureAttributionCorrectionActions[payload.ActionID] && payload.FailureAttribution == nil {
-		payload.FailureAttribution = workerFailureLegacyAttribution()
-		raw, err := json.Marshal(payload)
-		if err != nil {
-			return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.action_completed payload", false, "repair the stored workflow action completion", err)
-		}
-		event.Payload = raw
-	}
-	event.PayloadVersion = 5
-	return event, nil
-}
-
-// upcastWorkflowActionCompletedV5 carries a v5 completion into the v6
-// payload that may carry the job-size members. v5 payloads never carried
-// them, so the upcast is the bytes unchanged at the new version; the fold's
-// source-version gate refuses a stored v5 payload that claims one.
-func upcastWorkflowActionCompletedV5(event Event) (Event, error) {
-	event.PayloadVersion = 6
-	return event, nil
-}
-
-// A v6 completion retains its bytes; only v7 can dispose an attempt through
-// a worker-job split. The fold checks the recorded source version.
-func upcastWorkflowActionCompletedV6(event Event) (Event, error) {
-	event.PayloadVersion = 7
-	return event, nil
 }
 
 func foldWorkflowImpactNoticeRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -4427,15 +3897,11 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 		return err
 	}
 	// An outside-repair hold cannot acquire workflow completion evidence.
-	if !isWorkflowReplay(ctx) {
-		if err := requireNoOutsideRepairTx(ctx, tx, event.SubjectID, "fold_event"); err != nil {
-			return err
-		}
+	if err := requireNoOutsideRepairTx(ctx, tx, event.SubjectID, "fold_event"); err != nil {
+		return err
 	}
-	// The completion fold sees the intact log during replay: a skipped
-	// verdict fold leaves its row in the log, so the read stops before this
-	// event and a later evaluator's verdict never satisfies this
-	// completion's evaluator-equality rule.
+	// A later evaluator's verdict cannot satisfy this completion's
+	// evaluator-equality rule.
 	verdict, err := latestWorkflowVerdictBefore(ctx, tx, event.SubjectID, event.Seq)
 	if err != nil {
 		return err
@@ -4454,24 +3920,6 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 		return newFailure(KindInvalidOperation, "fold_event", "workflow is already terminal or missing", false, "complete an active workflow once")
 	}
 	return nil
-}
-
-func upcastWorkflowCompletedV1(event Event) (Event, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.completed v1 payload is not a JSON object", false, "repair the stored workflow completion")
-	}
-	if _, exists := fields["impact_verdict"]; exists {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.completed v1 cannot contain an impact verdict", false, "use workflow.completed v2 for an explicit impact verdict")
-	}
-	fields["impact_verdict"] = json.RawMessage(`"non-breaking"`)
-	payload, err := json.Marshal(fields)
-	if err != nil {
-		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.completed v1 payload", false, "repair the stored workflow completion", err)
-	}
-	event.Payload = payload
-	event.PayloadVersion = 2
-	return event, nil
 }
 
 func workflowJSON(value any) string { encoded, _ := json.Marshal(value); return string(encoded) }

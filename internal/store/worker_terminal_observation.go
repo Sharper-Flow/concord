@@ -348,18 +348,13 @@ func workerDeliveryProbeFailure(what string, probeCtx context.Context, err error
 // the ingest transaction. The frontier comes from the attempt's own
 // authorization; the observation comes only from the sealed preparation the
 // ingress sampled outside this transaction. Caller-authored derived bytes
-// refuse closed, and an append below the terminal delivery payload version
-// lands unchanged: that version never carried the derived identity, so the
-// store derives none for it.
+// refuse closed.
 func enrichWorkerTerminalEventTx(ctx context.Context, tx *sql.Tx, event Event) (Event, error) {
 	switch event.Kind {
-	case WorkerCompleted:
-		if event.PayloadVersion < workerCompletedTerminalDeliveryVersion {
-			return event, nil
-		}
-	case WorkerFailed:
-		if event.PayloadVersion < workerFailedTerminalDeliveryVersion {
-			return event, nil
+	case WorkerCompleted, WorkerFailed:
+		registration, _ := registeredEventKind(event.Kind)
+		if event.PayloadVersion != registration.CurrentVersion {
+			return Event{}, unsupportedEventVersion(event, registration)
 		}
 	}
 	var rawMembers map[string]json.RawMessage

@@ -88,116 +88,6 @@ func validateNativeRunShape(payload *nativeRunPayload) error {
 	return nil
 }
 
-// Recorded native-run reports carry a universe map, two static policy
-// references, and no shared observation identity. Replay preserves these
-// identities without fabricating verification. Live validation cannot admit
-// this shape.
-const (
-	legacyNativeRunFreshnessPolicyRef  = "policy/native-run-report/freshness@cd-0040"
-	legacyNativeRunDivergencePolicyRef = "policy/native-run-report/divergence@cd-0040"
-)
-
-// legacyNativeRunUniverse is the universe the released writer emitted for
-// every native-run report: one complete item exactly scoped to the reported
-// subject, one total, no omissions. A stored universe that disagrees with its
-// own report was written by no released writer. Field order preserves the
-// canonical map encoding stored in the projection.
-type legacyNativeRunUniverse struct {
-	Anchor               string   `json:"anchor"`
-	AppliedScope         string   `json:"applied_scope"`
-	CanonicalIdentityKey string   `json:"canonical_identity_key"`
-	CompletionEvidence   string   `json:"completion_evidence"`
-	Coverage             string   `json:"coverage"`
-	ObservedCount        int      `json:"observed_count"`
-	ObservedRefs         []string `json:"observed_refs"`
-	Omissions            []string `json:"omissions"`
-	Shape                string   `json:"shape"`
-	Total                string   `json:"total"`
-}
-
-// legacyNativeRunPayload reflects the released writer's payload, recorded at
-// version 1 before the shared observation component. Strict decoding refuses
-// every member the current shape added, so a recorded report cannot acquire a
-// fabricated observation identity or a relabeled policy reference by replaying.
-type legacyNativeRunPayload struct {
-	WorkID                string                  `json:"work_id"`
-	RunID                 string                  `json:"run_id"`
-	NativeSubjectRef      string                  `json:"native_subject_ref"`
-	SubjectDigest         string                  `json:"subject_digest"`
-	Phase                 string                  `json:"phase"`
-	Status                string                  `json:"status"`
-	EvidenceRef           string                  `json:"evidence_ref"`
-	EvidenceDigest        string                  `json:"evidence_digest"`
-	AssertedAt            string                  `json:"asserted_at"`
-	ReportingAuthorityRef string                  `json:"reporting_authority_ref"`
-	ActorRef              string                  `json:"actor_ref"`
-	CaptureMethod         string                  `json:"capture_method"`
-	ObservedUniverse      legacyNativeRunUniverse `json:"observed_universe"`
-	FreshnessPolicyRef    string                  `json:"freshness_policy_ref"`
-	DivergencePolicyRef   string                  `json:"divergence_policy_ref"`
-	ExpectedVersion       int64                   `json:"expected_version"`
-	ResultingVersion      int64                   `json:"resulting_version"`
-}
-
-// validateLegacyNativeRunPayload strictly decodes and validates one recorded
-// native-run report against the released shape: unknown members, wrong types,
-// and trailing data refuse. The recorded-event preparation route calls it for
-// events it recognized as this shape; every other report is validated by
-// validateNativeRunPayload above.
-func validateLegacyNativeRunPayload(event Event) error {
-	var payload legacyNativeRunPayload
-	if err := decodeRegisteredPayload(event, &payload); err != nil {
-		return err
-	}
-	return validateLegacyNativeRunShape(&payload)
-}
-
-// validateLegacyNativeRunShape enforces the bounds the released writer
-// enforced plus its emitted form: the bounded identity, evidence, status, and
-// time fields, the static policy references it emitted, and a universe
-// derived from the report itself.
-func validateLegacyNativeRunShape(payload *legacyNativeRunPayload) error {
-	if len(payload.RunID) < 1 || len(payload.RunID) > 128 || len(payload.NativeSubjectRef) < 1 || len(payload.NativeSubjectRef) > 2048 {
-		return newFailure(KindInvalidPayload, "validate_event", "native run identity is not bounded", false, "supply a bounded run ID and native subject reference")
-	}
-	if len(payload.EvidenceRef) < 1 || len(payload.EvidenceRef) > 2048 || len(payload.EvidenceDigest) < 1 || len(payload.EvidenceDigest) > 256 {
-		return newFailure(KindInvalidPayload, "validate_event", "native run evidence is not bounded", false, "supply the native authority's evidence reference and digest")
-	}
-	if !NativeRunStatusAllowed(payload.Phase, payload.Status) {
-		return newFailure(KindInvalidPayload, "validate_event", "native run status is outside the phase vocabulary", false, "use the closed status vocabulary for the reported phase")
-	}
-	if payload.SubjectDigest == "" {
-		return newFailure(KindInvalidPayload, "validate_event", "native run subject digest is missing", false, "carry the subject digest derived from the native subject reference")
-	}
-	if _, err := time.Parse(time.RFC3339Nano, payload.AssertedAt); err != nil {
-		return newFailure(KindInvalidPayload, "validate_event", "native run asserted_at is not RFC3339", false, "supply the reporting authority's own observation time")
-	}
-	if payload.CaptureMethod != string(CaptureTrustedClientReport) {
-		return newFailure(KindInvalidPayload, "validate_event", "native run capture method is not the recorded trusted-client report", false, "a recorded report keeps the capture identity its writer emitted")
-	}
-	if payload.FreshnessPolicyRef != legacyNativeRunFreshnessPolicyRef || payload.DivergencePolicyRef != legacyNativeRunDivergencePolicyRef {
-		return newFailure(KindInvalidPayload, "validate_event", "native run policy references are not the recorded static references", false, "a recorded report keeps the policy identities its writer emitted")
-	}
-	return validateLegacyNativeRunUniverse(payload)
-}
-
-// validateLegacyNativeRunUniverse holds the recorded universe to the
-// released writer's emitted form. "eq(1)" is that writer's total token, not a
-// member of the current typed vocabulary.
-func validateLegacyNativeRunUniverse(payload *legacyNativeRunPayload) error {
-	u := payload.ObservedUniverse
-	if u.Shape != string(UniverseItem) || u.Coverage != string(CoverageComplete) || u.Total != "eq(1)" || u.CompletionEvidence != string(CompletionClosedStructureDigest) {
-		return newFailure(KindInvalidPayload, "validate_event", "native run observed universe does not match the recorded writer form", false, "a recorded report keeps the universe its writer emitted")
-	}
-	if u.ObservedCount != 1 || len(u.ObservedRefs) != 1 || u.ObservedRefs[0] != payload.RunID || u.Omissions == nil || len(u.Omissions) != 0 {
-		return newFailure(KindInvalidPayload, "validate_event", "native run observed universe does not match the recorded writer form", false, "a recorded report keeps the universe its writer emitted")
-	}
-	if u.Anchor != payload.SubjectDigest || u.AppliedScope != payload.NativeSubjectRef || u.CanonicalIdentityKey != payload.WorkID+"/"+payload.RunID {
-		return newFailure(KindInvalidPayload, "validate_event", "native run observed universe does not match its own report", false, "a recorded report keeps the universe its writer emitted")
-	}
-	return nil
-}
-
 // nativeRunProjectionRow is the workflow_native_runs projection one recorded
 // report folds into. The current fold and the released-schema fold share it,
 // so the projection INSERT has one owner and a legacy row can differ only in
@@ -244,12 +134,6 @@ func foldNativeRunRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
 	}
-	// A report in the released writer's shape folds through its own shape. Only
-	// the recorded-event preparation route tags it; every other report, including
-	// a current-shaped version-1 record, folds below.
-	if event.recordedPayloadShape == recordedShapeLegacyNativeRun {
-		return foldLegacyNativeRunRecorded(ctx, tx, event)
-	}
 	var payload nativeRunPayload
 	if err := decodePayload(event, &payload); err != nil {
 		return err
@@ -277,38 +161,6 @@ func foldNativeRunRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 		captureMethod: string(payload.CaptureMethod), observedUniverse: string(universe),
 		freshnessPolicyRef: payload.FreshnessPolicyRef, divergencePolicyRef: payload.DivergencePolicyRef,
 		observationID: sql.NullString{String: payload.ObservationID, Valid: true},
-	}); err != nil {
-		return err
-	}
-	return bumpVersion(ctx, tx, "work_items", event, payload.ExpectedVersion, payload.ResultingVersion, "work item")
-}
-
-// foldLegacyNativeRunRecorded folds one report recorded by the released
-// writer. The projection matches the schema-42 migration result for that
-// writer's rows: the old universe JSON and static policy references persist
-// unchanged, observation_id stays NULL so no verification event can bind, and
-// the row reads unverified. No external_observations row is created and no
-// policy identity is relabeled.
-func foldLegacyNativeRunRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
-	var payload legacyNativeRunPayload
-	if err := decodePayload(event, &payload); err != nil {
-		return err
-	}
-	if err := validateLegacyNativeRunShape(&payload); err != nil {
-		return err
-	}
-	universe, err := json.Marshal(payload.ObservedUniverse)
-	if err != nil {
-		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode native run observed universe", false, "repair the stored native run report", err)
-	}
-	if err := upsertWorkflowNativeRunTx(ctx, tx, nativeRunProjectionRow{
-		workID: event.SubjectID, runID: payload.RunID, phase: payload.Phase, status: payload.Status,
-		eventID: event.EventID, reportingAuthorityRef: payload.ReportingAuthorityRef, actorRef: payload.ActorRef,
-		nativeSubjectRef: payload.NativeSubjectRef, subjectDigest: payload.SubjectDigest,
-		evidenceRef: payload.EvidenceRef, evidenceDigest: payload.EvidenceDigest,
-		assertedAt: payload.AssertedAt, recordedAt: event.OccurredAt.UTC().Format(time.RFC3339Nano),
-		captureMethod: payload.CaptureMethod, observedUniverse: string(universe),
-		freshnessPolicyRef: payload.FreshnessPolicyRef, divergencePolicyRef: payload.DivergencePolicyRef,
 	}); err != nil {
 		return err
 	}

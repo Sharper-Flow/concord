@@ -692,15 +692,7 @@ func decodeProjectLocator(event Event) (projectLocatorPayload, error) {
 	return payload, nil
 }
 
-func upcastProjectLocatorV1(event Event) (Event, error) {
-	event.PayloadVersion = 2
-	return event, nil
-}
-
 func projectLocatorEventVersion(event Event) int {
-	if event.replaySourcePayloadVersion != 0 {
-		return event.replaySourcePayloadVersion
-	}
 	return event.PayloadVersion
 }
 

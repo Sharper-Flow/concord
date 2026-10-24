@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
@@ -65,19 +64,6 @@ type workflowDeliveryCorrectedPayload struct {
 	ApprovalScopeJSON       string `json:"approval_scope_json"`
 	ApprovalVersionsJSON    string `json:"approval_versions_json"`
 	ApprovalConsequence     string `json:"approval_consequence"`
-}
-
-// upcastWorkflowDeliveryCorrectedV1 carries a version 1 event to version 2.
-// The v2 shape records the same fields, so the upcaster advances only the
-// version and rewrites no bytes. The fold reads the stored version back
-// through replaySourcePayloadVersion, so a recorded v1 event still replays
-// with its approval binding and operator checks intact.
-func upcastWorkflowDeliveryCorrectedV1(event Event) (Event, error) {
-	if event.PayloadVersion != 1 {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.delivery_corrected upcaster requires payload version 1", false, "supply a legacy v1 delivery-correction payload")
-	}
-	event.PayloadVersion = 2
-	return event, nil
 }
 
 // ApplyWorkflowDeliveryCorrectionTx appends one unsigned delivery correction
@@ -166,17 +152,13 @@ func workflowDeliveryCorrectionCoordinatorAdmitted(ctx context.Context, q querye
 }
 
 // foldWorkflowDeliveryCorrected admits one typed delivery correction and
-// leaves every projection of the closed workflow instance untouched. A
-// source-v1 payload replays under its own rules: the complete approval
-// binding and the recorded operator approval actor. The current v2 class
-// carries no approval claim and attributes the recorded coordinator actor,
-// re-derived from the event payload and log state alone.
+// leaves every projection of the closed workflow instance untouched. It
+// carries no approval claim and attributes the recorded coordinator actor.
 func foldWorkflowDeliveryCorrected(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowDeliveryCorrectedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
 	}
-	sourceV1 := event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < 2
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
@@ -184,30 +166,16 @@ func foldWorkflowDeliveryCorrected(ctx context.Context, tx *sql.Tx, event Event)
 		p.DeliveryState != "asserted" || p.EvidenceSource != DeliveryEvidenceSourceCoordinatorAsserted {
 		return newFailure(KindInvalidPayload, "fold_event", "delivery correction has incomplete or unbounded fields", false, "supply the target identity, version, reason, merge evidence, and coordinator provenance")
 	}
-	if !replayValidReference(p.DeliveryArtifact) {
-		return newFailure(KindInvalidPayload, "fold_event", "delivery_artifact is not a reference admitted by a supported historical rule", false, "supply a bounded delivery reference")
+	if !ValidReference(p.DeliveryArtifact) {
+		return newFailure(KindInvalidPayload, "fold_event", "delivery_artifact is not a current workflow reference", false, "supply a bounded delivery reference")
 	}
-	if sourceV1 {
-		if p.ApprovalRef == "" || !validDigest(p.ApprovalOperationDigest) || p.ApprovalScopeJSON == "" || p.ApprovalVersionsJSON == "" || p.ApprovalConsequence == "" {
-			return newFailure(KindInvalidPayload, "fold_event", "delivery correction carries no complete operator approval binding", false, "request the core operator approval for this correction")
-		}
-	} else if p.ApprovalRef != "" || p.ApprovalOperationDigest != "" || p.ApprovalScopeJSON != "" || p.ApprovalVersionsJSON != "" || p.ApprovalConsequence != "" {
+	if p.ApprovalRef != "" || p.ApprovalOperationDigest != "" || p.ApprovalScopeJSON != "" || p.ApprovalVersionsJSON != "" || p.ApprovalConsequence != "" {
 		return newFailure(KindInvalidPayload, "fold_event", "a routine delivery correction accepts no approval claim", false, "append the unsigned correction under the recorded coordinator actor")
 	}
 	if event.Actor == "" {
 		return newFailure(KindUnauthorized, "fold_event", "delivery correction has no authenticated actor", false, "append the correction through the approved operator route")
 	}
-	if sourceV1 {
-		if err := authorizeWorkflowOperatorApprovalTx(ctx, tx, event, workflowApprovalBinding{
-			ApprovalRef:     p.ApprovalRef,
-			OperationDigest: p.ApprovalOperationDigest,
-			ScopeJSON:       p.ApprovalScopeJSON,
-			VersionsJSON:    p.ApprovalVersionsJSON,
-			Consequence:     p.ApprovalConsequence,
-		}, deliveryCorrectionApprovalSubject); err != nil {
-			return err
-		}
-	} else if err := workflowDeliveryCorrectionCoordinatorAdmitted(ctx, tx, event.SubjectID, event.Actor, "fold_event"); err != nil {
+	if err := workflowDeliveryCorrectionCoordinatorAdmitted(ctx, tx, event.SubjectID, event.Actor, "fold_event"); err != nil {
 		return err
 	}
 	targetSeq, targetPayloadVersion, targetArtifact, err := workflowDeliveryAssertionEventTx(ctx, tx, event.SubjectID, p.TargetEventID)
@@ -223,7 +191,7 @@ func foldWorkflowDeliveryCorrected(ctx context.Context, tx *sql.Tx, event Event)
 	if targetArtifact == p.DeliveryArtifact {
 		return newFailure(KindInvalidOperation, "fold_event", "delivery correction restates the asserted artifact", false, "supply the merged delivery evidence the assertion is missing")
 	}
-	if !replayValidMergeEvidenceReference(p.DeliveryArtifact) {
+	if !validMergeEvidenceURLSyntax(p.DeliveryArtifact) {
 		return newFailure(KindInvalidPayload, "fold_event", "delivery_artifact does not match a supported merge_evidence rule", false, "supply the https merge URL the coordinator asserts, not a repository path")
 	}
 	latestSeq, err := workflowLatestDeliveryAssertionSeqTx(ctx, tx, event.SubjectID)
@@ -421,14 +389,6 @@ func validateMergeEvidenceAdmission(value, path string) error {
 		return err
 	}
 	return payloadschema.ValidateValue(value, map[string]any{"pattern": pattern}, document, path)
-}
-
-// replayValidMergeEvidenceReference keeps legacy URLs readable and accepts
-// URLs admitted by the current published syntax.
-func replayValidMergeEvidenceReference(value string) bool {
-	parsed, err := url.Parse(value)
-	legacy := err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil
-	return legacy || validMergeEvidenceURLSyntax(value)
 }
 
 // workflowDeliveryCorrectionRegisteredVersion returns the registry's current

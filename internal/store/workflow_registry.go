@@ -9,7 +9,6 @@ import (
 	"slices"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"unicode"
 )
@@ -391,7 +390,7 @@ func (r *workflowDefinitionRegistry) Verify(ref string, _ int64, digest string) 
 	if !ok {
 		return definitionFailure(KindDefinitionDigestMismatch, "current workflow definition is not registered")
 	}
-	computed, err := workflowDefinitionDigestWithReference(entry.Definition, replayValidReference)
+	computed, err := WorkflowDefinitionDigest(entry.Definition)
 	if err != nil {
 		return err
 	}
@@ -413,10 +412,6 @@ func validWorkflowID(value string) bool  { return workflowIDPattern.MatchString(
 func validWorkflowRef(value string) bool { return workflowRefPattern.MatchString(value) }
 
 func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
-	return validateWorkflowDefinitionWithReference(definition, ValidReference)
-}
-
-func validateWorkflowDefinitionWithReference(definition WorkflowDefinition, validReference func(string) bool) error {
 	if !validWorkflowRef(definition.Ref) || definition.Version < 1 || definition.Version > 2147483647 || !validWorkKind(definition.WorkKind) {
 		return definitionFailure(KindInvalidDefinition, "definition identity or work kind is invalid")
 	}
@@ -518,7 +513,7 @@ func validateWorkflowDefinitionWithReference(definition WorkflowDefinition, vali
 		return definitionFailure(KindInvalidDefinition, "definition evidence, outcome, rigor, staleness, or composition rules are invalid")
 	}
 	for _, rule := range definition.StalenessRules {
-		if !validWorkflowID(rule.ID) || !validWorkflowRef(rule.InputRef) && !validReference(rule.InputRef) || (rule.Severity != "warning" && rule.Severity != "block") {
+		if !validWorkflowID(rule.ID) || !validWorkflowRef(rule.InputRef) && !ValidReference(rule.InputRef) || (rule.Severity != "warning" && rule.Severity != "block") {
 			return definitionFailure(KindInvalidDefinition, "staleness rule is invalid")
 		}
 	}
@@ -560,11 +555,7 @@ func graphHasCycle(adjacency map[string][]string, steps map[string]WorkflowStep)
 const workflowDefinitionSchemaVersion = "1.3"
 
 func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) {
-	return canonicalWorkflowDefinitionWithReference(definition, ValidReference)
-}
-
-func canonicalWorkflowDefinitionWithReference(definition WorkflowDefinition, validReference func(string) bool) ([]byte, error) {
-	if err := validateWorkflowDefinitionWithReference(definition, validReference); err != nil {
+	if err := ValidateWorkflowDefinition(definition); err != nil {
 		return nil, err
 	}
 	// json.Marshal follows the field order below. The digest is deliberately not
@@ -612,14 +603,6 @@ func workflowDefinitionDigest(canonical []byte) string {
 
 func WorkflowDefinitionDigest(definition WorkflowDefinition) (string, error) {
 	canonical, err := CanonicalWorkflowDefinition(definition)
-	if err != nil {
-		return "", err
-	}
-	return workflowDefinitionDigest(canonical), nil
-}
-
-func workflowDefinitionDigestWithReference(definition WorkflowDefinition, validReference func(string) bool) (string, error) {
-	canonical, err := canonicalWorkflowDefinitionWithReference(definition, validReference)
 	if err != nil {
 		return "", err
 	}
@@ -803,15 +786,6 @@ func ValidReference(value string) bool {
 	return true
 }
 
-// replayValidReference preserves the reference rule that admitted stored events.
-func replayValidReference(value string) bool {
-	return len(value) >= 2 && len(value) <= 128 && !strings.ContainsAny(value, " \t\r\n")
-}
-
-// replayValidReferenceSchema preserves the prior Go RE2 ^\S+$ schema rule.
-func replayValidReferenceSchema(value string) bool {
-	return len(value) >= 2 && len(value) <= 128 && !strings.ContainsAny(value, " \t\n\f\r")
-}
 func uniqueStrings(values []string) bool {
 	seen := map[string]bool{}
 	for _, value := range values {

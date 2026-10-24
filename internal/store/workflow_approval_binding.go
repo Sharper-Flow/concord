@@ -35,14 +35,6 @@ var (
 		actorHint: "submit the recovery through the approved operator route",
 		freshHint: "request a fresh approval for the exact recovery operation",
 	}
-	// deliveryCorrectionApprovalSubject admits a delivery correction through
-	// its operator-approved route; the approval boundary consumes the
-	// approval, so an unconsumed row also sends the requester back to it.
-	deliveryCorrectionApprovalSubject = workflowApprovalBindingSubject{
-		operation: "delivery correction",
-		actorHint: "submit the correction through the approved operator route",
-		freshHint: "request a fresh approval for the exact correction operation",
-	}
 )
 
 // workflowApprovalOperator pairs the core approval's actor tuple and its ref.

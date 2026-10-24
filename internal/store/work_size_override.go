@@ -135,9 +135,7 @@ func foldWorkSizeOverridden(ctx context.Context, tx *sql.Tx, event Event) error 
 		return newFailure(KindInvalidPayload, "fold_event", "size override needs a size from the vocabulary, a bounded reason and a model sequence", false, "record the operator's size against the current model record")
 	}
 	if p.CarriedFromEventID != "" {
-		if !isWorkflowReplay(ctx) {
-			return newFailure(KindInvalidOperation, "fold_event", "carried size overrides are retired", false, "record an approved in-place size override")
-		}
+		return newFailure(KindInvalidOperation, "fold_event", "carried size overrides are retired", false, "record an approved in-place size override")
 	} else if err := authorizeWorkflowOperatorApprovalTx(ctx, tx, event, p.binding(), workSizeOverrideApprovalSubject); err != nil {
 		return err
 	}

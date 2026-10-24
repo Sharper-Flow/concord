@@ -85,12 +85,6 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) > 0 && args[0] == "repair" {
 		return runRepairCommand(args[1:], in, out, errOut)
 	}
-	// Fold-guard recovery is offline and store-refusing by definition: Open
-	// refuses a stranded fold_guard row, so the recovery verb routes around
-	// the store open like the release verbs.
-	if len(args) > 0 && args[0] == "recover-fold-guard" {
-		return runRecoverFoldGuardCommand(args[1:], in, out, errOut)
-	}
 	// ci-wait is store-free (CD-0160): it queries GitHub through gh and a
 	// state file, never Concord authority, so it routes around the database
 	// open like the release verbs and consumes its JSON body directly.
@@ -243,7 +237,6 @@ var verbUsages = []struct {
 	{"host-leases", []string{"host-leases                  # print live release leases; prunes stale ones"}},
 	{"upgrade", []string{"upgrade < JSON stdin      # apply pending migrations; {\"plan\":true} reports readiness"}},
 	{"repair", []string{"repair < JSON stdin          # verify assets, back up the database, repair the installed release (#912)"}},
-	{"recover-fold-guard", []string{"recover-fold-guard < JSON stdin   # offline: clear a stranded fold guard and rebuild projections from the log"}},
 	{"ci-wait", []string{"ci-wait < JSON stdin         # one bounded slice of a GitHub CI wait (CD-0160)"}},
 }
 
@@ -443,6 +436,27 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	if err != nil {
 		writeDiagnostic(errOut, diagnosticText(err))
 		return 1
+	}
+	// Restore must remain available when the live store refuses to open.
+	if command == "restore" {
+		var request struct {
+			Source      string `json:"source"`
+			Destination string `json:"destination"`
+		}
+		if err := decodeObject(raw, &request); err != nil {
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+			return 1
+		}
+		if request.Destination == path {
+			writeOperatorDiagnostic(errOut, command, "restore destination equals the live database path; restore to a new path and swap")
+			return 1
+		}
+		report, err := store.RestoreBackup(context.Background(), request.Source, request.Destination)
+		if err != nil {
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+			return 1
+		}
+		return writeJSON(out, report, errOut)
 	}
 	s, err := openStoreForCommand(context.Background(), path)
 	if err != nil {
@@ -1467,25 +1481,6 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return runProjectResolve(raw, s, out, errOut)
 	case "cd-reservations":
 		return runCDReservations(raw, s, out, errOut)
-	case "restore":
-		var request struct {
-			Source      string `json:"source"`
-			Destination string `json:"destination"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		if request.Destination == s.Path() {
-			writeOperatorDiagnostic(errOut, command, "restore destination equals the live database path; restore to a new path and swap")
-			return 1
-		}
-		report, err := store.RestoreBackup(ctx, request.Source, request.Destination)
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeJSON(out, report, errOut)
 	case "predecessor-import":
 		return runPredecessorImport(raw, s, out, errOut)
 	default:

@@ -69,18 +69,13 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if !isWorkflowReplay(ctx) {
-		if active, err := outsideRepairActiveTx(ctx, tx, event.SubjectID); err != nil {
-			return err
-		} else if active {
-			return newOutsideRepairRouteFailure("complete_workflow", "workflow completion refused: outside-repair disposition is active")
-		}
-		// The staleness boundary consults the current Git-derived law state,
-		// which the log never carried; replay owes only the projection folds
-		// below.
-		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, event.SubjectID); err != nil {
-			return err
-		}
+	if active, err := outsideRepairActiveTx(ctx, tx, event.SubjectID); err != nil {
+		return err
+	} else if active {
+		return newOutsideRepairRouteFailure("complete_workflow", "workflow completion refused: outside-repair disposition is active")
+	}
+	if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, event.SubjectID); err != nil {
+		return err
 	}
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
@@ -119,7 +114,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err := workflowCompletionCallerAuthority(ctx, tx, event.SubjectID, event.Actor); err != nil {
 		return err
 	}
-	if workflowDefinitionProducesDelivery(definition) && !isWorkflowReplay(ctx) {
+	if workflowDefinitionProducesDelivery(definition) {
 		review, err := loadWorkflowReviewState(ctx, tx, event.SubjectID, 0)
 		if err != nil {
 			return err
@@ -161,10 +156,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	}
 	// Completion never treats an amendment declaration as permission to leave a
 	// conflict unresolved. The Git-derived projection must actually be clear.
-	// The boundary consults the current registered source set, which the log
-	// never carried; replay owes only the projection folds, exactly as the
-	// staleness boundary above.
-	if contract.LawBoundaryVersion == 1 && !isWorkflowReplay(ctx) {
+	if contract.LawBoundaryVersion == 1 {
 		mandated, mandateErr := currentWorkflowLawMandate(contract.SpecMandate, contract.ArchitectureBinding)
 		if mandateErr != nil {
 			return workflowClauseError(mandateErr, 3)
@@ -1045,7 +1037,7 @@ func latestWorkflowVerdictsBefore(ctx context.Context, q queryer, workID string,
 	if err != nil {
 		return nil, err
 	}
-	rows, err := q.QueryContext(ctx, `SELECT seq,payload,payload_version FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND (?=0 OR seq<?) ORDER BY seq DESC`, workID, WorkflowVerdictRecorded, beforeSeq, beforeSeq)
+	rows, err := q.QueryContext(ctx, `SELECT seq,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND (?=0 OR seq<?) ORDER BY seq DESC`, workID, WorkflowVerdictRecorded, beforeSeq, beforeSeq)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow verdicts", true, "retry once the database is readable", err)
 	}
@@ -1055,12 +1047,11 @@ func latestWorkflowVerdictsBefore(ctx context.Context, q queryer, workID string,
 	type collectedVerdict struct {
 		seq            int64
 		raw            []byte
-		payloadVersion int
 	}
 	collected := make([]collectedVerdict, 0, 8)
 	for rows.Next() {
 		var verdict collectedVerdict
-		if err := rows.Scan(&verdict.seq, &verdict.raw, &verdict.payloadVersion); err != nil {
+		if err := rows.Scan(&verdict.seq, &verdict.raw); err != nil {
 			rows.Close()
 			return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow verdict", true, "retry once the database is readable", err)
 		}
@@ -1088,9 +1079,6 @@ func latestWorkflowVerdictsBefore(ctx context.Context, q queryer, workID string,
 		var verdict workflowVerdictRecordedPayload
 		if err := json.Unmarshal(collectedVerdict.raw, &verdict); err != nil {
 			return nil, newFailure(KindInvariantViolation, "complete_workflow", "workflow verdict payload is malformed", false, "reread_entities")
-		}
-		if collectedVerdict.payloadVersion == 1 {
-			verdict.PredicateID = "predicate:primary"
 		}
 		if collectedVerdict.seq <= cutoff {
 			continue

@@ -10,11 +10,10 @@ import (
 // changes.
 type FailureKind string
 
-// FailureStage is the closed phase where replay rejected an event.
+// FailureStage is the closed phase where applying an event failed.
 type FailureStage string
 
 const (
-	StageUpcast FailureStage = "upcast"
 	StageDecode FailureStage = "decode"
 	StageFold   FailureStage = "fold"
 )
@@ -269,7 +268,7 @@ type Failure struct {
 	// Clause identifies the ordered workflow completion clause that refused the
 	// operation. Zero means the failure did not originate in that gate.
 	Clause int `json:"clause,omitempty"`
-	// Event attribution is populated for replay/reconstruction failures. It is
+	// Event attribution is populated for mutation failures. It is
 	// deliberately bounded to the event header and fold stage; payload bytes do
 	// not belong in a durable diagnostic envelope.
 	EventID        string       `json:"event_id,omitempty"`

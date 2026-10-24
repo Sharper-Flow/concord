@@ -36,7 +36,7 @@ func (repair *WorkflowSelfRepair) UnmarshalJSON(data []byte) error {
 	if decoded.EvidenceRefs == nil {
 		return fmt.Errorf("self_repair evidence_refs must be explicitly present and non-null")
 	}
-	if err := validateWorkflowSelfRepairShapeForReplay(WorkflowSelfRepair(decoded)); err != nil {
+	if err := validateWorkflowSelfRepairShape(WorkflowSelfRepair(decoded)); err != nil {
 		return err
 	}
 	*repair = WorkflowSelfRepair(decoded)
@@ -55,20 +55,12 @@ func parseWorkflowSelfRepair(raw json.RawMessage) (*WorkflowSelfRepair, error) {
 }
 
 func validateWorkflowSelfRepairShape(repair WorkflowSelfRepair) error {
-	return validateWorkflowSelfRepairShapeWithReference(repair, ValidReference)
-}
-
-func validateWorkflowSelfRepairShapeForReplay(repair WorkflowSelfRepair) error {
-	return validateWorkflowSelfRepairShapeWithReference(repair, replayValidReference)
-}
-
-func validateWorkflowSelfRepairShapeWithReference(repair WorkflowSelfRepair, validReference func(string) bool) error {
-	if !TypedErrorKindAllowed(repair.RefusalKind) || !validReference(repair.BlockedOperation) || len(repair.EvidenceRefs) < 1 || len(repair.EvidenceRefs) > workflowSelfRepairMaxEvidence {
+	if !TypedErrorKindAllowed(repair.RefusalKind) || !ValidReference(repair.BlockedOperation) || len(repair.EvidenceRefs) < 1 || len(repair.EvidenceRefs) > workflowSelfRepairMaxEvidence {
 		return newFailure(KindInvalidPayload, "workflow_self_repair", "self_repair does not name one typed refusal, blocked operation, and bounded evidence set", false, "supply a typed refusal kind, operation reference, and 1-32 evidence references")
 	}
 	seen := make(map[string]bool, len(repair.EvidenceRefs))
 	for _, ref := range repair.EvidenceRefs {
-		if !validReference(ref) || seen[ref] {
+		if !ValidReference(ref) || seen[ref] {
 			return newFailure(KindInvalidPayload, "workflow_self_repair", "self_repair evidence references are invalid or duplicated", false, "supply unique workflow evidence references")
 		}
 		seen[ref] = true
@@ -77,10 +69,7 @@ func validateWorkflowSelfRepairShapeWithReference(repair WorkflowSelfRepair, val
 }
 
 func validateWorkflowSelfRepairAuthorityTx(ctx context.Context, tx *sql.Tx, workID, actorRef string, repair *WorkflowSelfRepair) error {
-	if repair == nil || isWorkflowReplay(ctx) {
-		// The authority check reads the current Git-derived registry and the
-		// actor projection to police a live classification. Replay records
-		// the classification the log already carries.
+	if repair == nil {
 		return nil
 	}
 	productID, err := workflowBindingProductIDTx(ctx, tx, workID)

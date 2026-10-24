@@ -204,12 +204,10 @@ func TestRebuildKeepsOtherSourceScopeRows(t *testing.T) {
 	if _, err := s.RegisterProductKnowledgeSource(ctx, ProductKnowledgeSourceRegistration{ProductID: "scope-product", ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Reason: "scope fixture", ExpectedVersion: 1}); err != nil {
 		t.Fatal(err)
 	}
-	// archived_work is the compaction archive: a work note projects only
-	// when a compaction link names its ID, so both fixtures link theirs.
-	for _, eventID := range []string{"scope-link-home", "scope-link-source"} {
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,'compaction_link.published','work_item','scope-shared-work','operator','2026-09-21T00:00:00Z',1,'{}')`, eventID); err != nil {
-			t.Fatal(err)
-		}
+	// Publication membership admits the shared work ID to the archive;
+	// each source still projects its own note and scope rows.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO compaction_publications(work_id) VALUES('scope-shared-work'); DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
 	}
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)

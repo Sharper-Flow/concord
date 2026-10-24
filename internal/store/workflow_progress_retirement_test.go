@@ -9,13 +9,13 @@ import (
 )
 
 func TestCoordinatorEvidenceDoesNotMoveAcceptanceBoundary(t *testing.T) {
-	db, appendEvent, read := progressHistory(t)
-	if _, err := db.Exec(`CREATE TABLE worker_attempts(work_id TEXT, attempt_id TEXT, lifecycle_state TEXT)`); err != nil {
+	db, appendEvent, read := progressCorrectionHistory(t)
+	if _, err := db.Exec(`ALTER TABLE worker_attempts ADD COLUMN lifecycle_state TEXT`); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 3; i++ {
 		attempt := fmt.Sprintf("attempt:failed-%d", i)
-		if _, err := db.Exec(`INSERT INTO worker_attempts VALUES(?,?,?)`, "work-history", attempt, "failed"); err != nil {
+		if _, err := db.Exec(`INSERT INTO worker_attempts(work_id,attempt_id,lifecycle_state) VALUES(?,?,?)`, "work-history", attempt, "failed"); err != nil {
 			t.Fatal(err)
 		}
 		appendEvent(WorkflowActionCompleted, correctionHistoryAction("dispatch_worker", attempt, "", 0))

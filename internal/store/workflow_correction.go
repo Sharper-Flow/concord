@@ -193,14 +193,14 @@ func workflowCorrectionRouteStrategy(definition WorkflowDefinition, currentStep 
 func workflowAcceptedWorkerDelivery(ctx context.Context, q queryer, workID string, throughSeq int64, subject string) (int64, bool, error) {
 	var dispatchSeq int64
 	var attemptID string
-	if err := q.QueryRowContext(ctx, `SELECT d.seq,json_extract(d.payload,'$.attempt_id') FROM domain_events d WHERE d.subject_type=? AND d.subject_id=? AND d.kind=? AND d.seq<=? ORDER BY d.seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerDispatched, throughSeq).Scan(&dispatchSeq, &attemptID); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT dispatch_seq,attempt_id FROM worker_attempts WHERE work_id=? AND dispatch_payload IS NOT NULL AND dispatch_seq<=? ORDER BY dispatch_seq DESC LIMIT 1`, workID, throughSeq).Scan(&dispatchSeq, &attemptID); err != nil {
 		if err == sql.ErrNoRows {
 			return 0, false, nil
 		}
 		return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect worker delivery", true, "retry once the worker delivery projection is readable", err)
 	}
 	var accepted int
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts a JOIN domain_events accepted ON accepted.subject_type=? AND accepted.subject_id=a.work_id AND accepted.kind=? AND accepted.seq>? AND accepted.seq<=? AND json_extract(accepted.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence') AND json_extract(accepted.payload,'$.worker_attempt_id')=a.attempt_id WHERE a.work_id=? AND a.attempt_id=? AND a.lifecycle_state='completed')`, string(SubjectWorkItem), WorkflowActionCompleted, dispatchSeq, throughSeq, workID, attemptID).Scan(&accepted); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts a JOIN worker_attempt_dispositions accepted ON accepted.work_id=a.work_id AND accepted.attempt_id=a.attempt_id WHERE a.work_id=? AND a.attempt_id=? AND a.lifecycle_state='completed' AND accepted.action_id IN ('accept_worker_result','accept_worker_evidence') AND accepted.first_acceptance_seq>? AND accepted.first_acceptance_seq<=?)`, workID, attemptID, dispatchSeq, throughSeq).Scan(&accepted); err != nil {
 		return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect accepted worker delivery", true, "retry once the worker delivery projection is readable", err)
 	}
 	return dispatchSeq, accepted != 0, nil
@@ -714,7 +714,7 @@ func workflowVerdictCorrectionFromState(ctx context.Context, q queryer, workID s
 		return nil, healthyErr
 	}
 	var latestCorrectionSeq int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' AND seq>? AND seq<?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, lastHealthySeq, seq).Scan(&latestCorrectionSeq); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(prior_correction_seq),0) FROM workflow_predicate_verdicts WHERE work_id=? AND verdict_seq=? AND prior_correction_seq>?`, workID, seq, lastHealthySeq).Scan(&latestCorrectionSeq); err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot inspect prior correction requests", true, "retry once the workflow correction projection is readable", err)
 	}
 	if latestCorrectionSeq >= seq {
@@ -922,7 +922,7 @@ func workflowCorrectionRequestUnavailableFailure(subject, missing string) *Failu
 // correction's current verdicts must postdate.
 func workflowAttemptDispatchSequence(ctx context.Context, q queryer, workID, attemptID, subject string) (int64, error) {
 	var seq int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, string(SubjectWorkItem), workID, WorkerDispatched, attemptID).Scan(&seq); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(dispatch_seq),0) FROM worker_attempts WHERE work_id=? AND attempt_id=? AND dispatch_payload IS NOT NULL`, workID, attemptID).Scan(&seq); err != nil {
 		return 0, wrapFailure(KindUnavailable, subject, "cannot inspect the failed attempt dispatch", true, "retry once the worker attempt projection is readable", err)
 	}
 	return seq, nil

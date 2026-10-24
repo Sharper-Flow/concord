@@ -190,7 +190,8 @@ func writeWorkflowCorrectionFacts(ctx context.Context, q migrationRunner, workID
 	if err != nil {
 		return err
 	}
-	_, err = q.ExecContext(ctx, `INSERT INTO workflow_correction_state(work_id,state) VALUES(?,?) ON CONFLICT(work_id) DO UPDATE SET state=excluded.state`, workID, string(raw))
+	// Standalone worker receipts do not create workflow state without its owner.
+	_, err = q.ExecContext(ctx, `INSERT INTO workflow_correction_state(work_id,state) SELECT id,? FROM work_items WHERE id=? ON CONFLICT(work_id) DO UPDATE SET state=excluded.state`, string(raw), workID)
 	return workflowProjectionError(err, "cannot record current correction state")
 }
 

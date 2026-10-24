@@ -147,7 +147,8 @@ func TestEffectReceiptStalenessProbeLogBlind(t *testing.T) {
 func TestCorrectionRecordSourceLogBlind(t *testing.T) {
 	s := effectReceiptReadFixture(t)
 	e := testEvent()
-	if _, err := s.db.Exec(`CREATE TABLE workflow_correction_state(work_id TEXT PRIMARY KEY,state TEXT);
+	if _, err := s.db.Exec(`CREATE TABLE work_items(id TEXT PRIMARY KEY); INSERT INTO work_items VALUES('work');
+CREATE TABLE workflow_correction_state(work_id TEXT PRIMARY KEY,state TEXT);
 CREATE TABLE worker_authorizations(work_id TEXT,attempt_id TEXT,seq INTEGER,payload TEXT);`); err != nil {
 		t.Fatal(err)
 	}
@@ -255,6 +256,9 @@ func TestEffectReceiptAppendAndBackfillParity(t *testing.T) {
 		}
 	}
 	assertParity()
+	if _, err := s.db.Exec(reverseFrontiersMigration); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.db.Exec(`DROP TABLE workflow_staleness_observations; DROP TABLE effect_receipts; DELETE FROM schema_migrations WHERE version=145`); err != nil {
 		t.Fatal(err)
 	}

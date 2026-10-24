@@ -481,6 +481,11 @@ func seedHistoricalDispatchWindowRaw(t *testing.T, s *Store, fixture workContext
 	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_completed', 'work_item', ?, ?, ?, 1, ?)`, "historical-completed-"+attemptID, fixture.workID, actorRef, time.Date(2026, 10, 1, 0, 1, 0, 0, time.UTC), string(completionPayload)); err != nil {
 		t.Fatalf("seed historical completion: %v", err)
 	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload)
+SELECT completion.subject_id,?,completion.seq,completion.payload,completion.event_id,start.seq,start.payload
+FROM domain_events completion JOIN domain_events start ON start.event_id=? WHERE completion.event_id=?`, attemptID, "historical-start-"+attemptID, "historical-completed-"+attemptID); err != nil {
+		t.Fatalf("seed historical current authorization: %v", err)
+	}
 	if err := leaveFold(ctx, tx); err != nil {
 		t.Fatal(err)
 	}

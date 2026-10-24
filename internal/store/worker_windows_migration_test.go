@@ -24,12 +24,17 @@ func TestWorkerWindowsMigration143Parity(t *testing.T) {
 	if err := s2WorkerFailedLive(t, s, failure); err != nil {
 		t.Fatal(err)
 	}
+	assertWorkerWindowsMigration143Parity(t, s)
+}
+
+func assertWorkerWindowsMigration143Parity(t *testing.T, s *Store) {
+	t.Helper()
 	queries := []string{
 		`SELECT json_array(id,effect_seq,last_progress_at) FROM work_items ORDER BY id`,
 		`SELECT json_array(work_id,attempt_id,event_id,seq,start_seq,start_payload,contract_version) FROM worker_authorizations ORDER BY work_id,attempt_id`,
 		`SELECT json_array(work_id,attempt_id,terminal_seq,terminal_occurred_at,failure_recorded_seq) FROM worker_attempts ORDER BY work_id,attempt_id`,
 		`SELECT json_array(work_id,job_id,revision,recorded_seq,recorded_event_id,satisfied_seq) FROM worker_job_revisions ORDER BY work_id,job_id,revision`,
-		`SELECT json_array(work_id,attempt_id,action_id,seq,event_id,payload) FROM worker_attempt_dispositions ORDER BY work_id,attempt_id,action_id`,
+		`SELECT json_array(work_id,attempt_id,action_id,seq,event_id,payload,first_acceptance_seq,first_acceptance_payload) FROM worker_attempt_dispositions ORDER BY work_id,attempt_id,action_id`,
 		`SELECT json_array(work_id,latest_non_dispatch_start_seq) FROM workflow_instances ORDER BY work_id`,
 	}
 	snapshot := func() [][]string {

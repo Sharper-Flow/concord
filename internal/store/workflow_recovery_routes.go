@@ -209,12 +209,19 @@ func workflowStepArtifactActions(definition WorkflowDefinition, stepID string) [
 	}
 	var actions []string
 	for _, actionID := range step.Actions {
-		switch actionID {
-		case "record_delivery", "record_finding", "record_decision":
+		if workflowActionProducesArtifact(actionID) {
 			actions = append(actions, actionID)
 		}
 	}
 	return actions
+}
+
+func workflowActionProducesArtifact(actionID string) bool {
+	switch actionID {
+	case "record_delivery", "record_finding", "record_decision":
+		return true
+	}
+	return false
 }
 
 func cloneWorkflowRecoveryRoutes(routes []WorkflowRecoveryRoute) []WorkflowRecoveryRoute {

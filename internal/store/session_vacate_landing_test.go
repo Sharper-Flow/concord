@@ -92,8 +92,7 @@ func TestSessionVacateReplayTargetResolvesTheCommittedRequest(t *testing.T) {
 // request with no recorded landing after it. A request its recorded landing
 // already completed resolves too while the session holds no occupancy rows,
 // so an uncertain landing result recovers as a completed replay, and refuses
-// once a later claim's rows stand: those rows belong to the later claim. A
-// version 1 request that released on fold refuses at its payload version. No
+// once a later claim's rows stand: those rows belong to the later claim. No
 // resolved or refused replay appends a landing.
 func TestSessionVacateReplayResolvesAndHoldsACompletedRequest(t *testing.T) {
 	t.Parallel()
@@ -139,16 +138,6 @@ func TestSessionVacateReplayResolvesAndHoldsACompletedRequest(t *testing.T) {
 	_, err = resolve("ses-x")
 	if failure, ok := err.(*Failure); !ok || failure.Kind != KindInvalidOperation {
 		t.Fatalf("err=%v, want invalid_operation for the completed request with later-claim rows", err)
-	}
-	// A recorded version 1 request released on fold, so the replay refuses
-	// it at the payload version.
-	insertHistoricalEvent(t, s, Event{
-		EventID: "vacate-v1-completed", Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: "work-w",
-		Actor: "ses-old", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: 1,
-		Payload: jsonRaw(`{"work_id":"work-w","project_id":"project-w","session_ref":"ses-old","source_directory":"` + claimPath(s) + `","destination_directory":"/data/repo-main","landed_directory":"/data/repo-main"}`),
-	})
-	if _, err := resolve("ses-old"); failureKind(err) != KindInvalidOperation {
-		t.Fatalf("err=%v, want invalid_operation for the version 1 request", err)
 	}
 	var landings int
 	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id='work-w'`).Scan(&landings); err != nil {

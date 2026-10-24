@@ -6775,6 +6775,60 @@ DROP TABLE law_subjects_v140;
 `,
 	},
 	{
+		// Requests retain their latest pending or landed state per source.
+		// Claim landings prove placement only for their exact claim generation.
+		Version:        141,
+		Name:           "session_relocation_facts",
+		Breaking:       true,
+		FoldMaintained: "advance",
+		SQL: `
+INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
+CREATE TABLE session_vacate_requests (
+ work_id TEXT NOT NULL,
+ session_ref TEXT NOT NULL,
+ project_id TEXT NOT NULL,
+ source_directory TEXT NOT NULL,
+ destination_directory TEXT NOT NULL,
+ request_seq INTEGER NOT NULL CHECK(request_seq>0),
+ landed INTEGER NOT NULL CHECK(landed IN (0,1)),
+ PRIMARY KEY(work_id,session_ref,project_id,source_directory)
+);
+CREATE INDEX session_vacate_requests_session ON session_vacate_requests(session_ref,project_id,request_seq);
+CREATE TABLE session_claim_landings (
+ work_id TEXT NOT NULL,
+ session_ref TEXT NOT NULL,
+ project_id TEXT NOT NULL,
+ claim_op_id TEXT NOT NULL,
+ PRIMARY KEY(work_id,session_ref,project_id,claim_op_id)
+);
+CREATE TEMP TABLE session_vacate_history AS
+ SELECT seq, subject_id AS work_id,
+  json_extract(payload,'$.session_ref') AS session_ref,
+  json_extract(payload,'$.project_id') AS project_id,
+  json_extract(payload,'$.source_directory') AS source_directory,
+  COALESCE(json_extract(payload,'$.destination_directory'),'') AS destination_directory
+ FROM domain_events
+ WHERE kind='work.session_vacated' AND payload_version=2;
+INSERT INTO session_vacate_requests(work_id,session_ref,project_id,source_directory,destination_directory,request_seq,landed)
+ SELECT h.work_id, h.session_ref, h.project_id, h.source_directory, h.destination_directory, h.seq,
+  EXISTS(SELECT 1 FROM domain_events l WHERE l.kind='work.session_vacate_landed' AND l.subject_id=h.work_id AND json_extract(l.payload,'$.session_ref')=h.session_ref AND l.seq>h.seq)
+ FROM session_vacate_history h
+ WHERE h.seq=(SELECT max(o.seq) FROM session_vacate_history o WHERE o.work_id=h.work_id AND o.session_ref=h.session_ref AND o.project_id=h.project_id AND o.source_directory=h.source_directory);
+DROP TABLE session_vacate_history;
+INSERT OR IGNORE INTO session_claim_landings(work_id,session_ref,project_id,claim_op_id)
+ SELECT subject_id, json_extract(payload,'$.session_ref'), json_extract(payload,'$.project_id'), json_extract(payload,'$.claim_op_id')
+ FROM domain_events
+ WHERE kind='work.session_claim_landed' AND json_extract(payload,'$.claim_op_id') <> '';
+CREATE TRIGGER session_vacate_requests_guard_insert BEFORE INSERT ON session_vacate_requests FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'session_vacate_requests is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER session_vacate_requests_guard_update BEFORE UPDATE ON session_vacate_requests FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'session_vacate_requests is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER session_vacate_requests_guard_delete BEFORE DELETE ON session_vacate_requests FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'session_vacate_requests is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER session_claim_landings_guard_insert BEFORE INSERT ON session_claim_landings FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'session_claim_landings is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER session_claim_landings_guard_update BEFORE UPDATE ON session_claim_landings FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'session_claim_landings is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER session_claim_landings_guard_delete BEFORE DELETE ON session_claim_landings FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'session_claim_landings is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+DELETE FROM fold_guard;
+`,
+	},
+	{
 		Version:        145,
 		Name:           "effect_receipts",
 		Breaking:       true,

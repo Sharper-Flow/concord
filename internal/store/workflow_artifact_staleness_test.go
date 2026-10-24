@@ -174,7 +174,7 @@ func stalenessVerdictPayload(kind string) string {
 	return string(encoded)
 }
 
-func TestUnfencedCheckpointEpochCurrentFactsWithoutLog(t *testing.T) {
+func TestUnfencedCheckpointEpochUsesCausalPrefix(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "unfenced-checkpoint-prefix"

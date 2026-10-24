@@ -1723,7 +1723,6 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *foldS
 		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
 			return result, err
 		}
-		event.Seq = seq
 		if err := advanceWorkEffectSeqTx(ctx, tx, event); err != nil {
 			return result, err
 		}

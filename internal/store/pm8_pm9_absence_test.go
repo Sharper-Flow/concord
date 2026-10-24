@@ -107,7 +107,7 @@ func assertEffectReceiptIdentityColumns(t *testing.T, s *Store) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	want := "actor,effect_seq,event_id,kind,payload_digest,payload_version,subject_id,subject_type"
+	want := "actor,effect_seq,event_id,kind,payload_digest,payload_version,relation_seq,subject_id,subject_type"
 	if got := strings.Join(columns, ","); got != want {
 		t.Fatalf("effect receipt must contain only idempotency identity: got %s, want %s", got, want)
 	}

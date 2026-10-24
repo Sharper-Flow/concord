@@ -241,10 +241,12 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		noticePayload["expected_version"] = nextVersion - 1
 		noticePayload["resulting_version"] = nextVersion
 		notice.Payload, _ = json.Marshal(noticePayload)
-		if _, err := appendEvent(ctx, tx, notice, true); err != nil {
+		seq, err := appendEvent(ctx, tx, notice, true)
+		if err != nil {
 			return workflowClauseFailure(KindOperationConflict, 7, "impact notice append conflicted", "reconcile_operation")
 		}
-		notice.Seq = 0
+		notice.Seq = seq
+		scope.eventIDs = append(scope.eventIDs, notice.EventID)
 		if err := foldRegisteredEvent(ctx, tx, notice, scope); err != nil {
 			return workflowClauseError(err, 7)
 		}
@@ -261,10 +263,12 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		completionPayload["warnings"] = warnings
 	}
 	completion.Payload, _ = json.Marshal(completionPayload)
-	if _, err := appendEvent(ctx, tx, completion, true); err != nil {
+	seq, err := appendEvent(ctx, tx, completion, true)
+	if err != nil {
 		return workflowClauseFailure(KindOperationConflict, 7, "completion append conflicted", "reconcile_operation")
 	}
-	completion.Seq = 0
+	completion.Seq = seq
+	scope.eventIDs = append(scope.eventIDs, completion.EventID)
 	if err := foldRegisteredEvent(ctx, tx, completion, scope); err != nil {
 		return workflowClauseError(err, 7)
 	}
@@ -296,10 +300,12 @@ func appendWorkflowTerminalLifecycleTx(ctx context.Context, tx *sql.Tx, scope *f
 		return newFailure(KindInvariantViolation, "complete_workflow", "terminal lifecycle payload cannot be encoded", false, "repair the workflow completion path")
 	}
 	transition := Event{EventID: completion.EventID + ":lifecycle", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: completion.SubjectID, Actor: completion.Actor, OccurredAt: completion.OccurredAt, PayloadVersion: 1, Payload: payload}
-	if _, err := appendEvent(ctx, tx, transition, true); err != nil {
+	seq, err := appendEvent(ctx, tx, transition, true)
+	if err != nil {
 		return err
 	}
-	transition.Seq = 0
+	transition.Seq = seq
+	scope.eventIDs = append(scope.eventIDs, transition.EventID)
 	return foldRegisteredEvent(ctx, tx, transition, scope)
 }
 

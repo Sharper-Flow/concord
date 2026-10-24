@@ -206,6 +206,11 @@ func TestMigration124RetiresThePlanningMirror(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, event := range historical {
+		// The pre-retirement schema has no effect receipt allocator. Seed its
+		// retained relation below rather than invoke a current-schema writer.
+		if event.Kind == "relation.added" {
+			continue
+		}
 		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
 			t.Fatalf("fold %s: %v", event.Kind, err)
 		}
@@ -217,7 +222,8 @@ func TestMigration124RetiresThePlanningMirror(t *testing.T) {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO relations(id,work_id_from,work_id_to,kind,created_at,resolution_id) VALUES(901,'initiative-a','child-a','includes','t',NULL)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE relations SET id=2, resolution_id='resolution-a' WHERE work_id_from='initiative-a' AND work_id_to='child-a' AND kind='blocks'`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO relations(id,work_id_from,work_id_to,kind,created_at,resolution_id) VALUES(2,'initiative-a','child-a','blocks','t','resolution-a');
+UPDATE work_items SET version=3 WHERE id IN ('initiative-a','child-a')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,link_state,created_at,updated_at)

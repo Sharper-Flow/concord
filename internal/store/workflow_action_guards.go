@@ -1707,19 +1707,19 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *foldS
 		return result, err
 	}
 	defer func() { _ = scope.close(ctx) }()
-	startSeq, err := operationEventSequence(ctx, tx)
-	if err != nil {
-		return result, err
-	}
+	startReceipt := len(scope.eventIDs)
 	// The completion fold's requireActor refuses an event actor whose tuple
 	// is not recorded, and the actor-recording events the guard minted are
 	// the only writer that can land them (#909). Append and fold them first,
 	// consuming one expected version each, so the completion event that
 	// follows sequences on top of a recorded actor.
 	for _, event := range prefixEvents {
-		if _, err := appendEvent(ctx, tx, event, true); err != nil {
+		seq, err := appendEvent(ctx, tx, event, true)
+		if err != nil {
 			return result, err
 		}
+		event.Seq = seq
+		scope.eventIDs = append(scope.eventIDs, event.EventID)
 		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
 			return result, err
 		}
@@ -1735,10 +1735,7 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *foldS
 	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, completion, scope); err != nil {
 		return result, err
 	}
-	result.EventIDs, err = operationEventIDsSince(ctx, tx, startSeq)
-	if err != nil {
-		return result, err
-	}
+	result.EventIDs = append([]string{}, scope.eventIDs[startReceipt:]...)
 	result.ChangedRefs = []string{request.WorkID}
 	result.OperationID = request.OperationID
 	_ = tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, request.WorkID).Scan(&result.ResultingVersion)

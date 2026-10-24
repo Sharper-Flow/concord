@@ -127,6 +127,13 @@ func appendEvent(ctx context.Context, tx *sql.Tx, e Event, allowCompletion bool)
 	if prepared.registration.Authority == EventAppendAuthorityWorkflow && !allowCompletion {
 		return 0, workflowDispatcherRequired(e.Kind)
 	}
+	return appendPreparedEvent(ctx, tx, e)
+}
+
+// appendPreparedEvent owns the single effect writer. Registered folds that
+// derive a typed effect use it without recursively resolving the registry
+// that binds those folds during package initialization.
+func appendPreparedEvent(ctx context.Context, tx *sql.Tx, e Event) (Sequence, error) {
 	// The retirement can also be a property of the payload or the subject
 	// rather than of the event kind: a generic work.created whose
 	// payload classifies as initiative, or any new event on an existing
@@ -138,12 +145,21 @@ func appendEvent(ctx context.Context, tx *sql.Tx, e Event, allowCompletion bool)
 	if err := validateLiveProjectLocator(e); err != nil {
 		return 0, err
 	}
+	if _, exists, err := readEffectReceipt(ctx, tx, e.EventID); err != nil {
+		return 0, wrapFailure(KindUnavailable, "append_event", "cannot read the effect identity", true, "retry once the database is readable", err)
+	} else if exists {
+		return 0, classifyEventIDConflict(ctx, tx, e, nil)
+	}
 
-	res, err := tx.ExecContext(ctx, `
+	seq, err := allocateStoreSequence(ctx, tx, "effect")
+	if err != nil {
+		return 0, err
+	}
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO domain_events
-			(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.EventID, e.Kind, string(e.SubjectType), e.SubjectID, e.Actor,
+			(seq, event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		seq, e.EventID, e.Kind, string(e.SubjectType), e.SubjectID, e.Actor,
 		e.OccurredAt.UTC().Format(time.RFC3339Nano), e.PayloadVersion, string(e.Payload))
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -153,16 +169,22 @@ func appendEvent(ctx context.Context, tx *sql.Tx, e Event, allowCompletion bool)
 			"retry once the database is writable", err)
 	}
 
-	seq, err := res.LastInsertId()
+	counted, err := effectCreatesRelationPosition(e)
 	if err != nil {
-		return 0, wrapFailure(KindUnavailable, "append_event", "cannot read the assigned sequence", true,
-			"retry the operation", err)
+		return 0, err
+	}
+	var relationSeq any
+	if counted {
+		relationSeq, err = allocateStoreSequence(ctx, tx, "relation")
+		if err != nil {
+			return 0, err
+		}
 	}
 	digest, err := effectPayloadDigest(e.Payload)
 	if err != nil {
 		return 0, wrapFailure(KindInvalidPayload, "append_event", "cannot digest the event payload", false, "supply a valid JSON payload", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest) VALUES(?,?,?,?,?,?,?,?)`, e.EventID, seq, e.Kind, e.SubjectType, e.SubjectID, e.Actor, e.PayloadVersion, digest); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest,relation_seq) VALUES(?,?,?,?,?,?,?,?,?)`, e.EventID, seq, e.Kind, e.SubjectType, e.SubjectID, e.Actor, e.PayloadVersion, digest, relationSeq); err != nil {
 		return 0, wrapFailure(KindUnavailable, "append_event", "cannot record the effect receipt", true, "retry once the database is writable", err)
 	}
 	return seq, nil

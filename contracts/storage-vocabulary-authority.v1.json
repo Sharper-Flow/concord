@@ -320,6 +320,11 @@
       "authority": "check"
     },
     {
+      "table": "worker_attempts",
+      "column": "terminal_kind",
+      "authority": "check"
+    },
+    {
       "table": "workflow_actors",
       "column": "actor_class",
       "authority": "check"

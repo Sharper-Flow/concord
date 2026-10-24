@@ -966,10 +966,9 @@ func enrichWorkerFailureAttributionBlock(attemptID, laneID string, window Worker
 // the store derives the exact authorized attempt identity from the
 // attempt's own dispatch window, the attempt row, and the dispatched job
 // revision. A caller-authored identity or origin refuses with zero
-// effects; an event below the attribution version or without a block lands
-// unchanged.
+// effects; an event without a block lands unchanged.
 func enrichWorkerFailedAttributionTx(ctx context.Context, tx *sql.Tx, event Event) (Event, error) {
-	if event.Kind != WorkerFailed || event.PayloadVersion < workerFailedAttributionVersion {
+	if event.Kind != WorkerFailed {
 		return event, nil
 	}
 	var payload WorkerFailedPayload

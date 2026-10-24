@@ -707,9 +707,6 @@ func validateLiveProjectLocator(event Event) error {
 	if p.Kind != LocatorGitRemote {
 		return nil
 	}
-	if event.PayloadVersion != 2 {
-		return newFailure(KindInvalidPayload, "project_locator", "new remote locator events require version 2", false, "use the current locator writer")
-	}
 	if err := checkRemoteCredentials(p.Value); err != nil {
 		return err
 	}

@@ -6891,6 +6891,7 @@ CREATE TABLE workflow_phase_exits (
 INSERT INTO workflow_phase_exits
  SELECT e.subject_id,json_extract(e.payload,'$.action_id'),MAX(e.seq) FROM domain_events e
  WHERE e.subject_type='work_item' AND e.kind='workflow.action_completed'
+ AND json_extract(e.payload,'$.action_id') IS NOT NULL
  AND EXISTS(SELECT 1 FROM work_items WHERE id=e.subject_id)
   AND (COALESCE(json_extract(e.payload,'$.action_id'),'')<>'accept_worker_result' OR (COALESCE(json_extract(e.payload,'$.review_advance_held'),0)=0 AND (json_extract(e.payload,'$.worker_job') IS NULL OR COALESCE(json_extract(e.payload,'$.delivery_state'),'')<>'')))
  GROUP BY e.subject_id,json_extract(e.payload,'$.action_id');

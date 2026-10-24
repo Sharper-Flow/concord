@@ -18,7 +18,7 @@ func TestSpineFirstGroupFailedAssignmentRelaunchesAcrossRevision(t *testing.T) {
 	const failed = "attempt:first-group-failed"
 	f.startWorker(t, "implement", failed)
 	terminal := store.Event{EventID: "spine-first-group-failure", Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: f.work,
-		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerFailed),
+		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerFailed),
 		Payload: retryJSON(map[string]any{"attempt_id": failed, "readback_model": "openai/test-model", "failure_kind": store.WorkerFailureWorkerError, "detail": "The assigned implementation failed before delivering its result.",
 			"failure_attribution": map[string]any{"origin": "recorded", "observation": map[string]any{"observer": "host_adapter", "phase": "host_execution", "cause": "unknown", "basis": "unknown", "sources": []map[string]any{{"kind": "host_event", "host": map[string]any{"tag": "cancellation", "event_type": "synthetic.session.cancelled"}}}}}})}
 	if err := f.s.Transact(t.Context(), func(tx *store.Transaction) error {

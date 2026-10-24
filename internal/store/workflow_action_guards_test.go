@@ -69,7 +69,6 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 		successor["contract_version"] = 2
 		successor["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:p0", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:github/required-checks", "immutable_subject_ref": subject, "expected_result": "pass"}}}
 		event := workflowEventWithActor(workID+":successor", WorkflowContractSuperseded, workID, actor, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "Correct the checked subject.", "audit_evidence": []string{"evidence:corrected-check"}, "successor_contract": successor})
-		event.PayloadVersion = 4
 		if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 			t.Fatal(err)
 		}
@@ -128,22 +127,6 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 	j := &candidateJourney{fixture: f, s: s, workID: workID, repo: repo}
 	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner); err != nil {
 		t.Fatalf("complete successor: %v", err)
-	}
-	before := map[string]string{}
-	for _, table := range []string{"work_items", "workflow_instances", "workflow_contracts", "workflow_contract_predicates", "workflow_premise_confirmations", "domain_events"} {
-		before[table] = cutoverTableSnapshot(t, s, table)
-	}
-	if err := RebuildFromLog(t.Context(), s); err != nil {
-		t.Fatal(err)
-	}
-	for table, snapshot := range before {
-		if after := cutoverTableSnapshot(t, s, table); after != snapshot {
-			t.Fatalf("rebuild changed %s: %s -> %s", table, snapshot, after)
-		}
-	}
-	verdicts, err = latestWorkflowVerdicts(t.Context(), s.db, workID, 2)
-	if err != nil || len(verdicts) != 1 || verifyWorkflowCriterionAssociation(t.Context(), s.db, workID, verdicts[0]) != nil {
-		t.Fatalf("rebuilt successor proof=%+v err=%v", verdicts, err)
 	}
 }
 
@@ -267,25 +250,6 @@ func TestExternalCheckRecoveryCompletedEventUsesSharedEligibility(t *testing.T) 
 				t.Fatalf("fold eligible external-check binding without a caller guard: %v", err)
 			}
 		})
-	}
-}
-
-func TestExternalCheckRecoveryReplaysBeforeLaterVerdict(t *testing.T) {
-	const workID = "external-check-replay"
-	ctx := context.Background()
-	f, _, refs := pReceiptFixture(t, workID, 1, 1)
-	s := f.store
-	subject := "commit:fixture"
-	seedWorkflowAuthority(t, s, "external-check-replay-source", workID, "principal/check", "request/check", []string{subject})
-	bind := mustJSONValue(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": subject, "producer_id": "principal/check", "producer_run_ref": "external-check-replay-source", "producer_watermark": "request/check"})
-	if err := runVerdictActionAs(t, s, workID, "bind_evidence", bind, 0, f.owner); err != nil {
-		t.Fatal(err)
-	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild the binding followed by a later verdict: %v", err)
 	}
 }
 

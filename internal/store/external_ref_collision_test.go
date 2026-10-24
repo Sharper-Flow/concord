@@ -11,7 +11,7 @@ func externalRefWorkCreatedEvent(eventID, workID, externalRef, raisedFrom string
 		"work_kind": "task", "title": workID, "priority": 1,
 		"external_ref": externalRef, "raised_from_work_id": raisedFrom,
 	})
-	event.PayloadVersion = 2
+	event.PayloadVersion = CurrentEventPayloadVersion("work.created")
 	return event
 }
 
@@ -67,15 +67,6 @@ func TestWorkCreatedExternalRefAcknowledgementRecordsRaisedFrom(t *testing.T) {
 	}
 	if from != "work-second" || to != "work-first" || kind != "raised_from" {
 		t.Fatalf("raised_from relation = %s -> %s (%s)", from, to, kind)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild acknowledged work: %v", err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT work_id_from,work_id_to,kind FROM relations WHERE work_id_from='work-second'`).Scan(&from, &to, &kind); err != nil {
-		t.Fatal(err)
-	}
-	if from != "work-second" || to != "work-first" || kind != "raised_from" {
-		t.Fatalf("rebuilt raised_from relation = %s -> %s (%s)", from, to, kind)
 	}
 }
 

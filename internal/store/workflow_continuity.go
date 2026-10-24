@@ -392,7 +392,7 @@ func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out 
 	var required, routes, mandates, modifies string
 	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, work, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass); err == nil {
 		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
-			return newFailure(KindInvariantViolation, "C19.Continuity", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
+			return newFailure(KindInvariantViolation, "C19.Continuity", "workflow contract projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
 		contract.RouteConventions = nonNilStrings(contract.RouteConventions)
@@ -496,7 +496,7 @@ func readLatestContextCheckpointTx(ctx context.Context, q queryer, workID, opera
 	var touched, evidence, questions, decisions string
 	if err := q.QueryRowContext(ctx, `SELECT checkpoint_id,work_version,checkpoint_sequence,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions FROM workflow_context_checkpoints WHERE work_id=? ORDER BY checkpoint_sequence DESC LIMIT 1`, workID).Scan(&checkpoint.CheckpointID, &checkpoint.WorkVersion, &checkpoint.Sequence, &checkpoint.StepID, &checkpoint.AttemptEpoch, &checkpoint.ActiveUnit, &checkpoint.Hypothesis, &checkpoint.Diagnosis, &checkpoint.Strategy, &touched, &evidence, &questions, &decisions); err == nil {
 		if json.Unmarshal([]byte(touched), &checkpoint.TouchedRefs) != nil || json.Unmarshal([]byte(evidence), &checkpoint.EvidenceRefs) != nil || json.Unmarshal([]byte(questions), &checkpoint.PendingQuestions) != nil || json.Unmarshal([]byte(decisions), &checkpoint.PendingDecisions) != nil {
-			return nil, newFailure(KindInvariantViolation, operation, "context checkpoint projection contains malformed arrays", false, "rebuild projections from the event log")
+			return nil, newFailure(KindInvariantViolation, operation, "context checkpoint projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		return &checkpoint, nil
 	} else if err != sql.ErrNoRows {
@@ -621,7 +621,7 @@ func continuityReadProposalTx(ctx context.Context, tx *sql.Tx, work string, out 
 	var proposalAffected, proposalOutcomes, proposalConstraints, proposalQuestions string
 	if err := tx.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, work).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {
 		if json.Unmarshal([]byte(proposalAffected), &proposal.Affected) != nil || json.Unmarshal([]byte(proposalOutcomes), &proposal.UserOutcomes) != nil || json.Unmarshal([]byte(proposalConstraints), &proposal.Constraints) != nil || json.Unmarshal([]byte(proposalQuestions), &proposal.OpenQuestions) != nil {
-			return newFailure(KindInvariantViolation, "C19.Continuity", "proposal record projection contains malformed arrays", false, "rebuild projections from the event log")
+			return newFailure(KindInvariantViolation, "C19.Continuity", "proposal record projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		out.ProposalRecord = &proposal
 	} else if err != sql.ErrNoRows {

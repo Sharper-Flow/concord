@@ -89,7 +89,7 @@ func beginFold(ctx context.Context, tx *sql.Tx) (*foldScope, error) {
 // enter opens one fold level. At depth zero the guard row is inserted, and a
 // committed fold_guard row already in the table is an invariant failure: the
 // row can only be a stranded guard, and ordinary writes must stay refused
-// until offline recovery clears it.
+// until a verified backup is restored into a new path and swapped into place.
 func (s *foldScope) enter(ctx context.Context) error {
 	if s.depth > 0 {
 		s.depth++
@@ -100,7 +100,7 @@ func (s *foldScope) enter(ctx context.Context) error {
 			return newFailure(KindInvariantViolation, "fold",
 				"a committed fold_guard row already guards the projections, so no fold scope owns it",
 				false,
-				"stop concord processes and run concord recover-fold-guard offline to clear the stranded guard and rebuild projections from the event log")
+				"stop concord processes and run concord restore from a verified backup into a new path, then swap the restored database into place")
 		}
 		return wrapFailure(KindUnavailable, "fold", "cannot enable projection fold guard", true,
 			"retry once the database is writable", err)

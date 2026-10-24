@@ -206,7 +206,7 @@ func requireRecordedInvestigationArtifact(ctx context.Context, q queryer, workID
 		var refs []string
 		if json.Unmarshal([]byte(refsJSON), &refs) != nil {
 			rows.Close()
-			return newFailure(KindInvariantViolation, "workflow_operator_question", "recorded investigation artifact refs are malformed", false, "rebuild the work observation projection")
+			return newFailure(KindInvariantViolation, "workflow_operator_question", "recorded investigation artifact refs are malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		candidates = append(candidates, refs)
 	}
@@ -396,16 +396,16 @@ func validateWorkflowOperatorSelectionCoreTx(ctx context.Context, tx *sql.Tx, en
 		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "the operator question contract is no longer available", false, "refresh_context")
 	}
 	if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
-		return newFailure(KindInvariantViolation, "workflow_operator_question", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
+		return newFailure(KindInvariantViolation, "workflow_operator_question", "workflow contract projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	predicates, predicateErr := readWorkflowContractPredicates(ctx, tx, request.WorkID, contract.Version)
 	if predicateErr != nil {
-		return newFailure(KindInvariantViolation, "workflow_operator_question", "workflow contract predicates are unavailable", false, "rebuild projections from the event log")
+		return newFailure(KindInvariantViolation, "workflow_operator_question", "workflow contract predicates are unavailable", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	contract.OutcomePredicates = predicates
 	selfRepair, selfRepairErr := readWorkflowSelfRepair(ctx, tx, request.WorkID, contract.Version)
 	if selfRepairErr != nil {
-		return newFailure(KindInvariantViolation, "workflow_operator_question", "workflow self-repair classification is unavailable", false, "rebuild projections from the event log")
+		return newFailure(KindInvariantViolation, "workflow_operator_question", "workflow self-repair classification is unavailable", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	contract.SelfRepair = selfRepair
 	engineering := false

@@ -219,7 +219,7 @@ func TestRuntimeOccupancyInsertLongKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: liveShapeWorkID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: liveShapeWorkID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: jsonRaw(`{"work_kind":"task","title":"Live shape","priority":1}`)},
+		{EventID: liveShapeWorkID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: liveShapeWorkID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Live shape","priority":1}`)},
 		{EventID: liveShapeWorkID + "-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: liveShapeWorkID, Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"` + liveShapeProjectID + `","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, liveShapeWorkID): 0}}); err != nil {
 		t.Fatal(err)

@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -46,15 +45,6 @@ func TestCreateManagedResourceAndAddConsumerAreEventBacked(t *testing.T) {
 	}
 	if ownerCount != 1 || consumerCount != 1 || version != 2 || events != 2 {
 		t.Fatalf("resource projection owner=%d consumer=%d version=%d events=%d", ownerCount, consumerCount, version, events)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("RebuildFromLog() error = %v", err)
-	}
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM resource_products WHERE resource_id='resource-1'`).Scan(&ownerCount); err != nil {
-		t.Fatal(err)
-	}
-	if ownerCount != 2 {
-		t.Fatalf("resource links after rebuild=%d, want 2", ownerCount)
 	}
 }
 
@@ -139,48 +129,5 @@ func anchorHomePair(t *testing.T, s *Store, projectID, locatorID string) {
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// TestManagedResourceHistoricalUpdateRebuildsAndRecords covers the retired
-// metadata-update form as a corpus witness: the typed update route was
-// removed with the registry cutover, so the released six-member replacement
-// payload enters as a raw historical row, and admission requires this
-// passing test plus a full replay that keeps the exact stored bytes and the
-// complete replacement semantics.
-func TestManagedResourceHistoricalUpdateRebuildsAndRecords(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	ctx := context.Background()
-	setupProductWithProject(t, s, "resource-product-hist", "resource-project-hist")
-	if _, err := CreateManagedResource(ctx, s, ManagedResourceCreateRequest{
-		EventID: "resource-hist-created", ResourceID: "resource-hist", ProductID: "resource-product-hist",
-		DisplayName: "API", Class: "infrastructure", Kind: "service", Purpose: "serves API traffic",
-		StageMaturity: "production", StageAudienceCommitment: "limited", Environments: []string{"production"},
-		MetadataSchemaVersion: "1", Metadata: []byte(`{"kind_detail":"owned test service","creation_only":true}`), OwnerPurpose: "operates API", OwnerEnvironments: []string{"production"},
-		ExpectedProductVersion: 2, Actor: "operator", OccurredAt: time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	updated := operationEvent("resource-hist-updated", "managed_resource.updated", SubjectProduct, "resource-product-hist", map[string]any{
-		"resource_id": "resource-hist", "product_id": "resource-product-hist",
-		"metadata_schema_version": "1", "metadata": map[string]any{"kind_detail": "replaced service detail"},
-		"expected_version": 1, "resulting_version": 2,
-	})
-	insertHistoricalEvent(t, s, updated)
-	before := histEventRows(t, s)
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild must fold the historical metadata update: %v", err)
-	}
-	if !reflect.DeepEqual(before, histEventRows(t, s)) {
-		t.Fatal("the rebuild changed the event log bytes, versions, or order")
-	}
-	var schema, metadata string
-	var version int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT metadata_schema_version, metadata, version FROM managed_resources WHERE resource_id='resource-hist'`).Scan(&schema, &metadata, &version); err != nil {
-		t.Fatal(err)
-	}
-	if schema != "1" || metadata != `{"kind_detail":"replaced service detail"}` || version != 2 {
-		t.Fatalf("updated resource = (%s, %s, v%d), want the complete replacement at version 2", schema, metadata, version)
 	}
 }

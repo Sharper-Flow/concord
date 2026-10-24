@@ -180,7 +180,7 @@ func workflowSpecMandate(ctx context.Context, q queryer, workID, subject string)
 	}
 	var mandate []string
 	if err := json.Unmarshal([]byte(mandateJSON), &mandate); err != nil {
-		return nil, 0, newFailure(KindInvariantViolation, subject, "workflow spec mandate is malformed", false, "rebuild projections from the event log")
+		return nil, 0, newFailure(KindInvariantViolation, subject, "workflow spec mandate is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return mandate, version, nil
 }

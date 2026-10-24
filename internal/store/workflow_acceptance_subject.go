@@ -7,13 +7,9 @@ import (
 )
 
 // workflowAcceptanceSubjectCurrent compares immutable evidence with the native
-// pin on the caller's connection. Historical evidence stays readable; only a
-// live acceptance consumes this check. Replay reconstructs recorded decisions,
-// not acceptance against the worktree that happens to exist during replay.
+// pin on the caller's connection. Historical evidence stays readable; only an
+// acceptance consumes this check.
 func workflowAcceptanceSubjectCurrent(ctx context.Context, q queryer, workID string, reviewAttempts, evidenceRefs []string) error {
-	if isWorkflowReplay(ctx) {
-		return nil
-	}
 	var subjects []string
 	if prepared := workerDispatchPreparationFrom(ctx); prepared != nil && prepared.proof.acceptance && prepared.proof.pinReceipt != nil {
 		if prepared.proof.workID != workID || prepared.proof.observation == nil || prepared.proof.observation.State != "clean" {
@@ -95,9 +91,6 @@ func WorkflowActionRequiresSubjectFreshness(actionID string) bool {
 }
 
 func validateWorkflowAcceptanceFreshness(ctx context.Context, tx *sql.Tx, workID string) error {
-	if isWorkflowReplay(ctx) {
-		return nil
-	}
 	subject, err := readCurrentOracleSubject(ctx, tx, workID)
 	if err != nil || subject == "" {
 		return err
@@ -118,9 +111,6 @@ func validateWorkflowAcceptanceFreshness(ctx context.Context, tx *sql.Tx, workID
 // Only the current accepted report contributes readiness. Finishing an older
 // report later does not replace that report or its integrated candidate.
 func workflowAcceptedSubjectCurrent(ctx context.Context, q queryer, workID string) error {
-	if isWorkflowReplay(ctx) {
-		return nil
-	}
 	state, err := loadWorkflowReviewState(ctx, q, workID, 0)
 	if err != nil {
 		return err

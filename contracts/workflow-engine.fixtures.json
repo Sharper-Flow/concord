@@ -97,7 +97,6 @@
     {"id": "scenario-initial-state-float-invalid", "mutation": "invalid_float", "expected_error": "oneOf mismatch"},
     {"id": "scenario-unknown-error-kind", "mutation": "unknown_error_kind", "expected_error": "undeclared scenario error kind"},
     {"id": "scenario-rejection-removed-surface-version", "mutation": "removed_surface_version_rejection", "expected_error": "unknown properties"},
-    {"id": "scenario-notice-id-invalid", "mutation": "wrong_notice_id", "expected_error": "notice-ID derivation mismatch"},
     {"id": "scenario-literal-backslash-zero-actor", "mutation": "literal_backslash_zero_actor", "expected_error": "actor-ID derivation mismatch"}
   ],
   "structured_scenario_negative_cases": [
@@ -105,6 +104,10 @@
     {"id": "structured-unknown-request-field", "mutation": "unknown_request_field", "expected_error": "unknown structured request field"},
     {"id": "structured-dangling-fixture-reference", "mutation": "dangling_fixture_ref", "expected_error": "dangling fixture reference"},
     {"id": "structured-unknown-fault-kind", "mutation": "unknown_fault_kind", "expected_error": "unknown structured fault kind"},
-    {"id": "structured-unknown-observation-op", "mutation": "unknown_observation_op", "expected_error": "unknown structured observation op"}
+    {"id": "structured-unknown-observation-op", "mutation": "unknown_observation_op", "expected_error": "unknown structured observation op"},
+    {"id": "structured-grant-actor-mismatch", "mutation": "grant_actor", "expected_error": "actor-ID derivation mismatch"},
+    {"id": "structured-setup-actor-mismatch", "mutation": "setup_actor", "expected_error": "dangling fixture reference setup actor"},
+    {"id": "structured-request-action-mismatch", "mutation": "request_action", "expected_error": "request action mismatch"},
+    {"id": "structured-request-scope-mismatch", "mutation": "request_scope", "expected_error": "request scope mismatch"}
   ]
 }

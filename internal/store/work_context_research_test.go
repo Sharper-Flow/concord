@@ -26,8 +26,9 @@ func researchSelectionEntry(pack string, revision int64, finding, domain string)
 // workflow fixture's existing Product and Project, without reseeding either.
 func seedResearchOwnerWork(t *testing.T, s *Store, id string) {
 	t.Helper()
+	priority := int64(1)
 	events := []Event{
-		{EventID: "research-work-" + id, Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(map[string]any{"work_kind": "research", "title": id, "priority": 1})},
+		{EventID: "research-work-" + id, Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: eventKindRegistry["work.created"].CurrentVersion, Payload: mustJSONValue(workCreatedPayload{WorkID: id, WorkKind: "research", Title: id, Priority: &priority})},
 		{EventID: "research-work-project-" + id, Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"work_id": id, "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
 	}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, id): 0}}); err != nil {
@@ -187,94 +188,6 @@ func researchEntries(t *testing.T, document map[string]any, raw []byte) []any {
 		t.Fatalf("the view research_findings member is not an array: %s", raw)
 	}
 	return entries
-}
-
-// The declaration fold is shape-only: retained research selection
-// references replay through the direct fold owner after the research corpus
-// and the consuming binding are gone, without any resolution call and with
-// no post-append live check on this owner.
-func TestWorkContextResearchFoldReplaysReferencesWithoutResolution(t *testing.T) {
-	t.Parallel()
-	fixture := seedWorkContextFixture(t, "ctx-research-fold-replay")
-	defer fixture.store.Close()
-	pack := seedResearchContextPack(t, fixture, "fold-replay")
-	bindResearchPack(t, fixture, pack.PackID, 1, true)
-	// Author the declaration event through the live constructor — the same
-	// validation and bytes the route appends — and capture it without
-	// appending, so the fold below runs exactly once against the current
-	// version the payload's fields were derived from.
-	ctx := context.Background()
-	version := readWorkVersion(t, fixture.store, fixture.workID)
-	ownerRef, err := WorkflowActorRef(fixture.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fieldRaw := map[string]json.RawMessage{
-		"required_reading":      json.RawMessage(mustJSONValue([]map[string]any{})),
-		"finding_refs":          json.RawMessage(mustJSONValue([]string{})),
-		"context_findings":      json.RawMessage(mustJSONValue([]map[string]any{})),
-		"research_finding_refs": json.RawMessage(mustJSONValue([]map[string]any{researchSelectionEntry(pack.PackID, 1, "f1", workContextTestChild)})),
-	}
-	var event Event
-	captureTx, txErr := fixture.store.DatabaseForTesting().BeginTx(ctx, nil)
-	if txErr != nil {
-		t.Fatal(txErr)
-	}
-	events, buildErr := workflowRecordWorkContextEvents(ctx, captureTx, WorkflowActionExecutionRequest{
-		WorkID: fixture.workID, RequestID: "request:ctx-research-fold-replay", Now: time.Unix(9, 0).UTC(),
-	}, "repair", ownerRef, fieldRaw, "ctx-research-fold-replay-event", version)
-	if buildErr != nil {
-		_ = captureTx.Rollback()
-		t.Fatalf("declaration construction refused: %v", buildErr)
-	}
-	event = events[0]
-	if err := captureTx.Rollback(); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(event.Payload), `"research_finding_refs"`) {
-		t.Fatalf("captured declaration lost the selection references: %s", event.Payload)
-	}
-	// Make the research corpus and the consuming binding unavailable after
-	// authoring: the live constructor now rejects the missing pin, the
-	// shared reader reports the selection missing, and the fold under test
-	// must never query the research authority.
-	injectResearchRowDelete(t, fixture, `DELETE FROM active_research_consumers WHERE pack_id=? AND consumer_work_id=?`, pack.PackID, fixture.workID)
-	injectResearchWrite(t, fixture, `UPDATE active_research_packs SET pack_id='renamed-away' WHERE pack_id=?`, pack.PackID)
-	// The retained references fold under the replay context: the fold
-	// validates the closed shape and the stored references only, advances
-	// the declaration's own version in the transaction, and never resolves
-	// research content or runs the post-append live check.
-	replayCtx := workflowReplayContext(ctx)
-	foldTx, foldErr := fixture.store.DatabaseForTesting().BeginTx(replayCtx, nil)
-	if foldErr != nil {
-		t.Fatal(foldErr)
-	}
-	defer foldTx.Rollback()
-	scope, scopeErr := beginFold(replayCtx, foldTx)
-	if scopeErr != nil {
-		_ = foldTx.Rollback()
-		t.Fatalf("replay fold scope refused: %v", scopeErr)
-	}
-	if err := foldWorkflowWorkContextRecorded(replayCtx, foldTx, event); err != nil {
-		_ = scope.close(replayCtx)
-		_ = foldTx.Rollback()
-		t.Fatalf("retained research references refused the replay fold after the corpus disappeared: %v", err)
-	}
-	var foldedVersion int64
-	if err := foldTx.QueryRowContext(replayCtx, `SELECT version FROM work_items WHERE id=?`, fixture.workID).Scan(&foldedVersion); err != nil {
-		_ = scope.close(replayCtx)
-		_ = foldTx.Rollback()
-		t.Fatal(err)
-	}
-	if foldedVersion != version+1 {
-		_ = scope.close(replayCtx)
-		_ = foldTx.Rollback()
-		t.Fatalf("replay fold left version %d, want the declaration's own %d", foldedVersion, version+1)
-	}
-	if err := scope.close(replayCtx); err != nil {
-		_ = foldTx.Rollback()
-		t.Fatalf("replay fold scope close refused: %v", err)
-	}
 }
 
 // researchFailingQueryer fails only the provenance link reads the
@@ -1101,7 +1014,7 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		review.Findings = []WorkerReviewFinding{{FindingID: "finding:mixed-count", Severity: "P2", Confidence: "low", Detail: "the ranked mixed-count blocker", Status: "open", Blocking: true, InScope: true, EvidenceRefs: []string{}, ClosureRefs: []string{}}}
 		if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{Event{
 			EventID: "ctx-complete-research-ranked", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID,
-			Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted),
+			Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted),
 			Payload: mustJSONValue(WorkerCompletedPayload{
 				AttemptID: "attempt-ctx-research-ranked", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 				WorkerDirectory: workerFixtureDirectory(t, fixture.store, fixture.workID),

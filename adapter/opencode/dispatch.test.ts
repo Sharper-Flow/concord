@@ -6,11 +6,11 @@ import path from "node:path"
 import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
 import { reviewBlockFixture, reviewFindingFixture } from "./review-test-fixture"
 import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, HostProvenanceError, MAX_HOST_PROVENANCE_SOURCES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, withWorkerReadbackScope, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner, type WorkerFailureObservation } from "./dispatch"
-// The published scenario contract pins the provenance source bound the
+// The published worker recovery contract pins the provenance source bound the
 // adapter refuses past. The schema is read at runtime, so the staged host
 // typecheck needs no repository files beside the adapter sources.
-const scenarioSchema = JSON.parse(fs.readFileSync(new URL("../../contracts/workflow-engine-scenarios.schema.json", import.meta.url), "utf8")) as {
-  $defs: { eventPayload: { properties: { host_provenance: { properties: { sources: { maxItems: number } } } } } }
+const agentPayloadSchema = JSON.parse(fs.readFileSync(new URL("../../contracts/agent-tool-surface-payloads.schema.json", import.meta.url), "utf8")) as {
+  $defs: { worker_recovery_context: { properties: { dispatch: { properties: { host_provenance: { properties: { sources: { maxItems: number } } } } } } } }
 }
 import type { RouteResult, SessionReader } from "./move-session"
 
@@ -1980,7 +1980,7 @@ test("the AGENTS.md walk names the global file once when the spawn directory is 
 
 // CON-821 / CD-0034: one host-provenance manifest holds at most 32 sources
 // (internal/store/worker_lanes.go ValidateWorkerHostProvenance;
-// contracts/workflow-engine-scenarios.schema.json host_provenance.sources).
+// contracts/agent-tool-surface-payloads.schema.json worker_recovery_context.dispatch.host_provenance.sources).
 // The producer is all-or-refuse: complete up to the bound, typed refusal past
 // it, never a shortened manifest.
 
@@ -2031,8 +2031,8 @@ async function expectProvenanceRefusal(worktree: string): Promise<void> {
   expect(String(refused)).toMatch(/\b32\b/)
 }
 
-test("the adapter provenance bound is the published scenario contract bound", () => {
-  expect(MAX_HOST_PROVENANCE_SOURCES).toBe(scenarioSchema.$defs.eventPayload.properties.host_provenance.properties.sources.maxItems)
+test("the adapter provenance bound is the published worker recovery contract bound", () => {
+  expect(MAX_HOST_PROVENANCE_SOURCES).toBe(agentPayloadSchema.$defs.worker_recovery_context.properties.dispatch.properties.host_provenance.properties.sources.maxItems)
 })
 
 test("host prompt provenance admits the complete 32-source manifest at the store bound, exact and recomputable", async () => {

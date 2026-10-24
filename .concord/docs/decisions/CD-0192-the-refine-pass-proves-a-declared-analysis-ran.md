@@ -113,9 +113,6 @@ succeeds.
   declaration.
 - `python3 scripts/test-project-tooling.py` proves the checker and the schema
   refuse shell quoting and shell operators in an invocation.
-- The workflow corpus carries `WF57-refine-exit-needs-green-verify-run`, whose
-  `record_delivery` at a started refine step refuses with the missing-evidence
-  refusal.
 - `python3 scripts/check-doc-contract.py` proves this record carries the
   current decision outline and passes the writing rules.
 - `python3 scripts/check-knowledge-index.py` and

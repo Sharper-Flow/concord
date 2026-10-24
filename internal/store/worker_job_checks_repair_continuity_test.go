@@ -216,7 +216,7 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 		t.Fatal(plainCorrectionErr)
 	}
 	dispatchJobBoundAttempt(t, s, workID, "repair", plain, plainCorrection, workerForChecksRepair(workID), 0, "checks-repair-continuity-plain", first)
-	plainFailure := Event{EventID: "checks-repair-plain-failed-" + workID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{
+	plainFailure := Event{EventID: "checks-repair-plain-failed-" + workID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{
 		AttemptID: plain, ReadbackModel: preferredModelForLane(reviewGateLane(t, "implementation")), FailureKind: WorkerFailureWorkerError, Detail: "the unrelated attempt failed before a judgeable result",
 		FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: workerFailureObservationFixture()},
 	})}

@@ -2,11 +2,7 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestRetiredPlanningEventsReplayWithoutInitiativeState"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestRetiredPlanningEventsRefuseNewAppends"
+      "value": "internal/store.TestRetiredInitiativeExecutionEntriesRefuseBeforeEffects"
     },
     {
       "kind": "go_test",
@@ -15,6 +11,10 @@
     {
       "kind": "validator",
       "value": "scripts/check-pr-linear-link.py"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDispatchRejectsObsoleteEpicSurfaceAndGenericInitiativeCapture"
     }
   ],
   "id": "CD-0213",

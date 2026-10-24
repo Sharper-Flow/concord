@@ -393,8 +393,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	event := workflowEventWithActor("architecture-binding-approval", WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
 		"work_id": workID, "expected_version": int64(4), "resulting_version": int64(5), "contract_version": int64(1), "premise": "bind Product law", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:architecture", "immutable_subject_ref": "commit:architecture", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one", "law:new"}, "law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{{LawID: "spec:one", ContentHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
-	event.PayloadVersion = 3
-	event = withPinnedDecisionFact(t, definition.Definition, event)
+	event = pOverlapContractFacts(t, s, event)
 	var approvalFields map[string]any
 	if err := json.Unmarshal(event.Payload, &approvalFields); err != nil {
 		t.Fatal(err)
@@ -456,8 +455,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	supersede := workflowEventWithActor("architecture-binding-supersede", WorkflowContractSuperseded, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
 		"work_id": workID, "expected_version": int64(5), "resulting_version": int64(6), "previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "revised Domain footprint", "audit_evidence": []string{"audit:architecture-v2"}, "successor_contract": successor,
 	})
-	supersede.PayloadVersion = 1
-	supersede = withPinnedDecisionFact(t, definition.Definition, supersede)
+	supersede = pOverlapContractFacts(t, s, supersede)
 	var supersedeFields map[string]any
 	if err := json.Unmarshal(supersede.Payload, &supersedeFields); err != nil {
 		t.Fatal(err)
@@ -482,7 +480,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	clone := workflowEventWithActor("architecture-binding-clone", WorkflowContractSuperseded, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
 		"work_id": workID, "expected_version": int64(6), "resulting_version": int64(7), "previous_contract_version": int64(2), "new_contract_version": int64(3), "supersede_reason": "invalid clone", "audit_evidence": []string{"audit:clone"},
 	})
-	clone.PayloadVersion = 1
+	clone.PayloadVersion = CurrentEventPayloadVersion(WorkflowContractSuperseded)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{clone}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 6}}); err == nil {
 		t.Fatal("Product-changing contract accepted clone-without-successor revision")
 	}
@@ -499,23 +497,6 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	}
 	if !continuity.ChangesProductTruth || continuity.ArchitectureBinding == nil || len(continuity.ArchitectureBinding.VerificationObligations) != 1 {
 		t.Fatalf("unexpected continuity: %+v", continuity)
-	}
-	before, err := WorkflowProjectionHash(ctx, s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM domain_architecture_relations WHERE product_id='product'; DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	after, err := WorkflowProjectionHash(ctx, s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if before != after {
-		t.Fatalf("architecture binding rebuild changed projection hash: %s != %s", before, after)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET definition_digest='sha256:`+strings.Repeat("c", 64)+`' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
 		t.Fatal(err)
@@ -561,8 +542,9 @@ func TestProductChangingApprovalMissingBindingIsAtomic(t *testing.T) {
 			candidate[key] = value
 		}
 		delete(candidate, omitted)
+		candidate["decision_domains"] = []string{}
 		event := workflowEventWithActor("architecture-binding-missing-"+omitted, WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), candidate)
-		event.PayloadVersion = 3
+		event.PayloadVersion = CurrentEventPayloadVersion(WorkflowContractApproved)
 		if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err == nil {
 			t.Fatalf("approval missing %s succeeded", omitted)
 		}
@@ -617,7 +599,7 @@ func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
 			"work_id": workID, "expected_version": version, "resulting_version": version + 1, "previous_contract_version": 1, "new_contract_version": 2,
 			"supersede_reason": "Require law-bound verification.", "audit_evidence": []string{"evidence:architecture-obligation"}, "successor_contract": successor,
 		})
-		event.PayloadVersion = 4
+		event.PayloadVersion = CurrentEventPayloadVersion(WorkflowContractSuperseded)
 		if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 			t.Fatal(err)
 		}
@@ -655,7 +637,7 @@ func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
 	premise := workflowEventWithActor("architecture-obligation-premise", WorkflowPremiseConfirmed, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 2, "confirming_actor_ref": ownerRef, "confirmation_authority": "coordinator",
 	})
-	premise.PayloadVersion = 2
+	premise.PayloadVersion = CurrentEventPayloadVersion(WorkflowPremiseConfirmed)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{premise}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
 	}

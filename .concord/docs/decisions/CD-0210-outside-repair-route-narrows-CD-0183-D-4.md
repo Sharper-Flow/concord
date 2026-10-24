@@ -185,8 +185,8 @@ No release installation or session restart belongs to this decision's delivery.
   proves approval binding and suppression across recovery (CD-0242 D2).
 - `internal/store.TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses`
   proves managed admission remains held.
-- `internal/store.TestOutsideRepairReconcileBothLiveLifecyclesAndReplay` proves
-  atomic closure and idempotent reconciliation (CD-0242 D2).
+- `internal/store.TestOutsideRepairReconcileBothLiveLifecycles` proves atomic
+  closure from both live lifecycles.
 - `internal/store.TestOutsideRepairResumePreservesStateAndAllowsAnotherHold`
   proves resume without changing the workflow step.
 - `internal/store.TestOutsideRepairDoesNotChangeOrdinaryCompletion` preserves

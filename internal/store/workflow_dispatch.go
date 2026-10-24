@@ -1029,7 +1029,7 @@ func requireResearchForPendingQuestions(ctx context.Context, q queryer, workID s
 	}
 	var questions []string
 	if err := json.Unmarshal([]byte(questionsJSON), &questions); err != nil {
-		return newFailure(KindInvariantViolation, "workflow_action", "pending workflow questions are malformed", false, "rebuild the workflow context projection")
+		return newFailure(KindInvariantViolation, "workflow_action", "pending workflow questions are malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if len(questions) == 0 {
 		return nil

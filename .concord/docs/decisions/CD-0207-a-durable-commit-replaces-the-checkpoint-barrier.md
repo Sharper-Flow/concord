@@ -70,7 +70,6 @@ following families:
 |---|---|---|
 | Bootstrap journal and worktree claim | `internal/store/bootstrap.go` `claimCrossProjectWorktree`, `prepareBootstrapMode`, `setBootstrapState`, `rollbackBootstrap`, `finalizeBootstrap`; `internal/store/worktrees.go` `ClaimWorktree` | The journal and the claim decide which work item owns a worktree on disk. A claim lost after its acknowledgement permits a second owner of the same worktree. |
 | Predecessor import | `cmd/concord/predecessor_import.go` `writeProductAndProjects`, `writeSecondaryProjects`, `writeSelectedWork` | The acknowledged import is the record of which Products, Projects, and work items migrated. A loss after the acknowledgement misstates the migration. |
-| Recovery | `internal/store/recovery.go` `RecoverFoldGuard` | Recovery restores current state in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Its acknowledgement admits ordinary writes again. |
 
 Workflow completion commits inside the workflow action dispatch boundary
 family. Cross-authority fence entry points are declared in D3.

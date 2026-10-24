@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestPredispatchContractCorrectionSurvivesRebuild(t *testing.T) {
+func TestPredispatchContractCorrectionPreservesExecutionIdentity(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	const workID = "predispatch-replay"
@@ -60,23 +60,16 @@ func TestPredispatchContractCorrectionSurvivesRebuild(t *testing.T) {
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", issue1013SuccessorContract(), owner, operatorVerdictActor(t, workID)); err != nil {
 		t.Fatalf("correct before dispatch: %v", err)
 	}
-	before, err := ReadWorkPin(ctx, s, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild corrected contract: %v", err)
-	}
-	after, err := ReadWorkPin(ctx, s, workID)
-	if err != nil || after.Version != before.Version || after.Step != before.Step || after.Attempt != nil {
-		t.Fatalf("rebuild changed execution identity: before=%+v after=%+v err=%v", before, after, err)
+	pin, err := ReadWorkPin(ctx, s, workID)
+	if err != nil || pin.Attempt != nil {
+		t.Fatalf("predispatch correction execution identity: pin=%+v err=%v", pin, err)
 	}
 	contract, err := s.ActiveWorkflowContract(ctx, workID)
 	if err != nil || contract.Version != 2 || contract.Premise != "corrected predicate subject" {
-		t.Fatalf("rebuild lost successor: %+v err=%v", contract, err)
+		t.Fatalf("correction lost successor: %+v err=%v", contract, err)
 	}
 	entry, err := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID)
 	if err != nil || entry.Digest != definition.Digest {
-		t.Fatalf("definition changed across correction/replay: %s err=%v", entry.Digest, err)
+		t.Fatalf("definition changed across correction: %s err=%v", entry.Digest, err)
 	}
 }

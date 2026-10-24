@@ -12,8 +12,7 @@ import (
 // The capture-owned defect classification makes the captured kind immutable
 // on live revision: a classified research item converting to bug would bypass
 // recurrence admission, and a classified bug converting away would hide a
-// prior defect from the sibling matching query. Historical revisions that
-// predate the guard still replay.
+// prior defect from the sibling matching query.
 
 // reviseDefectWork revises one work item's intent through the ordinary
 // operation route.
@@ -93,57 +92,5 @@ func TestUnclassifiedNonBugRevisionToBugStillRefused(t *testing.T) {
 	}
 	if err := reviseDefectWork(t, s, "work-rev-plain", "bug"); err == nil {
 		t.Fatal("unclassified task item was revised into the bug kind")
-	}
-}
-
-// A kind change a historical revision already accepted replays unchanged:
-// the immutability guard is a live admission rule, and the log stays the
-// replay's authority.
-func TestHistoricalKindConversionReplaysThroughRebuild(t *testing.T) {
-	t.Parallel()
-	s := defectFixture(t)
-	if err := captureDefectWork(t, s, "work-replay-bug", "bug", defectIntakeJSON("upload-checksum-mismatch", nil, "")); err != nil {
-		t.Fatalf("classified bug capture refused: %v", err)
-	}
-	if err := captureDefectWork(t, s, "work-replay-research", "research", defectIntakeJSON("login-token-expiry", nil, "")); err != nil {
-		t.Fatalf("classified research capture refused: %v", err)
-	}
-	// Record the historical conversions the way replay folds them.
-	for _, workID := range []string{"work-replay-bug", "work-replay-research"} {
-		var version int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-			t.Fatal(err)
-		}
-		payload, err := json.Marshal(map[string]any{"title": "Historically converted", "value_statement": "Historical conversion", "kind": "task", "priority": 1, "urgency": "standard", "tags": []string{}, "workflow_type_ref": "", "reason": "historical kind change", "evidence_refs": []string{}, "expected_version": version, "resulting_version": version + 1})
-		if err != nil {
-			t.Fatal(err)
-		}
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		op := Operation{Events: []Event{{EventID: "defect-historical-" + workID, Kind: "work.intent_revised", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(7, 0).UTC(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}
-		if _, err := applyOperationTx(workflowReplayContext(context.Background()), tx, op, newFoldScope(tx), false); err != nil {
-			tx.Rollback()
-			t.Fatalf("historical kind change for %s did not replay: %v", workID, err)
-		}
-		if err := tx.Commit(); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild with historical kind changes refused: %v", err)
-	}
-	for _, workID := range []string{"work-replay-bug", "work-replay-research"} {
-		if block := defectBlock(t, s, workID); block == nil {
-			t.Fatalf("%s lost its classification through historical conversion replay", workID)
-		}
-		var kind string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT kind FROM work_items WHERE id=?`, workID).Scan(&kind); err != nil {
-			t.Fatal(err)
-		}
-		if kind != "task" {
-			t.Fatalf("%s kind after replay=%q, want the historically accepted task", workID, kind)
-		}
 	}
 }

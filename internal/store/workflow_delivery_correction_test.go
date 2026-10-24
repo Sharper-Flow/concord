@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -323,15 +322,12 @@ func TestTerminalDeliveryCorrectionAdmission(t *testing.T) {
 	if approvalRows != 0 {
 		t.Fatalf("the unsigned correction left %d approval rows", approvalRows)
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("replay refused a URL admitted by the new syntax: %v", err)
-	}
 	assertion, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if assertion.DeliveryAssertion == nil || assertion.DeliveryAssertion.Correction == nil || assertion.DeliveryAssertion.Correction.Artifact != request.DeliveryArtifact {
-		t.Fatalf("replayed merge artifact = %+v, want %q", assertion.DeliveryAssertion, request.DeliveryArtifact)
+		t.Fatalf("merge artifact = %+v, want %q", assertion.DeliveryAssertion, request.DeliveryArtifact)
 	}
 
 	// A second correction of the same assertion is refused: one correction
@@ -576,106 +572,4 @@ func TestTerminalDeliveryCorrectionReadReplay(t *testing.T) {
 		t.Fatalf("correction event count=%d, want exactly one appended correction", eventCount)
 	}
 
-	// The replay re-derives the admission from the log and durable approval,
-	// then reproduces the same read.
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("replay after correction: %v", err)
-	}
-	replayed, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(replayed.DeliveryAssertion, after.DeliveryAssertion) {
-		t.Fatalf("replayed assertion read %+v diverges from %+v", replayed.DeliveryAssertion, after.DeliveryAssertion)
-	}
-	// A stored value admitted by the previous reference rule must remain
-	// readable even when new admission rejects its Unicode whitespace.
-	const legacyArtifact = "https://example.test/a\u00a0b"
-	var correctionEventID, correctionPayload string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT event_id,payload FROM domain_events WHERE kind=? AND subject_id=?`, WorkflowDeliveryCorrected, workID).Scan(&correctionEventID, &correctionPayload); err != nil {
-		t.Fatal(err)
-	}
-	var legacyEvent map[string]any
-	if err := json.Unmarshal([]byte(correctionPayload), &legacyEvent); err != nil {
-		t.Fatal(err)
-	}
-	legacyEvent["delivery_artifact"] = legacyArtifact
-	encodedLegacyEvent, err := json.Marshal(legacyEvent)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyTx, err := s.DatabaseForTesting().Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer legacyTx.Rollback()
-	var appendOnlyTrigger string
-	if err := legacyTx.QueryRow(`SELECT sql FROM sqlite_master WHERE type='trigger' AND name='domain_events_no_update'`).Scan(&appendOnlyTrigger); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := legacyTx.Exec(`DROP TRIGGER domain_events_no_update`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := legacyTx.Exec(`UPDATE domain_events SET payload=? WHERE event_id=?`, string(encodedLegacyEvent), correctionEventID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := legacyTx.Exec(appendOnlyTrigger); err != nil {
-		t.Fatal(err)
-	}
-	if err := legacyTx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("replay refused a legacy NBSP reference: %v", err)
-	}
-	legacyRead, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if legacyRead.DeliveryAssertion == nil || legacyRead.DeliveryAssertion.Correction == nil || legacyRead.DeliveryAssertion.Correction.Artifact != legacyArtifact {
-		t.Fatalf("replayed legacy artifact = %+v, want %q", legacyRead.DeliveryAssertion, legacyArtifact)
-	}
-	var instanceState string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&instanceState); err != nil {
-		t.Fatal(err)
-	}
-	if instanceState != "completed" {
-		t.Fatalf("replay reopened the instance to %q", instanceState)
-	}
-}
-
-// TestTerminalDeliveryCorrectionReplaysWithoutApprovalRows proves the fold's
-// replay purity: the recorded correction re-derives its admission from the
-// event payload and the log-derived workflow_actors row alone, so a replay
-// admits it after every approval row is purged, and the read stays the same.
-// A fold that re-authorized against the mutable agent_approvals table would
-// refuse here and make a rebuilt projection diverge from the live one.
-// proves check:correction-replay-purity.
-func TestTerminalDeliveryCorrectionReplaysWithoutApprovalRows(t *testing.T) {
-	t.Parallel()
-	const workID = "delivery-correction-replay-purity"
-	s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
-	if err := runDeliveryCorrection(t, s, unsignedDeliveryCorrectionRequest(t, s, workID, version, targetEventID, targetSeq, targetPayloadVersion)); err != nil {
-		t.Fatalf("unsigned delivery correction refused: %v", err)
-	}
-	live, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if live.DeliveryAssertion == nil || live.DeliveryAssertion.Correction == nil {
-		t.Fatalf("live read carries no corrected delivery assertion: %+v", live.DeliveryAssertion)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM agent_approvals`); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("replay without approval rows refused the recorded correction: %v", err)
-	}
-	replayed, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(replayed.DeliveryAssertion, live.DeliveryAssertion) {
-		t.Fatalf("replayed read %+v diverges from the live read %+v after the approval purge", replayed.DeliveryAssertion, live.DeliveryAssertion)
-	}
 }

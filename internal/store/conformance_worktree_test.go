@@ -52,7 +52,7 @@ func seedWorktreeConformanceWork(ctx context.Context, s *Store, worker int) (str
 		return "", "", "", err
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: work + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: work, Actor: "operator", OccurredAt: now, PayloadVersion: 2, Payload: jsonRaw(fmt.Sprintf(`{"work_kind":"task","title":"Conformance Worktree %d","priority":1}`, worker))},
+		{EventID: work + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: work, Actor: "operator", OccurredAt: now, PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(fmt.Sprintf(`{"work_kind":"task","title":"Conformance Worktree %d","priority":1}`, worker))},
 		{EventID: work + "-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: work, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: jsonRaw(fmt.Sprintf(`{"memberships":[{"project_id":%q,"role":"primary"}],"expected_version":1,"resulting_version":2}`, project))},
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, work): 0}}); err != nil {
 		return "", "", "", err

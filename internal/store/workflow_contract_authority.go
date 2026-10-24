@@ -131,7 +131,7 @@ func resolveWorkflowContractPredecessors(ctx context.Context, q queryer, workID 
 		return nil, 0, activeErr
 	}
 	if len(active) == 0 {
-		return nil, 0, newFailure(KindInvariantViolation, "workflow_action", "contract recovery requires an active workflow contract", false, "rebuild the workflow contract projection")
+		return nil, 0, newFailure(KindInvariantViolation, "workflow_action", "contract recovery requires an active workflow contract", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	predecessors, supplied, listErr := workflowFieldInt64List(fields, "predecessor_contract_versions")
 	if listErr != nil {

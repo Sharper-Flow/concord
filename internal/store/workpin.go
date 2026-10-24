@@ -710,7 +710,7 @@ func workPinVerdictEvidenceTx(ctx context.Context, tx *sql.Tx, workID string) ([
 
 func decodeWorkflowPinContract(contract *WorkflowReadContract, required, routes, mandate, modifies string) error {
 	if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandate), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
-		return newFailure(KindInvariantViolation, "work_pin", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
+		return newFailure(KindInvariantViolation, "work_pin", "workflow contract projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
 	contract.RouteConventions = nonNilStrings(contract.RouteConventions)

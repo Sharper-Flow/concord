@@ -67,7 +67,7 @@ func seedAuthorizedFailedWorkerWithDefinition(t *testing.T, workID string, entry
 // authorized attempt, carrying the recorded attribution the live
 // definitions require on every failed terminal.
 func authorizedAbandonment(workID, eventID, attemptID, detail string, at int64) Event {
-	return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(at, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, FailureKind: WorkerFailureAbandoned, Detail: detail, FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: &WorkerFailureObservation{Observer: WorkerFailureObserverHostAdapter, Phase: WorkerFailurePhaseHostExecution, Cause: WorkerFailureCauseUnknown, Basis: WorkerFailureBasisUnknown, Sources: []WorkerFailureSource{workerFailureAbandonmentSourceFixture()}}}})}
+	return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(at, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, FailureKind: WorkerFailureAbandoned, Detail: detail, FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: &WorkerFailureObservation{Observer: WorkerFailureObserverHostAdapter, Phase: WorkerFailurePhaseHostExecution, Cause: WorkerFailureCauseUnknown, Basis: WorkerFailureBasisUnknown, Sources: []WorkerFailureSource{workerFailureAbandonmentSourceFixture()}}}})}
 }
 
 func TestAuthorizedWorkerFailureRecoveryNeedsNoDispatchEvidence(t *testing.T) {

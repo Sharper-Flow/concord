@@ -34,7 +34,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestReplayDeduplicationBackupRestoreRebuild"
+      "value": "internal/agent.TestIdempotencyDeduplicationBackupRestore"
     },
     {
       "kind": "go_test",

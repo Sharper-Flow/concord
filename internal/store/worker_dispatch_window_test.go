@@ -1370,7 +1370,7 @@ func TestStrandedInFlightAttemptClosesThroughAbandonment(t *testing.T) {
 	// rows, so the CD-0178 D3 liveness gate admits the close.
 	abandon := Event{
 		EventID: "cd791-abandon", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 1,
+		Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed),
 		Payload: mustJSONValue(WorkerFailedPayload{
 			AttemptID: stranded, FailureKind: WorkerFailureAbandoned,
 			Detail: "the dispatch window was lost to a host restart before the task call"}),
@@ -1454,7 +1454,10 @@ func seedWorkerEvidenceForAttempt(t *testing.T, s *Store, workID, attemptID, lab
 
 func seedWorkerDispatchEvidenceForAttempt(t *testing.T, s *Store, workID, attemptID, label, packetDigest string) error {
 	ctx := context.Background()
-	lane := BuiltinLaneDefinitions()[0]
+	lane, err := workerFixtureAttemptLane(s, attemptID)
+	if err != nil {
+		return err
+	}
 	laneActor := WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:concord", AgentRef: "agent/lane:" + lane.ID, SessionRef: "session/" + attemptID, ActorClass: ActorAgent}
 	laneRef, err := WorkflowActorRef(laneActor)
 	if err != nil {
@@ -1466,7 +1469,7 @@ func seedWorkerDispatchEvidenceForAttempt(t *testing.T, s *Store, workID, attemp
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		return err
 	}
-	dispatched := Event{EventID: label + "-dispatched", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{
+	dispatched := Event{EventID: label + "-dispatched", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(map[string]any{
 		"attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
 		"packet_digest": packetDigest, "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
@@ -1475,9 +1478,21 @@ func seedWorkerDispatchEvidenceForAttempt(t *testing.T, s *Store, workID, attemp
 }
 
 func seedWorkerCompletionEvidenceForAttempt(t *testing.T, s *Store, workID, attemptID, label string) error {
-	lane := BuiltinLaneDefinitions()[0]
-	completed := Event{EventID: label + "-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(21, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
+	lane, err := workerFixtureAttemptLane(s, attemptID)
+	if err != nil {
+		return err
+	}
+	completed := workerCompleteEventForLane(workID, label+"-completed", attemptID, lane, time.Unix(21, 0).UTC(), workerFixtureDirectory(t, s, workID))
+	completed.Actor = "worker:host"
 	return ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}})
+}
+
+func workerFixtureAttemptLane(s *Store, attemptID string) (LaneDefinition, error) {
+	attempt, err := workerAttemptByIDCore(context.Background(), s.db, attemptID)
+	if err != nil {
+		return LaneDefinition{}, err
+	}
+	return LookupLane(attempt.LaneID, attempt.LaneVersion, attempt.LaneDigest)
 }
 
 // cd781DispatchPacketDigest marshals the closed dispatch packet for
@@ -1726,7 +1741,7 @@ func TestDispatchOverABornFailedAttemptTakesNothingOver(t *testing.T) {
 			},
 		}},
 	}
-	dispatch := Event{EventID: "born-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(22, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
+	dispatch := Event{EventID: "born-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(22, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
 		AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
 		PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: window.PacketDigest,
 		ReadbackModel: "provider/executing-model", Terminal: "failed", TerminalFailureKind: WorkerFailureModelIdentity, TerminalDetail: "undeclared executing model",

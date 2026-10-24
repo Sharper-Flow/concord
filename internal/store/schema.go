@@ -51,9 +51,8 @@ type migration struct {
 	// binary's fold leaves it wrong with no convergence — the migration 108 /
 	// last_activity_at class. Such a step must declare Breaking: true.
 	//
-	// "origin": the fold sets the column once and first derivation wins, so
-	// the backfill and RebuildFromLog agree — the migration 107 /
-	// execution_started_at class (CD-0183 D2).
+	// "origin": the fold sets the column once and first derivation wins —
+	// the execution_started_at class (CD-0183 D2).
 	//
 	// Empty: the step adds no fold-maintained column.
 	FoldMaintained string
@@ -72,8 +71,7 @@ type migrationRunner interface {
 }
 
 // applyMigration runs one step's SQL when the step applies to the database in
-// front of it. The runner and every replay share this, so a conditional step
-// stays conditional wherever it runs.
+// front of it.
 func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 	if m.Applies != nil {
 		applies, err := m.Applies(ctx, q)
@@ -5970,9 +5968,7 @@ INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,positio
 		// Outside-repair dispositions suspend managed workflow actions
 		// on a live work item, preserve the historical workflow records, and
 		// close the work through an explicit reconciliation event. The
-		// disposition lives in a fold-only projection table; the workflow
-		// instance carries its own state column so a RebuildFromLog reproduces
-		// the same row the live fold wrote. The reconciliation row records the
+		// disposition lives in a fold-only projection table. The reconciliation row records the
 		// released merge and release tag the boundary code authenticated. The
 		// workflow instance gains a closed-outside-repair terminal state without
 		// folding through the ordinary completed gate.
@@ -6099,7 +6095,6 @@ CREATE TRIGGER worktree_ref_outcomes_guard_delete BEFORE DELETE ON worktree_ref_
 	},
 	{
 		// The schema refuses deletes while the owner or a consumer is active.
-		// Rebuild drops this guard during staging and restores it afterward.
 		Version:  123,
 		Name:     "research_retirement_delete_guard",
 		Breaking: true,
@@ -6129,9 +6124,8 @@ END;
 		// linear_issue_links keeps one recorded issue identity per work item
 		// (D3): the key, UUID, and URL the agent read from the Linear MCP
 		// server. A row without a key or URL never held a usable identity and
-		// stays only in the backup. The retired Initiative events still fold
-		// to nothing on replay, so the includes relation rows they wrote are
-		// deleted here to match a rebuild from the log.
+		// stays only in the backup. The retired Initiative's includes relations
+		// are deleted.
 		Version:  124,
 		Name:     "planning_mirror_retirement",
 		Breaking: true,
@@ -6211,7 +6205,7 @@ DELETE FROM fold_guard;
 		Name:     "native_oracle_plan_and_streams",
 		Breaking: true,
 		// Operational leases pin plans at acquire and streams at release, once
-		// per lease. Rebuild preserves these rows through its operational snapshot.
+		// per lease.
 		FoldMaintained: "origin",
 		SQL: `
 ALTER TABLE worktree_verify_leases ADD COLUMN native_plan_json TEXT CHECK(native_plan_json IS NULL OR (json_valid(native_plan_json) AND length(CAST(native_plan_json AS BLOB))<=65536));
@@ -6282,8 +6276,7 @@ CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR
 		Name:     "verify_lease_event_watermark",
 		Breaking: false,
 		// The acquire INSERT, not the fold, writes this column, once per
-		// lease, and first write wins: a rebuild's operational snapshot and
-		// the writer agree, the origin class migration 125 declared for its
+		// lease, and first write wins, the origin class migration 125 declared for its
 		// acquire- and release-written columns.
 		FoldMaintained: "origin",
 		SQL: `
@@ -6432,9 +6425,8 @@ CREATE TRIGGER work_resize_lineage_guard_delete BEFORE DELETE ON work_resize_lin
 		Name:     "workflow_contract_decision_domains",
 		Breaking: false,
 		// The contract fold writes this column once per contract INSERT and
-		// never updates it: first derivation wins, so a rebuild from the event
-		// log and the live writer agree, the origin class migration 127
-		// declared for its lease column. Older rows read NULL.
+		// never updates it: first derivation wins, the origin class migration
+		// 127 declared for its lease column. Older rows read NULL.
 		FoldMaintained: "origin",
 		SQL: `
 -- The workflow contract records its declared decision fact: a canonical

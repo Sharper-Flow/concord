@@ -193,13 +193,6 @@ func TestContextContinuityCheckpointBoundaryAndCanonicalRead(t *testing.T) {
 	if snapshot.RestartAvailable || snapshot.RestartUnavailableReason == "" {
 		t.Fatalf("restart availability=%+v", snapshot)
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("continuity rebuild: %v", err)
-	}
-	rebuilt, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: "continuity-work", Limit: 20})
-	if err != nil || rebuilt.BoundaryCount != 1 || rebuilt.LatestCheckpoint == nil {
-		t.Fatalf("rebuilt continuity=%+v err=%v", rebuilt, err)
-	}
 }
 
 func TestContextContinuityRejectsRestartAndPendingDecisionBoundary(t *testing.T) {

@@ -70,7 +70,7 @@ func ApplyWorkerEvidenceOperationTx(ctx context.Context, transaction *Transactio
 // conditions lands unchanged, and the engine's failure-recovery route stays
 // its disposition.
 func deriveWorkflowWorkerFailureEventsTx(ctx context.Context, tx *sql.Tx, failed Event) ([]Event, error) {
-	if failed.Kind != WorkerFailed || failed.SubjectType != SubjectWorkItem || failed.SubjectID == "" || isWorkflowReplay(ctx) {
+	if failed.Kind != WorkerFailed || failed.SubjectType != SubjectWorkItem || failed.SubjectID == "" {
 		return nil, nil
 	}
 	var payload WorkerFailedPayload

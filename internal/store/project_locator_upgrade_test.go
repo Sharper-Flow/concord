@@ -151,11 +151,8 @@ func TestRemoteLocatorUpgradeRecordedCutover(t *testing.T) {
 		if err := Migrate(ctx, s.db); err != nil {
 			t.Fatal(err)
 		}
-		if err := RebuildFromLog(ctx, s); err != nil {
-			t.Fatal(err)
-		}
 		if got := remoteUpgradeSnapshot(t, s); got != snapshot {
-			t.Fatal("retry/rebuild changed upgraded state or journal")
+			t.Fatal("retry changed upgraded state or journal")
 		}
 	}
 	for _, raw := range []string{"https://github.com/o/r", "file:///srv/o/r"} {
@@ -190,13 +187,6 @@ func TestRemoteLocatorUpgradeIncompleteURLRelinquishment(t *testing.T) {
 			after := histEventRows(t, s)
 			if len(after) != len(before)+1 || !reflect.DeepEqual(before, after[:len(before)]) || after[len(before)].Kind != "project.locator_removed" {
 				t.Fatalf("expected one recorded removal, events=%+v", after)
-			}
-			snapshot := remoteUpgradeSnapshot(t, s)
-			if err := RebuildFromLog(ctx, s); err != nil {
-				t.Fatal(err)
-			}
-			if remoteUpgradeSnapshot(t, s) != snapshot {
-				t.Fatal("rebuild changed removal projection or journal")
 			}
 		})
 	}
@@ -345,6 +335,7 @@ func TestRemoteLocatorUpgradeHistoricalTransientCollision(t *testing.T) {
 		ProjectLocator{ID: "gone", Kind: LocatorGitRemote, Value: "ssh://git@host/o/r"})
 	e := recordedLocatorEvent("gone", "", "", "")
 	e.EventID, e.Kind = "historical-remove", "project.locator_removed"
+	e.PayloadVersion = CurrentEventPayloadVersion(e.Kind)
 	e.Payload, _ = json.Marshal(projectLocatorPayload{ProjectID: "project-a", LocatorID: "gone", ExpectedVersion: 3, ResultingVersion: 4})
 	insertHistoricalEvent(t, s, e)
 	ctx := context.Background()
@@ -372,13 +363,6 @@ func TestRemoteLocatorUpgradeHistoricalTransientCollision(t *testing.T) {
 	var generation int
 	if err := s.db.QueryRow(`SELECT normalization_version FROM project_locators WHERE locator_id='keep'`).Scan(&generation); err != nil || generation != 2 {
 		t.Fatalf("surviving locator generation=%d err=%v", generation, err)
-	}
-	before := remoteUpgradeSnapshot(t, s)
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	if before != remoteUpgradeSnapshot(t, s) {
-		t.Fatal("historical transient collision changed replay")
 	}
 }
 

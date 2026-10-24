@@ -526,12 +526,12 @@ func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfi
 
 	results = run("payload_compatibility")
 	addPayloadProfiles(&report, results)
-	if countOutcome(results, outcomeAccepted) != 7 || countOutcome(results, outcomeUnsupportedPayload) != 3 {
-		t.Fatalf("payload compatibility = %+v, want seven accepted legacy and current and three rejected newer; results=%+v", report.Scenarios["payload_compatibility"], results)
+	if countOutcome(results, outcomeAccepted) != 2 || countOutcome(results, outcomeUnsupportedPayload) != 8 {
+		t.Fatalf("payload compatibility = %+v, want two current accepted and eight non-current refused; results=%+v", report.Scenarios["payload_compatibility"], results)
 	}
 	for _, result := range results {
-		if result.Profile == "newer" && countDomainEvents(s, fmt.Sprintf("compat-%d-work", result.Worker)) != 0 {
-			t.Fatalf("newer payload worker %d mutated the event log", result.Worker)
+		if result.Profile != "current" && countDomainEvents(s, fmt.Sprintf("compat-%d-work", result.Worker)) != 0 {
+			t.Fatalf("non-current payload worker %d (%s) mutated the event log", result.Worker, result.Profile)
 		}
 	}
 
@@ -1525,13 +1525,6 @@ func verifyRestoredBackup(t *testing.T, ctx context.Context, backupPath string, 
 	}
 	if err := validateMembershipInvariants(ctx, restoredStore.DatabaseForTesting()); err != nil {
 		return err
-	}
-	before := projectionSnapshot(t, restoredStore)
-	if err := RebuildFromLog(ctx, restoredStore); err != nil {
-		return err
-	}
-	if after := projectionSnapshot(t, restoredStore); after != before {
-		return fmt.Errorf("restored rebuild changed projections")
 	}
 	return nil
 }

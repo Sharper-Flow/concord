@@ -90,7 +90,7 @@ func decodeWorkClosureOutOfScope(raw string) ([]string, error) {
 	}
 	var values []string
 	if err := json.Unmarshal([]byte(raw), &values); err != nil {
-		return nil, newFailure(KindInvariantViolation, "work_closure", "proposal out_of_scope projection is malformed", false, "rebuild projections from the event log")
+		return nil, newFailure(KindInvariantViolation, "work_closure", "proposal out_of_scope projection is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return values, nil
 }

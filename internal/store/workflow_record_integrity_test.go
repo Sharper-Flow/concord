@@ -70,12 +70,13 @@ func TestLaneDispatchRotatesTheLeaseNotTheAuthorship(t *testing.T) {
 		t.Fatal(err)
 	}
 	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "execution", ownerRef)
-	dispatch := Event{EventID: "rot-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{
+	dispatch := Event{EventID: "rot-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(map[string]any{
 		"attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
 		"packet_digest": "sha256:" + strings.Repeat("b", 64), "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
 	})}
-	completed := Event{EventID: "rot-worker-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
+	completed := workerCompleteEventForLane(workID, "rot-worker-completed", attemptID, lane, time.Unix(3, 0).UTC(), workerFixtureDirectory(t, s, workID))
+	completed.Actor = "worker:host"
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch, completed}}); err != nil {
 		t.Fatalf("recording the dispatched lane attempt: %v", err)
 	}

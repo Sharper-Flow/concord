@@ -28,7 +28,7 @@ and Superset.
 ## D1. Shared Product authority and isolated code worktrees
 
 SQLite is the local authority; alternative-engine comparison is falsifier-only
-under CD-0011. D6 requires each payload version bump to declare its migration class.
+under CD-0011.
 Recovery restores a verified snapshot and reconciles current rows; no reconstruction
 exists ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 

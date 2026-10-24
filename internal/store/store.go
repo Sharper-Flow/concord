@@ -140,10 +140,8 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	return s, nil
 }
 
-// migrateOpen applies the migration scope every opener shares: a stamped
-// release applies additive steps only, and an unstamped build migrates only a
-// fresh store. The offline fold-guard recovery reuses it, because it must
-// reach a stranded database that ordinary Open refuses.
+// migrateOpen applies additive steps for a stamped release; an unstamped
+// build migrates only a fresh store.
 func (s *Store) migrateOpen(ctx context.Context) error {
 	var err error
 	unstampedFresh := false
@@ -405,9 +403,8 @@ func (s *Store) finishOpen(ctx context.Context) error {
 }
 
 // refuseStrandedFoldGuard refuses an open whose database carries a committed
-// fold_guard row. The row is not retryable state: projections may have drifted
-// from the log while it stranded, so the operator must run the offline
-// recovery, which clears the row and rebuilds every projection from the log.
+// fold_guard row. The row is not retryable state: current rows may be
+// inconsistent, so the operator must restore a verified backup into a new path.
 func refuseStrandedFoldGuard(ctx context.Context, db *sql.DB) error {
 	var stranded int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM fold_guard`).Scan(&stranded); err != nil {
@@ -419,7 +416,7 @@ func refuseStrandedFoldGuard(ctx context.Context, db *sql.DB) error {
 	}
 	return newFailure(KindInvariantViolation, "open",
 		fmt.Sprintf("%d committed fold_guard row(s) guard the projections, and no fold scope owns them", stranded), false,
-		"stop concord processes and run concord recover-fold-guard offline to clear the stranded guard and rebuild projections from the event log")
+		"stop concord processes and run concord restore from a verified backup into a new path, then swap the restored database into place")
 }
 
 // ensureInstallationKey creates the one authority-owned cursor signing key.

@@ -186,10 +186,10 @@ func withWorkerFailureObservation(t *testing.T, event Event) Event {
 // stored event payload retains the findings bytes verbatim.
 func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 	t.Parallel()
-	if got := WorkerEvidenceEventPayloadVersion(WorkerCompleted); got != workerCompletedJobSizeVersion {
+	if got := CurrentEventPayloadVersion(WorkerCompleted); got != workerCompletedJobSizeVersion {
 		t.Fatalf("worker.completed current payload version = %d, want %d", got, workerCompletedJobSizeVersion)
 	}
-	if got := WorkerEvidenceEventPayloadVersion(WorkerFailed); got != 4 {
+	if got := CurrentEventPayloadVersion(WorkerFailed); got != 4 {
 		t.Fatalf("worker.failed current payload version = %d, want 4", got)
 	}
 	breakFix, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
@@ -211,7 +211,7 @@ func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-findings-complete", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	completion := workerCompletedContextFindingsEvent(fixture.workID, "complete-findings", "attempt-findings-complete", model, lane, findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))
+	completion := workerCompletedContextFindingsEvent(fixture.workID, "complete-findings", "attempt-findings-complete", model, lane, findings, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completion}}); err != nil {
 		t.Fatalf("completion with typed findings refused: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-findings-failed", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	failure := workerFailedContextFindingsEvent(fixture.workID, "failed-findings", "attempt-findings-failed", model, WorkerFailureWorkerError, findings, WorkerEvidenceEventPayloadVersion(WorkerFailed))
+	failure := workerFailedContextFindingsEvent(fixture.workID, "failed-findings", "attempt-findings-failed", model, WorkerFailureWorkerError, findings, CurrentEventPayloadVersion(WorkerFailed))
 	if err := s2WorkerFailedLive(t, s, withWorkerFailureObservation(t, failure)); err != nil {
 		t.Fatalf("worker_error failure with typed findings refused: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestWorkerCompletedFindingsAreClaimsNotObligationDischarge(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-findings-claims", "attempt-findings-claims", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	short := workerCompletedContextFindingsEvent("work-findings-claims", "complete-findings-short", "attempt-findings-claims", model, lane, []WorkerContextFinding{contextFindingFixture()}, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, "work-findings-claims"))
+	short := workerCompletedContextFindingsEvent("work-findings-claims", "complete-findings-short", "attempt-findings-claims", model, lane, []WorkerContextFinding{contextFindingFixture()}, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, "work-findings-claims"))
 	var payload WorkerCompletedPayload
 	if err := json.Unmarshal(short.Payload, &payload); err != nil {
 		t.Fatal(err)
@@ -302,13 +302,13 @@ func TestWorkerFailedFindingsReservedForWorkerError(t *testing.T) {
 		if modelReadbackFailureKind(kind) {
 			readback = ""
 		}
-		event := workerFailedContextFindingsEvent("work-fail-kind", "failed-kind-"+kind, "attempt-fail-kind", readback, kind, findings, WorkerEvidenceEventPayloadVersion(WorkerFailed))
+		event := workerFailedContextFindingsEvent("work-fail-kind", "failed-kind-"+kind, "attempt-fail-kind", readback, kind, findings, CurrentEventPayloadVersion(WorkerFailed))
 		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}})
 		if !hasFailureKind(err, KindInvalidPayload) {
 			t.Fatalf("%s with findings error = %v, want %s", kind, err, KindInvalidPayload)
 		}
 		// An empty array on the same diagnostic kind stays valid.
-		emptyEvent := workerFailedContextFindingsEvent("work-fail-kind", "failed-kind-empty-"+kind, "attempt-fail-kind", readback, kind, empty, WorkerEvidenceEventPayloadVersion(WorkerFailed))
+		emptyEvent := workerFailedContextFindingsEvent("work-fail-kind", "failed-kind-empty-"+kind, "attempt-fail-kind", readback, kind, empty, CurrentEventPayloadVersion(WorkerFailed))
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{emptyEvent}}); err != nil {
 			t.Fatalf("%s with an empty findings array refused: %v", kind, err)
 		}
@@ -318,84 +318,15 @@ func TestWorkerFailedFindingsReservedForWorkerError(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-fail-abandoned", "attempt-fail-abandoned", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	abandoned := workerFailedContextFindingsEvent("work-fail-abandoned", "failed-abandoned-findings", "attempt-fail-abandoned", preferredModelForLane(lane), WorkerFailureAbandoned, findings, WorkerEvidenceEventPayloadVersion(WorkerFailed))
+	abandoned := workerFailedContextFindingsEvent("work-fail-abandoned", "failed-abandoned-findings", "attempt-fail-abandoned", preferredModelForLane(lane), WorkerFailureAbandoned, findings, CurrentEventPayloadVersion(WorkerFailed))
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{abandoned}}); !hasFailureKind(err, KindInvalidPayload) {
 		t.Fatalf("abandoned with findings error = %v, want %s", err, KindInvalidPayload)
 	}
 }
 
-// The legacy upcasters are deterministic and legacy-preserving: a stored
-// completion v4 and failure v1 — the shapes earlier binaries recorded —
-// upcast with their bytes unchanged, fold, and rebuild to the same
-// projection, while findings bytes on a below-boundary replayed event are
-// refused as fabricated.
-func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T) {
+func TestWorkerTerminalContextFindingsRetentionAndVersionBoundary(t *testing.T) {
 	t.Parallel()
-	t.Run("upcasters keep legacy bytes unchanged", func(t *testing.T) {
-		legacyCompletion := Event{EventID: "legacy-complete-v4", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "work-legacy", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{"attempt_id": "attempt-legacy", "readback_model": "openai/gpt-5.6-luna", "report_schema_version": WorkerReportSchemaVersionLegacy})}
-		upcast, err := upcastEvent(legacyCompletion)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if upcast.PayloadVersion != workerCompletedJobSizeVersion {
-			t.Fatalf("upcast completion version = %d, want %d", upcast.PayloadVersion, workerCompletedJobSizeVersion)
-		}
-		if string(upcast.Payload) != string(legacyCompletion.Payload) {
-			t.Fatalf("v4 completion upcast rewrote bytes:\n%s\nwant\n%s", upcast.Payload, legacyCompletion.Payload)
-		}
-		legacyFailure := Event{EventID: "legacy-failed-v1", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "work-legacy", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"attempt_id": "attempt-legacy", "readback_model": "openai/gpt-5.6-luna", "failure_kind": WorkerFailureWorkerError, "detail": "bounded worker error"})}
-		upcast, err = upcastEvent(legacyFailure)
-		if err != nil {
-			t.Fatal(err)
-		}
-		// the failure upcast lands at the attribution version with
-		// the explicit legacy marker stamped beside the unchanged legacy
-		// bytes, so a replayed failure stays visibly without attribution.
-		if upcast.PayloadVersion != 4 {
-			t.Fatalf("upcast failure version = %d, want 4", upcast.PayloadVersion)
-		}
-		var upcastMembers map[string]json.RawMessage
-		if err := json.Unmarshal(upcast.Payload, &upcastMembers); err != nil {
-			t.Fatal(err)
-		}
-		if string(upcastMembers["failure_attribution"]) != `{"origin":"legacy_unavailable"}` {
-			t.Fatalf("upcast failure attribution = %s, want the explicit legacy marker", upcastMembers["failure_attribution"])
-		}
-		delete(upcastMembers, "failure_attribution")
-		var legacyMembers map[string]json.RawMessage
-		if err := json.Unmarshal(legacyFailure.Payload, &legacyMembers); err != nil {
-			t.Fatal(err)
-		}
-		if len(upcastMembers) != len(legacyMembers) {
-			t.Fatalf("v1 failure upcast grew members: %d, want the legacy %d beside the marker", len(upcastMembers), len(legacyMembers))
-		}
-		for name, value := range legacyMembers {
-			if string(upcastMembers[name]) != string(value) {
-				t.Fatalf("v1 failure upcast rewrote %s:\n%s\nwant\n%s", name, upcastMembers[name], value)
-			}
-		}
-	})
-	t.Run("legacy events fold and rebuild to the same projection", func(t *testing.T) {
-		s := openTemp(t)
-		lane := BuiltinLaneDefinitions()[0]
-		model := preferredModelForLane(lane)
-		authorizeWorkerFixtureDispatch(t, s, "work-rebuild", "attempt-rebuild")
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-rebuild", "attempt-rebuild", lane, nil)}}); err != nil {
-			t.Fatal(err)
-		}
-		legacyCompletion := Event{EventID: "rebuild-complete-v4", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "work-rebuild", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{"attempt_id": "attempt-rebuild", "readback_model": model, "report_schema_version": WorkerReportSchemaVersion, "evidence_origin": WorkerEvidenceLegacyUnavailable, "worker_directory": workerFixtureDirectory(t, s, "work-rebuild")})}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{legacyCompletion}}); err != nil {
-			t.Fatalf("legacy v4 completion refused on append: %v", err)
-		}
-		before := workerProjectionSnapshot(t, s)
-		if err := RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatal(err)
-		}
-		if after := workerProjectionSnapshot(t, s); after != before {
-			t.Fatalf("rebuild changed the legacy completion projection:\n%s\nwant\n%s", after, before)
-		}
-	})
-	t.Run("current-version findings fold and rebuild identically", func(t *testing.T) {
+	t.Run("current-version findings persist on both terminal forms", func(t *testing.T) {
 		breakFix, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
 		if !ok {
 			t.Fatal("workflow.break_fix v27 is not registered")
@@ -414,17 +345,16 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-rebuild-findings", "attempt-rebuild-findings", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompletedContextFindingsEvent("work-rebuild-findings", "rebuild-complete-findings", "attempt-rebuild-findings", model, lane, findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, "work-rebuild-findings"))}}); err != nil {
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompletedContextFindingsEvent("work-rebuild-findings", "rebuild-complete-findings", "attempt-rebuild-findings", model, lane, findings, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, "work-rebuild-findings"))}}); err != nil {
 			t.Fatal(err)
 		}
 		recordWorkerFixtureDispatchAuthorization(t, s, fixture.workID, "attempt-rebuild-findings-f", "repair", ownerRef)
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-rebuild-findings", "attempt-rebuild-findings-f", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := s2WorkerFailedLive(t, s, withWorkerFailureObservation(t, workerFailedContextFindingsEvent("work-rebuild-findings", "rebuild-failed-findings", "attempt-rebuild-findings-f", model, WorkerFailureWorkerError, findings, WorkerEvidenceEventPayloadVersion(WorkerFailed)))); err != nil {
+		if err := s2WorkerFailedLive(t, s, withWorkerFailureObservation(t, workerFailedContextFindingsEvent("work-rebuild-findings", "rebuild-failed-findings", "attempt-rebuild-findings-f", model, WorkerFailureWorkerError, findings, CurrentEventPayloadVersion(WorkerFailed)))); err != nil {
 			t.Fatal(err)
 		}
-		before := workerProjectionSnapshot(t, s)
 		var storedCompletion, storedFailure string
 		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id='rebuild-complete-findings'`).Scan(&storedCompletion); err != nil {
 			t.Fatal(err)
@@ -432,46 +362,14 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id='rebuild-failed-findings'`).Scan(&storedFailure); err != nil {
 			t.Fatal(err)
 		}
-		if err := RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatal(err)
-		}
-		if after := workerProjectionSnapshot(t, s); after != before {
-			t.Fatalf("rebuild changed the findings projection:\n%s\nwant\n%s", after, before)
-		}
-		var afterCompletion, afterFailure string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id='rebuild-complete-findings'`).Scan(&afterCompletion); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id='rebuild-failed-findings'`).Scan(&afterFailure); err != nil {
-			t.Fatal(err)
-		}
-		if afterCompletion != storedCompletion || afterFailure != storedFailure {
-			t.Fatal("rebuild rewrote the stored terminal payload bytes")
-		}
-	})
-	t.Run("findings bytes on a below-boundary replayed completion refuse", func(t *testing.T) {
-		s := openTemp(t)
-		lane := BuiltinLaneDefinitions()[0]
-		model := preferredModelForLane(lane)
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-fabricated", "attempt-fabricated", lane, nil)}}); err != nil {
-			t.Fatal(err)
-		}
-		fabricated := workerCompletedContextFindingsEvent("work-fabricated", "fabricated-complete", "attempt-fabricated", model, lane, []WorkerContextFinding{contextFindingFixture()}, 4, "")
-		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{fabricated}})
-		if !hasFailureKind(err, KindInvalidPayload) {
-			t.Fatalf("fabricated v4 findings error = %v, want %s", err, KindInvalidPayload)
-		}
-	})
-	t.Run("findings bytes on a below-boundary replayed failure refuse", func(t *testing.T) {
-		s := openTemp(t)
-		lane := BuiltinLaneDefinitions()[0]
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-fabricated-f", "attempt-fabricated-f", lane, nil)}}); err != nil {
-			t.Fatal(err)
-		}
-		fabricated := workerFailedContextFindingsEvent("work-fabricated-f", "fabricated-failed", "attempt-fabricated-f", preferredModelForLane(lane), WorkerFailureWorkerError, []WorkerContextFinding{contextFindingFixture()}, 1)
-		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{fabricated}})
-		if !hasFailureKind(err, KindInvalidPayload) {
-			t.Fatalf("fabricated v1 findings error = %v, want %s", err, KindInvalidPayload)
+		for _, raw := range []string{storedCompletion, storedFailure} {
+			var payload map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+				t.Fatal(err)
+			}
+			if string(payload["context_findings"]) != string(mustJSONValue(findings)) {
+				t.Fatalf("stored findings = %s", payload["context_findings"])
+			}
 		}
 	})
 }

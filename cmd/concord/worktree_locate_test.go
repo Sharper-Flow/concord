@@ -26,10 +26,10 @@ func seedLocatorAuthority(t *testing.T, s *store.Store, repo string) {
 			t.Fatal(err)
 		}
 	}
-	must(store.ApplyOperation(ctx, s, store.Operation{Events: productProjectMembershipEvents("wl", "product-wl", "project-wl", "wl"), ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-wl"): 0, store.VersionRef(store.SubjectProject, "project-wl"): 0}}))
+	seedProductProject(t, s, "product-wl", "project-wl", "wl")
 
 	must(store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
-		{EventID: "wl-work-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-wl", Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 2, Payload: jsonRaw(`{"work_kind":"task","title":"Locator Work","priority":1}`)},
+		{EventID: "wl-work-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-wl", Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Locator Work","priority":1}`)},
 		{EventID: "wl-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-wl", Actor: "operator", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-wl","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-wl"): 0}}))
 	must(s.AddProjectLocator(ctx, "project-wl", store.ProjectLocator{ID: "path-wl", Kind: store.LocatorCanonicalPath, Value: repo}, 1))
@@ -144,12 +144,14 @@ func TestWorktreeLocateRefusesUnlocatableAuthorityAndBadRefs(t *testing.T) {
 	}
 }
 
-// productProjectMembershipEvents builds the canonical product, project, and
-// primary-membership creation triple every locator fixture seeds.
-func productProjectMembershipEvents(prefix, productID, projectID, displayName string) []store.Event {
-	return []store.Event{
-		{EventID: prefix + "-product", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: productID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"display_name":"` + displayName + `","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: prefix + "-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: projectID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"display_name":"` + displayName + `"}`)},
-		{EventID: prefix + "-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: productID, Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"product_id":"` + productID + `","project_id":"` + projectID + `","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
+func seedProductProject(t *testing.T, s *store.Store, productID, projectID, displayName string) {
+	t.Helper()
+	if _, err := s.CreateProductWithProject(context.Background(), store.ProductCreation{
+		ProductID: productID, DisplayName: displayName,
+		StageMaturity: "prototype", StageAudienceCommitment: "operator_only",
+		ProjectID: projectID, ProjectDisplayName: displayName,
+		Role: "primary", Reason: "fixture",
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

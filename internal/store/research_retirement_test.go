@@ -239,14 +239,17 @@ func TestResearchRetirementWrongScopePrecedesEveryDeletion(t *testing.T) {
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner")
 	otherOwner := operationEvent("retirement-other-owner", "work.created", SubjectWorkItem, "other-owner", map[string]any{"work_kind": "research", "title": "Other owner", "priority": 1})
-	otherOwner.PayloadVersion = 2
+	otherOwner.PayloadVersion = CurrentEventPayloadVersion("work.created")
+	if _, err := s.CreateProductWithProject(ctx, ProductCreation{
+		ProductID: "other-product", DisplayName: "Other", StageMaturity: "prototype", StageAudienceCommitment: "operator_only",
+		ProjectID: "other-project", ProjectDisplayName: "Other", Role: "primary", Reason: "test",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		operationEvent("retirement-other-product", "product.created", SubjectProduct, "other-product", map[string]any{"display_name": "Other", "stage_maturity": "prototype", "stage_audience_commitment": "operator_only"}),
-		operationEvent("retirement-other-project", "project.created", SubjectProject, "other-project", map[string]any{"display_name": "Other"}),
-		operationEvent("retirement-other-product-project", "product_project.added", SubjectProduct, "other-product", map[string]any{"product_id": "other-product", "project_id": "other-project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2}),
 		otherOwner,
 		operationEvent("retirement-other-owner-project", "work_project.added", SubjectWorkItem, "other-owner", map[string]any{"work_id": "other-owner", "project_id": "other-project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2}),
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "other-product"): 0, VersionRef(SubjectProject, "other-project"): 0, VersionRef(SubjectWorkItem, "other-owner"): 0}}); err != nil {
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "other-owner"): 0}}); err != nil {
 		t.Fatal(err)
 	}
 	local := createSimplePack(t, s, "retirement-local", "owner")

@@ -651,7 +651,7 @@ func readWorkerOracleFindingLineageExcludingTx(ctx context.Context, q queryer, w
 			var report WorkerCompletedPayload
 			if json.Unmarshal([]byte(payload), &report) != nil {
 				rows.Close()
-				return nil, newFailure(KindInvariantViolation, "worker_oracle_findings", "a stored terminal report is malformed", false, "rebuild the worker events from the authoritative log")
+				return nil, newFailure(KindInvariantViolation, "worker_oracle_findings", "a stored terminal report is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 			}
 			for _, entry := range report.Evidence {
 				if entry.OracleReceipt != nil {

@@ -143,7 +143,7 @@ func pConfirmReceiptPremise(t *testing.T, f workContextFixture, repo string) err
 	})
 }
 
-func TestWorkflowVerdictBatchParityAndRebuild(t *testing.T) {
+func TestWorkflowVerdictBatchParity(t *testing.T) {
 	f, _, refs := pReceiptFixture(t, "batch-parity-current", 3, 1)
 	// A single association is a one-entry batch, not the retired scalar form.
 	for _, indexes := range [][]int{{0}, {1}} {
@@ -202,7 +202,7 @@ func TestWorkflowVerdictBatchParityAndRebuild(t *testing.T) {
 	if err != nil || !slices.Equal(missing, []string{"predicate:p2"}) {
 		t.Fatalf("parity omitted criterion=%v err=%v", missing, err)
 	}
-	pAssertBatchRebuild(t, f, 2)
+	pAssertBatchAssociations(t, f, 2)
 }
 
 func TestWorkflowVerdictBatchAtomicRefusal(t *testing.T) {
@@ -255,7 +255,7 @@ func TestWorkflowVerdictBatchAtomicRefusal(t *testing.T) {
 	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, 0, 1), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
-	pAssertBatchRebuild(t, f, 2)
+	pAssertBatchAssociations(t, f, 2)
 }
 
 func TestWorkflowVerdictBatchLateRecoveryResolvesActiveContract(t *testing.T) {
@@ -335,7 +335,7 @@ func TestWorkflowVerdictBatchOmissionStaysMissing(t *testing.T) {
 	}
 }
 
-func pAssertBatchRebuild(t *testing.T, f workContextFixture, count int) {
+func pAssertBatchAssociations(t *testing.T, f workContextFixture, count int) {
 	t.Helper()
 	before, err := latestWorkflowVerdicts(t.Context(), f.store.db, f.workID, 1)
 	if err != nil || len(before) != count {
@@ -350,24 +350,8 @@ func pAssertBatchRebuild(t *testing.T, f workContextFixture, count int) {
 	if err := f.store.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, f.workID, WorkflowVerdictRecorded).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
-	if err := RebuildFromLog(t.Context(), f.store); err != nil {
-		t.Fatal(err)
-	}
-	after, err := latestWorkflowVerdicts(t.Context(), f.store.db, f.workID, 1)
-	if err != nil || string(mustJSONValue(before)) != string(mustJSONValue(after)) {
-		t.Fatalf("rebuild changed associations: before=%+v after=%+v err=%v", before, after, err)
-	}
-	var eventsAfter int
-	if err := f.store.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, f.workID, WorkflowVerdictRecorded).Scan(&eventsAfter); err != nil {
-		t.Fatal(err)
-	}
-	if eventsBefore < count || eventsAfter != eventsBefore {
-		t.Fatalf("rebuild verdict event count %d -> %d, want at least %d", eventsBefore, eventsAfter, count)
-	}
-	for _, association := range after {
-		if err := verifyWorkflowCriterionAssociation(t.Context(), f.store.db, f.workID, association); err != nil {
-			t.Fatalf("rebuilt association lost criterion proof: %v", err)
-		}
+	if eventsBefore < count {
+		t.Fatalf("verdict event count %d, want at least %d", eventsBefore, count)
 	}
 }
 
@@ -419,7 +403,7 @@ func pAssertReceiptUnion(t *testing.T, criteria, perCriterion int) {
 	if recorded != criteria {
 		t.Fatalf("batch recorded %d verdict events, want %d", recorded, criteria)
 	}
-	pAssertBatchRebuild(t, f, criteria)
+	pAssertBatchAssociations(t, f, criteria)
 }
 
 func TestWorkflowVerdictBatchEvidenceUnionIsTheDurableAuthority(t *testing.T) {

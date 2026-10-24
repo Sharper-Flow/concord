@@ -53,7 +53,7 @@ func TestIntentRevisionTaskRoundTripPreservesAbsentAndReplacesPresent(t *testing
 	t.Parallel()
 	s := openTemp(t)
 	seedSchemaEvolutionBase(t, s)
-	create := Event{EventID: "task-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "task-work", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: []byte(`{"work_kind":"task","title":"Original","task":"initial task","value_statement":"Original statement","priority":2}`)}
+	create := Event{EventID: "task-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "task-work", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: []byte(`{"work_kind":"task","title":"Original","task":"initial task","value_statement":"Original statement","priority":2}`)}
 	membership := Event{EventID: "task-membership", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: "task-work", Actor: "operator", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: 1, Payload: []byte(`{"work_id":"task-work","project_id":"schema-project","role":"primary","reason":"test","expected_version":1,"resulting_version":2}`)}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{create, membership}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "task-work"): 0}}); err != nil {
 		t.Fatal(err)
@@ -71,10 +71,6 @@ func TestIntentRevisionTaskRoundTripPreservesAbsentAndReplacesPresent(t *testing
 	}
 	withTask := Event{EventID: "task-revise-replace", Kind: "work.intent_revised", SubjectType: SubjectWorkItem, SubjectID: "task-work", Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: withTaskPayload}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{withTask}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "task-work"): 3}}); err != nil {
-		t.Fatal(err)
-	}
-	assertStoredTask(t, s, "task-work", updatedTask)
-	if err := RebuildFromLog(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
 	assertStoredTask(t, s, "task-work", updatedTask)

@@ -47,7 +47,7 @@ func seedObservationLawBoundary(t *testing.T) (*store.Store, *Service, Authority
 		"expected_version": projectVersion, "resulting_version": projectVersion + 1,
 	})
 	if err := store.ApplyOperation(ctx, s, store.Operation{
-		Events:           []store.Event{{EventID: "obs-law-locator", Kind: "project.locator_added", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: locatorPayload}},
+		Events:           []store.Event{{EventID: "obs-law-locator", Kind: "project.locator_added", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("project.locator_added"), Payload: locatorPayload}},
 		ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProject, "project-1"): projectVersion},
 	}); err != nil {
 		t.Fatal(err)

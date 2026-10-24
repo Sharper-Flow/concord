@@ -47,7 +47,7 @@ func TestWorkRemovalLinearHandoffRequiresRecordedIdentity(t *testing.T) {
 	assertFailureKind(t, validateRemovalDestinationQ(ctx, s.DatabaseForTesting(), req), KindInvalidRelation)
 }
 
-func TestWorkRemovalDeletesExecutionAndReplaysAbsence(t *testing.T) {
+func TestWorkRemovalDeletesExecutionAndRetriesIdempotently(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	seedWork(t, s, "remove-work-1")
@@ -66,15 +66,6 @@ func TestWorkRemovalDeletesExecutionAndReplaysAbsence(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("removed work rows = %d, want 0", count)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM work_items WHERE id=?`, "remove-work-1").Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Fatalf("replayed work rows = %d, want 0", count)
 	}
 	audit, err := s.readWorkRemovalAuditByOperation(ctx, req.OperationID)
 	if err != nil {

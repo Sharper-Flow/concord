@@ -139,12 +139,6 @@ func TestWorkerCompletionDirectoryMustMatchActiveClaim(t *testing.T) {
 		if lifecycle != "completed" {
 			t.Fatalf("attempt lifecycle = %q, want completed", lifecycle)
 		}
-		if err := os.RemoveAll(root); err != nil {
-			t.Fatal(err)
-		}
-		if err := RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatalf("completion replay probed a removed directory: %v", err)
-		}
 	})
 }
 
@@ -152,9 +146,10 @@ func workerCompletionWithDirectory(workID, eventID, attemptID, directory string)
 	payload, err := json.Marshal(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(BuiltinLaneDefinitions()[0]),
 		ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: directory,
+		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(BuiltinLaneDefinitions()[0]),
 	})
 	if err != nil {
 		panic(err)
 	}
-	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: payload}
+	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: payload}
 }

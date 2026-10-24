@@ -69,18 +69,13 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if !isWorkflowReplay(ctx) {
-		if active, err := outsideRepairActiveTx(ctx, tx, event.SubjectID); err != nil {
-			return err
-		} else if active {
-			return newOutsideRepairRouteFailure("complete_workflow", "workflow completion refused: outside-repair disposition is active")
-		}
-		// The staleness boundary consults the current Git-derived law state,
-		// which the log never carried; replay owes only the projection folds
-		// below.
-		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, event.SubjectID); err != nil {
-			return err
-		}
+	if active, err := outsideRepairActiveTx(ctx, tx, event.SubjectID); err != nil {
+		return err
+	} else if active {
+		return newOutsideRepairRouteFailure("complete_workflow", "workflow completion refused: outside-repair disposition is active")
+	}
+	if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, event.SubjectID); err != nil {
+		return err
 	}
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
@@ -119,7 +114,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err := workflowCompletionCallerAuthority(ctx, tx, event.SubjectID, event.Actor); err != nil {
 		return err
 	}
-	if workflowDefinitionProducesDelivery(definition) && !isWorkflowReplay(ctx) {
+	if workflowDefinitionProducesDelivery(definition) {
 		review, err := loadWorkflowReviewState(ctx, tx, event.SubjectID, 0)
 		if err != nil {
 			return err
@@ -161,10 +156,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	}
 	// Completion never treats an amendment declaration as permission to leave a
 	// conflict unresolved. The Git-derived projection must actually be clear.
-	// The boundary consults the current registered source set, which the log
-	// never carried; replay owes only the projection folds, exactly as the
-	// staleness boundary above.
-	if contract.LawBoundaryVersion == 1 && !isWorkflowReplay(ctx) {
+	if contract.LawBoundaryVersion == 1 {
 		mandated, mandateErr := currentWorkflowLawMandate(contract.SpecMandate, contract.ArchitectureBinding)
 		if mandateErr != nil {
 			return workflowClauseError(mandateErr, 3)
@@ -224,14 +216,6 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		return workflowClauseError(err, 5)
 	}
 
-	// Clause 6: the folded evaluator verdict is the authority.  Incomparable,
-	// weaker, and non-success verdicts are never coerced into completion.
-	for _, predicate := range contract.Predicates {
-		verdict := verdictByPredicate[predicate.PredicateID]
-		if verdict.VerdictKind != "ok" || verdict.IncomparableWithApproved {
-			return workflowClauseFailure(KindOutcomeMismatch, 6, "delivered outcome is weaker or incomparable with the approved outcome", "contact_operator")
-		}
-	}
 	if err := verifyBlockingStaleness(ctx, tx, event.SubjectID, definition, contract.RequiredEvidence); err != nil {
 		return workflowClauseError(err, 6)
 	}
@@ -348,7 +332,7 @@ func workflowPremiseConfirmationAuthority(ctx context.Context, tx *sql.Tx, defin
 		return nil
 	}
 	if !contract.DecisionDomainsPresent {
-		return newFailure(KindInvariantViolation, "complete_workflow", "consequence_v1 completion requires the contract's stored decision-domain fact", false, "rebuild projections from the event log")
+		return newFailure(KindInvariantViolation, "complete_workflow", "consequence_v1 completion requires the contract's stored decision-domain fact", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	decision, err := ClassifyWorkflowApproval(definition, "confirm_premise", WorkflowApprovalFacts{ActiveDecisionDomains: contract.DecisionDomains})
 	if err != nil {
@@ -457,17 +441,17 @@ func workflowCompletionContractRows(ctx context.Context, tx queryer, workID stri
 	var predicateErr error
 	result.Predicates, predicateErr = readWorkflowContractPredicates(ctx, tx, workID, result.Version)
 	if predicateErr != nil || len(result.Predicates) == 0 {
-		return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract predicates are missing", false, "rebuild projections from the event log")
+		return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract predicates are missing", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	domains, domainsPresent, domainsErr := workflowStoredDecisionDomains(decisionDomains)
 	if domainsErr != nil {
-		return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract decision domains are malformed", false, "rebuild projections from the event log")
+		return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract decision domains are malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	result.DecisionDomainsPresent, result.DecisionDomains = domainsPresent, domains
 	if lawChange.Valid {
 		result.LawChange = &WorkflowLawChange{}
 		if err := json.Unmarshal([]byte(lawChange.String), result.LawChange); err != nil {
-			return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract law change is malformed", false, "rebuild projections from the event log")
+			return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract law change is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 	}
 	result.OutcomeKind = result.Predicates[0].OutcomeKind
@@ -902,7 +886,7 @@ func workflowStalenessObservationState(ctx context.Context, q queryer, workID st
 		}
 		var observation workflowStalenessObservedPayload
 		if err := json.Unmarshal([]byte(raw), &observation); err != nil {
-			return nil, newFailure(KindInvariantViolation, "workflow_staleness", "staleness observation event is malformed", false, "rebuild projections from the event log")
+			return nil, newFailure(KindInvariantViolation, "workflow_staleness", "staleness observation event is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		if _, exists := observations[observation.RuleID]; !exists {
 			observations[observation.RuleID] = observation
@@ -1039,13 +1023,13 @@ func latestWorkflowVerdicts(ctx context.Context, q queryer, workID string, contr
 // must stop before the binding whose completion they validate.
 func latestWorkflowVerdictsBefore(ctx context.Context, q queryer, workID string, contractVersion, beforeSeq int64) ([]workflowVerdictRecordedPayload, error) {
 	if contractVersion <= 0 {
-		return nil, newFailure(KindInvariantViolation, "complete_workflow", "active workflow contract version is invalid", false, "rebuild the workflow contract projection")
+		return nil, newFailure(KindInvariantViolation, "complete_workflow", "active workflow contract version is invalid", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	contracts, err := workflowContractPredicateHistory(ctx, q, workID, contractVersion)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := q.QueryContext(ctx, `SELECT seq,payload,payload_version FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND (?=0 OR seq<?) ORDER BY seq DESC`, workID, WorkflowVerdictRecorded, beforeSeq, beforeSeq)
+	rows, err := q.QueryContext(ctx, `SELECT seq,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND (?=0 OR seq<?) ORDER BY seq DESC`, workID, WorkflowVerdictRecorded, beforeSeq, beforeSeq)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow verdicts", true, "retry once the database is readable", err)
 	}
@@ -1053,14 +1037,13 @@ func latestWorkflowVerdictsBefore(ctx context.Context, q queryer, workID string,
 	// pooled connection is single, and a query inside this scan would park on
 	// the rows the scan still holds.
 	type collectedVerdict struct {
-		seq            int64
-		raw            []byte
-		payloadVersion int
+		seq int64
+		raw []byte
 	}
 	collected := make([]collectedVerdict, 0, 8)
 	for rows.Next() {
 		var verdict collectedVerdict
-		if err := rows.Scan(&verdict.seq, &verdict.raw, &verdict.payloadVersion); err != nil {
+		if err := rows.Scan(&verdict.seq, &verdict.raw); err != nil {
 			rows.Close()
 			return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow verdict", true, "retry once the database is readable", err)
 		}
@@ -1088,9 +1071,6 @@ func latestWorkflowVerdictsBefore(ctx context.Context, q queryer, workID string,
 		var verdict workflowVerdictRecordedPayload
 		if err := json.Unmarshal(collectedVerdict.raw, &verdict); err != nil {
 			return nil, newFailure(KindInvariantViolation, "complete_workflow", "workflow verdict payload is malformed", false, "reread_entities")
-		}
-		if collectedVerdict.payloadVersion == 1 {
-			verdict.PredicateID = "predicate:primary"
 		}
 		if collectedVerdict.seq <= cutoff {
 			continue

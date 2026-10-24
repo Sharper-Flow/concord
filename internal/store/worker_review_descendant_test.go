@@ -143,7 +143,7 @@ func TestReviewDescendantNewerEditingDispatchRefuses(t *testing.T) {
 					}
 					event := Event{
 						EventID: "new-editor-failed", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: j.workID,
-						Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed),
+						Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed),
 						Payload: mustJSONValue(WorkerFailedPayload{
 							AttemptID: "new-editor", ReadbackModel: preferredModelForLane(reviewGateLane(t, capability)), FailureKind: kind, Detail: "bounded worker error",
 							FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: attributionHostObservation()},

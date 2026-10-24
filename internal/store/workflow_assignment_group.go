@@ -46,7 +46,7 @@ func loadWorkflowAssignmentGroups(ctx context.Context, q queryer, workID string,
 }
 
 func recordWorkflowAssignmentGroup(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload) error {
-	if isWorkflowReplay(ctx) || p.WorkerCapabilityClass != "implementation" || p.WorkerJob == nil {
+	if p.WorkerCapabilityClass != "implementation" || p.WorkerJob == nil {
 		return nil
 	}
 	state, err := loadWorkflowReviewState(ctx, tx, event.SubjectID, event.Seq)

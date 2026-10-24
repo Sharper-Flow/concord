@@ -82,21 +82,3 @@ func TestChangeProductStageRejectsInvalidValues(t *testing.T) {
 		t.Fatalf("stale version must be refused, got %v", err)
 	}
 }
-
-func TestChangeProductStageRebuildsFromLog(t *testing.T) {
-	t.Parallel()
-	s := stageFixture(t)
-	_, _, before := productStageRow(t, s)
-	if _, err := s.ChangeProductStage(context.Background(), ProductStageChange{
-		ProductID: "product-stage", StageMaturity: "beta", StageAudienceCommitment: "limited", ExpectedVersion: int64(before),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	maturity, audience, version := productStageRow(t, s)
-	if maturity != "beta" || audience != "limited" || version != before+1 {
-		t.Fatalf("rebuild lost the stage change: %s/%s v%d", maturity, audience, version)
-	}
-}

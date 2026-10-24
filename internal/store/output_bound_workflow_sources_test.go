@@ -116,7 +116,7 @@ func init() {
 	observationRefBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(ref)", boundCharacters)
 	observationTagBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(tag)", boundCharacters)
 	productIdentityBound := goInlineBound("internal/store/workflow_continuity.go", "readWorkflowContinuityForRegistry", "len(out.ProductIdentity)", boundItems)
-	stepActionCount := goInlineBound("internal/store/workflow_registry.go", "validateWorkflowDefinitionWithReference", "len(step.Actions)", boundItems)
+	stepActionCount := goInlineBound("internal/store/workflow_registry.go", "ValidateWorkflowDefinition", "len(step.Actions)", boundItems)
 	commitOIDBound := goInlineBound("internal/store/work_context.go", "workContextCommitOID", "len(oid)", boundBytes)
 	drivingSessionCount := goInlineBound("internal/store/workpin.go", "scanWorkPinDrivingSessions", "len(sessions)", boundItems)
 	evidenceRefBound := goInlineBound("internal/store/workflow.go", "workflowEvidenceRef", "len(value)", boundBytes)
@@ -149,9 +149,9 @@ func init() {
 	observationStatementGuard := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(statement)", boundCharacters)
 	observationRefsCount := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(refs)", boundItems)
 	observationTagsCount := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(tags)", boundItems)
-	designApproachGuard := goInlineBound("internal/store/workflow_design.go", "validateWorkflowDesignContentWithReference", "len(p.Approach)", boundBytes)
-	designDecisionsCount := goInlineBound("internal/store/workflow_design.go", "validateWorkflowDesignContentWithReference", "len(p.Decisions)", boundItems)
-	designTouchedRefsGuard := goCallBound("internal/store/workflow_design.go", "validateWorkflowDesignContentWithReference", "workflowList", "", 1, boundItems)
+	designApproachGuard := goInlineBound("internal/store/workflow_design.go", "validateWorkflowDesignContent", "len(p.Approach)", boundBytes)
+	designDecisionsCount := goInlineBound("internal/store/workflow_design.go", "validateWorkflowDesignContent", "len(p.Decisions)", boundItems)
+	designTouchedRefsGuard := goCallBound("internal/store/workflow_design.go", "validateWorkflowDesignContent", "workflowList", "", 1, boundItems)
 	proposalProblemGuard := pkGuardArgBound("internal/store/workflow.go", "validateWorkflowProposalContent", "validWorkflowProseItem", "content.Problem", 1, boundCharacters)
 	proposalConstraintsCount := goInlineBound("internal/store/workflow.go", "validateWorkflowProposalContent", "len(content.Constraints)", boundItems)
 	proposalUserOutcomesCount := goInlineBound("internal/store/workflow.go", "validateWorkflowProposalContent", "len(content.UserOutcomes)", boundItems)
@@ -162,7 +162,7 @@ func init() {
 	// surface's declaration guard gates definition admission directly.
 	// (workflow_registry.go:463; the sibling PublicPayload refusal at :472
 	// is nil-check-conjoined and stays an honest named gap.)
-	declaredPayloadFields := goInlineBound("internal/store/workflow_registry.go", "validateWorkflowDefinitionWithReference", "len(action.Payload.Fields)", boundItems)
+	declaredPayloadFields := goInlineBound("internal/store/workflow_registry.go", "ValidateWorkflowDefinition", "len(action.Payload.Fields)", boundItems)
 
 	// The approved contract's outcome predicates: the live approve_contract
 	// write admits at most 8 through this action-input shape and the fold
@@ -392,7 +392,7 @@ func init() {
 		declaredPayloadFields) // one intent's required fields are the Required subset of one action's declared payload; the sibling PublicPayload refusal (workflow_registry.go:472) sits inside a nil-check conjunction the inline verifier cannot confirm and is named in the report
 	registerOutputBound("/$defs/work_pin/properties/next_valid_intents/maxItems",
 		workflowIntentChainItemsBound(
-			goInlineBound("internal/store/workflow_registry.go", "validateWorkflowDefinitionWithReference", "len(step.Actions)", boundItems),
+			goInlineBound("internal/store/workflow_registry.go", "ValidateWorkflowDefinition", "len(step.Actions)", boundItems),
 			[]string{"workPinIntents", "workPinWithoutAction", "workPinEscalatedRetryIntents"},
 			workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinIntents", target: "intents", baseLoopOK: true},
 			workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinStepIntentsTx", target: "pin.NextValidIntents"},

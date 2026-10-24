@@ -726,8 +726,8 @@ func TestLawChangeApprovalRequiresConsumedIdentity(t *testing.T) {
 	requireFailureKind(t, err, KindUnauthorized, "operator differs from consumed approval")
 }
 
-func TestLawChangeReplayKeepsRecordedApproval(t *testing.T) {
-	const workID = "law-change-replay"
+func TestLawChangeFoldRequiresDeclarationAndConsumedApproval(t *testing.T) {
+	const workID = "law-change-current"
 	definition := approvalRouteDefinition(t)
 	registry, registered := newResolutionRegistry(t, definition)
 	s, owner := seedResolutionSelection(t, workID, registry, registered)
@@ -735,76 +735,36 @@ func TestLawChangeReplayKeepsRecordedApproval(t *testing.T) {
 	seedLawChangeLaw(t, s, "law-agent", "derived", "root")
 	change := withLawChangeBaseline(t, s, workID, &WorkflowLawChange{Reason: "revise", LawIDs: []string{"law-agent"}, DomainIDs: []string{}, Serious: true, TouchesSecurityOrDataSafe: true, TextPins: lawChangePins("law-agent"), Approval: lawChangeApprovalProof()}, []string{"law-agent"}, nil, false)
 	version := readWorkVersion(t, s, workID)
-	event := workflowTypedEvent("law-replay", WorkflowContractApproved, workID, ownerRefForTest(t, owner), time.Unix(30, 0), version, map[string]any{
+	event := workflowTypedEvent("law-current", WorkflowContractApproved, workID, ownerRefForTest(t, owner), time.Unix(30, 0), version, map[string]any{
 		"contract_version": 1, "premise": "The law change preserves its exact approved text.",
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:law", "immutable_subject_ref": "commit:law", "expected_result": "pass"}}},
 		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 		"spec_mandate": []string{"law-agent"}, "law_modifies": []string{"law-agent"}, "law_revisions": lawChangePins("law-agent"), "law_boundary_version": 1,
 		"decision_domains": []string{}, "law_change": change,
 	})
-	for _, vector := range []struct {
-		name        string
-		source      int
-		omit        bool
-		wantFailure bool
-	}{
-		{name: "current source cannot omit law change", source: 6, omit: true, wantFailure: true},
-		{name: "old source cannot forge law change", source: 5, wantFailure: true},
-		{name: "old source retains historical absence", source: 5, omit: true},
-	} {
-		t.Run(vector.name, func(t *testing.T) {
-			candidate := event
-			candidate.replaySourcePayloadVersion = vector.source
-			if vector.omit {
-				var fields map[string]json.RawMessage
-				if err := json.Unmarshal(candidate.Payload, &fields); err != nil {
-					t.Fatal(err)
-				}
-				delete(fields, "law_change")
-				candidate.Payload = mustJSONValue(fields)
-			}
-			tx := lawChangeTx(t, s)
-			scope, err := beginFold(context.Background(), tx)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := scope.bindRegistry(tx, registry); err != nil {
-				t.Fatal(err)
-			}
-			err = foldWorkflowContractApproved(workflowReplayContext(context.Background()), tx, candidate, scope)
-			_ = tx.Rollback()
-			if vector.wantFailure {
-				requireFailureKind(t, err, KindInvalidPayload, vector.name)
-			} else if err != nil {
-				t.Fatalf("historical absence refused: %v", err)
-			}
-		})
-	}
-	// No mutable approval row exists. The live fold must refuse; replay uses
-	// the proof recorded at the original live admission instead.
+	t.Run("current source cannot omit law change", func(t *testing.T) {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(event.Payload, &fields); err != nil {
+			t.Fatal(err)
+		}
+		delete(fields, "law_change")
+		candidate := event
+		candidate.Payload = mustJSONValue(fields)
+		tx := lawChangeTx(t, s)
+		defer tx.Rollback()
+		scope, err := beginFold(context.Background(), tx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := scope.bindRegistry(tx, registry); err != nil {
+			t.Fatal(err)
+		}
+		requireFailureKind(t, foldWorkflowContractApproved(context.Background(), tx, candidate, scope), KindInvalidPayload, "current source cannot omit law change")
+	})
+	// No consumed approval exists, so live admission must refuse.
 	tx := lawChangeTx(t, s)
-	scope, err := beginFold(context.Background(), tx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := scope.bindRegistry(tx, registry); err != nil {
-		t.Fatal(err)
-	}
+	defer tx.Rollback()
 	requireFailureKind(t, validateLiveWorkflowLawChangeTx(context.Background(), tx, workID, workflowContractApprovedPayload{LawChange: change, LawModifies: []string{"law-agent"}}, false), KindApprovalRequired, "live admission without the consumed approval")
-	if err := foldWorkflowContractApproved(workflowReplayContext(context.Background()), tx, event, scope); err != nil {
-		t.Fatalf("recorded proof refused during replay: %v", err)
-	}
-	var encoded string
-	if err := tx.QueryRow(`SELECT law_change FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&encoded); err != nil {
-		t.Fatal(err)
-	}
-	var restored WorkflowLawChange
-	if err := json.Unmarshal([]byte(encoded), &restored); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(&restored, change) {
-		t.Fatalf("replay changed the consent proof: got %+v, want %+v", restored, change)
-	}
 }
 
 // TestLawChangeRegistryCountUsesEnactedEntries holds that completion compares

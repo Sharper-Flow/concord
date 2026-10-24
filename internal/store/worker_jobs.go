@@ -347,7 +347,10 @@ func foldWorkerJobRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET recorded_payload=?,recorded_seq=?,recorded_event_id=? WHERE work_id=? AND job_id=? AND revision=?`, string(event.Payload), event.Seq, event.EventID, event.SubjectID, payload.JobID, payload.Revision); err != nil {
 			return workflowProjectionError(err, "cannot retain the recorded job descriptor")
 		}
-		return advanceWorkflowVersion(ctx, tx, event, payload.WorkflowVersionFields)
+		if err := advanceWorkflowVersion(ctx, tx, event, payload.WorkflowVersionFields); err != nil {
+			return err
+		}
+		return advanceWorkflowCorrectionFactsTx(ctx, tx, event)
 	case err != sql.ErrNoRows:
 		return wrapFailure(KindUnavailable, "fold_event", "cannot compare the recorded worker-job revision", true, "retry once the worker-job projection is readable", err)
 	}
@@ -390,7 +393,10 @@ func foldWorkerJobRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 		return workflowProjectionError(err, "cannot carry the assignment's admitted group to its new revision")
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE worker_job_revisions SET recorded_payload=?,recorded_seq=?,recorded_event_id=? WHERE work_id=? AND job_id=? AND revision=?`, string(event.Payload), event.Seq, event.EventID, event.SubjectID, payload.JobID, payload.Revision)
-	return workflowProjectionError(err, "cannot retain the recorded job descriptor")
+	if err != nil {
+		return workflowProjectionError(err, "cannot retain the recorded job descriptor")
+	}
+	return advanceWorkflowCorrectionFactsTx(ctx, tx, event)
 }
 
 func nonNilPrerequisites(values []WorkerJobPrerequisite) []WorkerJobPrerequisite {
@@ -727,14 +733,20 @@ func voidWorkerJobRepairByAttemptTx(ctx context.Context, tx *sql.Tx, workID, att
 // without clearing correction debt. A confirming review judges the repairing
 // revision; it never replaces that revision's recorded satisfaction reference.
 func markAcceptedWorkerJobTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload) error {
-	if p.ActionID != "accept_worker_result" || p.WorkerJob == nil {
+	if p.ActionID != "accept_worker_result" {
 		return nil
+	}
+	if p.WorkerJob == nil {
+		return applyAcceptWorkerResultCorrectionTx(ctx, tx, event, p)
 	}
 	confirming, err := dispatchConsumedChecksRepairReviewTx(ctx, tx, event.SubjectID, p.WorkerAttemptID, *p.WorkerJob)
 	if err != nil {
 		return err
 	}
 	if confirming {
+		if err := applyAcceptWorkerResultCorrectionTx(ctx, tx, event, p); err != nil {
+			return err
+		}
 		// The history owns the accepted Review decision. Apply its void to
 		// readiness without reclassifying the report or replacing satisfaction.
 		history, err := workerChecksRepairWalkTx(ctx, tx, event.SubjectID, event.Seq)
@@ -749,7 +761,10 @@ func markAcceptedWorkerJobTx(ctx context.Context, tx *sql.Tx, event Event, p wor
 	if err := markWorkerJobSatisfiedTx(ctx, tx, event, p.WorkerJob); err != nil {
 		return err
 	}
-	return markWorkerJobRepairReadinessTx(ctx, tx, event, p.WorkerJob)
+	if err := markWorkerJobRepairReadinessTx(ctx, tx, event, p.WorkerJob); err != nil {
+		return err
+	}
+	return applyAcceptWorkerResultCorrectionTx(ctx, tx, event, p)
 }
 
 // markWorkerJobSatisfiedTx records the disposition an accepted worker result

@@ -30,7 +30,7 @@ func ReadWorkflowVerdict(ctx context.Context, s *Store, workID string) (*Workflo
 	}
 	var payload []byte
 	var occurredAt string
-	err := s.db.QueryRowContext(ctx, `SELECT payload, occurred_at FROM domain_events WHERE kind='workflow.completed' AND subject_type=? AND subject_id=? ORDER BY seq DESC LIMIT 1`, SubjectWorkItem, workID).Scan(&payload, &occurredAt)
+	err := s.db.QueryRowContext(ctx, `SELECT completion_payload,completion_occurred_at FROM workflow_instances WHERE work_id=? AND completion_payload IS NOT NULL`, workID).Scan(&payload, &occurredAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

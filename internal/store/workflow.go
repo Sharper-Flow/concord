@@ -1395,6 +1395,9 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if _, err := tx.ExecContext(ctx, `UPDATE workflow_contracts SET supersession_seq=? WHERE work_id=? AND contract_version=?`, event.Seq, event.SubjectID, p.NewContractVersion); err != nil {
 		return workflowProjectionError(err, "cannot record the workflow contract supersession boundary")
 	}
+	if err := advanceWorkflowCorrectionFactsTx(ctx, tx, event); err != nil {
+		return err
+	}
 	if p.SuccessorContract != nil {
 		if err := foldCompleteStepContractCorrectionTxForRegistry(ctx, tx, scopeDefinitionRegistry(scope), event, p.SuccessorContract); err != nil {
 			return err
@@ -2317,7 +2320,7 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		// therefore closed for the last criterion already; join this action's
 		// own verified effect rather than re-test the post-association state.
 		var paired bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq<? AND actor=? AND json_extract(payload,'$.resulting_version')=?)`, event.SubjectID, WorkflowVerdictRecorded, event.Seq, p.ActorRef, p.ExpectedVersion).Scan(&paired); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_predicate_verdicts WHERE work_id=? AND verdict_seq<? AND actor=? AND json_extract(payload,'$.resulting_version')=?)`, event.SubjectID, event.Seq, p.ActorRef, p.ExpectedVersion).Scan(&paired); err != nil {
 			return workflowProjectionError(err, "cannot read late criterion association effect")
 		}
 		if paired {
@@ -2372,7 +2375,7 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		var bindingSeq int64
 		// The evidence constructor emits its binding immediately before the
 		// completion. Join that effect, not a tuple from an earlier action.
-		err := tx.QueryRowContext(ctx, `SELECT seq,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq<? AND actor=? AND json_extract(payload,'$.resulting_version')=? ORDER BY seq DESC LIMIT 1`, event.SubjectID, WorkflowEvidenceBound, event.Seq, p.ActorRef, p.ExpectedVersion).Scan(&bindingSeq, &raw)
+		err := tx.QueryRowContext(ctx, `SELECT binding_seq,payload FROM workflow_evidence_bindings WHERE work_id=? AND binding_seq<? AND actor=? AND json_extract(payload,'$.resulting_version')=? ORDER BY binding_seq DESC LIMIT 1`, event.SubjectID, event.Seq, p.ActorRef, p.ExpectedVersion).Scan(&bindingSeq, &raw)
 		if err != nil && err != sql.ErrNoRows {
 			return wrapFailure(KindUnavailable, "fold_event", "cannot inspect recovery evidence binding", true, "retry once the workflow evidence projection is readable", err)
 		}
@@ -2577,9 +2580,20 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	if err := writeWorkerAuthorizationTx(ctx, tx, event, p); err != nil {
 		return workflowProjectionError(err, "cannot record the worker authorization or disposition")
 	}
-	// A local job acceptance holds its phase. Every other action keeps one
+	switch p.ActionID {
+	case "dispatch_worker", "record_worker_failure", "reject_worker_result", "request_correction":
+		if err := advanceWorkflowCorrectionFactsTx(ctx, tx, event); err != nil {
+			return err
+		}
+	}
+	if p.DeliveryArtifact != "" && p.DeliveryState == "asserted" {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_delivery_state(work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?) ON CONFLICT(work_id) DO UPDATE SET assertion_seq=excluded.assertion_seq,assertion_id=excluded.assertion_id,actor=excluded.actor,occurred_at=excluded.occurred_at,payload_version=excluded.payload_version,payload=excluded.payload,correction_id=NULL,correction_occurred_at=NULL,correction_payload=NULL`, event.SubjectID, event.Seq, event.EventID, event.Actor, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.PayloadVersion, string(event.Payload)); err != nil {
+			return workflowProjectionError(err, "cannot record the current delivery assertion")
+		}
+	}
+	// A local job or held Review acceptance holds its phase. Every other action keeps one
 	// current exit coordinate; the pinned definition chooses advancing actions.
-	if p.ActionID != "accept_worker_result" || p.WorkerJob == nil || p.DeliveryState != "" {
+	if p.ActionID != "accept_worker_result" || (!p.ReviewAdvanceHeld && (p.WorkerJob == nil || p.DeliveryState != "")) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_phase_exits(work_id,action_id,exit_seq) VALUES(?,?,?) ON CONFLICT(work_id,action_id) DO UPDATE SET exit_seq=excluded.exit_seq`, event.SubjectID, p.ActionID, event.Seq); err != nil {
 			return workflowProjectionError(err, "cannot record the workflow phase exit")
 		}
@@ -3513,6 +3527,14 @@ func foldWorkflowVerdictRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 			return newFailure(KindInvalidPayload, "fold_event", "verdict predicate_id is not approved for the contract version", false, "name an approved contract predicate")
 		}
 	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_predicate_verdicts(work_id,contract_version,predicate_id,verdict_seq,actor,payload) VALUES(?,?,?,?,?,?) ON CONFLICT(work_id,contract_version,predicate_id) DO UPDATE SET verdict_seq=excluded.verdict_seq,actor=excluded.actor,payload=excluded.payload`, event.SubjectID, p.ContractVersion, p.PredicateID, event.Seq, event.Actor, string(event.Payload)); err != nil {
+		return workflowProjectionError(err, "cannot record the current predicate verdict")
+	}
+	if p.VerdictKind != "ok" || p.IncomparableWithApproved {
+		if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET unhealthy_verdict_seq=? WHERE work_id=?`, event.Seq, event.SubjectID); err != nil {
+			return workflowProjectionError(err, "cannot record the artifact-staleness verdict frontier")
+		}
+	}
 	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
 }
 
@@ -3913,7 +3935,7 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?,completed_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded','outside_repair')`, p.TerminalState, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
+	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?,completed_at=?,completion_payload=?,completion_occurred_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded','outside_repair')`, p.TerminalState, event.OccurredAt.UTC().Format(time.RFC3339Nano), string(event.Payload), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
 	if err != nil {
 		return err
 	}

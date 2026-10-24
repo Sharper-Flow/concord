@@ -657,10 +657,10 @@ func workflowUnsettledWorkerAttempt(ctx context.Context, q queryer, workID, subj
 // the verified operator approval (CD-0172).
 func workflowContradictionObservationRecorded(ctx context.Context, q queryer, workID, subject string, beforeSeq int64) (bool, error) {
 	var recorded int
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events e
-		WHERE e.subject_type='work_item' AND e.subject_id=? AND e.kind=? AND (?=0 OR e.seq<?)
-		AND e.seq > COALESCE((SELECT MAX(v.seq) FROM domain_events v
-			WHERE v.subject_type='work_item' AND v.subject_id=? AND v.kind=? AND (?=0 OR v.seq<?)), 0))`, workID, WorkObservationRecorded, beforeSeq, beforeSeq, workID, WorkflowVerdictRecorded, beforeSeq, beforeSeq).Scan(&recorded); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_observations e
+		WHERE e.work_id=? AND (?=0 OR e.recorded_seq<?)
+		AND e.recorded_seq > COALESCE((SELECT MAX(v.verdict_seq) FROM workflow_predicate_verdicts v
+			WHERE v.work_id=? AND (?=0 OR v.verdict_seq<?)), 0))`, workID, beforeSeq, beforeSeq, workID, beforeSeq, beforeSeq).Scan(&recorded); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect work observations", true, "retry once the work observation projection is readable", err)
 	}
 	return recorded != 0, nil

@@ -734,8 +734,8 @@ func (snapshot ContinuitySnapshot) LimitWindow(req ContinuityRequest, observatio
 // fields: watermark, restart availability, pending messages, observations,
 // and native runs.
 func continuityReadTrailingTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) error {
-	var watermark int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, work).Scan(&watermark); err != nil {
+	watermark, err := readWorkEffectSeq(ctx, tx, work)
+	if err != nil {
 		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read continuity watermark", true, "retry once the database is readable", err)
 	}
 	out.Watermark = "seq:" + strconv.FormatInt(watermark, 10)

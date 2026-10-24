@@ -79,10 +79,6 @@ CD-0058 D1, D3 through D5 are untouched.
 
 ## Verification
 
-- `adapter/opencode/evals/native-lane.native.case.ts` runs all five hidden
-  subagent identities through the native Task executor on OpenCode 1.18.35,
-  with a fixture model and exact child assistant-agent readback. It proves
-  host mode compatibility, not managed worker-report acceptance.
 - The adapter test suite covers the substituted-executor case: typed
   `agent_identity_mismatch`, no worker evidence verbs.
 - `scripts/generate-agent-lanes.py --check` passes with `mode: subagent`

@@ -251,7 +251,13 @@ func TestWorkerCurrentFactsMigrationBackfillsStoredBytes(t *testing.T) {
 	if _, err := tx.Exec(workerCurrentFactsFixtureReversal); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(workerCurrentFactsMigration); err != nil {
+	var workerCurrentFacts string
+	for _, m := range migrations {
+		if m.Name == "worker_current_facts" {
+			workerCurrentFacts = m.SQL
+		}
+	}
+	if _, err := tx.Exec(workerCurrentFacts); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

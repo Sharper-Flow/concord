@@ -563,7 +563,7 @@ func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) 
 	// The manifest hashes the definition's actual content with no carve-out:
 	// cross-field rules are engine-registry declarations and never appear
 	// here, so a released definition cannot change behavior without its
-	// digest detecting it (CON-412).
+	// digest detecting it.
 	definition = normalizeWorkflowDefinition(definition)
 	manifest := struct {
 		SchemaVersion         string                        `json:"schema_version"`

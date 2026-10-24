@@ -28,8 +28,8 @@ provenance not covered: hand-writing store state is not a reachable outcome.
 Making the model reachable adds the ninth static agent tool and seven operations.
 TS8 classifies that as a major change. The normal TS9 gate requires paired
 supported-model trials, but this repository has no agent-tool TS9 runner or bounded
-evidence-artifact pipeline; its Promptfoo harness evaluates worker lanes, not
-`concord.ts` selection against PM1/TS1 jobs. Unit tests cannot be represented as
+evidence-artifact pipeline, and no harness evaluates `concord.ts` selection
+against PM1/TS1 jobs. Unit tests cannot be represented as
 model trials.
 
 ## Decision

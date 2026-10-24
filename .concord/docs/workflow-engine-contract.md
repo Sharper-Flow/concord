@@ -866,7 +866,7 @@ values; approval checks their grammar and the verdict actor interprets them
 - Given a work item whose planning omits the required end-state
   When approve_contract is dispatched
   Then the engine refuses with invalid_input, records no contract, and the
-  instance remains planned.
+  instance keeps its current step and state.
 
 - Given an approved outcome over two capabilities and a Review that
   assesses the delivery over one of them as mismatch
@@ -900,7 +900,7 @@ executed against production dispatch by
 - Criterion 1 is proved by the bound `WF02-planning-requires-outcome`
   scenario, which dispatches approve_contract without an end-state and asserts
   an invalid_input refusal from the required-field check, no recorded
-  contract, and the instance still planned.
+  contract, and the instance's current step and state unchanged.
 - Criterion 2 is proved by the bound `WF04-weaker-delivery` scenario, whose
   Review assesses the delivery as `mismatch`, so no criterion proof exists,
   and which asserts a missing_evidence refusal with no completion record

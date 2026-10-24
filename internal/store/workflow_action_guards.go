@@ -190,7 +190,7 @@ func workflowSpecMandate(ctx context.Context, q queryer, workID, subject string)
 // bindings at or before it do not count, and zero admits the whole history.
 func workflowEvidenceReferenceBound(ctx context.Context, q queryer, workID, reference, subject string, afterSeq int64) (bool, error) {
 	var count int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, afterSeq, reference).Scan(&count); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND binding_seq>? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, afterSeq, reference).Scan(&count); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect spec-mandate evidence", true, "retry once the workflow evidence projection is readable", err)
 	}
 	return count != 0, nil
@@ -1030,10 +1030,10 @@ func workflowRefineProofGateActive(definition WorkflowDefinition, currentStep st
 // verification evidence after afterSeq, the current refine epoch's start, in
 // binding order.
 func workflowVerificationBindingsAfter(ctx context.Context, q queryer, workID string, afterSeq int64, subject string) ([]string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.immutable_subject_ref') FROM domain_events
-		WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>?
+	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.immutable_subject_ref') FROM workflow_evidence_bindings
+		WHERE work_id=? AND binding_seq>?
 		AND json_extract(payload,'$.evidence_kind')='verification'
-		ORDER BY seq`, workID, WorkflowEvidenceBound, afterSeq)
+		ORDER BY binding_seq`, workID, afterSeq)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot read the refine epoch's evidence bindings", true, "retry once the workflow evidence projection is readable", err)
 	}

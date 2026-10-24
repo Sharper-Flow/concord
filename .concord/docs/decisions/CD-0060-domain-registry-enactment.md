@@ -11,8 +11,6 @@
   issue #337
 - **Preserves:** CD-0222 D3's one-home invariant; Git as the sole writer of
   Domain identity; the derived-projection role of SQLite
-- **Supersedes:** nothing
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — the durable-authority scope names current rows and snapshots; no event log exists.
 
 ## Context
 
@@ -51,7 +49,7 @@ operator-surface         terminal launcher, CLI verbs, installation
 repository-verification  the authority a repository check may hold
 ```
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the durable-authority scope names current rows and snapshots; no event log exists.
+The durable-authority scope names current rows and snapshots ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 `work-coordination` owns the work item as an entity. It owns what a work item
 means and how work items refer to one another. It does not own how work

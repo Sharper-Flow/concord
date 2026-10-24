@@ -9,12 +9,9 @@
   work-ef019d2c52d7241977e90ef1 on 2026-09-09, and chose the operator
   question as the obligated surface.
 - **Related:** CD-0030, CD-0113, CD-0117, and issues #903, #1010
-- **Amends:** Nothing. This record adds the obligation the earlier
-  investigation contract omitted.
 - **Preserves:** Contract authority, architecture binding at approval,
   evidence provenance, and the recorded facts the store keeps
   ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2)
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
 
 ## Context
 

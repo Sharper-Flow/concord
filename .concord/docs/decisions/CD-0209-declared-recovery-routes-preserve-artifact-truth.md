@@ -8,24 +8,6 @@
   target must carry, the artifact-staleness state and its admission halves, the
   work-pin sequence that names a return, and the liveness and conformance
   checks
-- **Extends:** CD-0201 D1 with the typed route table and the producer rule;
-  CD-0201 D2 with the bit the liveness and conformance checks read; CD-0201
-  D3, D4 unchanged
-- **Amends:** CD-0143 D1 at its return target: the engine-owned
-  request_correction route reads the declared target rather than a work-kind
-  step order, and the unhealthy-verdict route is the one path the engine
-  admits after an accepted worker delivery with a current unhealthy verdict;
-  CD-0201 D1 at its admission-state coverage to include the artifact-staleness
-  frontier and the production frontier; CD-0204 D3 at its host claim: every
-  late-verdict step that the closed trigger unhealthy_verdict serves sits on
-  a step that declares the table's return, and the late record_verdict route
-  reaches the producer through the same reader
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md): [D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-  governs the artifact-staleness state;
-  [D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-  replaces the attempt-count and correction-bound clauses; and
-  [D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-  replaces the released-version, quarantine, and historical-pin clauses
 - **Preserves:** CD-0172 D1/D2 and CD-0186 in full, including the
   complete-step supersede limit to implementation and break_fix, the
   convention-cutoff exact approval terminal, and the refusal of any other
@@ -37,8 +19,8 @@
   ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source));
   CD-0122 D2, the outside-repair authorization this amendment runs
   under; every other route refusal on every other route (CD-0186)
-- **Related:** CD-0013, CD-0059, CD-0067, CD-0115, CD-0116, CD-0122, CD-0124,
-  CD-0133, CD-0137, CD-0138, CD-0143, CD-0147, CD-0159, CD-0164, CD-0166,
+- **Related:** CD-0013, CD-0059, CD-0067, CD-0116, CD-0122, CD-0124,
+  CD-0133, CD-0137, CD-0138, CD-0143, CD-0147, CD-0159, CD-0166,
   CD-0172, CD-0173, CD-0186, CD-0187, CD-0193, CD-0197, CD-0201, CD-0203,
   CD-0204, CD-0207, and Concord (CON) issue 861
 - **Approval:** The operator authorized completion of the
@@ -96,7 +78,7 @@ whitelist, or a nearest-target order does not own that decision.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, recovery correction requires the authenticated coordinator and exact diagnosis, strategy, predicates/findings, and bound evidence, without an operator approval. This qualifies the signature prerequisite and its conformance assertions below. Declared producer routes, artifact staleness, return targets, and real liveness checks remain required. Each correction is one admitted request with its own bindings ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)), and definitions derive from one canonical source with no retained historical pin ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+For `approval_policy=consequence_v1`, recovery correction requires the authenticated coordinator and exact diagnosis, strategy, predicates/findings, and bound evidence, without an operator approval. This qualifies the signature prerequisite and its conformance assertions below. Declared producer routes, artifact staleness, return targets, and real liveness checks remain required. Each correction is one admitted request with its own bindings ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ### D1. One declared recovery-route table per family
 

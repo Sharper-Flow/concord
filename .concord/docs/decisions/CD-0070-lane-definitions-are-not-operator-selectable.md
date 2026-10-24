@@ -10,7 +10,6 @@
   emits `mode: subagent`), CD-0043 (host-owned lane methodology)
 - **Preserves:** CD-0064 D2 and D3 in full; the closed lane registry and its
   digests; `agent-lane-packet.v1` and `agent-lane-report.v1`
-- **Supersedes:** nothing
 - **Amendment reason:** Native Task dispatch resolves hidden subagent-only
   lanes without making them primary-capable.
 - **Revision choice:** In-place amendment under CD-0036. D1's hidden field

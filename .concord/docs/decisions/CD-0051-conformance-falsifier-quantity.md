@@ -11,8 +11,6 @@
   [`floor-readiness.md`](../floor-readiness.md)
 - **Preserves:** the 100ms P99 target; correctness precedence; population
   authority; escaped-busy as a zero-quantity
-- **Supersedes:** nothing; refines which measured quantity CD-0045's sustained
-  falsifier weighs
 
 ## Context
 

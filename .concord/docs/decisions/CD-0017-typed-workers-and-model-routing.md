@@ -27,8 +27,7 @@ process, and Concord records the executing identity through readback.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, CD-0013 D11 and CD-0059 D2 replace failed-retry consent with exact transactional attempt, epoch, contract, and job binding. The fresh attempt, capability, signed evidence, and worker boundary requirements remain; [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) and [D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) govern the loop and each launch, so no model-distinctness, convergence, or chained approval requirement is retained.
-
+For `approval_policy=consequence_v1`, CD-0013 D11 and CD-0059 D2 replace failed-retry consent with exact transactional attempt, epoch, contract, and job binding. The fresh attempt, capability, signed evidence, and worker boundary requirements remain. Main controls the loop, and each launch carries its own authority ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) and [D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ### D1. Concord owns a canonical lane registry
 
@@ -68,7 +67,7 @@ workflow authority. Durable workflow authority remains with the owning Concord
 workflow; a worker result can complete a gate only when the owning workflow
 transition explicitly permits that typed effect. The owning actor uses the declared
 `accept_worker_result` action, bound to the exact completed attempt and its current
-step epoch. Acceptance rechecks successful model readback before advancing. [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: the owning workflow advances through Main's recorded review acceptance, with no owner-versus-executor distinctness beyond the loop. Workers cannot
+step epoch. Acceptance rechecks successful model readback before advancing. The owning workflow advances through Main's recorded review acceptance ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). Workers cannot
 invoke another advancing action once a worker attempt is dispatched in the current
 step window. This preserves R1 and CD-0013 by construction: the prohibition binds
 authority, not labor.
@@ -89,7 +88,7 @@ an adapter error to discard. The adapter records exactly one failed dispatch:
 a dispatch born `failed`, with an empty `readback_model` and a kind
 of `model_readback_missing` or `model_readback_ambiguous`, carrying the
 refusing predicate, the export digest, and the export byte count.
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the failed dispatch is one current row written in one transaction, so no `dispatched` attempt can outlive a stopped process. The
+The failed dispatch is one current row written in one transaction, so no `dispatched` attempt can outlive a stopped process ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). The
 schema admits an empty `readback_model` only under those two failed kinds. The
 attempt is never retried; a new attempt is a new decision.
 
@@ -97,15 +96,15 @@ The dispatch record also records `worker_worktree_identity`, the sha256 of the
 canonical session worktree path the core admitted under CD-0102 D7. Later
 worker evidence binds to that claim without a machine path in a public record.
 
-[CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) governs: a retry is one newly admitted launch with its own authorization and subject bindings; no attempt count, chained approval prerequisite, or resume of the failed attempt exists.
+A retry is one newly admitted launch with its own authorization and subject bindings ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 `worker.completed` and `worker.failed` bind to the dispatched attempt's exact work
 item and make one transition from `dispatched`. Both terminal states are immutable;
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each terminal result is one recorded current fact, and no later record replaces failure with success or success with failure.
+each terminal result is one recorded current fact, and a terminal result is immutable ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### D6. Reviewer/model distinctness is structurally available and workflow-declared
 
-[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: Main's dispatch of Review carries the loop's distinctness, and no model-identity distinctness requirement exists beyond it.
+Main's dispatch of Review carries the loop's distinctness ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 ### D7. Behavioral evaluation boundary
 
@@ -149,7 +148,7 @@ schema or state checks.
   versioned contract change.
 - The adapter gains dispatch/readback mechanics while staying envelope-thin; the
   boundary must be defended in review.
-- Review is Main's dispatched loop stage: [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs, so no distinct-model availability constraint or typed blocking outcome exists.
+- Review is Main's dispatched loop stage ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 ## Rejected alternatives
 
@@ -159,7 +158,6 @@ schema or state checks.
   report contract outside the evidence boundary; declines the issue.
 - **Vendor/model identifiers in lane contracts:** rot every provider release;
   capability classes carry the durable intent.
-- **Globally mandatory cross-model review:** [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: no model-identity distinctness requirement exists, so no mandatory cross-model review exists.
 - **Adapter-side result validation beyond envelope/identity:** CD-0005 D6 violation.
 
 ## Implementation acceptance
@@ -168,7 +166,7 @@ schema or state checks.
   rejection tests for unknown type/version/digest and for generic-agent dispatch.
 - Actual executing-model readback recorded per attempt; missing or ambiguous
   readback produces a typed failed attempt under D5.
-- No reviewer/model distinctness rejection is required: [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs, and the implementing change instead proves Review's disposition and Main's acceptance record as current rows.
+- The implementing change proves Review's disposition and Main's acceptance record as current rows ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 - Research, implementation, and review lanes complete an end-to-end synthetic
   workflow with typed evidence.
 - Worker execution demonstrably creates no nested workflow authority and weakens no

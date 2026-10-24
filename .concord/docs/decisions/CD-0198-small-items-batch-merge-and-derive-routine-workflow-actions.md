@@ -6,12 +6,10 @@
   `workflow.break_fix`: the `record_verdict` payload, the three diagnosis record
   actions, the fenced step starts, the delivery assertion's entry route, and the
   worker-failure record with its retry dispatch
-- **Amends:** CD-0156 D1 and D2 at their `workflow.break_fix` placement only
 - **Related:** CD-0012, CD-0166, CD-0173, CD-0183, CD-0192
 - **Approval:** The operator approved the work item contract that carries this
   record on 2026-09-30
   ([Concord (CON) issue 767](https://linear.app/sharper-flow/issue/CON-767/decide-which-coordinator-workflow-actions-merge-or-become-core-derived)).
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D6, D14
 
 **Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 limits this record's operator-consent requirements to its six classes. Failure records, escalation evidence, and other non-consent checks remain required.
@@ -50,9 +48,7 @@ of scope, as are the tool-schema refusal fixes that CON-408 owns.
 ## Decision
 
 For `approval_policy=consequence_v1`, the contract remains mandatory but human signature follows recorded decision domains under CD-0013 D11. Batched verdict recording still requires recorded verdict authority and evidence.
-[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)
-governs: Implement cannot accept its own result, and no separate final
-evaluator exists beyond that rule. Engineering premise confirmation uses its
+Implement cannot accept its own result ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). Engineering premise confirmation uses its
 real coordinator identity, and a combined action cannot accept its own result
 or silently omit a predicate.
 
@@ -96,8 +92,7 @@ their guards. The reproduce, alignment, and diagnose steps merge into one
 diagnosis step whose advance actions admit `record_diagnosis` alone, so its
 single forward edge cannot be crossed without all three sections recorded.
 
-This amends CD-0156 D1 and D2 at their `workflow.break_fix` placement only. The
-alignment step leaves the break_fix graph, and the step-shape obligations of
+The alignment step leaves the break_fix graph, and the step-shape obligations of
 CD-0156 narrow to `workflow.implementation`, which keeps the alignment step and
 `record_alignment` unchanged. The floor holds against CD-0156 D3 because
 passing the diagnosis step stays the proof the search happened, and the section

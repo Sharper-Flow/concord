@@ -8,9 +8,6 @@
   CD-0036 D3/D4, CD-0039, issues #87, #88, #174, TS3
   ([`agent-read-tool-contract.md`](../agent-read-tool-contract.md)), TS7
   ([`agent-result-envelope.md`](../agent-result-envelope.md))
-- **Amends:** CD-0039 native-run records before their implementation
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 records observations and verifications as current rows
-- **Supersedes:** nothing
 
 **Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies D7's freshness-policy approval requirement. D9's operator-only
@@ -47,7 +44,7 @@ prove what was named, not that the producer named the whole world. A digest over
 External-state records embed one closed provenance and verification component.
 The component supplies common identity, observed-universe, verification, and
 freshness semantics. Purpose-built domain records retain their
-own status vocabularies and invariants; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each writes current rows through its owning operations. Native-run phases, Git proof, external
+own status vocabularies and invariants; each writes current rows through its owning operations ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Native-run phases, Git proof, external
 conditions, and backup validation do not collapse into one generic status table.
 
 A bounded generic fallback exists for observations that have no owning domain,
@@ -290,9 +287,7 @@ would make an unverified record look ordinary. The first implementation joins
 the major surface amendment already required by CD-0037/CD-0039. Old clients
 fail negotiation; there is no prose or untyped compatibility alias.
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded observations read back unchanged and never acquire external
-provenance retroactively; records written before this surface carry no component,
-and no replay or rebuild participates.
+Recorded observations read back unchanged and never acquire external provenance retroactively ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ## Rejected alternatives
 

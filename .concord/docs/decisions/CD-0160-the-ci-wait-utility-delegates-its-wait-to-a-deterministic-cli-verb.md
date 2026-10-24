@@ -11,23 +11,6 @@
 - **Related:** CD-0017, CD-0081, CD-0149, CD-0157
 - **Preserves:** The worker authority boundary; fail-closed command
   permissions; the utility distinction from lane evidence
-- **Supersedes:** The model-maintained wait procedure in the generated
-  `ci-wait` body: polling by `sleep 15`, the 120-iteration count, and the
-  `sleep *` and `date *` command allowances
-- **Amended by:** [CD-0199](CD-0199-the-plugin-owned-watcher-replaces-the-ci-wait-utility.md)
-  at D6's utility half: the utility registry entry and its generated model
-  session are removed, and the plugin-owned `concord_ci_watch` watcher owns
-  the invocation loop. CD-0199 leaves D1 through D5 and D7 unchanged.
-  [CD-0161](CD-0161-the-ci-wait-checks-verdict-blocks-only-on-a-dirty-merge-state.md)
-  amends D4 and adds the `mode` input to D1 and the `merged` and `closed`
-  statuses to D2.
-  [CD-0168](CD-0168-the-ci-wait-pr-population-follows-the-rollup-page-boundary.md)
-  amends D4 and D7: a stalled command is pending.
-  [CD-0232](CD-0232-a-merge-wait-ends-when-the-merge-queue-removes-the-pull-request.md)
-  amends D1 (the `gh api` read boundary and the subject checks), D4 (a merge
-  failure without a failed check), and D7 (best-effort queue run naming).
-  [CD-0233](CD-0233-a-checks-wait-waits-for-every-required-context.md) amends
-  D4: an unobserved required context is pending.
 
 ## Context
 

@@ -15,8 +15,6 @@
   `work-201ad0df0700db9255d3f256`.
 - **Related:** CD-0005, CD-0027, CD-0030, CD-0039, CD-0096, CD-0133, CD-0173,
   CD-0201, CD-0209
-- **Amends:** None
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D6
 
 ## Context
 

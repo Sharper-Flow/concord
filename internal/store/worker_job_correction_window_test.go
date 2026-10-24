@@ -111,8 +111,7 @@ func TestSatisfyingAcceptedJobResetsCorrectionWindow(t *testing.T) {
 	prefixAfterFirstFailure := maxEventSeq(t, s, workID)
 
 	// A later revision of the same job identity satisfies the corrective
-	// job, so the acceptance opens a fresh window exactly as CD-0164 D2
-	// requires a satisfying acceptance to.
+	// job, so the satisfying acceptance opens a fresh window.
 	attempt2 := "attempt:" + workID + ":2"
 	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)

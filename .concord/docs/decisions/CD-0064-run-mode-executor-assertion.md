@@ -11,7 +11,6 @@
   CD-0063 (central agent definitions)
 - **Preserves:** the closed lane registry and its digests; `agent-lane-packet.v1`
   and `agent-lane-report.v1`; CD-0058 D1 in full
-- **Supersedes:** nothing
 - **Amendment reason:** Native Task dispatch resolves subagent-only lanes;
   worker definitions need no primary-session or CLI-run selection.
 - **Revision choice:** In-place amendment under CD-0036. D1 changes lane mode;

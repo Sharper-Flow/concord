@@ -13,7 +13,6 @@
   [`../predecessor-operational-coverage.md`](../predecessor-operational-coverage.md)
 - **Preserves:** CD-0043 D1's host-owned methodology boundary; CD-0040 D6's
   probe-family limit; the closed lane registry and packet/report schemas
-- **Supersedes:** nothing
 
 ## Context
 

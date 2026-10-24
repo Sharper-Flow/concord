@@ -7,12 +7,6 @@
   native-removal plan, its original-plan replay, and its durable per-ref
   outcomes; the agent payload schemas that carry these facts,
   [Concord (CON) issue 829](https://linear.app/sharper-flow/issue/CON-829)
-- **Amends:** CD-0096 D3 Destroy at the gate subject, and CD-0144 D1-D2 at
-  the branch each content class reads
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md): [D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-  governs the durable per-ref outcomes: each settlement is one current-row
-  write in one transaction, checked by an expected version and recorded by
-  its idempotency key
 - **Preserves:** CD-0181 in full, CD-0195 D2 in full, the clean-tree,
   observed-session, unstarted, unpublished-lesson, and operator-approval
   gates, and claim-time branch and base identity

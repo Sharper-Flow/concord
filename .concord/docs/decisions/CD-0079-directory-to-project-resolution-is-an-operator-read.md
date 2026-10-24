@@ -12,7 +12,6 @@
 - **Preserves:** CD-0021's rejection of a second write authority, CD-0005's
   separation of the agent tool surface from CLI inventory, the grant and
   capability machinery on the agent surface
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — the verb writes no rows; no event-log table exists.
 
 ## Context
 
@@ -96,7 +95,7 @@ answer already receives it as `ambient_project_id` in its envelope.
 
 The verb writes nothing and opens no second authorization path into work
 creation, so CD-0021's rejection of an operator authoring surface is untouched
-([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: reads write no rows).
+(reads write no rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))).
 
 ## Consequences
 
@@ -141,7 +140,7 @@ because it produces a durable grant record as a side effect of asking.
   that no payload is written on refusal.
 - `TestProjectResolveWritesNothing` proves D3's read-only claim by comparing
   durable store counts before and after the call
-  ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no event-log table exists).
+.
 - `TestProjectResolveRequiresDirectory` proves the verb refuses an absent or
   empty directory.
 - `TestRunHelpListsExactCommandFormsAndStdinShapes` and

@@ -11,9 +11,6 @@
   coordinator approved the entry-route retirement on 2026-10-13 through the
   Snowball coordinator (operator-delegated).
 - **Related:** CD-0014, CD-0222, CD-0048, CD-0078, CD-0219, R1, C14, C17, and issue #803
-- **Amended by:** CD-0219 (2026-10-09) retires the interactive launcher TUI.
-  Concord (CON) issue CON-910 (2026-10-13) removes the non-interactive session entry route this
-  record governed; the host owns operator session start and resume (CD-0078).
 - **Preserves:** the host's ownership of session start and resume, the typed
   mutation surface as the only work write path, and the no-durable-write
   boundary of managed entry

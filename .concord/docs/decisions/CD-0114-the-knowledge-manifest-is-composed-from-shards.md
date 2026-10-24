@@ -8,9 +8,6 @@
   Concord work-b3491716e9c393763f2e32ec, after two same-day pull requests
   that each added one decision record conflicted on the committed aggregate.
 - **Related:** CD-0008, CD-0019, CD-0020, CD-0047
-- **Amends:** CD-0020 (the manifest-primary knowledge-index shape). The
-  manifest document keeps its schema, its strict blob proofs, and its scope
-  modes. What changes is where it lives: in shards, composed on read.
 
 ## Context
 

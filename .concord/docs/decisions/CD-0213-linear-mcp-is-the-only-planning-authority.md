@@ -12,7 +12,6 @@
 - **Approval:** The operator approved this route on 2026-10-09 under CON-801.
   The decision cancels CON-35 and CON-501 and rejects repair of the Concord
   planning mirror.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D13
 
 ## Context
 
@@ -83,7 +82,7 @@ server.
 
 ### D8. Retired planning kinds keep no history
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current state and finite verified snapshots, not an event log or replay; retired planning kinds are not retained as history.
+The store keeps current state and finite verified snapshots; retired planning kinds are not retained as history ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ## Alternatives considered
 
@@ -92,7 +91,7 @@ server.
   second planning copy.
 - Keep a local-only mode for Products without Linear. This keeps the full
   planning store for one route that no current Product uses.
-- Rewrite retired planning records in place. Rejected: [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) governs: the one documented cutover migration, not an in-place rewrite, retires old tables.
+- Rewrite retired planning records in place. Rejected: the one documented cutover migration, not an in-place rewrite, retires old tables ([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
 ## Consequences
 

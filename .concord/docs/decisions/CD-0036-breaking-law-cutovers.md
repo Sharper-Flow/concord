@@ -7,8 +7,6 @@
 - **Approval:** Operator approval for CD-0036
 - **Related:** CD-0006 D5/D10/R3, CD-0012, CD-0013, CD-0015,
   CD-0016, CD-0027, CD-0033
-- **Supersedes:** nothing; amends CD-0015's law-boundary contract
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D7, D10, D14
 
 **Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 governs D2: the choice between amendment and replacement requires approval only under its six classes. Revision identity and cutover checks remain required.

@@ -9,8 +9,6 @@
   directed that it land with the deletion it describes.
 - **Related:** CD-0088, CD-0092, CD-0093, CD-0096, CD-0098, CD-0103, issues
   #736, #737, #742, #749
-- **Amends:** CD-0096 at Context, D1, D3 Take over, D5, and D6; CD-0088 D4 at
-  its launch-record clause; CD-0098 at its `session-prepare` preservation clause
 - **Preserves:** CD-0096 D2 (identity over input), D3 Inspect, Verify, and
   Destroy, and D4; every CD-0098 clause on the move and its read-back
 

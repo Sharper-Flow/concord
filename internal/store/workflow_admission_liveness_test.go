@@ -1,6 +1,6 @@
 package store
 
-// CD-0201 D2 liveness over every registered definition version (CD-0115 D2),
+// CD-0201 D2 liveness over every registered definition version,
 // split by the CD-0218 D1 family boundary into two properties:
 //
 // Retained families satisfy the liveness property: every

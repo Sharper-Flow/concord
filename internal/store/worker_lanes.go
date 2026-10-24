@@ -256,7 +256,7 @@ type WorkerDispatchedPayload struct {
 	// later revision of the same job_id satisfies the same corrective
 	// obligation, while a different job_id never does. Nil on every
 	// dispatched payload that predates job-bound dispatch; those histories
-	// keep the CD-0164 D2 reset unchanged.
+	// keep the reset unchanged.
 	WorkerJob *WorkerJobBinding `json:"worker_job,omitempty"`
 	// FailureAttribution is the typed failure attribution of a born-failed
 	// terminal dispatch . Only Terminal="failed" carries one; an
@@ -274,7 +274,7 @@ type WorkerDispatchedPayload struct {
 // the recorded revision content. The dispatch records it so an accepted
 // result can satisfy only the job its attempt was dispatched under, and the
 // correction window can refuse closure by an unrelated accepted job
-// (CD-0205 refining CD-0164 D2).
+// (CD-0205).
 type WorkerJobBinding struct {
 	JobID    string `json:"job_id"`
 	Revision int64  `json:"revision"`

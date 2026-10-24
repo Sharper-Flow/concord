@@ -6,7 +6,6 @@
 - **Approval:** The operator approved the step-gating route over an additive evidence kind, and set the boundary: the coordinating agent owns the delivery assertion, and no session waits on a merge queue.
 - **Related:** CD-0156, CD-0043
 - **Preserves:** Active workflow instances, the ci-wait no-store-write boundary, and the await-health no-prober boundary
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
 
 **Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 limits operator consent for delivery assertions and corrective returns to its six classes. Delivery evidence, subject binding, and other non-consent checks remain required.
@@ -34,7 +33,6 @@ pushed, not merged.
 
 For `approval_policy=consequence_v1`, the evidence-backed corrective return requires no operator consent. Delivery admission, the accepted Review disposition ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)), and the declared return target remain required. Approval follows each action's declared policy.
 
-
 ### D1. The delivery action carries an asserted artifact
 
 `record_delivery` requires `delivery_artifact` (a bounded reference, such as a
@@ -52,7 +50,7 @@ its single forward edge cannot be crossed without a recorded delivery. The
 gate amendment adds one declared action to the step: `request_correction`, the
 evidence-bearing corrective return. It is a hold. Its admission returns a parked,
 unreviewed change to the correction target step for a fresh review, so
-`record_delivery` stays the gate's only forward exit; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the return is a current-row write in one transaction. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source, and in-flight items complete under their recorded dispatch requirements. The remaining workflow
+`record_delivery` stays the gate's only forward exit; the return is a current-row write in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). The remaining workflow
 types keep the action at its existing step and gain the payload only, because
 their delivery surface is optional or internal.
 
@@ -60,7 +58,7 @@ their delivery surface is optional or internal.
 
 A lifecycle transition to `completed` on an item sitting on its delivery gate
 refuses: admission returns an unreconciled-delivery failure naming
-`record_delivery`; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the check reads current rows in the transition's transaction. Cancellation and supersession stay legal, because an
+`record_delivery`; the check reads current rows in the transition's transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Cancellation and supersession stay legal, because an
 operator must be able to abandon work whose change will never merge. The
 workflow read projection marks such items `unreconciled`, so the abandoned
 pull request stays visible instead of silently orphaned.
@@ -88,7 +86,7 @@ release publication, or installation. It does not by itself complete a workflow
 item.
 
 Existing independent-review obligations, acceptance predicates, verdicts, and
-delivery admission remain required. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) and [D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) govern: recorded items keep their recorded requirements, definitions generate from one canonical source, and no recorded fact is rewritten. The installed
+delivery admission remain required. Recorded items keep their recorded requirements, and no recorded fact is rewritten ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). The installed
 release governs workflow admission throughout the phase. This rule creates no
 new completion action or admission bypass.
 
@@ -118,7 +116,6 @@ changes (CD-0242 D2, D14).
 - `TestRecordDeliveryExitsTheStepTheSessionExecuted` proves delivery advances
   the effect step into the gate and the gate into the verdict step, under the
   required payload.
-- [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) retires retained-definition digest-pin witnesses: definitions derive from one canonical source without retained versions or in-flight pins.
 - `TestWorkflowReadParksDeliveryAtGate` proves the read projection parks one
   parked delivery for a gated item and carries its duration; the Product-row
   count retired with the row under CD-0224.

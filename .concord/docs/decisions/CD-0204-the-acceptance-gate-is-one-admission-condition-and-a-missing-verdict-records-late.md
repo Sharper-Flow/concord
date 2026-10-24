@@ -4,22 +4,11 @@
 - **Date:** 2026-10-04
 - **Scope:** The admission of `confirm_premise` and `record_delivery` at the
   preflight, the work pin, and execution; the late `record_verdict` route
-- **Extends:** CD-0201 D1, the single admission owner, to the acceptance
-  deliverables and to the fresh-review refusal over `record_delivery`
-- **Amends:** CD-0203 D2 at its consequence: a recorded ops runbook that
-  reaches cleanup without a verdict records the verdict there before the
-  premise question can be confirmed
-- **Amended by:** CD-0209 D1, the closed two-trigger set the late
-  `record_verdict` route serves through the unhealthy_verdict trigger;
-  CD-0209 D2, the registration gate that refuses a late-verdict step
-  that declares no declared return; CD-0209 D6, the work-pin sequence
-  the late-verdict step reaches the producer through
 - **Preserves:** CD-0201 D2, the liveness law; the digests derived from the
   one canonical source
   ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14);
   every other route refusal keeps its scope
   (CD-0186)
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D3, D14
 - **Related:** CD-0116, CD-0197, CD-0203
 - **Approval:** The operator directed in session chat on 2026-10-02 that the
   checks stay strict, with no named exception, and that the engine routes
@@ -74,10 +63,6 @@ hosts the premise question for `confirm_premise` without declaring
 `record_verdict`. The route keeps its other conditions: an active contract, an
 earlier step that declares `record_verdict`, and a predicate without an `ok`
 verdict. A late verdict does not move the step.
-
-[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-governs: the gate lives in the admission code derived from the one canonical
-source, not in declared definition content.
 
 ## Alternatives considered
 

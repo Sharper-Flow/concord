@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:01eb0e52e24f63d447022d1a303ca8fba7ba084c0dedfd2d18fe79be3fed80ec",
+  "sha256": "sha256:73db5c4cea918c3bf97434746222a4c6ce2db3beda0055327f1d06cc6bbba745",
   "status": "accepted",
   "summary": "Native-run status is a typed report attributed to the authenticated trusted client; failed health plus rollback records durable state and returns a workflow-action partial.",
   "tags": [

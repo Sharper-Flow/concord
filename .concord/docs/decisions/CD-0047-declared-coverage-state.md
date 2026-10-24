@@ -18,8 +18,6 @@
 - **Preserves:** the floor-readiness state vocabulary and its state-conditional
   obligations; the knowledge-index sha256 record integrity; CD-0013 D11's
   reserved surface; the closed-registry and digest mechanisms
-- **Supersedes:** nothing
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D7 — a revision invalidates only what depended on it.
 
 ## Context
 
@@ -142,7 +140,7 @@ Law keeps one canonical current statement per obligation. A compatible amendment
 edits the owning record in place and states only the current rule. A breaking
 replacement keeps the old record as `superseded` because CD-0036's
 dependence-scoped staleness and
-CD-0222 D3 read that supersession ([CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it) governs: a revision invalidates only what depended on it); the record leaves the current-law view, and
+CD-0222 D3 read that supersession (a revision invalidates only what depended on it ([CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it))); the record leaves the current-law view, and
 its callers and citations move to the successor. A non-law document that claims
 to describe the current design but has been fully replaced is deleted with its
 manifest and coverage shards. Git history holds its earlier text. Historical

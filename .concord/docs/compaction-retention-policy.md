@@ -4,7 +4,6 @@
 - **Status:** Accepted
 - **Date:** 2026-10-09
 - **Approval:** Under operator delegation on 2026-10-09, without calendar expiration.
-- **Amended by:** [CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — sections 1, 4, 7, and 8 state current-state retention; no event log or replay exists.
 - **Related:** [CD-0215](decisions/CD-0215-retained-research-context.md),
   [CD-0216](decisions/CD-0216-research-surface-and-explicit-retirement.md),
   [CD-0217](decisions/CD-0217-publication-and-retention-boundaries.md),
@@ -24,7 +23,7 @@ Research retention changes at a separate explicit boundary.
 ### 1. Authority and deferred projection pruning
 
 The canonical Git note owns distilled knowledge.
-[CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current rows and finite verified snapshots, not an event log; no fold, upcaster, or replay exists.
+The store keeps current rows and finite verified snapshots ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 `archived_work` and historical scope edges are disposable Git-derived read projections, not another authority for work.
 PM6 verifies canonical note identity and records compaction linkage before any future terminal-projection removal can become eligible.
 Publication does not itself remove live work projections or research.

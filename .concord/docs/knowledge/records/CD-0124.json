@@ -21,10 +21,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0013"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0115"
     }
   ],
   "path": ".concord/docs/decisions/CD-0124-workflow-verify-evidence-recovery.md",
@@ -35,7 +31,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c0accb4bdda9cad5f53ad142b05005a647d1cfc7a3c93abef9ef2c01575dfa21",
+  "sha256": "sha256:8c3a51fa36982e1ebc669e6c75c62b397a7f752a457090b618dcdedc07afc879",
   "status": "accepted",
   "summary": "Adds a hold-only bind_evidence route to break-fix verify and separates it from verdict correction, which requires completed and accepted delivery, returns to the declared repair step, and binds only a comparable healthy predicate set.",
   "tags": [

@@ -8,14 +8,6 @@
   operator approval classes, and the follow-up ledger
 - **Implements:** [`goals.md`](../goals.md) goal F for the conflict rules,
   Appendix A, and goal E's measure that follow-up items get closed
-- **Amends:** [CD-0006](CD-0006-concord-root-product-policy.md) D5 and D10;
-  [CD-0013](CD-0013-workflow-engine-mechanism.md) D9;
-  [CD-0036](CD-0036-breaking-law-cutovers.md) D2, who chooses amendment or
-  replacement; [CD-0159](CD-0159-authority-tier-for-product-law.md) D2, D4, and D5;
-  [CD-0218](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)
-  D1, its operator-approved law route;
-  [CD-0222](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md)
-  D1, D4, and D5, the law outcome and law mandate of Product-changing work
 - **Preserves:** CD-0159 D1, D3, D6, and D7, the authority tier and its checks;
   the ban on a silent scope cut and a substituted outcome in CD-0006 and
   [CD-0012](CD-0012-bind-stated-goals-to-delivered-outcomes.md); CD-0036 D1
@@ -41,7 +33,6 @@
   preference, or sets product direction, and that no approval point holds,
   through the item's coordinator before the operator. The change is serious
   under P12 because it changes which questions reach the operator.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D9, D10
 
 ## Context
 
@@ -104,24 +95,20 @@ Seriousness, Domain count, and crucial size do not independently require
 approval. Adding, removing, or reclassifying an operator approval always
 requires the operator's approval of its exact wording.
 
-This amends CD-0006 D5 and D10, CD-0013 D9, CD-0036 D2, CD-0159 D4, CD-0218
-D1, and CD-0222 D1, D4, and D5. Where they require human or operator approval
+Where CD-0006 D5 and D10, CD-0013 D9, CD-0036 D2, CD-0159 D4, CD-0218 D1,
+and CD-0222 D1, D4, and D5 require human or operator approval
 for a law change, a law mandate, or the choice between amendment and
 replacement, that approval is required only under CD-0243 D2. An agent-owned
 change carries the agent's recorded reason and its CD-0036 choice.
 
-This amends CD-0159 D2 and D5. A law revision enacted without the operator's
+A law revision enacted without the operator's
 approval gives the record the `derived` tier, whatever tier it held before,
 including a default tier from the closed D5 cohort.
 
 A governed scope cut is not a law change. It is a product decision under D5,
 keeps the operator's approval, and is never silent.
 
-[CD-0242 D10](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d10-knowledge-is-an-input-and-a-law-edit-changes-only-what-it-changes)
-governs: an agent corrects a factual documentation error inside its work item
-without an operator prompt when the correction changes neither intended
-behavior nor an operator decision, and such a correction is not a law change
-under P12.
+An agent corrects a factual documentation error inside its work item without an operator prompt when the correction changes neither intended behavior nor an operator decision, and such a correction is not a law change under P12 ([CD-0242 D10](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d10-knowledge-is-an-input-and-a-law-edit-changes-only-what-it-changes)).
 
 ### D5. The operator approves only at the operator's boundaries
 
@@ -132,9 +119,7 @@ belong to agents under CD-0243 D3. A gap in the table's classification is not
 an independent approval requirement; each point must be classified under a
 class or as agent-owned.
 
-[CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)
-governs the UI/UX class: it includes approval of a development preview of the
-final candidate before it is pushed to a shared remote or merged.
+It includes approval of a development preview of the final candidate before it is pushed to a shared remote or merged ([CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)).
 
 The agent asks the operator directly, with its recommendation and material
 risks. The release train engineer (RTE) coordinates dependencies; it does not decide operator choices.

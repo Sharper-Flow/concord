@@ -6,7 +6,6 @@
   override route for placements outside `.concord/`, and the retirement of
   the root docs/, instructions/, and scenarios/ trees in this
   repository
-- **Amends:** CD-0114 (keeps the shard composition, moves the shard home)
 - **Related:** CD-0007, CD-0047, CD-0063, CD-0114, CD-0159
 - **Approval:** The operator approved this decision on work item
   `work-670cac419bcacb671879316b`, with the objective and the design

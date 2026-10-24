@@ -5,7 +5,6 @@
 - **Amended:** 2026-10-17. Coordinator approval under the operator's delegation
   for [Concord (CON) issue 160](https://linear.app/sharper-flow/issue/CON-160). A new worker completion must prove its directory.
 - **Amended:** 2026-10-17. Coordinator approval under the operator's delegation for [Concord (CON) issue 1095](https://linear.app/sharper-flow/issue/CON-1095/worker-evidence-authority-gaps-generic-applyoperation-may-append). A new completion proves its original Project's claim.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5
 - **Scope:** Where a lane worker runs, how one work item reaches a second
   repository, and what protects a worktree from removal; issues #1358, #1322,
   #1125
@@ -22,15 +21,8 @@
 - **Revision choice:** In-place amendment under CD-0036. Repository-local
   execution, native dispatch, handoffs, and worktree occupancy stay unchanged.
 - **P12:** Serious: the named primary agent and its permission boundary change.
-- **Amends:** CD-0104 D1 and D2 at the stored occupant; CD-0096 D3 Destroy,
-  CD-0105 D2, CD-0118 D3, and CD-0120 D3 at the session observation input
 - **Preserves:** CD-0102 in full, CD-0103, CD-0104 D3 to D5, CD-0151, and the
   within-repository move of CD-0098
-- **Amended by:** [CD-0182](CD-0182-session-opener.md) at D2's exclusive
-  session count, through CON-850. Concord (CON) issue CON-910 settles this
-  record's Verification citation of the removed launch surface; the decision
-  sections are unchanged. [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
-  D3 amends the replacement-host landing rule of D3.
 
 ## Context
 
@@ -89,10 +81,9 @@ A new worker completion proves the active claimed worktree of the Project that t
 
 ### D2. One coordinator session per repository
 
-**Amended by [CD-0182](CD-0182-session-opener.md) (CON-850):** The exclusive
-session count widens to every coordinator session with a verified landing
-in the receiving Project. Each such session may use the shared handoff
-bind and dispatch under it. Repository-local execution and the refusal
+Every coordinator session with a verified landing in the receiving Project
+may use the shared handoff bind and dispatch under it
+([CD-0182](CD-0182-session-opener.md)). Repository-local execution and the refusal
 of a move into another repository stay unchanged.
 
 A work item that touches two repositories has one coordinator session in each

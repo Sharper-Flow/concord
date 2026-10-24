@@ -5,7 +5,6 @@
 - **Scope:** The durable gate for terminal worktree reclaim and the unpushed
   content class, for branches whose squash merge deleted the remote head
   branch
-- **Amends:** CD-0144 D1 at the derivation of the unpushed class
 - **Preserves:** CD-0144 D4 in full, the remote-ref count as the first way to
   pass, the clean-tree and observed-session gates, and operator approval for
   destructive removal

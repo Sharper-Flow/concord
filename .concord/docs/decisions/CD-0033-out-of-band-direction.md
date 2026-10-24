@@ -8,7 +8,6 @@
   console to the host-started session under the Snowball coordinator's
   operator-delegated approval.
 - **Amended:** 2026-10-18.
-- **Supersedes:** nothing
 
 **Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 limits this record's operator-consent requirements to its six classes; its D5 governs recovery and permanent loss. All other checks remain required.
@@ -29,7 +28,7 @@ same operator who redirected.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, out-of-band direction still changes a committed contract only through attributed, versioned supersession with audit evidence. Supersession itself requires no operator approval. CD-0013 D11 governs conditional contract/premise consent; neither a revision's workflow consent class nor a chat message enacts Product law or waives governing requirements, and actual law changes follow CD-0230 D4. Historical pins retain the signature rules below.
+For `approval_policy=consequence_v1`, out-of-band direction still changes a committed contract only through attributed, versioned supersession with audit evidence. Supersession itself requires no operator approval. CD-0013 D11 governs conditional contract/premise consent; neither a revision's workflow consent class nor a chat message enacts Product law or waives governing requirements, and actual law changes follow CD-0230 D4.
 
 
 **Operator direction of agent labor is legitimate and stays out-of-band. Its

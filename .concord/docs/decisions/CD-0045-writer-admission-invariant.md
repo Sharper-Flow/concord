@@ -15,8 +15,6 @@
 - **Preserves:** SQLite as sole durable authority; CD-0011's retention decision,
   accepted load profile, falsifier verdicts, and reopen conditions; Priority 2's
   rank and substance
-- **Supersedes:** nothing; amends the wording of an invariant CD-0011 already
-  decided the mechanism for
 
 ## Context
 

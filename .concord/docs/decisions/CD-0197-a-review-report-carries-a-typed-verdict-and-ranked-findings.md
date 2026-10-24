@@ -5,13 +5,10 @@
 - **Scope:** The `agent-lane-report.v1` review block; the lane manifest's
   per-lane required-report-block contract; the `worker.completed` payload
   boundary; the adapter admission and attempt summary
-- **Extends:** CD-0056 at D2, D4, D6, and D7, and the CD-0017 lane report
-  contract
 - **Preserves:** the worker authority boundary in full — a lane verdict
   records no transition, no workflow verdict, and no completion, and a worker
   still cannot accept its own result
 - **Related:** CD-0017, CD-0043, CD-0056, CD-0058
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5
 - **Approval:** The operator accepted the work item contract that carries
   this record on 2026-09-30.
 
@@ -38,9 +35,7 @@ deserves a typed shape, the way `base_comparison` typed its checks in place.
 `agent-lane-report.v1` gains an optional top-level `review` object.
 The dispatch pins the report schema identity: `1.0` for pre-job reports,
 `1.1` for job-capable reports.
-[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
-governs the verdict: a review report names one disposition, continue,
-correction required, revision required, or ready for final proof. The block
+A review report names one disposition, continue, correction required, revision required, or ready for final proof ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). The block
 carries:
 
 - `findings`: an array of 0 to 64 findings.
@@ -81,7 +76,7 @@ registry, the lane contract docs, and the lane prompts. For the review lane,
 the typed block discharges the `severity` obligation, so severity has one
 source: a completed review report needs no separate free-text severity entry.
 The store admission and the adapter admission refuse a free-text severity entry
-beside the block. The gate is the carried block, not the live boundary; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: completions are current rows, and no replay exists.
+beside the block. The gate is the carried block, not the live boundary; completions are current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### D3. The adapter and the store both refuse a review completion without the block
 
@@ -98,19 +93,15 @@ manufacturing one.
 
 Oracle enforcement joins the attempt's dispatched job revision, not the
 current definition. Historical reports retain their recorded content and
-requirements; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no upcaster exists, so nothing fabricates a tie, receipt, or closure.
+requirements; nothing fabricates a tie, receipt, or closure ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### D4. The verdict couplings are structural
 
-[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
-governs: the review reports one disposition, continue, correction required,
-revision required, or ready for final proof, and Main records its acceptance;
-an open in-scope blocking finding blocks both a new assignment and leaving
-execution.
+The review reports one disposition, continue, correction required, revision required, or ready for final proof, and Main records its acceptance; an open in-scope blocking finding blocks both a new assignment and leaving execution ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 ### D5. A recorded completion reads back unchanged
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each terminal result is a recorded current fact, and no payload version, upcast, or replay reinterprets a recorded result.
+Each terminal result is a recorded current fact, and no payload version, upcast, or replay reinterprets a recorded result ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 A dispatch recorded under the pre-CD-0197 review digest still resolves: the
 digest joins the lane's legacy set, and the completion answers to its
@@ -118,10 +109,7 @@ recorded dispatch requirements.
 
 ### D6. The lane verdict is report content only
 
-[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
-governs: Main records its acceptance of the review's disposition, and the
-review report itself records no transition, no workflow verdict, and no
-completion.
+Main records its acceptance of the review's disposition, and the review report itself records no transition, no workflow verdict, and no completion ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 ## Alternatives considered
 
@@ -150,7 +138,7 @@ source instead of prose.
 The lane disposition holds no workflow authority: Main records its acceptance
 (D6), and the report itself records no transition.
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: stored completions are current rows, so no replay or rebuild participates. An
+Stored completions are current rows, so no replay or rebuild participates ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). An
 in-flight attempt completes under its recorded dispatch requirements.
 
 ## Verification

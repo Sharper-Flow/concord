@@ -8,11 +8,7 @@
   stated that pre-launch repository history creates no runtime compatibility
   obligation.
 - **Related:** CD-0222 D9.2, CD-0042 D1, CD-0062 D1-D3
-- **Amends:** CD-0222 D9.2 and CD-0062 D3
 - **Preserves:** CD-0222 D2-D3 and CD-0062 D1-D2/D4-D5
-- **Supersedes:** The requirement to migrate schema 1.0 or 1.1 knowledge
-  manifests and the transient undecided-root marker
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — no upcaster exists.
 
 ## Context
 
@@ -50,8 +46,6 @@ repository surface.
 and validator branch are removed. Concord does not add a flag, compatibility
 shim, startup migration, or operator command for schema 1.0 or 1.1 manifests.
 
-This decision amends CD-0222 D9.2 and CD-0062 D3: no legacy-manifest upcast
-exists ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no upcaster exists), and no undecided-root marker remains.
 
 ### D3. Root-home rationale validation remains current law
 

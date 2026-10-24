@@ -610,7 +610,7 @@ def check_workflow_contracts() -> list[str]:
         if corpus.get("contract") != "CD-0013" or corpus.get("contract_status") != "accepted":
             findings.append(".concord/scenarios/workflow-engine.v1.json: contract metadata is not accepted CD-0013")
         # Numbers run 1..57; a retired number is never reused. 3 and 52 were
-        # retired with CD-0236, 36 with CD-0238.
+        # retired with CD-0236; 36 is excluded by CD-0242 D2.
         retired_numbers = {3, 36, 52}
         expected_numbers = [number for number in range(1, 58) if number not in retired_numbers]
         if len(scenarios) != len(expected_numbers):

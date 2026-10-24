@@ -6,7 +6,6 @@
 - **Approval:** The operator approved this amendment in-session on 2026-09-02
   and directed that it land with the move-session transport repair.
 - **Related:** CD-0096, CD-0098, issues #710, #714, #724
-- **Amends:** CD-0098 D3 at its turn-end clause
 - **Preserves:** Every other CD-0098 clause, including the clean-checkout
   precondition, the no-carry rule, and the read-back assertion
 - **Amended:** 2026-10-17. Coordinator approval under the operator's delegation

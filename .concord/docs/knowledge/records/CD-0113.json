@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8932723f2fbe9ef5a623fe3721027165e63b4f08c8fe1d480af861b9a9f506dc",
+  "sha256": "sha256:61f6c5ee690b2478d36fe154be2451fb52afbc93929ce2d4a3cc3e0be37d01c0",
   "status": "accepted",
   "summary": "Every mutation result carries a WorkPin, computed in its own transaction, for each work item it lists that has one: version, lifecycle, workflow type, step, live attempt, pending operator decision, and watermark. A work item without a workflow instance or a held outside-repair disposition, or one the mutation removed, has no pin, one work_pin_unavailable omission notice counts such items, and an unreadable pin otherwise refuses the mutation. next_valid_intents is derived from the pin and the workflow admission instead of hand-written literals, and continuity and the full list detail embed the same pin, so a session never reads the store around the typed surface.",
   "tags": [

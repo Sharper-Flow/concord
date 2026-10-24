@@ -17,8 +17,6 @@
 - **Preserves:** the worker authority boundary in full — a worker still records
   no transition, no verdict, and no completion, and still cannot accept its own
   result
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 keeps completions and evidence as current rows
-- **Supersedes:** nothing
 
 ## Context
 
@@ -129,7 +127,7 @@ Neither a signed report nor an execution locator proves semantic acceptance.
 
 A `worker.completed` acceptance whose evidence leaves any of the dispatching
 lane's declared obligations undischarged is refused with a typed failure.
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the refusal happens at completion acceptance, inside the one transaction that would write the terminal rows, because that is the only point where the attempt's lane identity and the reported evidence are both in hand.
+The refusal happens at completion acceptance, inside the one transaction that would write the terminal rows, because that is the only point where the attempt's lane identity and the reported evidence are both in hand ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 A refused completion is not a silent retry. The caller records `worker.failed`
 with the existing `invalid_report` kind, which gives that constant its first
@@ -152,11 +150,11 @@ authority or certify the semantic truth of a closure.
 Report schema `1.0` retains the pre-job shape. Schema `1.1` admits a
 worker-job binding and additive oracle report members. The terminal report
 must match the dispatch's recorded schema identity and job binding. Oracle
-members require an oracle-bearing dispatched revision; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: a recorded dispatch gains no oracle tie by absence or upcast.
+members require an oracle-bearing dispatched revision; a recorded dispatch gains no oracle tie by absence ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### D6. A recorded completion states its evidence origin
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each terminal result is a recorded current fact; a completion recorded before this contract reads back with `evidence_origin: legacy_unavailable` and empty evidence, and no payload version, upcast, or replay invents evidence.
+Each terminal result is a recorded current fact ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### D7. The adapter parses the report it already receives
 
@@ -178,9 +176,7 @@ packet, and the closed schema still refuses every other property the worker
 was not asked for. The adapter supplies each oracle receipt's candidate
 subject from the dispatch subject, never from a worker echo.
 
-Amended 2026-10-09 for the explicit report protocol
-([Linear](https://linear.app/sharper-flow/issue/CON-891/give-the-workers-final-report-an-explicit-protocol-identity-instead-of)):
-the report is framed, not found. A packet that declares its output protocol
+The report is framed, not found. A packet that declares its output protocol
 (CD-0067 D2) makes one Markdown fence — info string
 `concord-worker-result-v1` — the only report route, and the frame body is
 exactly one strict JSON object of worker-owned report content. Duplicate JSON
@@ -197,9 +193,7 @@ candidate selects, an announced malformed final candidate refuses, and two
 candidates refuse as ambiguous. No admission path selects a report by taking
 the last parseable JSON object.
 
-Amended 2026-10-13 for the core-derived terminal identity
-([Linear](https://linear.app/sharper-flow/issue/CON-887/one-shared-typed-work-context-packet-per-work-item-read-and-extended)):
-the terminal boundary also carries producer-owned identity the core derives,
+The terminal boundary also carries producer-owned identity the core derives,
 not reported evidence. A completed implementation report's
 `observed_delivery` and every terminal event's `consumed_context_frontier`
 come from the store's own observation and the attempt's dispatch
@@ -235,12 +229,9 @@ step graph under CD-0013 D1.
   no terminal write (CD-0242 D2).
 - A completion naming an obligation the dispatching lane does not declare is
   refused.
-- A completion recorded before this contract reads back as `legacy_unavailable`
-  with empty evidence, with no upcast or replay (CD-0242 D2).
 - A completion that claims `legacy_unavailable` for a report produced under
   this contract is refused, and one claiming `reported` with empty evidence is
   refused.
-- Every lane digest is unchanged from before this decision.
 - The adapter turns an unparseable or invalid report into `worker.failed` with
   `invalid_report` rather than a completion.
 - The admitted canonical report takes `schema_version`, `worker_job`,

@@ -9,8 +9,6 @@
   user-account boundary without encryption, and selected provider-specific
   provisioning when CD-0085 exposed the conflict
 - **Related:** CD-0085, issue #600
-- **Supersedes:** CD-0085 D2-D3 only where they require provider-independent
-  provisioning. Credential reads remain provider-independent
 - **Preserves:** CD-0085 D1 and D4, the single custody read path, fail-closed
   signing, and the ban on a general plaintext-key fallback
 

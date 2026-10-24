@@ -5,7 +5,6 @@
 - **Scope:** Worktree claim identity and active claim uniqueness
 - **Approval:** The operator approved this law in the existing-work bootstrap plan.
 - **Related:** CD-0008, CD-0119
-- **Amends:** CD-0119 D2 at the existing-item bootstrap claim route
 
 ## Context
 

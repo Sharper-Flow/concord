@@ -10,10 +10,6 @@
   contract for `work-cc3853268a41489a1ee347dd` under CD-0092 pinning.
 - **Related:** CD-0082, CD-0092, CD-0095, CD-0096, CD-0104, issues #635, #674,
   #722
-- **Amends:** CD-0096 D3 Destroy at the trigger, which it left unnamed
-- **Amended by:** CD-0118 at D1 and D2: the audit names a fifth class,
-  `unstarted_present`, and the pass reclaims it under a commit-count gate;
-  CD-0162 at D4: the pass's main-checkout admission rests on the tier gates
 - **Preserves:** Every CD-0095 and CD-0096 D3 gate on removal: the clean
   tree, the merged head by tree identity, the observed-session stranding
   refusal, and operator approval for non-terminal or destructive removal

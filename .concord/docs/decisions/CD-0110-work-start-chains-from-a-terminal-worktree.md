@@ -6,7 +6,6 @@
   base used by a chained worktree
 - **Approval:** The operator approved this amendment for issue #829.
 - **Related:** CD-0098, CD-0092, CD-0093, CD-0096, CD-0105, issue #829
-- **Amends:** CD-0098 D1 and D3
 
 ## Context
 

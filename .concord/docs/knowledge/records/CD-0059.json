@@ -32,7 +32,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:63a13c55344509c3540a50bd37f843366c1daaebaf33c7ef76f89ac03327e453",
+  "sha256": "sha256:97b5bca6b1f870d0fb98d36a4d9535cd739df8a4587f0edddda32c7d30682cd5",
   "status": "accepted",
   "summary": "Lane dispatch is a registered workflow action reached through concord_work_transition.workflow_action; its worker window is not a completed delivery until the worker attempt completes and accept_worker_result records the result; completed and accepted delivery is required before verdict correction.",
   "tags": [

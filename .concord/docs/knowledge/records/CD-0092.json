@@ -18,7 +18,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:388be831b48f68f47e2e6b08ba805b8a5b17715fd80e49a95ad79a2db0c44124",
+  "sha256": "sha256:c42368696c721040398680b4322e62cd6d60f813a7201f013ea10bf0ae6d752f",
   "status": "accepted",
   "summary": "Scopes the main-checkout refusal by capability class: work_define resolves from the default checkout because it writes only Product state, while implementation-bearing capabilities stay refused. Amends CD-0072 D2 and CD-0008 D1 at that boundary.",
   "tags": [

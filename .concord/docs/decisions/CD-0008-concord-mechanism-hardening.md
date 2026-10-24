@@ -10,7 +10,6 @@ post-falsifier review and retains SQLite.
 **Amended by operator:** 2026-10-17 — D6 states when a payload version bump
 needs a Breaking migration and requires each bump to declare its class.
 **Amended:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 supersedes the point-in-time reconstruction rule: recovery restores a verified snapshot and reconciles current rows; no reconstruction exists.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D6, D13, D14
 **Scope:** Evidence resolution, unreadable-record isolation, workflow checkpoints,
 attempt fencing, external conditions, worktree topology, schema evolution, and the
 SQLite confirmation and alternative-engine trigger.
@@ -156,15 +155,15 @@ Examples:
 
 ### Row recovery and quarantine
 
-- [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: corrupted rows recover through a verified snapshot restore plus reconciliation of current rows; no fold, replay, or rebuild exists.
+- Corrupted rows recover through a verified snapshot restore plus reconciliation of current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - An unreadable current row contributes unknown and carries a typed quarantine diagnostic; it never silently blocks or clears a safety conclusion.
-- [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: snapshot cleanup never removes the newest verified snapshot or one an unfinished recovery needs.
+- Snapshot cleanup never removes the newest verified snapshot or one an unfinished recovery needs ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - Distinguish corrupted storage from an unreadable row or schema skew; both fail closed for safety conclusions.
-- Repair follows reconcile → repair/compensate → verified snapshot restore → operator escalation. Redrive is operator-triggered and recorded; each redrive is one admitted request ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) governs: no attempt count or retry bound exists).
+- Repair follows reconcile → repair/compensate → verified snapshot restore → operator escalation. Redrive is operator-triggered and recorded; each redrive is one admitted request.
 
 ## D4. Workflow checkpoints and execution-attempt fencing
 
-Every work item pins one workflow type/version. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: cross-authority and external-effect steps record typed checkpoint rows as current state, not appended events. A checkpoint row contains:
+Every work item pins one workflow type/version. Cross-authority and external-effect steps record typed checkpoint rows as current state ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). A checkpoint row contains:
 
 ```text
 work_id
@@ -234,7 +233,7 @@ after checking the owning authority.
 
 ## D6. Schema evolution and migration
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history), [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot), and [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) govern: no event log, fold, upcaster, or replay exists; the cutover is one documented migration with a verified snapshot; definitions derive from one source with no retained history.
+The cutover is one documented migration with a verified snapshot ([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
 ## D7. SQLite is confirmed; alternative engines are falsifier-only
 
@@ -275,7 +274,7 @@ such as network filesystems or multi-machine writes that this local test cannot 
 - Unreadable records neither create false safety nor block unrelated work globally.
 - Interrupted and competing agents resume one durable operation without duplicate or
   stale authoritative completion.
-- [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) governs: schema evolution is one documented cutover migration with a verified snapshot, and diagnostics stay explicit.
+- Schema evolution is one documented cutover migration with a verified snapshot, and diagnostics stay explicit ([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
 ### Cost
 

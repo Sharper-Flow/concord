@@ -15,7 +15,6 @@
 - **Related:** CD-0149, CD-0102, CD-0054, CD-0017, and CD-0081
 - **Preserves:** The worker authority boundary; the utility distinction from
   lane evidence; fail-closed tool and command permissions
-- **Supersedes:** Nothing
 
 ## Context
 
@@ -42,7 +41,7 @@ adapter has admitted the call, and CD-0054 D3 keeps the registry model-neutral.
 ### D1. The registry admits `advisor` v1
 
 The utility has purpose `Give an independent reasoned opinion on a bounded
-problem and cite the evidence for it.` Amended 2026-10-02: the registered
+problem and cite the evidence for it.` The registered
 purpose appends the when-clause `Use when a coordinator wants a second
 opinion reached without seeing the caller's own conclusion.`, so the
 generated description states what and when like every registry entry. The
@@ -81,7 +80,7 @@ explicitly permitted and is not a failure.
 ### D4. The adviser states the model that served it
 
 The generated body requires the adviser to name its serving model in its
-output. Amended 2026-09-20: the self-report is a disclosure for post-hoc
+output. The self-report is a disclosure for post-hoc
 audit, not a control.
 
 Concord cannot enforce that the adviser and the caller differ in model family.

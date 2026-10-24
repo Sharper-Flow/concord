@@ -35,7 +35,7 @@ carry authority, approval, law, workflow position, or evidence claims.
 
 ## Durable mechanism
 
-Two current-row tables hold the continuity state ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each mutation writes current rows in one transaction; no event log, fold, or replay exists):
+Two current-row tables hold the continuity state (each mutation writes current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))):
 
 - `workflow_context_checkpoints`: one immutable bounded working-state record per
   work/version/sequence;
@@ -142,7 +142,7 @@ a source, fetches from the network, or mutates the declared readings. The
 resolution runs before the dispatch transaction opens, and the admission
 revalidates the sampled source identities inside it. A failure names the
 reading's ordinal and source identity and commits no dispatch effect.
-No replay or rebuild re-resolves a reading ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: neither exists).
+No replay or rebuild re-resolves a reading.
 
 The view bounds above constrain the derived view, not retained terminal
 evidence. The dispatch context is a separate capacity. The canonical JSON object

@@ -5,12 +5,9 @@
 - **Scope:** The refine exit of `workflow.implementation` and
   `workflow.break_fix`, the Project tooling manifest, and the argv equality
   the guard enforces
-- **Amends:** CD-0138 D3 at its second sentence ("The step is agent-worked,
-  not scanner-driven.")
 - **Preserves:** CD-0138 D1, D2, and D4, the agent-judgment rule of CD-0138 D3,
   CD-0055 D4, CD-0096 D3, and the digests derived from the one canonical
   source ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14)
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14
 - **Related:** CD-0013, CD-0055, CD-0096, CD-0138, CD-0156
 - **Approval:** The operator approved the work item contract that carries this
   record on 2026-09-29.
@@ -37,9 +34,7 @@ default ref.
 Leaving `refine` through `record_delivery` in the implementation and
 break-fix families runs a
 guard registered next to the delivery admission guards. The guard is active
-only at the refinement step; [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-governs: the families' one canonical source carries the guard, and no earlier
-version or pin is retained.
+only at the refinement step.
 
 ### D2. The proof is a green worktree_verify run bound in the epoch
 
@@ -117,7 +112,6 @@ succeeds.
 - `go test ./internal/store/ -run TestRefineToolingResolution` proves the
   resolution reads the default ref only and reads an absent manifest as no
   declaration.
-- [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) retires retained-definition digest-pin witnesses in favor of one canonical source; `TestCurrentDefinitionsHaveOneSourcePerLiveFamily` checks that source without retained versions.
 - `python3 scripts/test-project-tooling.py` proves the checker and the schema
   refuse shell quoting and shell operators in an invocation.
 - The workflow corpus carries `WF57-refine-exit-needs-green-verify-run`, whose

@@ -15,7 +15,6 @@
   versatility, [`workflows.md`](../workflows.md), issue #295
 - **Preserves:** The CD-0019 mandate method (D2 research-informed shapes);
   the closed workflow registry; the knowledge-home authority
-- **Supersedes:** nothing; answers questions CD-0019 deliberately left open
 
 ## Context
 
@@ -39,7 +38,7 @@ What was missing is the record that closes the question.
 
 ## Decision
 
-For definitions declaring `approval_policy=consequence_v1`, the human-checkpoint floor is conditional on recorded decision domains under CD-0013 D11, not on `changes_product_truth`. Engineering still requires a recorded contract, independent outcome evaluation, premise confirmation, and the same completion proof. Historical definitions retain their human-checkpoint requirement.
+For definitions declaring `approval_policy=consequence_v1`, the human-checkpoint floor is conditional on recorded decision domains under CD-0013 D11, not on `changes_product_truth`. Engineering still requires a recorded contract, independent outcome evaluation, premise confirmation, and the same completion proof.
 
 
 ### D1. Gated human-checkpoint lifecycle: **absorbed**

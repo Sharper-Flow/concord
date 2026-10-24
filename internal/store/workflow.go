@@ -71,7 +71,7 @@ const workflowActionCompletedAttributionVersion = 5
 
 // workflowActionCompletedJobSizeVersion is the payload version at which a
 // workflow.action_completed completion may carry the job-size members
-// (CD-0225 D1, CD-0227 D1): the caller exclusions a size-capable
+// (CD-0227 D1): the caller exclusions a size-capable
 // implementation dispatch bound to its packet, and the supplemental
 // classifications and final production size an acceptance recorded. Stored
 // completions below it carried none of these members.
@@ -3435,7 +3435,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	}
 	// Failure can bind to the authorization that created the attempt even
 	// when no worker dispatch evidence was admitted. Success still requires
-	// an actual dispatch. The epoch fence (CD-0133, CD-0148) remains the same.
+	// an actual dispatch. The epoch fence (CD-0133) remains the same.
 	// At a human_checkpoint step the
 	// attempt anchors to the dispatch window that opened it (CD-0193): an
 	// authorized window no worker used must not orphan the failed attempt the

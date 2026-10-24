@@ -11,8 +11,6 @@
   assertion from launcher start to session preparation under the Snowball
   coordinator's operator-delegated approval. [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
   D2 amends D4: the assertion is a current row; no domain event exists.
-- **Supersedes:** nothing; scopes CD-0027's exclusion and amends CD-0049's
-  consequences
 
 ## Context
 
@@ -92,7 +90,7 @@ below rather than withdrawn.
 A context boundary records a work item crossing a continuity boundary. A session
 identity assertion happens at session preparation, before managed action. A
 host-started session with no selected work stays identity-only, performs no
-preparation, and records no assertion (CD-0031 as amended). Recording one
+preparation, and records no assertion (CD-0031). Recording one
 as the other would misuse the boundary sequence and require a `restart` boundary
 kind that D1 keeps closed.
 
@@ -111,7 +109,7 @@ is the sequence CD-0027's own consequences describe.
 
 The asserted orchestrator identity is recorded as a current row with
 `subject_type='session'`, carrying the asserted type, version, and ruleset
-digest ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each mutation writes current rows in one transaction; no event log exists). The row needs no new
+digest (each mutation writes current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))). The row needs no new
 table, and it does not constitute a definition of an orchestrator persona, so CD-0049
 Invariant 4 and CD-0016's exclusion of an `agent_definitions` table both hold.
 

@@ -13,7 +13,6 @@
 - **Preserves:** The closed lane registry and its digest; `agent-lane-packet.v1` and
   `agent-lane-report.v1`; CD-0034 provenance recording; CD-0017 D7's evaluation
   boundary
-- **Supersedes:** nothing
 
 ## Context
 

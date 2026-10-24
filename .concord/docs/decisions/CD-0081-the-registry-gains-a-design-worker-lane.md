@@ -14,7 +14,6 @@
 - **Preserves:** the worker authority boundary in full;
   `agent-lane-packet.v1` and `agent-lane-report.v1` at `schema_version` 1.0;
   the four pre-existing lane digests
-- **Supersedes:** nothing
 
 ## Context
 

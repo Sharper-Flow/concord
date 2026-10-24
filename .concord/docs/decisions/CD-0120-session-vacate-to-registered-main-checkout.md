@@ -8,7 +8,6 @@
 - **Approval:** The operator approved this decision in-session on 2026-09-08
   after the manual relocation it removes.
 - **Related:** CD-0092, CD-0096, CD-0098, CD-0103, issue #722, issue #950
-- **Amends:** CD-0098 D1/D2 at the move scope only
 - **Preserves:** CD-0096 D2 path ownership, CD-0096 D3 occupancy protection,
   and the CD-0098 read-back and no-fallback rules
 

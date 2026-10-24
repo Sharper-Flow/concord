@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:86c10f4d4afd86f70385ccb65ba274ee691dbcd2d41e991e18a417ec26d39644",
+  "sha256": "sha256:e6c70ee7be2f7b6fdff1c638bbe237f3298273a29ad0a311e28416029f2dce93",
   "status": "accepted",
   "summary": "Leaving refine in the implementation and break-fix families requires, in the current refine epoch, a bound verification evidence naming a completed worktree.verify durable operation whose lease ran green after the refine start. When the Project's default ref declares .concord/tooling.v1.json, the run's argv must equal one declared tool's whitespace-split invocation; the manifest is read from the default ref outside the store transaction, never from the working tree. A Project that declares no manifest passes on any green run, and refusals name the declared checks or state that none are declared. The families' one canonical source carries the guard, and no earlier definition version or pin is retained (CD-0242 D14). Amends CD-0138 D3; CD-0138 D1, D2, D4, and the agent-judgment rule of D3 stay in force.",
   "tags": [

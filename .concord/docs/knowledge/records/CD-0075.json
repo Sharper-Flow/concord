@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6f33fe34d6d49b795b34822dc9d2fc2a30b3d1e54ebbea23ce5c1153abcc98da",
+  "sha256": "sha256:dc641be8e9effb215cdb482f9e060cf9b8e4ccd4f6107d140b5f095f4903360b",
   "status": "accepted",
   "summary": "D1 removes cadence from the project tooling schema, checker, tests, and dogfood manifest because routine and on_demand state when an agent should select a command and therefore cross CD-0043 D1's host-owned methodology boundary; the remaining fields describe identity, invocation, cost, and referenced repository files without a selection schedule; D2 replaces an optional jsonschema test, which CI could skip, with direct standard-library comparison of the checker's contract constants against the published schema; D3 changes accepted law by narrowly superseding CD-0074's cadence clauses while preserving its path-containment rules and probe-family exclusion.",
   "tags": [

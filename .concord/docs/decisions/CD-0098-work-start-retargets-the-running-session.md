@@ -8,9 +8,6 @@
   and directed that a worktree never requires a relaunch.
 - **Related:** CD-0059, CD-0088, CD-0092, CD-0093, CD-0096, CD-0102, CD-0103,
   CD-0104, issue #689
-- **Amended by:** CD-0103 at the D3 turn-end clause; CD-0104 D3 at the failure
-  contract, which removes the `partial` outcome and the launch record
-- **Amends:** CD-0096 D6 and CD-0088 D4 at their launch clauses
 - **Preserves:** The `session-prepare` directory refusal, the lane definition
   check, and the read-back identity assertion
 
@@ -60,14 +57,13 @@ changes. Uncommitted work stays where it is, and Concord refuses rather than
 moving a dirty tree it did not author.
 
 The retarget takes effect from the next turn: a running turn resolves its paths
-before the move lands. CD-0103 amends this clause, which previously claimed the
-route waits for a turn boundary it does not offer. After the move, `work_start`
+before the move lands. After the move, `work_start`
 reads the session directory back and refuses success unless it is the claimed
 worktree.
 
 ### D4. Identity guarantees now guard the retarget
 
-CD-0088 D4 is amended at its launch clause only. `session-prepare` still refuses
+`session-prepare` still refuses
 a directory other than the active claimed worktree, still checks the installed
 lane definitions, and still obtains the core-derived session packet. Those
 checks now guard the destination of a move instead of the directory of a launch.

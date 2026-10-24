@@ -4,11 +4,10 @@
 - **Date:** 2026-09-12
 - **Scope:** Built-in implementation and break-fix workflow definitions
 - **Approval:** The operator approved this bounded workflow change.
-- **Related:** CD-0013, CD-0059, CD-0115, CD-0116
+- **Related:** CD-0013, CD-0059, CD-0116
 - **Preserves:** External analysis ownership, worker fences, and the
   definitions active work derives from the canonical source
   ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14)
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14
 
 ## Context
 
@@ -48,12 +47,6 @@ pass exists to improve the change itself: when review finds that a smaller
 implementation would be cleaner than the first iteration, the working agent
 rewrites toward the smaller implementation instead of applying findings
 mechanically.
-
-### D4. The refine step joins the canonical source
-
-[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-governs: the `refine` step is composed into the families' one canonical source,
-and no prior version content or pin is retained.
 
 ## Verification
 

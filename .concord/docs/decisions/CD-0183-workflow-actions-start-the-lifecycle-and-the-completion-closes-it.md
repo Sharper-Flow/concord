@@ -5,12 +5,9 @@
 - **Scope:** The workflow start and complete actions, the Domain-overlap peer
   marker, the lifecycle completed gate, and the tests that pin them
 - **Related:** CD-0144, CD-0094, CD-0013, CD-0166
-- **Amends:** CD-0144 D3 (the exclusivity marker) and CD-0094 D2 (the
-  lifecycle completed gate), at those clauses only
 - **Approval:** The operator approved this change in session 2026-09-27 on
   work item `work-4c428253aab7dc64d936e08b`
   ([Concord (CON) issue 158](https://linear.app/sharper-flow/issue/CON-158)).
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 records each action's writes as current rows
 
 ## Context
 
@@ -29,7 +26,7 @@ completion gate, which stranded items whose workflow had already finished
 
 The first workflow_action the store applies to a needed item moves it to
 `in_progress` and enqueues the Linear issue_update in the same transaction.
-Every advancing action carries the move, checkpoint and dispatch included; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the move is a current-row write in the action's one transaction. Only a
+Every advancing action carries the move, checkpoint and dispatch included; the move is a current-row write in the action's one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Only a
 needed item moves, and the move adds no version of its own. The item stops
 reading ready.
 
@@ -37,7 +34,7 @@ reading ready.
 
 The workflow instance carries `execution_started_at`. The action that starts
 execution on an external-effect step records it, and the first recorded start
-wins. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the value is a current row written in the starting transaction, with no log order, backfill, or rebuild derivation. Migration 107 backfilled existing instances, and recovery restores the recorded value with the instance snapshot. The Domain-overlap peer
+wins. The value is a current row written in the starting transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Migration 107 backfilled existing instances, and recovery restores the recorded value with the instance snapshot. The Domain-overlap peer
 query selects peers by this fact, not by the lifecycle, so an `in_progress`
 item that has not started execution blocks no peer. A subject keeps its
 prospective footprint at its own boundary (CD-0144 D3).
@@ -46,7 +43,7 @@ prospective footprint at its own boundary (CD-0144 D3).
 
 The workflow complete action records `work.transitioned` and the workflow's
 terminal state in one transaction, so the lifecycle and the Linear status
-follow; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: these are current rows, not appended events. The completion gate admits only `ok`
+follow; these are current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). The completion gate admits only `ok`
 verdicts, so that terminal state is `completed`. A completion that names
 `cancelled` or `superseded` refuses before any effect: cancellation keeps the
 lifecycle route, and supersession stays atomic with its relation. The instance keeps its completed
@@ -64,7 +61,7 @@ the target when the instance is already terminal: a completed instance is the
 stranded-item repair, and a cancelled or superseded instance closed before the
 item ended keeps the lifecycle route with its evidence and approval gates. It
 also admits the target when the item carries no instance, which keeps imported
-items completable (CD-0094 D2). A `cancelled` target is unchanged. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded rows read back as they stand, and none is rewritten.
+items completable (CD-0094 D2). A `cancelled` target is unchanged. Recorded rows read back as they stand, and none is rewritten ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ## Alternatives considered
 
@@ -108,6 +105,5 @@ items completable (CD-0094 D2). A `cancelled` target is unchanged. [CD-0242 D2](
   keeps its completed record.
 - `TestTerminalLifecycleRefusesCompletedWhileWorkflowLive` proves the D4
   refusal and its remedy.
-- [CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum) retires the architecture-spike family's lifecycle decision-record witnesses in favor of implementation stages; `python3 scripts/check-knowledge-index.py` checks this record's registration, not that retired behavior.
 - `python3 scripts/check-migration-compatibility.py` classifies migration 107
   as non-breaking.

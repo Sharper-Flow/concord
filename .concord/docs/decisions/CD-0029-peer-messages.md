@@ -18,14 +18,13 @@ authoring because its target rebased and self-resolved.
 
 ## Decision
 
-A peer message supplies neither consent nor authority. CD-0013 D11 governs terminal transitions: routine completion requires its unchanged acceptance evidence, not operator approval; cancellation and removal require operator approval only when a CD-0243 D2 class applies. A message cannot satisfy either gate or alter the recipient's classification; [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: no historical workflow pins are retained.
-
+A peer message supplies neither consent nor authority. CD-0013 D11 governs terminal transitions: routine completion requires its unchanged acceptance evidence, not operator approval; cancellation and removal require operator approval only when a CD-0243 D2 class applies. A message cannot satisfy either gate or alter the recipient's classification.
 
 **D1. Messages are durable rows addressed to work, not sessions.**
 `concord_work_relate.message_send` carries a recipient work id; the message
 write validates the recipient exists (the successor-link precedent for
 cross-work writes) and writes one row per (sender, recipient)
-pair ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each mutation writes current rows in one transaction; no event or fold exists). Whatever session next picks the work up reads the same rows — restart,
+pair (each mutation writes current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))). Whatever session next picks the work up reads the same rows — restart,
 compaction, and context loss on the receiving side cannot lose a message,
 because the message never belonged to the session.
 

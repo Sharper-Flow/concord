@@ -1,5 +1,0 @@
-{
-  "id": "CD-0115",
-  "reason": "CD-0242 supersedes this decision in full. D14 requires one current generated definition per family, not frozen released definitions or retained digest pins. Coverage belongs to the successor's canonical-source requirements.",
-  "state": "out_of_scope"
-}

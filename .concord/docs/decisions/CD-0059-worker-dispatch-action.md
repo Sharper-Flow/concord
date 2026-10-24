@@ -13,9 +13,6 @@
   envelope-thin), CD-0013 (workflow authority)
 - **Preserves:** the CD-0044 signed-evidence boundary in full; lane identity
   validation; the worker authority boundary
-- **Amended by:** CD-0143 for verification-verdict correction after completed and accepted worker delivery
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D6, D14 — dispatch writes current rows; no attempt count, convergence wall, or historical pin exists.
-- **Supersedes:** nothing
 
 ## Context
 
@@ -47,14 +44,14 @@ window.
 
 Register `dispatch_worker` in the workflow action registry. The dispatch
 admission opens the worker attempt window against the current step epoch in
-one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each mutation writes current rows; no fold exists). The adapter then runs
+one transaction (each mutation writes current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))). The adapter then runs
 authorize, spawn, append evidence, in that order. The core authorizes before
 any process starts, replacing an arrangement where `worker-dispatch` records an
 attempt that already happened.
 
 The same completion records the admitted core subject for native oracle
 execution under CD-0067 D2. This snapshot belongs to the existing fenced
-dispatch; it grants no new capability ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) governs: no attempt count or retry budget exists; each launch carries its own authority).
+dispatch; it grants no new capability (each launch carries its own authority ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget))).
 
 This is the placement `.concord/docs/capability-placement.md` §4 selects: a capability
 that mutates durable state and needs validation, authorization, and approval is
@@ -64,16 +61,10 @@ and identity only.
 
 ### D2. Its action policy matches `start_execution`
 
-For `approval_policy=consequence_v1`, [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) governs: a failed-worker
-retry is a launch admitted like any other, with its own scope, assignment, and
-subject bindings; no attempt count, convergence basis, escalation wall, or
-approval-gated fresh retry exists, and a launch with an unknown effect is
-reconciled before another launch for that assignment. The exact failed attempt,
+For `approval_policy=consequence_v1`, a failed-worker retry is a launch admitted like any other, with its own scope, assignment, and subject bindings, and a launch with an unknown effect is reconciled before another launch for that assignment ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)). The exact failed attempt,
 epoch, active contract, and job binding remain transactional prerequisites of
 the retry launch, and the store records a fresh fenced attempt and epoch
-([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). No historical pins are
-retained ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
-
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 `dispatch_worker` is registered as
 `actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric)`.

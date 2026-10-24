@@ -9,9 +9,6 @@
   `work-2b85cd5008dba4e50005c3e8` in session on 2026-09-06, under CD-0092
   pinning, selecting a zero-commit clean tree as the authorizing gate.
 - **Related:** CD-0095, CD-0096, CD-0105, issue #723
-- **Amends:** CD-0096 D3 Destroy at the approval sentence, which reserved
-  approval-free removal to merged terminal work; CD-0105 D1 and D2 at the
-  class count and the pass's action set
 - **Preserves:** Every CD-0095 and CD-0096 D3 gate on removal except the one
   sentence this record amends: the clean tree, the observed-session
   stranding refusal, and operator approval for every other non-terminal

@@ -21,10 +21,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0112"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0115"
     }
   ],
   "path": ".concord/docs/decisions/CD-0130-failed-worker-attempt-recovery-under-a-historical-definition-pin.md",
@@ -35,7 +31,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7d7275bcafefffcf6a5d3a24c1fdddfb212ec9591efc68504e8451037861f5db",
+  "sha256": "sha256:0af1de900bc6776ee7ce1056aea7787b0e3bee90ab0813ec8ace12daf8e2a6e8",
   "status": "accepted",
   "summary": "Makes failed-attempt closure an engine-owned recovery action, keeps current payload, identity, epoch, authorization, and failed-state checks, and retains no released definition version for history.",
   "tags": [

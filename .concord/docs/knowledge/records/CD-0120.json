@@ -31,7 +31,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6d8c5827a7a29eacd346fe1d2f0e29e9b39c37b839039ec04a67c2879a416a7f",
+  "sha256": "sha256:52ddd20857d7e61a8e782baa3068c8a83ada7f37d1f66e4ab0c711d8ff90aaa4",
   "status": "accepted",
   "summary": "session_vacate derives the registered Project main checkout, refuses agent-named destinations, moves through the host control plane, verifies the landing, and composes with worktree reclaim occupancy checks.",
   "tags": [

@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0a2246483bc71d1d931ad38f81627ff13a6b9a19cbd7253edc81622a394439e8",
+  "sha256": "sha256:dd45ac2f3fa1efbdd0833958dfa9dd5ac3d2c641d33919f000fc58e8782b0fb0",
   "status": "accepted",
   "summary": "Generated lanes declare hidden: true and mode: subagent, excluding primary session selection and ordinary discovery while retaining exact-name native Task dispatch. Dispatch still requires a typed packet, authorized attempt, nesting denial and capability fences. Executor readback remains required. Registry digests cover the manifest rather than projected frontmatter, so this mode change alters no digest or schema version.",
   "tags": [

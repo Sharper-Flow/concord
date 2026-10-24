@@ -14,8 +14,6 @@
 - **Amended:** 2026-10-18.
 - **Related:** CD-0006, CD-0015, CD-0036, CD-0222, and
   `.concord/docs/specs-as-laws.md`
-- **Amends:** CD-0006's rule that human approval is always required to enact a
-  law change
 - **Preserves:** CD-0006's ban on a silent scope cut, CD-0012's rule against
   outcome substitution, CD-0036 revision identity and breaking-law cutovers, and
   CD-0222 Domain-bound contracts
@@ -54,7 +52,7 @@ migration of existing law text.
 
 ## Decision
 
-Under CD-0013 D11, recording an engineering contract or routine successor does not itself enact Product law. Actual law changes follow CD-0230 D4, including its amendment of this record's D2, D4, and D5. A routine workflow consent class does not establish law-change authority. A governed scope cut remains a product decision requiring operator approval under CD-0230 D5 and is never silent.
+Under CD-0013 D11, recording an engineering contract or routine successor does not itself enact Product law. Actual law changes follow CD-0230 D4. A routine workflow consent class does not establish law-change authority. A governed scope cut remains a product decision requiring operator approval under CD-0230 D5 and is never silent.
 
 
 ### D1. A Product law record carries an authority tier
@@ -124,7 +122,7 @@ A conflict whose declaring record is `derived` is revised inside the work
 contract and recorded there as a revision line, because only the declaring
 record can withdraw the conflict. It costs no separate approval turn.
 
-This amends CD-0006. Human approval remains required to enact a law change, and
+Human approval remains required to enact a law change, and
 the approval of the contract that carries the revision supplies it. The operator
 keeps sight of every revision, because each one appears in the contract they
 approve. The change collapses many separate questions into one contract line.
@@ -176,7 +174,7 @@ demotion or promotion. Database failures do not count as absence.
 
 Under `allow_degraded`, a source whose admission check refuses, or that
 search did not admit, counts as a degraded source under CD-0020 D3
-as amended by CD-0200 D3.
+and CD-0200 D3.
 
 CI checks what the checkout can prove: work-ID form, contract-version
 form, and membership of any D5 vehicle claim in the closed cohort.
@@ -216,7 +214,7 @@ this correction. Promotion still requires D2. The D5 cohort stays closed.
   and reports an absent work as unverified without changing the tier.
 - A manifest test refuses non-work IDs and out-of-cohort D5 vehicle claims.
 - A search test proves that admission refusals and unadmitted sources use
-  CD-0020 D3 as amended by CD-0200 D3.
+  CD-0020 D3 and CD-0200 D3.
 - A store test proves that a conflict a `derived` record declares records a
   contract revision line and raises no operator approval requirement.
 - A store test proves that a conflict a `legislated` record declares still raises

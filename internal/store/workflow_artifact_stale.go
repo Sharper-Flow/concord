@@ -50,7 +50,7 @@ func workflowArtifactStale(ctx context.Context, q queryer, workID string, defini
 // not converted into a demand for repeated production (CD-0242 D7).
 func workflowArtifactStaleFrontier(ctx context.Context, q queryer, workID, subject string) (int64, error) {
 	var verdictSeq int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(v.seq),0) FROM domain_events v WHERE v.subject_type=? AND v.subject_id=? AND v.kind=? AND (COALESCE(json_extract(v.payload,'$.verdict_kind'),'')<>'ok' OR COALESCE(json_extract(v.payload,'$.incomparable_with_approved'),0)=1)`, string(SubjectWorkItem), workID, WorkflowVerdictRecorded).Scan(&verdictSeq); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(unhealthy_verdict_seq),0) FROM workflow_instances WHERE work_id=?`, workID).Scan(&verdictSeq); err != nil {
 		return 0, wrapFailure(KindUnavailable, subject, "cannot read the artifact-staleness verdict frontier", true, "retry once the workflow verdict projection is readable", err)
 	}
 	return verdictSeq, nil

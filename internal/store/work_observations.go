@@ -89,8 +89,8 @@ func foldWorkObservationRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 	if isTerminalLifecycle(lifecycle) {
 		return newFailure(KindNotTerminal, "fold_event", "terminal work cannot record observations", false, "promote the observation through capture instead")
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`,
-		p.ObservationID, event.SubjectID, p.Statement, marshalStrings(p.Refs), marshalStrings(p.Tags), event.OccurredAt.UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at,recorded_seq) VALUES(?,?,?,?,?,?,?)`,
+		p.ObservationID, event.SubjectID, p.Statement, marshalStrings(p.Refs), marshalStrings(p.Tags), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Seq); err != nil {
 		// Only a duplicate id is a conflict. Reporting every insert failure as
 		// one told a caller its observation id collided when the real cause was
 		// a violated column constraint.

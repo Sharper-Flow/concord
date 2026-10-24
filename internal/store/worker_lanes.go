@@ -1639,7 +1639,10 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := verifyWorkerTerminalUpdate(result, "cannot verify worker completion projection", "record worker.dispatched before worker.completed"); err != nil {
 		return err
 	}
-	return writeWorkerTerminalFactsTx(ctx, tx, event, payload.AttemptID)
+	if err := writeWorkerTerminalFactsTx(ctx, tx, event, payload.AttemptID); err != nil {
+		return err
+	}
+	return advanceWorkflowCorrectionFactsTx(ctx, tx, event)
 }
 
 // validateWorkerCompletedOracleJob requires a job binding for oracle content.
@@ -1829,7 +1832,10 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := voidWorkerJobRepairByAttemptTx(ctx, tx, event.SubjectID, payload.AttemptID, event.Seq-1); err != nil {
 		return err
 	}
-	return writeWorkerTerminalFactsTx(ctx, tx, event, payload.AttemptID)
+	if err := writeWorkerTerminalFactsTx(ctx, tx, event, payload.AttemptID); err != nil {
+		return err
+	}
+	return advanceWorkflowCorrectionFactsTx(ctx, tx, event)
 }
 
 // validateNoLiveWorkerSession is the live-admission host-observation gate for

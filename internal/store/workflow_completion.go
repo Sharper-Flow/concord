@@ -1002,7 +1002,7 @@ func latestWorkflowVerdict(ctx context.Context, tx queryer, workID string) (*wor
 // recorded after it never enters the fold's decision.
 func latestWorkflowVerdictBefore(ctx context.Context, tx queryer, workID string, beforeSeq int64) (*workflowVerdictRecordedPayload, error) {
 	var raw []byte
-	if err := tx.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND (?=0 OR seq<?) ORDER BY seq DESC LIMIT 1`, workID, WorkflowVerdictRecorded, beforeSeq, beforeSeq).Scan(&raw); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT payload FROM workflow_predicate_verdicts WHERE work_id=? AND (?=0 OR verdict_seq<?) ORDER BY verdict_seq DESC LIMIT 1`, workID, beforeSeq, beforeSeq).Scan(&raw); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -1029,7 +1029,7 @@ func latestWorkflowVerdictsBefore(ctx context.Context, q queryer, workID string,
 	if err != nil {
 		return nil, err
 	}
-	rows, err := q.QueryContext(ctx, `SELECT seq,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND (?=0 OR seq<?) ORDER BY seq DESC`, workID, WorkflowVerdictRecorded, beforeSeq, beforeSeq)
+	rows, err := q.QueryContext(ctx, `SELECT verdict_seq,payload FROM workflow_predicate_verdicts WHERE work_id=? AND (?=0 OR verdict_seq<?) ORDER BY verdict_seq DESC`, workID, beforeSeq, beforeSeq)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow verdicts", true, "retry once the database is readable", err)
 	}

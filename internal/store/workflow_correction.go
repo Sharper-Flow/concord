@@ -329,9 +329,13 @@ func workflowCorrectionAcceptanceBefore(ctx context.Context, q queryer, workID s
 	return history.boundary, nil
 }
 
-// workflowCorrectionWalkWorkerSatisfaction folds the acceptance boundary,
-// correction records, job debt, and dispatch bindings through one prefix.
-func workflowCorrectionWalkWorkerSatisfaction(ctx context.Context, q queryer, workID string, prefix int64, subject string) (*workflowCorrectionHistory, error) {
+// workflowCorrectionWalkWorkerSatisfaction reads current obligation state.
+// Folds place their update before or after admission to preserve self-exclusion.
+func workflowCorrectionWalkWorkerSatisfaction(ctx context.Context, q queryer, workID string, _ int64, subject string) (*workflowCorrectionHistory, error) {
+	return readWorkflowCorrectionFacts(ctx, q, workID, subject)
+}
+
+func readWorkflowCorrectionStateForMigration(ctx context.Context, q queryer, workID string, prefix int64, subject string) (*workflowCorrectionHistory, error) {
 	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.kind, COALESCE(json_extract(e.payload,'$.attempt_id'),''), COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''), COALESCE(json_extract(e.payload,'$.action_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.job_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.revision'),0), COALESCE(json_extract(e.payload,'$.worker_job.digest'),''), e.payload, e.event_id FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? ORDER BY e.seq`, string(SubjectWorkItem), workID, prefix)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot read the correction window history", true, "retry once the workflow event log is readable", err)
@@ -521,7 +525,7 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 		if row.actionID != "request_correction" {
 			key = h.fail(row.actionAttempt)
 		}
-		record := workflowCorrectionRecordState{seq: row.seq, fields: fields, jobKey: key}
+		record := workflowCorrectionRecordState{seq: row.seq, sourceID: row.eventID, fields: fields, jobKey: key}
 		h.records = append(h.records, record)
 	case "accept_worker_result":
 		// Only a result acceptance counts for repair state (CD-0205 D4):
@@ -732,7 +736,7 @@ func workflowCorrectionVerdictState(ctx context.Context, q queryer, workID strin
 		return nil, nil
 	}
 	var verdictSeq int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=?`, string(SubjectWorkItem), workID, WorkflowVerdictRecorded).Scan(&verdictSeq); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(verdict_seq),0) FROM workflow_predicate_verdicts WHERE work_id=?`, workID).Scan(&verdictSeq); err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot read the latest workflow verdict sequence", true, "retry once the workflow verdict projection is readable", err)
 	}
 	acceptedDispatchSeq, accepted, acceptedErr := workflowAcceptedWorkerDelivery(ctx, q, workID, verdictSeq, subject)
@@ -838,7 +842,7 @@ func workflowLatestVerdictSequences(ctx context.Context, q queryer, workID strin
 	sequences := make(map[string]int64, len(wanted))
 	seen := make(map[string]bool)
 	foundWanted := 0
-	rows, err := q.QueryContext(ctx, `SELECT seq,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC`, workID, WorkflowVerdictRecorded)
+	rows, err := q.QueryContext(ctx, `SELECT verdict_seq,payload FROM workflow_predicate_verdicts WHERE work_id=? ORDER BY verdict_seq DESC`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot read workflow verdict sequences", true, "retry once the workflow verdict projection is readable", err)
 	}
@@ -1231,8 +1235,9 @@ func workflowCorrectionContext(ctx context.Context, q queryer, workID, stepID st
 // workflowCorrectionRecordState is one failure, rejection, or correction
 // request record selected by the obligation history.
 type workflowCorrectionRecordState struct {
-	seq    int64
-	fields workflowCorrectionCompletionFields
+	seq      int64
+	sourceID string
+	fields   workflowCorrectionCompletionFields
 	// jobKey names the recorded revision the failed attempt was dispatched
 	// under; empty when the attempt carried no job binding.
 	jobKey string
@@ -1277,10 +1282,7 @@ func workflowCorrectionContextForDispatch(ctx context.Context, q queryer, workID
 		return nil, nil
 	}
 	fields := record.fields
-	var sourceEventID string
-	if err := q.QueryRowContext(ctx, `SELECT event_id FROM domain_events WHERE seq=?`, record.seq).Scan(&sourceEventID); err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot read the correction source event", true, "retry once the workflow event log is readable", err)
-	}
+	sourceEventID := record.sourceID
 	if fields.ActionID == "request_correction" {
 		return &WorkflowCorrectionContext{
 			Disposition:  "verification",
@@ -1292,8 +1294,7 @@ func workflowCorrectionContextForDispatch(ctx context.Context, q queryer, workID
 		return nil, newFailure(KindInvariantViolation, "workflow_correction", "correction completion has no worker attempt", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if stepID != "" && fields.ActionID != "request_correction" {
-		var actionStep string
-		if err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.step_id') FROM domain_events WHERE seq=?`, record.seq).Scan(&actionStep); err == nil && actionStep != "" && actionStep != stepID {
+		if fields.StepID != "" && fields.StepID != stepID {
 			return nil, nil
 		}
 	}
@@ -1327,11 +1328,7 @@ func workflowCorrectionContextForDispatch(ctx context.Context, q queryer, workID
 // after a materialized dispatch, excluding the packet's own attempt so it
 // can still read the record it consumes.
 func workflowCorrectionOpenRecord(ctx context.Context, q queryer, workID, dispatchAttemptID, subject string) (*workflowCorrectionRecordState, error) {
-	var watermark int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&watermark); err != nil {
-		return nil, wrapFailure(KindUnavailable, subject, "cannot read the correction window watermark", true, "retry once the workflow event log is readable", err)
-	}
-	history, err := workflowCorrectionWalkWorkerSatisfaction(ctx, q, workID, watermark, subject)
+	history, err := workflowCorrectionWalkWorkerSatisfaction(ctx, q, workID, 0, subject)
 	if err != nil {
 		return nil, err
 	}

@@ -88,6 +88,9 @@ func completedDeliveryFixtureWithAssertions(t *testing.T, workID string, asserti
 			t.Fatal(err)
 		}
 	}
+	if assertions > 1 {
+		repopulateWorkflowCurrentFactsForTest(t, s)
+	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES('client/concord-1','active','principal/operator','[]','[]','[]','2026-09-10T00:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}

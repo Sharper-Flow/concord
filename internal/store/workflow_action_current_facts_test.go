@@ -59,3 +59,35 @@ func TestWorkflowActionStartCurrentFactsWithoutLog(t *testing.T) {
 		},
 	})
 }
+
+func TestWorkflowHeldReviewDoesNotRecordPhaseExit(t *testing.T) {
+	j, _ := descendantReviewFixture(t, "held-review-phase-exit")
+	attempt, epoch := completeCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
+	// The candidate fixture includes an imported acceptance descriptor.
+	repopulateWorkflowCurrentFactsForTest(t, j.s)
+	var before int64
+	if err := j.s.db.QueryRow(`SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND action_id='accept_worker_result'`, j.workID).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, j.fixture.owner); err != nil {
+		t.Fatal(err)
+	}
+	assertNoExit := func() {
+		t.Helper()
+		var n int64
+		if err := j.s.db.QueryRow(`SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND action_id='accept_worker_result'`, j.workID).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != before {
+			t.Fatalf("held Review changed qualifying phase exit from %d to %d", before, n)
+		}
+	}
+	assertNoExit()
+	// A retained held Review need not carry a local job disposition. The
+	// migration must classify its recorded hold independently of that binding.
+	if _, err := j.s.db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES('unbound-held-review','workflow.action_completed','work_item',?,'actor:review','2026-10-01T00:00:00Z',7,'{"action_id":"accept_worker_result","review_advance_held":true}')`, j.workID); err != nil {
+		t.Fatal(err)
+	}
+	repopulateWorkflowCurrentFactsForTest(t, j.s)
+	assertNoExit()
+}

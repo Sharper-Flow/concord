@@ -125,6 +125,9 @@ func seedPreCutoverDispatchWindow(t *testing.T, dbPath, workID, attemptID, packe
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_completed', 'work_item', ?, ?, '2026-08-22T00:00:00Z', 2, ?)`, "dispatch-completed-"+attemptID, workID, actorRef, []byte(completionPayload)); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload) VALUES(?,?,last_insert_rowid(),?)`, workID, attemptID, completionPayload); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
@@ -168,8 +171,8 @@ func seedPreCutoverDispatchedAttempt(t *testing.T, dbPath, workID, eventID, atte
 		eventID, store.WorkerDispatched, "work_item", workID, "client:"+workerEvidenceClientRef+":operator-1", mustJSON(t, payload)); err != nil {
 		t.Fatalf("seed pre-cutover dispatch event: %v", err)
 	}
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at) VALUES (?,?,?,?,?,?,?,?,?,'dispatched','','','2026-10-01T00:00:00Z',NULL,NULL)`,
-		workID, attemptID, lane.ID, lane.Version, lane.Digest, lane.CapabilityClass, readback, pair[0], pair[1]); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at,dispatch_event_id,dispatch_actor,dispatch_payload,dispatch_payload_version,dispatch_seq) VALUES (?,?,?,?,?,?,?,?,?,'dispatched','','','2026-10-01T00:00:00Z',NULL,NULL,?,?,?,5,last_insert_rowid())`,
+		workID, attemptID, lane.ID, lane.Version, lane.Digest, lane.CapabilityClass, readback, pair[0], pair[1], eventID, "client:"+workerEvidenceClientRef+":operator-1", mustJSON(t, payload)); err != nil {
 		t.Fatalf("seed pre-cutover attempt row: %v", err)
 	}
 	if _, err := tx.ExecContext(context.Background(), `DELETE FROM fold_guard`); err != nil {

@@ -259,14 +259,22 @@ func TestStoreRevisionMigration(t *testing.T) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	if got := revisionValue(t, db); got != 42 {
-		t.Fatalf("migration revision=%d, want old watermark 41 plus one", got)
+	// The backfill starts at the old watermark; each later migration's
+	// admitted write advances the revision once.
+	want := int64(41)
+	for _, m := range migrations {
+		if m.Version >= 138 {
+			want++
+		}
+	}
+	if got := revisionValue(t, db); got != want {
+		t.Fatalf("migration revision=%d, want old watermark 41 plus one per applied migration (%d)", got, want)
 	}
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	if got := revisionValue(t, db); got != 42 {
-		t.Fatalf("repeated migration revision=%d, want 42", got)
+	if got := revisionValue(t, db); got != want {
+		t.Fatalf("repeated migration revision=%d, want %d", got, want)
 	}
 }
 

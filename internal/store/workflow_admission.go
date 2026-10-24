@@ -428,10 +428,10 @@ func (l workflowAdmissionLoad) attemptAndReview(state *WorkflowAdmissionState) e
 	if err := l.q.QueryRowContext(l.ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND lifecycle_state='in_flight')`, l.workID).Scan(&state.PendingWorkerAuthorization); err != nil {
 		return workflowProjectionError(err, "cannot read unresolved worker authorizations")
 	}
-	if err := l.q.QueryRowContext(l.ctx, `SELECT COALESCE(a.lifecycle_state,''),COALESCE((SELECT json_extract(d.payload,'$.capability_class') FROM domain_events d WHERE d.subject_type='work_item' AND d.subject_id=a.work_id AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=a.attempt_id ORDER BY d.seq DESC LIMIT 1),'') FROM worker_attempts a WHERE a.work_id=? ORDER BY a.dispatched_at DESC,a.attempt_id DESC LIMIT 1`, WorkerDispatched, l.workID).Scan(&state.AttemptState, &state.AttemptCapabilityClass); err != nil && err != sql.ErrNoRows {
+	if err := l.q.QueryRowContext(l.ctx, `SELECT COALESCE(lifecycle_state,''),COALESCE(json_extract(dispatch_payload,'$.capability_class'),'') FROM worker_attempts WHERE work_id=? ORDER BY dispatched_at DESC,attempt_id DESC LIMIT 1`, l.workID).Scan(&state.AttemptState, &state.AttemptCapabilityClass); err != nil && err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, l.subject, "cannot read the latest worker attempt", true, "retry once the worker attempt projection is readable", err)
 	}
-	if err := l.q.QueryRowContext(l.ctx, `SELECT COALESCE(json_extract(f.payload,'$.action_id'),'') FROM domain_events f WHERE f.subject_type='work_item' AND f.subject_id=? AND f.kind=? AND json_extract(f.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure') ORDER BY f.seq DESC LIMIT 1`, l.workID, WorkflowActionCompleted).Scan(&state.LatestResultDisposition); err != nil && err != sql.ErrNoRows {
+	if err := l.q.QueryRowContext(l.ctx, `SELECT result_disposition FROM workflow_instances WHERE work_id=?`, l.workID).Scan(&state.LatestResultDisposition); err != nil && err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, l.subject, "cannot read the latest result disposition", true, "retry once the workflow projection is readable", err)
 	}
 	return nil

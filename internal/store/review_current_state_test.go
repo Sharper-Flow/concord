@@ -245,6 +245,8 @@ func TestReviewCurrentAdmissionNegativeCases(t *testing.T) {
 func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	db, appendEvent, _ := progressHistory(t)
 	for _, statement := range []string{
+		`CREATE TABLE worker_authorizations(work_id TEXT,attempt_id TEXT,seq INTEGER,payload BLOB)`,
+		`CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,terminal_kind TEXT,terminal_payload BLOB)`,
 		`CREATE TABLE worker_job_revisions(work_id TEXT,job_id TEXT,revision INTEGER,group_permission TEXT,group_review_ref TEXT,correction_ref TEXT)`,
 		`CREATE TABLE workflow_contracts(work_id TEXT,contract_version INTEGER,superseded_by INTEGER)`,
 		`CREATE TABLE workflow_contract_predicates(work_id TEXT,contract_version INTEGER,predicate_id TEXT,outcome_kind TEXT,outcome_payload BLOB)`,
@@ -264,9 +266,20 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	baseline.Disposition = "continue"
 	baseline.Dependencies = dependencies
 	baseline.Findings = []WorkerReviewFinding{}
+	appendAttempt := func(attempt, capability, subject string, result WorkerCompletedPayload) {
+		t.Helper()
+		auth := workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: attempt, WorkerCapabilityClass: capability, WorkerSubjectCommit: subject}
+		seq := appendEvent(WorkflowActionCompleted, auth)
+		appendEvent(WorkerCompleted, result)
+		if _, err := db.Exec(`INSERT INTO worker_authorizations VALUES('work-history',?,?,?)`, attempt, seq, mustJSONValue(auth)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO worker_attempts VALUES('work-history',?,?,?)`, attempt, WorkerCompleted, mustJSONValue(result)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	appendReview := func(attempt string, report *WorkerReviewBlock) {
-		appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: attempt, WorkerCapabilityClass: "review", WorkerSubjectCommit: report.InputCandidate.Commit})
-		appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: attempt, Review: report})
+		appendAttempt(attempt, "review", report.InputCandidate.Commit, WorkerCompletedPayload{AttemptID: attempt, Review: report})
 	}
 	appendReview("review:baseline", baseline)
 	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "review:baseline"})
@@ -303,8 +316,7 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	if *state.Candidate != repair.OutputCandidate || state.Accepted.AttemptID != "review:repair" || state.blocker() != "" {
 		t.Fatalf("late old-subject report replaced current authority: %+v", state)
 	}
-	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: "member:late", WorkerCapabilityClass: "implementation", WorkerSubjectCommit: baseline.OutputCandidate.Commit})
-	appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: "member:late", ObservedDelivery: &WorkerObservedDelivery{State: "clean", Commit: strings.Repeat("e", 40), Tree: strings.Repeat("f", 40)}})
+	appendAttempt("member:late", "implementation", baseline.OutputCandidate.Commit, WorkerCompletedPayload{AttemptID: "member:late", ObservedDelivery: &WorkerObservedDelivery{State: "clean", Commit: strings.Repeat("e", 40), Tree: strings.Repeat("f", 40)}})
 	before := string(mustJSONValue(state))
 	if err := validateReviewAcceptance(context.Background(), db, "work-history", "member:late", "main:fixture", 0); !hasFailureKind(err, KindStaleRequiresReview) {
 		t.Fatalf("late member acceptance = %v, want stale refusal", err)

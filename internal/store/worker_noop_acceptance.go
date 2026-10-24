@@ -12,11 +12,9 @@ import (
 func guardAcceptWorkerResultChanges(g *workflowActionGuardContext, fields map[string]json.RawMessage) error {
 	attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
 	var raw []byte
-	err := g.tx.QueryRowContext(g.ctx, `SELECT e.payload FROM domain_events e
-		JOIN worker_attempts a ON a.work_id=e.subject_id AND a.attempt_id=json_extract(e.payload,'$.attempt_id')
-		WHERE e.subject_type=? AND e.subject_id=? AND e.kind=? AND a.attempt_id=?
-		AND a.capability_class='implementation' AND a.lifecycle_state='completed'
-		ORDER BY e.seq DESC LIMIT 1`, string(SubjectWorkItem), g.request.WorkID, WorkerCompleted, attemptID).Scan(&raw)
+	err := g.tx.QueryRowContext(g.ctx, `SELECT terminal_payload FROM worker_attempts
+		WHERE work_id=? AND terminal_kind=? AND attempt_id=?
+		AND capability_class='implementation' AND lifecycle_state='completed'`, g.request.WorkID, WorkerCompleted, attemptID).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return nil
 	}
@@ -25,7 +23,7 @@ func guardAcceptWorkerResultChanges(g *workflowActionGuardContext, fields map[st
 	}
 	var completed WorkerCompletedPayload
 	if err := json.Unmarshal(raw, &completed); err != nil {
-		return newFailure(KindInvariantViolation, "workflow_action", "the completed editing result is malformed", false, "rebuild workflow projections from the event log")
+		return newFailure(KindInvariantViolation, "workflow_action", "the completed editing result is malformed", false, "reconcile the invalid retained worker terminal fact before retrying")
 	}
 	if completed.WorkerJob == nil || completed.ObservedDelivery == nil || completed.ObservedDelivery.State != "clean" {
 		return nil
@@ -69,7 +67,7 @@ func unchangedJobOutcomeProven(g *workflowActionGuardContext, completed *WorkerC
 		return false, nil
 	}
 	var worker string
-	if err := g.tx.QueryRowContext(g.ctx, `SELECT COALESCE(json_extract(payload,'$.lane_actor_ref'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, string(SubjectWorkItem), g.request.WorkID, WorkerDispatched, completed.AttemptID).Scan(&worker); err != nil {
+	if err := g.tx.QueryRowContext(g.ctx, `SELECT COALESCE(json_extract(dispatch_payload,'$.lane_actor_ref'),'') FROM worker_attempts WHERE work_id=? AND attempt_id=? AND dispatch_payload IS NOT NULL`, g.request.WorkID, completed.AttemptID).Scan(&worker); err != nil {
 		return false, workflowProjectionError(err, "cannot read the result's producing actor")
 	}
 	controls := oracleControlIndex(oracle)

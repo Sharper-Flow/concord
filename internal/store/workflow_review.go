@@ -348,14 +348,14 @@ func readReviewAttempt(ctx context.Context, q queryer, workID, attempt string) (
 	var auth workflowActionCompletedPayload
 	var result WorkerCompletedPayload
 	var raw []byte
-	err := q.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted, attempt).Scan(&raw)
+	err := q.QueryRowContext(ctx, `SELECT payload FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attempt).Scan(&raw)
 	if err != nil {
 		return auth, result, err
 	}
 	if err = json.Unmarshal(raw, &auth); err != nil {
 		return auth, result, err
 	}
-	err = q.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkerCompleted, attempt).Scan(&raw)
+	err = q.QueryRowContext(ctx, `SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_kind=?`, workID, attempt, WorkerCompleted).Scan(&raw)
 	if err != nil {
 		return auth, result, err
 	}
@@ -512,7 +512,7 @@ func validateReviewFindingBinding(previous, reported WorkerReviewFinding) error 
 
 func readWorkerJobRevisionTx(ctx context.Context, q queryer, workID string, binding WorkerJobBinding) (*WorkerJobRecordedPayload, error) {
 	var raw []byte
-	err := q.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=? ORDER BY seq DESC LIMIT 1`, workID, WorkerJobRecorded, binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
+	err := q.QueryRowContext(ctx, `SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=? AND digest=? AND recorded_payload IS NOT NULL`, workID, binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
 	if err != nil {
 		return nil, err
 	}

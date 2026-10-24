@@ -1251,6 +1251,9 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_completed', 'work_item', ?, ?, '2026-08-22T00:00:00Z', 2, ?)`, "dispatch-completed-"+attemptID, workID, actorRef, []byte(completionPayload)); err != nil {
 		t.Fatalf("seed dispatch window: %v", err)
 	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload) VALUES(?,?,last_insert_rowid(),?)`, workID, attemptID, completionPayload); err != nil {
+		t.Fatalf("seed current authorization: %v", err)
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatalf("seed dispatch window: %v", err)
 	}

@@ -78,7 +78,12 @@ func TestSharedWorkerJobDeclarationKeepsResearchReadOnly(t *testing.T) {
 			if err := validateWorkerJobAllowanceShape("project", &allowance, workerJobAllowanceAuthorFailure); err != nil {
 				t.Fatal(err)
 			}
-			stalenessEvent(t, s, workID, WorkerJobRecorded, string(mustJSONValue(map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest, "direct_caller_allowance": allowance})))
+			if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.db.Exec(`INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,reserved_integration,readiness,digest,state,recorded_at,recorded_payload) VALUES(?,?,?,1,'research','read-only proof','project','[]','[]','[]','[]','[]','','{}',?,'recorded','2026-10-01T00:00:00Z',?)`, workID, job.JobID, job.Revision, job.Digest, string(mustJSONValue(map[string]any{"direct_caller_allowance": allowance}))); err != nil {
+				t.Fatal(err)
+			}
 			payload := WorkerCompletedPayload{AttemptID: "attempt:research", ObservedDelivery: &WorkerObservedDelivery{State: "clean", Base: strings.Repeat("a", 40), Commit: strings.Repeat("a", 40)}}
 			if tc.changed {
 				payload.ObservedDelivery.Commit = strings.Repeat("b", 40)
@@ -87,7 +92,12 @@ func TestSharedWorkerJobDeclarationKeepsResearchReadOnly(t *testing.T) {
 			if tc.repairs {
 				payload.DirectCallerRepairs = []WorkerDirectCallerRepair{{ChangedPaths: []string{"value.go"}}}
 			}
-			stalenessEvent(t, s, workID, WorkerCompleted, string(mustJSONValue(payload)))
+			if _, err := s.db.Exec(`UPDATE worker_attempts SET terminal_kind=?,terminal_payload=? WHERE work_id=? AND attempt_id=?`, WorkerCompleted, string(mustJSONValue(payload)), workID, payload.AttemptID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.db.Exec(`DELETE FROM fold_guard`); err != nil {
+				t.Fatal(err)
+			}
 			tx, err := s.db.BeginTx(t.Context(), nil)
 			if err != nil {
 				t.Fatal(err)

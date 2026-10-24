@@ -1160,8 +1160,8 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 	if !found || lifecycle != "failed" {
 		return nil, workflowCorrectionMissingAcceptedDelivery, nil
 	}
-	var recorded int64
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&recorded); err != nil {
+	recorded, err := workerRecordedFailureCountTx(ctx, q, workID, attemptID)
+	if err != nil {
 		return nil, workflowCorrectionMissingNone, wrapFailure(KindUnavailable, subject, "cannot inspect the checkpoint failure record", true, "retry once the workflow projection is readable", err)
 	}
 	if recorded == 0 {

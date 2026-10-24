@@ -107,8 +107,8 @@ func deriveWorkflowWorkerFailureEventsTx(ctx context.Context, tx *sql.Tx, failed
 		// engine's failure-recovery route, exactly as before the derivation.
 		return nil, nil
 	}
-	var recorded int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=?`, string(SubjectWorkItem), failed.SubjectID, WorkflowActionCompleted, payload.AttemptID).Scan(&recorded); err != nil {
+	recorded, err := workerRecordedFailureCountTx(ctx, tx, failed.SubjectID, payload.AttemptID)
+	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "worker_fail_derive", "cannot inspect recorded worker failures", true, "retry once the workflow projection is readable", err)
 	}
 	if recorded != 0 {
@@ -124,8 +124,8 @@ func deriveWorkflowWorkerFailureEventsTx(ctx context.Context, tx *sql.Tx, failed
 		// refuses, so the terminal event lands without one.
 		return nil, nil
 	}
-	var dispatchActor string
-	if err := tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.actor_ref') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), failed.SubjectID, WorkflowActionCompleted, payload.AttemptID).Scan(&dispatchActor); err != nil {
+	dispatchActor, err := workerAuthorizationActorTx(ctx, tx, failed.SubjectID, payload.AttemptID)
+	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}

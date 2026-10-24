@@ -721,6 +721,7 @@ func TestWorkerDispatchV3CarriesProvenanceIntoDurableEvidence(t *testing.T) {
 // tests; this seed keeps the discharge rules testable in isolation.
 func seedDispatchPredicateAuthorization(t *testing.T, s *Store, workID, attemptID string, predicateIDs []string) {
 	t.Helper()
+	seedWork(t, s, workID)
 	canonical, err := canonicalWorkerWorktreePath(workerFixtureDirectory(t, s, workID))
 	if err != nil {
 		t.Fatal(err)
@@ -743,6 +744,11 @@ func seedDispatchPredicateAuthorization(t *testing.T, s *Store, workID, attemptI
 	_, err = s.DatabaseForTesting().Exec(`INSERT INTO domain_events (event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		"dispatch-authorization-"+attemptID, WorkflowActionCompleted, string(SubjectWorkItem), workID, "operator:test", time.Unix(1, 0).UTC().Format(time.RFC3339Nano), 2, mustJSONValue(payload))
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload) SELECT subject_id,json_extract(payload,'$.worker_attempt_id'),seq,payload FROM domain_events WHERE event_id=?;
+DELETE FROM fold_guard;`, "dispatch-authorization-"+attemptID); err != nil {
 		t.Fatal(err)
 	}
 }

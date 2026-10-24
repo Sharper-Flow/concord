@@ -62,7 +62,7 @@ func TestChecksRepairDispatchPropagatesUnreadableAuthorization(t *testing.T) {
 	}
 	// A retained marker with missing binding members makes Scan fail. That
 	// read failure is not evidence that the marker is absent.
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,subject_type,subject_id,kind,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,'2026-10-19T00:00:00Z',1,?)`, "checks-repair-unreadable-marker", SubjectWorkItem, workID, WorkflowActionCompleted, "operator", `{"action_id":"dispatch_worker","worker_attempt_id":"attempt:unreadable","checks_repair_review":{"worker_job":{}}}`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload) VALUES(?,?,1,?)`, workID, "attempt:unreadable", `{"action_id":"dispatch_worker","worker_attempt_id":"attempt:unreadable","checks_repair_review":{"worker_job":{}}}`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {

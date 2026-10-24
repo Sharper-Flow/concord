@@ -364,26 +364,28 @@ func continuityReadyJobEvent(t *testing.T, s *store.Store, index int) {
 	}
 	objective := fmt.Sprintf("bounded paging objective %d for the liveness witness", index)
 	readiness := store.WorkerJobReadiness{Ready: true, Evidence: []string{"evidence:liveness-coordinator"}}
-	digest := store.DeriveWorkerJobDigest(store.WorkerJobRecordedPayload{
+	recording := store.WorkerJobRecordedPayload{
 		JobID: jobID, Revision: 1, ContractVersion: contractVersion, Objective: objective,
 		StoppingCondition: "the recorded checks pass", PathScope: []string{"internal/agent"},
 		PredicateIDs: []string{"predicate:primary"}, Checks: []string{"go test ./internal/agent/"},
 		Prerequisites: []store.WorkerJobPrerequisite{}, UnresolvedRefs: []string{},
 		Readiness:             &readiness,
 		WorkflowVersionFields: store.WorkflowVersionFields{WorkID: "work-1"},
-	})
+	}
+	recording.Digest = store.DeriveWorkerJobDigest(recording)
+	digest := recording.Digest
 	pathScope, _ := json.Marshal([]string{"internal/agent"})
 	predicates, _ := json.Marshal([]string{"predicate:primary"})
 	checks, _ := json.Marshal([]string{"go test ./internal/agent/"})
 	prerequisites, _ := json.Marshal([]store.WorkerJobPrerequisite{})
 	unresolved, _ := json.Marshal([]string{})
 	readinessJSON, _ := json.Marshal(readiness)
-	eventPayload, _ := json.Marshal(map[string]any{"job_id": jobID, "revision": 1, "digest": digest})
+	eventPayload, _ := json.Marshal(recording)
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-		INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,reserved_integration,readiness,digest,state,recorded_at)
-		VALUES('work-1',?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'recorded', '2026-08-08T12:00:00Z');
+		INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,reserved_integration,readiness,digest,state,recorded_at,recorded_payload)
+		VALUES('work-1',?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'recorded', '2026-08-08T12:00:00Z',?);
 		DELETE FROM fold_guard`,
-		jobID, 1, contractVersion, objective, "the recorded checks pass", "", string(pathScope), string(predicates), string(checks), string(prerequisites), string(unresolved), "", string(readinessJSON), digest); err != nil {
+		jobID, 1, contractVersion, objective, "the recorded checks pass", "", string(pathScope), string(predicates), string(checks), string(prerequisites), string(unresolved), "", string(readinessJSON), digest, string(eventPayload)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload)

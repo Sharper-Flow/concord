@@ -1164,9 +1164,13 @@ func TestWorkerFailureAttributionReaderResolvesSourceVersion(t *testing.T) {
 	if err := s2WorkerFailedLive(t, s, attributionWorkerFailedEvent(workID, legacy, "failed-attribution-reader-2", preferredModelForLane(lane), attributionHostObservation())); err != nil {
 		t.Fatalf("the second terminal ingest: %v", err)
 	}
-	// The current definition requires the recorded block live, so the
-	// retained pre-attribution row is the logged source version 1 bytes.
-	corruptLoggedFailurePayload(t, s, workID, "failed-attribution-reader-2", 1, "")
+	// The current definition requires the block live. Model the current fact
+	// backfilled from a pre-attribution terminal without changing live admission.
+	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+UPDATE worker_attempts SET terminal_payload_version=1,terminal_payload=json_remove(terminal_payload,'$.failure_attribution') WHERE terminal_event_id='failed-attribution-reader-2';
+DELETE FROM fold_guard;`); err != nil {
+		t.Fatal(err)
+	}
 	legacyRecord, err := WorkerFailureAttributionForAttemptTx(context.Background(), s.DatabaseForTesting(), workID, legacy)
 	if err != nil {
 		t.Fatalf("read the legacy terminal attribution: %v", err)

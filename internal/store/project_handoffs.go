@@ -1142,12 +1142,7 @@ func workExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef s
 		// only core ownership evidence: read the authorizing actor from the
 		// dispatch_worker completion, then resolve its authenticated session
 		// through workflow_actors.
-		var actorRef string
-		scanErr := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.actor_ref') FROM domain_events
-			WHERE kind='workflow.action_completed' AND subject_id=?
-			AND json_extract(payload,'$.action_id')='dispatch_worker'
-			AND json_extract(payload,'$.worker_attempt_id')=?
-			ORDER BY seq DESC LIMIT 1`, workID, attemptID).Scan(&actorRef)
+		actorRef, scanErr := workerAuthorizationActorTx(ctx, q, workID, attemptID)
 		if scanErr == sql.ErrNoRows {
 			return false, nil
 		}

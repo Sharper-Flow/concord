@@ -325,6 +325,22 @@ var migrationTailReversals = map[int][]string{
 	138: {
 		`DROP TABLE store_revision`,
 	},
+	139: {
+		`DROP TABLE worker_authorizations`,
+		`DROP TABLE workflow_step_epochs`,
+		`ALTER TABLE worker_job_revisions DROP COLUMN recorded_payload`,
+		`ALTER TABLE worker_attempts DROP COLUMN dispatch_payload`,
+		`ALTER TABLE worker_attempts DROP COLUMN dispatch_event_id`,
+		`ALTER TABLE worker_attempts DROP COLUMN dispatch_actor`,
+		`ALTER TABLE worker_attempts DROP COLUMN dispatch_payload_version`,
+		`ALTER TABLE worker_attempts DROP COLUMN dispatch_seq`,
+		`ALTER TABLE worker_attempts DROP COLUMN terminal_payload`,
+		`ALTER TABLE worker_attempts DROP COLUMN terminal_event_id`,
+		`ALTER TABLE worker_attempts DROP COLUMN terminal_payload_version`,
+		`ALTER TABLE worker_attempts DROP COLUMN terminal_kind`,
+		`ALTER TABLE worker_attempts DROP COLUMN failure_recorded`,
+		`ALTER TABLE workflow_instances DROP COLUMN result_disposition`,
+	},
 	128: {
 		`ALTER TABLE project_locators DROP COLUMN normalization_version`,
 	},

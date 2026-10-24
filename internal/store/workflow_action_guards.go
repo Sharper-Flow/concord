@@ -252,9 +252,9 @@ func workflowWorkerFailureRecovery(ctx context.Context, q queryer, workID string
 	if !excludeRecorded {
 		return true, nil
 	}
-	var recorded int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&recorded); err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot inspect recorded worker failures", true, "retry once the workflow event log is readable", err)
+	recorded, err := workerRecordedFailureCountTx(ctx, q, workID, attemptID)
+	if err != nil {
+		return false, wrapFailure(KindUnavailable, subject, "cannot inspect recorded worker failures", true, "retry once the worker attempt projection is readable", err)
 	}
 	return recorded == 0, nil
 }
@@ -264,7 +264,7 @@ func workflowWorkerFailureRecovery(ctx context.Context, q queryer, workID string
 // supply recovery identity; an older failure cannot replace a newer launch.
 func workflowLatestFailedWorkerAuthorization(ctx context.Context, q queryer, workID, stepID string) (string, error) {
 	var attemptID, lifecycle string
-	err := q.QueryRowContext(ctx, `SELECT a.attempt_id,a.lifecycle_state FROM domain_events c JOIN worker_attempts a ON a.work_id=c.subject_id AND a.attempt_id=json_extract(c.payload,'$.worker_attempt_id') WHERE c.subject_type=? AND c.subject_id=? AND c.kind=? AND json_extract(c.payload,'$.action_id')='dispatch_worker' AND json_extract(c.payload,'$.step_id')=? ORDER BY c.seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, stepID).Scan(&attemptID, &lifecycle)
+	err := q.QueryRowContext(ctx, `SELECT a.attempt_id,a.lifecycle_state FROM worker_authorizations c JOIN worker_attempts a ON a.work_id=c.work_id AND a.attempt_id=c.attempt_id WHERE c.work_id=? AND json_extract(c.payload,'$.step_id')=? ORDER BY c.seq DESC LIMIT 1`, workID, stepID).Scan(&attemptID, &lifecycle)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}

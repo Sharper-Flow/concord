@@ -6771,6 +6771,43 @@ DROP TABLE law_relations_v140;
 DROP TABLE law_subjects_v140;
 `,
 	},
+	{
+		Version:  145,
+		Name:     "effect_receipts",
+		Breaking: true,
+		SQL: `
+CREATE TABLE effect_receipts (
+ event_id TEXT PRIMARY KEY,
+ effect_seq INTEGER NOT NULL UNIQUE,
+ kind TEXT NOT NULL,
+ subject_type TEXT NOT NULL,
+ subject_id TEXT NOT NULL,
+ actor TEXT NOT NULL,
+ payload_version INTEGER NOT NULL,
+ payload_digest TEXT
+);
+CREATE INDEX effect_receipts_subject ON effect_receipts(subject_type,subject_id,effect_seq);
+INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version)
+ SELECT event_id,seq,kind,subject_type,subject_id,actor,payload_version FROM domain_events;
+CREATE TABLE workflow_staleness_observations (
+ event_id TEXT PRIMARY KEY REFERENCES effect_receipts(event_id) ON DELETE CASCADE,
+ work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+ rule_id TEXT NOT NULL,
+ severity TEXT NOT NULL CHECK(severity IN ('warning','block')),
+ drifted INTEGER NOT NULL CHECK(drifted IN (0,1)),
+ accepted_inputs_digest TEXT NOT NULL,
+ observed_at TEXT NOT NULL
+);
+CREATE INDEX workflow_staleness_observations_work ON workflow_staleness_observations(work_id);
+INSERT INTO workflow_staleness_observations
+ SELECT event_id,subject_id,json_extract(payload,'$.rule_id'),json_extract(payload,'$.severity'),json_extract(payload,'$.drifted'),json_extract(payload,'$.accepted_inputs_digest'),json_extract(payload,'$.observed_at')
+ FROM domain_events e WHERE kind='workflow.staleness_observed' AND subject_type='work_item'
+ AND EXISTS(SELECT 1 FROM work_items w WHERE w.id=e.subject_id);
+CREATE TRIGGER workflow_staleness_observations_guard_insert BEFORE INSERT ON workflow_staleness_observations BEGIN SELECT RAISE(ABORT, 'workflow_staleness_observations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_staleness_observations_guard_update BEFORE UPDATE ON workflow_staleness_observations BEGIN SELECT RAISE(ABORT, 'workflow_staleness_observations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_staleness_observations_guard_delete BEFORE DELETE ON workflow_staleness_observations BEGIN SELECT RAISE(ABORT, 'workflow_staleness_observations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any
@@ -7192,6 +7229,7 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 
 	var stopped *migration
 	remoteUpgrade := false
+	receiptUpgrade := false
 	for i := range migrations {
 		m := migrations[i]
 		if _, done := applied[m.Version]; done {
@@ -7215,12 +7253,18 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 			}
 		}
 		remoteUpgrade = remoteUpgrade || m.Name == remoteLocatorUpgradeName
+		receiptUpgrade = receiptUpgrade || m.Name == "effect_receipts"
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO schema_migrations (version, name, checksum, applied_at, breaking) VALUES (?, ?, ?, ?, ?)`,
 			m.Version, m.Name, m.checksum(), nowFromClock(firstClock(clock)).Format(time.RFC3339Nano), m.Breaking); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "migrate",
 				fmt.Sprintf("cannot record migration %d (%s)", m.Version, m.Name), true,
 				"retry once the database is writable", err))
+		}
+	}
+	if receiptUpgrade {
+		if err := backfillEffectReceiptDigests(ctx, tx); err != nil {
+			return rollback(err)
 		}
 	}
 	if remoteUpgrade {

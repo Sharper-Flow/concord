@@ -165,7 +165,7 @@ func TestAdmissionModelReviewKeyIsInjective(t *testing.T) {
 				for flags := range 32 {
 					r := admissionModelReview{report: report, accepted: accepted, group: group, candidate: flags&1 != 0,
 						changed: flags&2 != 0, current: flags&4 != 0, progressed: flags&8 != 0, blocked: flags&16 != 0}
-					state := admissionModelState{debt: ReviewDebtNone, review: r}
+					state := admissionModelState{review: r}
 					key := admissionModelKeyOf(steps, state)
 					if prior, exists := seen[key]; exists {
 						t.Fatalf("Review key collision: %+v and %+v", prior, r)
@@ -192,7 +192,7 @@ func TestAdmissionModelCurrentReviewControlsExecutionExit(t *testing.T) {
 				for _, current := range []bool{false, true} {
 					for _, changed := range []bool{false, true} {
 						for _, blocked := range []bool{false, true} {
-							state := admissionModelState{step: step, contracts: 1, started: true, debt: ReviewDebtNone,
+							state := admissionModelState{step: step, contracts: 1, started: true,
 								review: admissionModelReview{accepted: disposition, candidate: candidate, current: current, changed: changed, blocked: blocked}}
 							folded := admissionWorkflowState(definition, state)
 							want := disposition == "ready_for_final_proof" && candidate && current && !changed && !blocked
@@ -220,7 +220,7 @@ func TestAdmissionModelLocalIntakeNeverEntersDelivery(t *testing.T) {
 				continue
 			}
 			for _, report := range admissionReviewDispositions {
-				state := admissionModelState{step: step.ID, contracts: 1, attempt: "completed", debt: ReviewDebtNone,
+				state := admissionModelState{step: step.ID, contracts: 1, attempt: "completed",
 					review: admissionModelReview{report: report}}
 				for _, next := range admissionSuccessors(definition, state, "accept_worker_result") {
 					if next.step != state.step {
@@ -234,7 +234,7 @@ func TestAdmissionModelLocalIntakeNeverEntersDelivery(t *testing.T) {
 
 func TestAdmissionModelRejectsSeededUnreviewedDeliveryEntry(t *testing.T) {
 	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	seeded := admissionModelState{step: "delivery", contracts: 1, started: true, artifact: true, observed: true, debt: ReviewDebtNone}
+	seeded := admissionModelState{step: "delivery", contracts: 1, started: true, artifact: true, observed: true}
 	if admissionHasExit(definition, seeded) {
 		t.Fatal("an invented delivery entry without its required preceding Review has an exit")
 	}
@@ -253,7 +253,7 @@ func TestAdmissionModelGateReturnFollowsInapplicableReview(t *testing.T) {
 		"noAcceptance":  {candidate: true, current: true, progressed: true, group: "first_entry"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			state := admissionModelState{step: "delivery", contracts: 1, started: true, debt: ReviewDebtNone, review: review}
+			state := admissionModelState{step: "delivery", contracts: 1, started: true, review: review}
 			folded := admissionWorkflowState(definition, state)
 			want := name != "applicable" && name != "noAcceptance"
 			if folded.CorrectionRequestRecovery != want {
@@ -299,7 +299,7 @@ func TestAdmissionModelImplementationDispatchUsesGroupAuthority(t *testing.T) {
 	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
 	for _, disposition := range admissionReviewDispositions {
 		for _, group := range admissionReviewGroups {
-			state := admissionModelState{step: "repair", contracts: 1, debt: ReviewDebtNone,
+			state := admissionModelState{step: "repair", contracts: 1,
 				review: admissionModelReview{accepted: disposition, group: group, candidate: true, current: true, progressed: true}}
 			completed := state
 			completed.attempt = "completed"
@@ -317,7 +317,7 @@ func TestAdmissionModelImplementationDispatchUsesGroupAuthority(t *testing.T) {
 
 func TestAdmissionModelReviewCurrencyFollowsDependencyContent(t *testing.T) {
 	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	before := admissionModelState{step: "repair", contracts: 1, debt: ReviewDebtNone,
+	before := admissionModelState{step: "repair", contracts: 1,
 		review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true}}
 	changed, unchanged := false, false
 	for _, next := range admissionSupersedeSuccessors(definition, before) {

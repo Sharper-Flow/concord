@@ -24,10 +24,9 @@ then returns a collection or prompt. It has no input for a noninteractive empty
 password. The runtime evidence in issue #600 confirmed that direct unlock calls
 also did not initialize the D-Bus-activated provider.
 
-CD-0085 correctly keeps credential reads behind the standard Secret Service
-adapter. It overreached when it extended provider independence to setup. A
-provider must create and unlock its own persistent storage before the standard
-read path can use it.
+Custody reads use the standard Secret Service adapter. First-use provisioning
+may need provider-specific creation and unlock controls before the standard
+read path can use the provider's persistent storage.
 
 ## Decision
 

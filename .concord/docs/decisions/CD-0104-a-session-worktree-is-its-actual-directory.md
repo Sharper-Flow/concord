@@ -14,26 +14,10 @@
 
 ## Context
 
-Concord held two stored copies of one fact: which session holds which
-worktree.
-
-The first was the bootstrap launch record, the `launch_*` columns on
-`bootstrap_operations`. CD-0088 introduced it when `work_start` spawned a child
-session and needed to tell a live child from a lost one. CD-0098 replaced the
-spawn with a move of the calling session. Migrations 66 and 68 dropped the
-process and model columns that lost their meaning; the state machine stayed.
-
-The second was `session_worktree_targets`, the effective target CD-0096 D1
-introduced. Its Context stated the premise: "The host process directory cannot
-change, because the host process keeps the working directory it started with."
-The session could not move, so a separate binding had to say where Concord
-operations resolve. CD-0098 moved the session. The premise no longer held.
-
-Neither copy had a reader outside its own maintenance. Authorization resolves
-the Project and the main-worktree flag from the calling directory through git
-at every call (`internal/agent/authority.go`, `ProjectResolver`), and never read
-either table. The retarget, release, and takeover operations existed to keep
-the second copy true.
+Which session holds which worktree is a host fact: the host process directory.
+Authorization resolves the Project and the main-worktree flag from the calling
+directory through git at every call (`internal/agent/authority.go`,
+`ProjectResolver`), so no stored copy of that fact has a reader.
 
 A stored copy of a host fact drifts. Issue #737: a launch row left at
 `prepared` with an empty session made every takeover refuse, and the refusal
@@ -60,11 +44,7 @@ session runs in is the directory the host reports for it, read per call from
 the tool context the host supplies. No table, column, or operation records a
 copy of that fact ahead of the host.
 
-The `launch_*` columns on `bootstrap_operations` and the
-`session_worktree_targets` table are dropped. `worktree_retarget`,
-`worktree_release`, and `worktree_takeover` are removed from the agent tool
-surface. `session-record` and `work-bootstrap-rollback` are removed from the
-CLI. `session-prepare` keeps its verification and its boot-packet derivation
+`session-prepare` performs verification and boot-packet derivation
 and records nothing.
 
 ### D2. Concord stores what Concord owns
@@ -100,23 +80,18 @@ established.
 
 ### D5. One-session-per-worktree is not a stored guarantee
 
-The one-holder index on `session_worktree_targets` was the only rule refusing
-a second session a binding on one work item's worktree. It is removed with the
-table. Two sessions may run in one worktree. The verify lease refuses two
+Two sessions may run in one worktree. The verify lease refuses two
 commands on one tree, and nothing refuses two editors, which is the guarantee a
 shell gives.
 
 ## Consequences
 
-- Issues #736, #737, #742, and #749 close by removal of the copies that
-  drifted, not by repair of the guards that read them.
 - `work_start` has one success shape and one refusal shape. An operator who
   meets a refusal replays the same key.
-- CD-0096 D1's retarget operation is gone. A session that starts in the default
+- A session that starts in the default
   checkout and needs implementation authority calls `work_start`, which moves
   it. CD-0092 D2's refusal from the main checkout is unchanged.
-- The continuity projection re-pins held verify leases only. The
-  `expected_target_version` pin is removed from `concord_work_trace.continuity`.
+- The continuity projection re-pins held verify leases only.
 - Migration 69 is breaking. A binary that defines schema version 68 refuses a
   database at 69, which is the schema compatibility floor CD-0111 D3 applies.
 - `worktree_audit`, `worktree_reclaim`, `worktree_destroy`, `worktree_inspect`,
@@ -158,7 +133,7 @@ the moment of refusal, not as a stored column.
   the move is refused` asserts no compensation runs.
 - `internal/agent.TestRetrySafeStoreKindsNeverCoupleToReconcile` proves no
   store kind proposing `retry_same_request` maps to a public kind coupled to
-  `reconcile_operation`. It was red before D4 and green after.
+  `reconcile_operation`.
 - `internal/agent.TestWorktreeVerifyConcurrentLeaseRefusesTyped` asserts the
   lease-held refusal is `resource_busy` with `retry_same_request`.
 - `internal/store.TestContinuityRePinsHeldLease` and

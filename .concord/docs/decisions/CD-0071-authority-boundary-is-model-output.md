@@ -87,16 +87,11 @@ hold against a shell, and it was never able to.
 
 ### D2. CD-0044's process-level adversary is withdrawn
 
-The context paragraph and the third rejected alternative in CD-0044 assert a
-process-level threat model. Both are withdrawn. CD-0044's decisions D1 through
-D6 stand unchanged: they are correctly built, and every one of them constrains
-what a lane's model output can cause. D6 in particular — the proof never reaches
-the worker, so a lane run cannot capture the assertion that authorizes its own
-evidence — remains true against the model and was never true against a process
-holding a shell.
-
-Withdrawing a threat model is not withdrawing a mechanism. The verification list
-in CD-0044 is unchanged and still binding.
+CD-0044's decisions D1 through D6 constrain what a lane's model output can
+cause, with all their verification requirements binding. The proof never
+reaches the worker, so model output cannot capture the assertion that
+authorizes its own evidence. A same-UID process holding a shell is outside
+that boundary.
 
 ### D3. Absent tamper-evidence on the authority tables is accepted, not deferred
 
@@ -106,15 +101,14 @@ adversary such a mechanism would stop: a writer able to forge a row is able to
 drop a trigger, and `checkManifest` compares migration SQL text against compiled
 constants, so it would not observe the difference.
 
-This closes the question CD-0008 left open rather than deferring it again. A
-future record may reopen it, but only alongside D5.
+A proposal to add authority-table tamper-evidence must also satisfy D5.
 
 ### D4. Mechanisms follow from the boundary they serve
 
 Under D1 the authority system divides in two, and the division governs future
 work on it.
 
-**Load-bearing.** Git-derived scope resolution at issuance, and the refusals it
+**Load-bearing.** Git-derived scope resolution at authorization, and the refusals it
 produces; the `cross_scope` capability gate; manifest-digest pinning; typed
 `unauthorized` refusals; the operator approval checkpoint with core-derived
 consequence summaries (CD-0037 D5); and `principal_ref`, on which idempotency
@@ -148,11 +142,6 @@ does not satisfy this decision however much cryptography it adds.
 
 ### D6. Per-grant revocation does not follow from this boundary
 
-Issue #450 surfaced `Service.RevokeGrant`, `Service.RevokeApproval`, and
-`Service.RevokeApprovalChallenge` as unreachable from `cmd/concord`. They are
-not superseded code; nothing else performs their function. They are unbuilt
-capability, and under D4 they belong to the half that is not load-bearing.
-
 Per-grant revocation bounds the window in which a leaked token is usable. Under
 D1 an agent that could leak a token could equally insert a replacement, so
 narrowing that window changes no outcome. `client-revoke` and
@@ -161,25 +150,14 @@ remain reachable.
 
 Concord does not build a `grant-revoke` verb, nor the grant enumeration,
 grant-level audit attribution, and revocation read-back that would be required
-to make one usable. The three methods are removal candidates under the successor
-decision D4 anticipates, not connection candidates.
+to make one usable.
 
 ## Consequences
 
-- CD-0044 keeps every decision and every verification item; only its stated
-  adversary changes. No code changes as a result of this record.
-- `.concord/docs/reachability-exceptions.v1.json` continues to declare the three
-  revocation methods, and the entry that holds them is renamed to state that
-  they are unbuilt rather than superseded. Its owning issue changes from a
-  build-the-verb issue to the successor-design issue D4 anticipates.
-- Issue #450 is answered rather than implemented. Its build-the-verbs reading is
-  closed by D6.
 - Any future proposal to strengthen the authority system against a process-level
   adversary is answerable by D5 without re-litigating the evidence.
-- The security posture is unchanged in fact and corrected in description. An
-  operator reading CD-0044 alone would have believed the system defends against
-  a hostile local process. It does not, and nothing it does today defended
-  against one yesterday.
+- The authority system does not defend against a hostile same-UID local
+  process.
 
 ## Rejected alternatives
 
@@ -208,8 +186,6 @@ depth would be measured against an adversary D1 establishes cannot be stopped.
 
 - Every refusal in the authority system is unchanged; this record adds no
   behavior and removes none.
-- `scripts/check-reachability.py` continues to pass with the three revocation
-  methods declared, under an entry naming them unbuilt.
 - The claim in D1 is checkable: `internal/store/schema.go` declares no trigger
   whose target is an `agent_*` table.
 - The claim in D5 is checkable: no socket, daemon, or UID check exists in the

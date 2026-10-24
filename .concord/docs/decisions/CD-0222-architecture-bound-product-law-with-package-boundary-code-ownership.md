@@ -11,28 +11,12 @@
   [CD-0020](CD-0020-retain-knowledge-index-shape.md), [CD-0036](CD-0036-breaking-law-cutovers.md),
   [CD-0213](CD-0213-linear-mcp-is-the-only-planning-authority.md), [CD-0219](CD-0219-the-terminal-launcher-tui-is-retired.md),
   and [CD-0223](CD-0223-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-carries-only-declared-context.md).
-- **Incorporates:** CD-0042 sequencing, CD-0144 execution-start footprint,
-  CD-0153 judged-content staleness, the CD-0145 shared-write narrowing, the
-  2026-09-22 browse-path correction, and CD-0213 planning placement.
 - **Preserves:** CD-0002 and CD-0011 storage authority and falsifiers;
   CD-0215 D2 to D8 research-pack authority; CD-0036 breaking cutovers; the
   surviving store query bounds and authority over exact Domain-detail reads;
   `applies_to_domain_ids` as optional.
-- **Amended:** 2026-10-17. Coordinator approval under the operator's delegation
-  for [Concord (CON) issue 1061](https://linear.app/sharper-flow/issue/CON-1061).
-  D2 adds a declared, checked package-to-Domain map and the footprint read that
-  consumes it. D12 and Cost no longer exclude that map.
-
-- **Amended:** 2026-10-18. Coordinator approval under the operator's delegation
-  for [Concord (CON) issue 1063](https://linear.app/sharper-flow/issue/CON-1063).
-  D1 replaces the ranked priorities with the unranked goals of
-  [`goals.md`](../goals.md) and the Appendix A conflict rules; the law mandate
-  of Product-changing work follows
-  [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
-  D4.
-
-**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
-governs D1, D4, and D5: law mandates and enactment require approval only under its six classes. It also governs D6's overlap approval rule. Law homes, applicability, footprint, and architecture checks do not change.
+[CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+governs D1, D4, and D5: law mandates and enactment require approval only under its six classes. It also governs D6's overlap approval rule. Law homes, applicability, footprint, and architecture checks remain required.
 
 ## Context
 
@@ -59,18 +43,6 @@ That is not primarily a Git or rework problem. Concord exists to keep one Produc
 coherent while many agents act at once. Its primary deliverable is the accepted,
 pruned statement of what the Product must keep true. Work and code enact that
 law; they do not outrank it.
-
-An earlier record enacted this law and added a global navigation layer beside it. That
-layer bound one accountable Domain to each file, joined authored bindings
-through a source catalog, and required every Domain to participate in a
-relation graph. The launcher TUI retirement under CD-0219 and the closed
-owner-level acceptance oracle landed on the integration branch first. The
-coordination witnesses and the composed single-work fixture are merged
-evidence.
-
-The navigation layer's only consumers are deleted by the same repository
-change that retires it. D2 and D3 state
-package-boundary code ownership. D12 states the navigation retirement.
 
 ## Decision
 
@@ -387,9 +359,8 @@ architecturally compatible.
 
 CD-0215 D2–D8 govern research: independent research is ordinary research work,
 embedded research stays with its owner, packs remain retained
-SQLite context until explicit retirement, and durable promotion keeps its accepted destinations. Every
-reference in those clauses to Epic ownership now means ownership by the owning
-work item.
+SQLite context until explicit retirement, and durable promotion keeps its accepted destinations.
+Ordinary work owns research packs; consumers bind exact revisions.
 
 ### D9. Migration reaches the clean vocabulary; compatibility is bounded
 
@@ -569,10 +540,8 @@ graph. Product law approval does not authorize live-state cutover.
   decision.
 - Manifest, workflow-contract, projection, launcher, and agent-surface migrations
   are major and require compatibility evidence.
-- The 3.0.0 Epic surface receives a bounded lifetime and cannot reuse its original
-  TS9 exception.
-- Existing documents that use old priority numbers, component, or Epic need a
-  controlled living-document update while historical records remain intact.
+- The TS9 exception is not reusable.
+- Living-document updates are controlled; historical records remain intact.
 
 - The navigation corpus, generated cards, catalogs, joins, and their
   generators are deleted. No graph, glob map, or owner-note generator replaces
@@ -581,16 +550,16 @@ graph. Product law approval does not authorize live-state cutover.
 
 ## Amendment map
 
-- **CD-0006 D5/D10/R3:** architecture binding and overlap revalidation now join
+- **CD-0006 D5/D10/R3:** architecture binding and overlap revalidation accompany
   law conflict, spec mandate, and cross-workflow impact checks.
-- **CD-0015:** law relations remain Git-authored and closed; every law gains one
+- **CD-0015:** law relations are Git-authored and closed; every law has one
   Domain home and architecture-bound workflow use.
-- **CD-0024 D1/D2/D4:** the 3.0.0 Epic surface becomes legacy and migrates through
-  a normal major-version path; D3 remains historical evidence, not precedent.
+- **CD-0024 D1/D2/D4:** surface migration requires a normal major-version path;
+  D3's one-time exception is not reusable.
 - **CD-0036:** preserved. Breaking law supersession marks stale exactly the
   contracts that consumed the superseded revision and composes with D7
   (CD-0242 D7).
-- **CD-0002/CD-0011:** preserved verbatim. SQLite remains sole local live-state
+- **CD-0002/CD-0011:** SQLite is the sole local live-state
   authority under the existing falsifiers.
 
 ## Verification

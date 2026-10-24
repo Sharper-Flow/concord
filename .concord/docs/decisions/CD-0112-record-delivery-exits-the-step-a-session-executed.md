@@ -17,15 +17,9 @@
 
 A worker-dispatch step can receive a completed or failed lane result.
 `accept_worker_result` requires a completed attempt with a readback model.
-Before this amendment, no workflow action could record a failed attempt.
-`record_delivery` also refused every post-dispatch advance, so the step had no
-recorded recovery route after `worker.failed`.
-
-`cross_context_boundary` also appeared to advance a step, but its runtime event
-never moved `current_step`. The declared mode and the recorded effect differed.
-The architecture-spike `decision_record` and `review` steps had no live exits.
-The original decision repaired those two gaps with hold and advance modes that
-match the events the runtime records.
+A failed attempt needs a recorded recovery route that does not claim delivery.
+Context continuity needs to preserve a session's findings without claiming
+that its step finished.
 
 ## Decision
 
@@ -33,8 +27,8 @@ match the events the runtime records.
 
 `checkpoint_context` and `cross_context_boundary` are `hold` actions on every
 step. They record a durable summary for the next session and move nothing.
-The declared hold mode matches the recorded admission behavior, and the
-scenario corpus no longer leaves a step through either action
+The declared hold mode matches the recorded admission behavior. Neither
+continuity action advances a stage
 ([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).
 
 ### D2. record_delivery is the exit for a step the session executed
@@ -118,6 +112,6 @@ Scenario: A fresh attempt exits after a recorded lane failure
 
 ## Consequences
 
-`record_worker_failure` joins the worker-action set in current definitions and
-the generated agent payload contract. The conformance corpus keeps successful
+`record_worker_failure` belongs to the worker-action set in current definitions
+and the generated agent payload contract. The conformance corpus keeps successful
 lane exits on `accept_worker_result` and session exits on `record_delivery`.

@@ -74,9 +74,9 @@ that override names.
 
 ### D3. The root trees are gone
 
-This repository carries no root docs/, instructions/, or scenarios/
-directory and no compatibility symlink for those paths. The placement check
-refuses the directory and the symlink alike. A new knowledge document lands
+The canonical knowledge homes in this repository are under `.concord/`.
+The placement check refuses root docs/, instructions/, or scenarios/
+directories and compatibility symlinks for those paths alike. A new knowledge document lands
 under `.concord/` by default, and the closure check keeps every unprocessed
 document visible.
 

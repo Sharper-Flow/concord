@@ -11,8 +11,6 @@
 > (TS3/TS4), context and authorization (TS5), transport (TS6), result envelopes
 > (TS7), current manifest identity/change evidence (TS8), or change evidence for the
 > surface (TS9).
-> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** recorded workflow
-> effects are current-row mutations; no event log or replay exists.
 
 ## Context
 
@@ -23,6 +21,9 @@ constraints, and the Advance postmortem. This record defines the smallest
 evidenced set of end-to-end agent jobs AJ1 through AJ9 and the tool-neutral
 scenario corpus that judges every later surface candidate.
 ## Contract
+
+Recorded workflow effects are current-row mutations; no event log or replay exists
+([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2).
 
 AJ8 and Domain-overlap job scenarios use CD-0013 D11's consent policy. Routine compatibility, blocking, and dependency answers prove admission without approval consumption while retaining both work and judged contract pins. Merger or supersession proves exact operator approval consumption only when a CD-0243 D2 class applies, such as a governing-requirement scope cut; otherwise it proves admission without approval consumption. Workflow scenarios bind the one generated current definition ([CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)); a missing review verdict is never a consent challenge.
 

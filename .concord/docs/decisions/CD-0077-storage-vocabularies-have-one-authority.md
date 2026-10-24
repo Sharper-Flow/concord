@@ -106,9 +106,8 @@ mixed value.
 
 ### D6. Product Row uses the declared defect term
 
-The Product Row projection treats active `bug` items as active problems. The
-undeclared literal `problem` is removed. The database trigger prevents that value
-from entering the store.
+The Product Row projection treats active `bug` items as active problems.
+Database membership checks reject undeclared work kinds.
 
 ## Consequences
 

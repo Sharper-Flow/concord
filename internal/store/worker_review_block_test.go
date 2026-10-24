@@ -155,7 +155,7 @@ func TestWorkerCompletionReviewBlockShapeIsClosed(t *testing.T) {
 	}{
 		{name: "disposition outside the closed set", mutate: func(r *WorkerReviewBlock) { r.Disposition = "conditional" }, wantDetail: "disposition must be"},
 		{name: "retired ship disposition", mutate: func(r *WorkerReviewBlock) { r.Disposition = "ship" }, wantDetail: "disposition must be"},
-		{name: "retired no_ship disposition", mutate: func(r *WorkerReviewBlock) { r.Disposition = "no_ship" }, wantDetail: "disposition must be"},
+		{name: "unknown disposition", mutate: func(r *WorkerReviewBlock) { r.Disposition = "no_ship" }, wantDetail: "disposition must be"},
 		{name: "findings array absent", mutate: func(r *WorkerReviewBlock) { r.Findings = nil }, wantDetail: "findings array"},
 		{name: "more than 64 findings", mutate: func(r *WorkerReviewBlock) { r.Findings = make([]WorkerReviewFinding, 65) }, wantDetail: "at most 64 findings"},
 		{name: "severity outside the closed scale", mutate: func(r *WorkerReviewBlock) { r.Findings[0].Severity = "S1" }, wantDetail: "P0, P1, P2, or P3"},

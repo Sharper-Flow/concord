@@ -15,8 +15,8 @@ per-item, scoped, fenced, and subject to the existing planning handoff.
 
 ## Context
 
-This complete successor preserves canonical note proof, historical scope, query populations, and deferred terminal projection pruning.
-Research retention changes at a separate explicit boundary.
+Canonical note proof, historical scope, and query populations govern deferred terminal projection pruning.
+Research retention has a separate explicit boundary.
 
 ## Contract
 
@@ -171,8 +171,7 @@ Copied historical status on membership edges is rejected because terminal state 
 
 ### 9. Cutover and falsifiers
 
-This successor does not decide a future pressure threshold, work-prune command, backup topology, or alternate authoritative recovery source.
-This offline edit provides no live consumer enumeration or completed re-contracting evidence.
+This policy does not decide a future pressure threshold, work-prune command, backup topology, or alternate authoritative recovery source.
 
 Reconsider this policy if retained receipts and snapshots drive measured growth, real investigations require unavailable projection data, or linked renewed identities fail legitimate work.
 Other falsifiers are unmet PM1 query targets, unbounded historical front matter, excessive explicit maintenance burden, or evidence for a different measured trigger.

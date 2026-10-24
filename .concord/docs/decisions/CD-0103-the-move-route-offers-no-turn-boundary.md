@@ -8,22 +8,18 @@
 - **Related:** CD-0096, CD-0098, issues #710, #714, #724
 - **Preserves:** Every other CD-0098 clause, including the clean-checkout
   precondition, the no-carry rule, and the read-back assertion
-- **Amended:** 2026-10-17. Coordinator approval under the operator's delegation
+- **Approval:** 2026-10-17. Coordinator approval under the operator's delegation
   for [Concord (CON) issue 966](https://linear.app/sharper-flow/issue/CON-966).
-  One native continuation may follow an accepted but unlanded move.
 
 ## Context
 
-CD-0098 D3 states that the retarget "waits for the current turn to end, because
-a move during a turn splits one turn across two directories".
-
-The host route provides no such wait. `moveSession` in OpenCode 1.18.26 updates
+The host route does not wait for the current turn to end. `moveSession` in
+OpenCode 1.18.26 updates
 the session location, publishes the moved event, and resolves. The HTTP handler
 answers 204 immediately after. There is no turn, busy, idle, queue, or lock
 handling anywhere on that path.
 
-The outcome CD-0098 wanted still holds, for a different reason. A running turn
-continues against the paths it already resolved, so the move takes effect from
+A running turn continues against the paths it already resolved, so the move takes effect from
 the next turn. That is a property of when paths are read, not a guarantee the
 route offers.
 
@@ -36,8 +32,8 @@ nothing enforces.
 
 ### D1. The record states the observable outcome and its real cause
 
-CD-0098 D3's turn-end sentence is replaced. The retarget takes effect from the
-next turn because a running turn resolves its paths before the move lands, not
+The retarget takes effect from the next turn because a running turn resolves
+its paths before the move lands, not
 because the route waits for a boundary.
 
 This is an observation of host behavior, not a contract the host offers. It was
@@ -55,8 +51,7 @@ After an accepted move, a refusal whose executing tool context has not landed ma
 
 ## Consequences
 
-- CD-0098 D3 keeps its preconditions and its read-back assertion. Only the
-  turn-end justification changes.
+- CD-0098 D3's preconditions and read-back assertion govern the move.
 - The stated behavior now carries the host version it was verified against, so
   a future host change has something to contradict.
 - Concord depends on an unstated host property. That dependency is now visible
@@ -78,8 +73,6 @@ observable outcome is already the one Concord needs.
 
 ## Verification
 
-- `.concord/docs/decisions/CD-0098-work-start-retargets-the-running-session.md` D3 no
-  longer claims a wait, and names this record as its amendment.
 - The adapter contains no wait, sleep, or poll on the retarget path, which the
   CD-0098 retarget tests exercise unchanged.
 - `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,

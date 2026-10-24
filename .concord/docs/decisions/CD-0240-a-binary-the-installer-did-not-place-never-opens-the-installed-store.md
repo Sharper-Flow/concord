@@ -76,8 +76,7 @@ and D4 stand.
 A developer who needs the installed history restores a backup of it to a fresh
 path and points the build there. A release binary run from anywhere else, such
 as a downloaded archive or a build in a managed worktree, refuses the installed
-store until the installer places it. The unstamped migration refusal no longer
-names an owning release or the live sessions beside it. The installer places
+store until the installer places it. The installer places
 only stamped release builds, so an unstamped build reaches that refusal only on
 an unmanaged store, which has no owning release.
 

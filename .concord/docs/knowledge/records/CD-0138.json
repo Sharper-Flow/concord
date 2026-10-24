@@ -35,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:075345bcb25ae6594cf4971053a321c3e35ee19995b5c57df6a6205afcc23e86",
+  "sha256": "sha256:d6758767c8e6f5058432c9abe0725fc3d70a508b53f8f8e960a9f1188503bf90",
   "status": "accepted",
   "summary": "Adds a mandatory artifact-backed refinement pass before verdicts in implementation and break-fix workflows, composed into the families' canonical source.",
   "tags": [

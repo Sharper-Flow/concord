@@ -71,20 +71,11 @@ others in `applies_to_domain_ids`. Twenty-one records do this. Per
 [CD-0222 D3](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md),
 applicability creates no second owner.
 
-Where a record amends another record's contract, it homes with that contract.
-PM3 narrowly supersedes CD-0003 D1 and homes to `durable-authority`. CD-0036
-amends CD-0015's law-boundary contract and homes to `product-memory`. This rule
-resolves the straddling cases that clause reading leaves balanced.
 
 ### D4. A declared Domain owns law at enactment
 
 No Domain enters the registry empty. A boundary that owns nothing is a label,
 and it cannot be checked against anything.
-
-This retires `predecessor-migration` from the enacted set. That Domain would
-cover the snapshot contract, import verbs, and cutover. No accepted law governs
-those yet. It is declared in the same change that writes its first law, never
-before.
 
 ### D5. Architecture relations name the law that governs them
 

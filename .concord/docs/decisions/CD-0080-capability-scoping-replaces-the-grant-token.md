@@ -2,9 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-28
-- **Scope:** The successor design CD-0071 D4 anticipated; the grant token and its
-  record; host approval assertion signing; the anchor for approval challenges;
-  the three unbuilt revocation methods; issue #465
+- **Scope:** Per-call capability scoping; host approval bindings; the anchor
+  for approval challenges; issue #465
 - **Approval:** Operator selected capability scoping without tokens on
   2026-08-28, after review of the two candidates recorded in issue #465. The
   pull request is the public record.
@@ -62,10 +61,6 @@ unchanged in effect and moved in site.
 
 ### D2. The grant token, its record, and its lifetime bounds are removed
 
-The `agent_grants` table is dropped. Grant expiry, `max_uses`, `used_count`, and
-the consume path are removed with it, because each bounds a caller who holds a
-token that no longer exists. The `grant` CLI verb is removed.
-
 `principal_ref` survives on `agent_clients` and continues to carry checked
 identity for idempotency partitioning, worktree claim ownership, workflow actor
 distinctness under CD-0017 D4, and durable operation attribution.
@@ -104,16 +99,9 @@ A later record may revisit worker evidence. This one does not.
 
 ### D5. Approval challenges bind to the session identity tuple
 
-`agent_approval_challenges.grant_ref` is a non-null foreign key to
-`agent_grants(grant_ref)` with restricted delete
-(`internal/store/schema.go:710`). D2 removes that parent, so the challenge needs
-a new anchor.
-
-A challenge binds instead to `client_ref`, `session_ref`, `agent_ref`,
+A challenge binds to `client_ref`, `session_ref`, `agent_ref`,
 `worktree`, and `directory`, the identity tuple the envelope carries on every
-call. This is the same tuple the grant row stored, read from its source rather
-than from a copy. The uniqueness and consumption semantics of a challenge do not
-change.
+call. Challenge uniqueness and consumption use this tuple.
 
 ### D6. Blocked-session Product scope moves to the session record
 
@@ -154,50 +142,28 @@ authority.*
 
 ### D7. The three revocation methods are removed
 
-CD-0071 D6 held `Service.RevokeGrant`, `Service.RevokeApproval`, and
-`Service.RevokeApprovalChallenge` to be unbuilt capability and removal
-candidates under this successor. All three are removed.
-
-`RevokeGrant` has no subject once D2 lands. The argument in CD-0071 D6 extends
-to the other two without modification: an approval is single-use, challenge
-bound, and expiring, and under CD-0071 D1 a caller able to exploit one is able
-to insert a replacement. `client-revoke` and `client-key-rotate` remain the
-operator's revocation surface.
-
-The `unbuilt-revocation-surface` entry in
-`.concord/docs/reachability-exceptions.v1.json` is deleted rather than amended, because
-the methods it declares no longer exist.
+The operator's revocation surface is `client-revoke` and `client-key-rotate`.
+An approval is single-use, challenge-bound, and expiring. Under CD-0071 D1 a
+caller able to exploit one is able to insert a replacement.
 
 ### D8. CD-0071 D4's "at issuance" wording is amended
 
-CD-0071 D4 lists "Git-derived scope resolution at issuance" as load-bearing.
-There is no issuance under D1. The load-bearing property is git-derived scope
-resolution and the refusals it produces, at whichever point the system
-authorizes a call. The phrase "at issuance" is struck from that list.
-
-No other clause of CD-0071 changes. D1, D3, D5, and D6 stand as written, and D5
-in particular continues to foreclose a process-level authority boundary.
+Git-derived scope resolution and the refusals it produces apply at
+authorization. CD-0071 D5 forecloses a process-level authority boundary.
 
 ## Consequences
 
-- One table is dropped. `agent_clients`, `agent_client_keys`,
+- `agent_clients`, `agent_client_keys`,
   `agent_nonce_replay`, `agent_approvals`, `agent_approval_challenges`, and
-  `agent_installation_keys` all survive, the last for cursor signing, which is
-  unrelated to agent authority.
-- Two of the three cross-language assertion vectors are retired. The worker
-  evidence vector remains, so the canonical encoder discipline and its
-  Go-to-TypeScript agreement test stay in force.
-- Every test in `internal/agent` that bootstraps a grant is rewritten. The
-  client and key fixtures survive, so the change is to the authorization setup
-  and not to the fixtures beneath it.
-- Scope becomes fresh per call. A working tree that moves between calls is
-  authorized against its current state rather than against a snapshot up to the
-  former grant lifetime old.
+  `agent_installation_keys` serve current consumers, the last for cursor
+  signing, which is unrelated to agent authority.
+- The worker evidence vector requires canonical encoder discipline and a
+  Go-to-TypeScript agreement test.
+- Scope is fresh per call. A working tree that moves between calls is
+  authorized against its current state.
 - The system retains Ed25519 signing for worker evidence only. An operator
   reading the schema will find a key registry and a nonce table with one
   consumer each, which D4 explains.
-- CD-0071's estimate of roughly 1,300 lines and three tables does not hold.
-  Retaining worker evidence keeps two of those tables and their machinery.
 
 ## Rejected alternatives
 
@@ -229,13 +195,8 @@ only caller expiry would bound.
 
 ## Verification
 
-- The claim in the Context is checkable: `internal/agent/authority.go:516`
-  compares seven envelope fields against the stored grant row, and
-  `authority.go:294` resolves scope from `directory` and `worktree` alone.
-- Every refusal named in D1 keeps a test. The trunk firewall refusal moves from
-  `TestIssueGrantRefusesMutationOnMainWorktree` to an invocation-time
-  equivalent, and the `cross_scope` and manifest-digest refusals keep their
-  current assertions against the new authorization site.
+- Every refusal named in D1 has a test at authorization, including the trunk
+  firewall, `cross_scope`, and manifest-digest refusals.
 - D3 is proved by an approval test that tampers with asserted scope, with the
   challenge digest, and with the consequence, and observes a refusal in each
   case with no signature present.
@@ -243,8 +204,6 @@ only caller expiry would bound.
   against the identity tuple.
 - D6 is proved by a blocked-session read that returns unchanged output with no
   `agent_grants` table in the schema.
-- D7 is proved by `scripts/check-reachability.py` passing with no
-  `unbuilt-revocation-surface` entry present.
 - `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
   `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-index.py`,
   `python3 scripts/check-law-coverage.py`, and

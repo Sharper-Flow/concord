@@ -37,7 +37,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e345e03a65e1f33608f17f171e3e63b484aefe1c80f7e605f26004e18536f970",
+  "sha256": "sha256:28ceb54d41dc6fce1fcf7fef6a6400e3703320cd49efee939744519b588542fe",
   "status": "accepted",
   "summary": "concord_work_start accepts a resume shape naming an existing item by work identity. The work-resume path reuses an active entry read-only or durably bootstraps a missing canonical worktree under the original work identity after the same Product, Project, terminal, and origin guards. The bootstrap derives branch and path identity from the registered Project locator, and the adapter runs the same session-prepare, move, and read-back tail as a capture.",
   "tags": [

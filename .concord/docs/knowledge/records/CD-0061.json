@@ -24,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ccc10f5740b70e52e12c4c86640e661ca5108fd7657d09bf837e9ca66616b2d4",
+  "sha256": "sha256:f5f79bcfc804344d1d4925cc5b6a4b20a16ffea0725a3db41f568f87160245d8",
   "status": "accepted",
   "summary": "CD-0027 excludes lane restart only; orchestrator identity is recorded as a subject_type='session' row rather than a restart context boundary, the orphaned typed_agent_* columns and the restart boundary_kind are removed, and the orchestrator ruleset digest covers the resolved host artifacts the way CD-0034 host prompt provenance does.",
   "tags": [

@@ -212,9 +212,8 @@ the report is identified, not how the worker is authorized.
 
 ### D6. The child-process route is removed
 
-`dispatch_worker` starts a worker one way. The `opencode run` spawn, its
-argument construction, its standard-output parsing, and its stream recovery are
-removed. No second route survives as a fallback.
+An authorized worker starts only through its bound native Task. No second
+route is available as a fallback.
 
 ### D7. The worker runs where the session runs
 
@@ -238,8 +237,6 @@ worker cannot run in a worktree the work item does not own.*
   permissions. Host-permitted ordinary agents, including authoring agents that
   may edit files, can run beside registered lanes. Their results are not lane
   evidence and carry no Concord workflow authority.
-- Concord no longer parses a child process. One failure class, the detached
-  worker, is removed with the route that produced it.
 - The coordinator issues one native Task after typed authorization. The
   adapter binds the recorded packet and one exact attempt reference without a
   custom executable queue or a second launcher. Authorization, observed worker

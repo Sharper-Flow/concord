@@ -50,8 +50,8 @@ mechanically.
 
 ## Verification
 
-- The registry exposes `refine` in both new graphs with no optional bypass edge.
+- The registry exposes `refine` in both graphs with no optional bypass edge.
 - The generated definitions match the one canonical source, and digest checks
   refuse drift ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
-- The generated payload projections include the two new action IDs.
+- The generated payload projections include the two refinement action IDs.
 - The workflow contract documents the external analysis boundary and artifact requirement.

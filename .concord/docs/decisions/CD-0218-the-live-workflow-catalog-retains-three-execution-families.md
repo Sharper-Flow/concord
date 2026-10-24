@@ -5,24 +5,22 @@
 - **Scope:** Live workflow catalog, typed authoring, and authorized cutover. No
   live migration or release activation is authorized.
 - **Planning record:** [Concord (CON) issue 902](https://linear.app/sharper-flow/issue/CON-902/delete-redundant-workflow-ceremony-retain-minimal-authorized-agent)
-- **Approval:** The operator approved this successor as designed on 2026-10-09
+- **Approval:** The operator approved this decision on 2026-10-09
   at 19:35 Eastern Daylight Time (EDT), relayed through the Snowball
-  coordinator. This publication is the isolated candidate only: it does not
-  update a serving Product's law projection, disposition live consumers, or
-  activate a release.
+  coordinator. Live migration and release activation require separate authority.
 - **Candidate supersession set:** CD-0007, CD-0012, CD-0013, CD-0039,
-  CD-0077, CD-0156, CD-0198. This set comes from the approved design;
-  the D5 owner must resolve its current successor identities before cutover.
+  CD-0077, CD-0156, CD-0198. The D5 owner must resolve its current successor
+  identities before cutover.
 - **Related:** CD-0007, CD-0012, CD-0013, CD-0036, CD-0039, CD-0077,
   CD-0156, CD-0172, CD-0186, CD-0198, CD-0215
 
-**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
-governs D1: Product-law changes require approval only under its six classes. Workflow-family and repository-law-route requirements do not change.
+[CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+governs D1: Product-law changes require approval only under its six classes. Workflow-family and repository-law-route requirements remain required.
 
-**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+[CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
 acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
+requirements remain required.
 
 ## Context
 
@@ -30,8 +28,7 @@ The live workflow catalog requires seven families. Four families repeat bounded
 job, independent evidence, and delivery duties that the retained execution owners
 already carry. Their public authoring can retire; the store keeps current state and finite snapshots, and the one documented cutover retires what the migration discards ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) and [D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
-This document proposes a replacement, not a same-ID amendment of removed duties.
-The replacement does not make research conclusions into binding Product law.
+Research conclusions do not enact binding Product law.
 The accepted research-pack capability remains independent of workflow selection.
 
 ## Decision
@@ -182,31 +179,22 @@ than publish competing overrides.
 
 ## Consequences
 
-This record publishes the approved successor text as isolated candidate law. It
-does not update a serving Product's law projection, disposition any active
-consumer, or activate a release. Live supersession of the candidate set happens
-only at the D5 boundary.
+Live law publication, consumer disposition, and release activation require D5's authority.
+At that boundary, old record status, manifest identities, content hashes,
+successor relations, and consumer-cutover evidence update together, never before.
 
-Old record status, manifest identities, content hashes, successor relations, and
-consumer-cutover evidence update together at that boundary, never before. Until
-then the set names records, and no superseded status or supersedes relation
-exists in the manifest for this record.
+CD-0007 governs bootstrap, platform, and authority duties.
+CD-0012 governs explicit end-state, non-vacuity, immutable approval, and
+independent acceptance. CD-0013 governs current-state workflow recording,
+declared actions, and independent acceptance. CD-0039 D1 through D4 and D7 through
+D9 govern attributed reports, failures, and effects.
 
-Every unaffected obligation in the set keeps its owning record until that
-boundary. CD-0007 keeps the bootstrap, platform, and authority duties.
-CD-0012 keeps explicit end-state, non-vacuity, immutable approval, and
-independent acceptance. CD-0013 keeps current-state workflow recording,
-declared actions, and independent acceptance. CD-0039 keeps D1 through D4 and D7 through
-D9 for historic attributed reports, failures, and effects.
+CD-0077 governs operator kind separation, stored historical names, and immutable
+migration checksums. CD-0156 governs mandatory backlog search. CD-0198 governs
+evidence, approval, and start floors. CD-0215 governs research-pack guarantees.
 
-CD-0077 keeps operator kind separation, stored historical names, and immutable
-migration checksums. CD-0156 keeps mandatory backlog search. CD-0198 keeps its
-evidence, approval, and start floors. CD-0215 owns the research-pack
-guarantees, and this record leaves it standing.
-
-CD-0215 D2 still requires a separate architecture spike decision. Before cutover,
-the approved successor set resolves that obligation.
-This candidate does not change CD-0215.
+CD-0215 D2 requires a separate architecture spike decision. D5 cutover must
+resolve that obligation through an approved successor set.
 
 Retired families keep no live capture eligibility; that refusal activates with the
 set at the D5 boundary.

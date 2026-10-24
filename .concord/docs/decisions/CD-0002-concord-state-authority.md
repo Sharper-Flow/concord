@@ -2,18 +2,17 @@
 
 > **Status:** **Accepted — binding until superseded.**
 > **Type:** Architecture decision record.
-> **Supersedes:** Earlier private pre-public durability planning (Temporal as durability/workflow authority).
-> **Superseded/amended in part by:**
+> **Related current contracts:**
 >
-> - [`../product-memory-authority-scope.md`](../product-memory-authority-scope.md) (PM2, 2026-08-05) replaces only the physical per-Project file scope with one global local SQLite authority.
-> - [`../product-memory-domain-schema.md`](../product-memory-domain-schema.md) (PM3, 2026-08-05) replaces the generic materialized spine with explicit typed projections.
+> - [`../product-memory-authority-scope.md`](../product-memory-authority-scope.md) (PM2) fixes one global local SQLite authority.
+> - [`../product-memory-domain-schema.md`](../product-memory-domain-schema.md) (PM3) fixes explicit typed projections.
 > - [`../canonical-git-note-placement.md`](../canonical-git-note-placement.md) (PM6, 2026-08-05) fixes git proof before eligibility.
 > - [`../compaction-retention-policy.md`](../compaction-retention-policy.md) (2026-10-09) fixes bounded retention of store state; the store keeps current rows and finite verified snapshots ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 > - [`CD-0215-retained-research-context.md`](./CD-0215-retained-research-context.md) (2026-10-09) keeps the sole narrow direct-table exception for research context, retained until explicit retirement.
 > - [`CD-0011-retain-sqlite-after-conformance.md`](./CD-0011-retain-sqlite-after-conformance.md) (2026-08-07) records the post-falsifier review and retains SQLite with explicit future reopen conditions.
-> - **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D1, D2, D9, D11, D13, D14
-> **Decided:** 2026-08-05 (operator decision D1, reopened under the simplicity mandate).
-> **Confirmed by operator:** 2026-08-05, as the *revised* set following stack re-validation (see §2a). The re-validation reversed an earlier single-writer-daemon recommendation to library-in-process.
+> - [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D1, D2, D9, D11, D13, D14.
+> **Decided:** 2026-08-05 (operator decision D1).
+> **Confirmed by operator:** 2026-08-05.
 > **Resolves:** [`../core-architecture.md`](../core-architecture.md) §2; [`../design-constraints.md`](../design-constraints.md) research backlog #8; [`../clarifications.md`](../clarifications.md) C2.
 > **Sourced basis:** adv-researcher D1 findings + 2026-08-05 stack re-validation (sqlite.org WAL / whentouse / busy_timeout / intern-v-extern-blob / fasterthanfs; Litestream; Temporal #9686; PostgreSQL MVCC docs; etcd-io/bbolt; PGlite; DuckDB), plus a **measured** ADV workload profile (§2a).
 
@@ -136,10 +135,6 @@ named job proves it necessary.
 
 ## 2b. Concurrency model, and the daemon as an upgrade path
 
-An earlier draft of this record recommended a **single-writer daemon**. The
-re-validation reversed that recommendation, and the reversal is part of this
-decision:
-
 - **Default: library-in-process, no daemon.** sqlite.org's own guidance covers this
   case: *"Writers queue up. Each application does its database work quickly and
   moves on, and no lock lasts for more than a few dozen milliseconds."* A daemon
@@ -209,7 +204,7 @@ value into git, where it is reviewable and travels with the code.)*
   3–6 KB median, 34 KB max) → **TEXT rows in SQLite**. In-DB is faster at this size
   *and* keeps the artifact write atomic with the entity's transition (satisfies I4).
 
-Accepted PM8 supersedes the former external-evidence-file branch: Concord v1 has no
+Under PM8, Concord v1 has no
 WIP blob ingestion, content-addressed store, hash/path reference, or generic screenshot
 requirement. Test output and other WIP bytes remain with their producing environment.
 
@@ -300,11 +295,11 @@ There is no IPC protocol to design, no supervisor, and no single point of failur
 MCP-server topology is deliberately *not* adopted, because it reintroduces the
 daemon that §2b demoted.
 
-**Resolved by [`CD-0003-concord-storage-layer-shape.md`](./CD-0003-concord-storage-layer-shape.md) (2026-08-05):**
+**Current storage contract under [`CD-0003-concord-storage-layer-shape.md`](./CD-0003-concord-storage-layer-shape.md):**
 1. **Invocation boundary** — **short-lived CLI invocation** (D2). No persistent server.
 2. **Binding** — **[`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)**, pure Go (D3). `mattn` is the documented fallback.
-3. **Entity shape** — PM3 narrowly supersedes CD-0003 D1's generic materialized
-   spine with **explicit typed Product-memory state** and typed-edge integrity; the store keeps current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+3. **Entity shape** — PM3 requires **explicit typed Product-memory state** and
+   typed-edge integrity; the store keeps current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 The storage-spine slice records the current baseline. PM1–PM3 now fix canonical
 queries, authority scope, domain projection shape, lifecycle/relation semantics,
@@ -314,30 +309,30 @@ and membership scope. PM1–PM5 now authorize storage/core implementation.
 
 ## 6. Supersession of private pre-public planning
 
-- The earlier private Temporal commitment and its go/no-go proofs are not public
-  authority. The durable lesson retained here is [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)'s rule: one global local SQLite store keeps each Concord subject's current state.
-- The earlier layering proposal is superseded by the public Go core, SQLite sole
-  authority, and thin adapter boundaries recorded by CD-0002 through CD-0006.
+One global local SQLite store keeps each Concord subject's current state
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+CD-0002 through CD-0006 define the public Go core, SQLite authority, and thin
+adapter boundaries.
 
 ---
 
 ## 7. Deferred questions now resolved
 
-- **Migrations / schema evolution — resolved by CD-0008 D6 (2026-08-06):** The cutover is one documented migration with a verified snapshot ([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
+- **Migrations / schema evolution:** The cutover is one documented migration with a verified snapshot ([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
-**Now closed by CD-0003 + PM3 (2026-08-05):** invocation boundary (short-lived
+**CD-0003 + PM3 govern:** invocation boundary (short-lived
 CLI), SQLite binding ([`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)), and explicit
 typed Product-memory projection shape. See
 [`CD-0003-concord-storage-layer-shape.md`](./CD-0003-concord-storage-layer-shape.md)
 and [`../product-memory-domain-schema.md`](../product-memory-domain-schema.md).
 
-**Now closed by PM6, compaction-retention-policy, and PM9 (2026-08-05/06):** compaction trigger (at
+**PM6, compaction-retention-policy, and PM9 govern:** compaction trigger (at
 terminal transition), note template, generation pattern (agent-drafts +
 operator-approves), salvage rule, and the git-authority/SQLite-derived-index
 pattern. See [`../canonical-git-note-placement.md`](../canonical-git-note-placement.md),
 [`../compaction-retention-policy.md`](../compaction-retention-policy.md), and
 [`../product-memory-process-exhaust.md`](../product-memory-process-exhaust.md).
 
-**Closed earlier by this record:** structured artifact placement (§2d — markdown as
+**This record governs:** structured artifact placement (§2d — markdown as
 TEXT rows; PM8 excludes WIP byte storage), concurrency topology (§2b —
 library-in-process), and durable-knowledge storage (§2c — git, one-way, non-authoritative).

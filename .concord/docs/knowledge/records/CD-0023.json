@@ -24,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6d5852985b5428a5a1a2ddb35694e46163c5d96ec58065a9790f9c585e7eb8cf",
+  "sha256": "sha256:ddb04dd4aab7f82fa84b53d831c1ba410831fa880641e398fef0f1551c701d38",
   "status": "accepted",
   "summary": "Recorded verdicts become readable, read-scoped results: every session except the recorded executing actor audits an acceptance; influence stays with CD-0013 D5.",
   "tags": [

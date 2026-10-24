@@ -45,9 +45,8 @@ and terminal steps never dispatch.
 `withWorkerActions` composes the action pair onto every non-terminal step
 whose kind the join admits, except approval-gated steps: a step whose only
 advancing exit is an approval-required action keeps that exit alone, so a
-worker acceptance cannot leave it without the operator. The research-family
-exclusion is repealed; a research work item dispatches read-only lanes at
-its read steps like any other family.
+worker acceptance cannot leave it without the operator. A research work item
+dispatches read-only lanes at its read steps like any other family.
 
 ### D3. Dispatch time enforces the lane against the step
 

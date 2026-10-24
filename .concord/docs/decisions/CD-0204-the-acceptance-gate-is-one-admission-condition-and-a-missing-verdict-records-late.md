@@ -70,19 +70,15 @@ verdict. A late verdict does not move the step.
   Rejected: a second copy is the drift that CD-0201 D1 removes.
 - Defer every fresh-review refusal and give `record_delivery` a guard.
   Rejected: the refusal reads no payload, and a guard copy is a second owner.
-- Publish the `record_verdict` declaration for cleanup in the canonical source.
-  Rejected: the recorded runbook items keep their recorded state, and the
-  late-verdict route already serves them
-  ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
-- Let the cleanup confirmation pass without a verdict. Rejected: completion
+- Let confirmation pass without a verdict. Rejected: completion
   requires the verdict, so the work strands one step later.
 
 ## Consequences
 
 A caller that asks the preflight or reads the work pin gets the refusal that
 execution applies, for the confirmation and for a delivery behind a blocking
-Review disposition. A recorded ops runbook at cleanup without a verdict records the verdict
-there, then confirms. The liveness checks read the recorded verdict at the
+Review disposition. At a supported premise-question or terminal step, a missing
+verdict records through the late route without moving the step. The liveness checks read the recorded verdict at the
 premise question
 ([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).
 

@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8378aee384de718f0c8571893921e6a0a8f3ced0f6e4245f60906cbb66e8d8fc",
+  "sha256": "sha256:4be0485e906455702f5096346414efb298ed44e3bfb6567e43b0558dee469ab7",
   "status": "accepted",
   "summary": "Schema 1.2 is the only accepted Concord knowledge manifest shape. The unwired schema 1.0 and 1.1 migration, its transient undecided-root marker, and its compatibility validation branches are removed before launch. This amends CD-0222 D9.2 and CD-0062 D3 while preserving the current root-home rationale and PM1.Q10 projection rules.",
   "tags": [

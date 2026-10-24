@@ -46,8 +46,7 @@ is not visible to a search from another Product.
 ### D1. episode is removed as an external authority
 
 Concord does not integrate, configure, or promote from episode. No Concord
-surface names an episode namespace, memory id, or promotion state. CD-0086
-D1 through D4 are superseded in full. The tool count falls by one.
+surface names an episode namespace, memory id, or promotion state.
 
 ### D2. The knowledge ladder is observation, lesson, decision
 
@@ -68,10 +67,9 @@ Concord record.
 
 ### D3. lesson graduation replaces the episode promotion seam
 
-The promotion receiving contract in `vertical-integration.md` is removed. Its
-one durable rule moves to this record: a graduation names a record version,
-never a moving document. A `lesson` that graduates to a `decision` or a
-`spec` is cited by manifest path plus sha256 in the receiving record's
+A graduation names a record version, never a moving document. A `lesson`
+that graduates to a `decision` or a `spec` is cited by manifest path plus
+sha256 in the receiving record's
 evidence. Concord records no runtime event for a graduation, because
 knowledge records carry no runtime write surface.
 
@@ -94,20 +92,10 @@ A record stores a locator to vendor documentation. It never stores vendor
 schema or documentation content. Agents fetch the vendor side live, so
 freshness is never a stored property and no stored copy can age.
 
-### D5. Migration of the episode rows
-
-The 7 rows are exported outside this repository. Rows that belong to a
-Product with its own Concord knowledge home migrate to `lesson` records in
-that Product's repository as follow-up work there. Two Products with their
-own knowledge homes hold 5 rows. The 2 remaining rows are predecessor
-material with no Product home and are archived with the export.
-
 ## Consequences
 
-- One fewer tool in every agent session.
 - C8 does not move. lgrep and vision keep the product-scoping lean.
-- `vertical-integration.md` covers lgrep and vision only. `clarifications.md`
-  R7 records the removal.
+- `vertical-integration.md` covers lgrep and vision only.
 - A read-only `resources` operation on `concord_product_view` gives agents
   the identity half of D4. That is work-d47fb36cf5552066d44dbdac, and it
   needs TS9 change evidence and operator acceptance before it ships.
@@ -140,6 +128,5 @@ found it.
 
 - `vertical-integration.md` names lgrep and vision only and carries no
   promotion receiving contract.
-- `clarifications.md` R7 records the episode removal and cites this record.
 - The knowledge manifest registers this record as an accepted decision.
 - Repository document, knowledge-index, and link validators pass.

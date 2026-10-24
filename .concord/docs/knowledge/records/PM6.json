@@ -44,7 +44,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8d803d1fd52cce24292840d2233530ef066df589df84938ee72a47238a5609bb",
+  "sha256": "sha256:f457f7e8961100a8d32ea885c3ff6d3115ae01d39814cfe683c93cf8d3e4bce0",
   "status": "accepted",
   "summary": "Defines canonical home placement and git-first proof for durable notes.",
   "tags": [

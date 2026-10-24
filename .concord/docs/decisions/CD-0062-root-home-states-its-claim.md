@@ -55,7 +55,7 @@ follows them.
 
 ### D3. No legacy-manifest upcast exists
 
- [CD-0076](CD-0076-current-knowledge-manifest-has-no-legacy-migration.md) removes the legacy-manifest migration and its undecided-root marker; schema 1.2 is the only knowledge-manifest schema, and root-home claims follow D1 and D2.
+Root-home claims follow D1 and D2.
 
 ### D4. The claim is projected, not merely parsed
 

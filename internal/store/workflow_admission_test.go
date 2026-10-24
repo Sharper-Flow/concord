@@ -57,7 +57,7 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			report := reviewBlockFixture()
 			report.Disposition = "ready_for_final_proof"
-			state := WorkflowAdmissionState{Step: "refine", RefinementWorkflow: true, ReviewStep: true, ReviewLane: "review",
+			state := WorkflowAdmissionState{Step: "refine", RefinementWorkflow: true, ReviewLane: "review",
 				Review: &WorkflowReviewState{ExecutionProgressed: true, Candidate: &report.OutputCandidate, Accepted: &WorkflowAcceptedReview{Report: *report}, DependenciesCurrent: true}}
 			state.Delivery.Started = true
 			tc.change(&state)

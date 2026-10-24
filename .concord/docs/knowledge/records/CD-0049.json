@@ -28,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0f38ae260a4c8dcfdae6f2f5e1a5d564c83d2d0b5a6d9cbad4e953014ddf086d",
+  "sha256": "sha256:b46a91265ff5e59695a8c259378a57966cb5f88b0d8d3f85a9042bf640c7908d",
   "status": "accepted",
   "summary": "Concord-owned lane definitions reach a host only through a project's .opencode/agents/, because a global agent cannot be scoped and an environment-supplied definition presents no file for CD-0034 provenance to hash; Concord asserts required agent identity before managed action through session-prepare rather than relying on --agent, whose unknown-name failure mode is a silent substitution with a success exit code; the orchestrator is constrained and verified rather than authored, since CD-0016 excludes an agent_definitions table; a session with absent required identity refuses to start. A trusted client policy names the agents it may present, and authorization refuses any other; the scope is fail-closed, so a client naming no agent authorizes none and must be re-registered.",
   "tags": [

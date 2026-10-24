@@ -9,8 +9,6 @@
 > **Does not decide:** TS7 result/error field layout, TS8 digest identity/change
 > evidence, TS9 pre-go-live measurements, adapter package/repository name, UI styling,
 > or C15.
-> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** every recorded
-> write is one current-row mutation; no event append exists.
 
 ## Context
 
@@ -23,6 +21,9 @@ through a plugin entry module, with transport to the short-lived CLI and the
 host approval bridge.
 
 ## Contract
+
+Every recorded write is one current-row mutation; no event append exists
+([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2).
 
 The approval bridge applies only to core-minted challenges required by CD-0013 D11, not every consequential mutation. Routine and engineering routes must not create host consent prompts or fabricated approval records. On a decision-bearing challenge, transport the complete typed `work_decision` summary unchanged; the host displays its work, contract version, and decision domains alongside the existing bound facts. Missing required approval transport still fails closed.
 

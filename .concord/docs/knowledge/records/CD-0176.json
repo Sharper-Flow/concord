@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7de2caa1a675e9439324050b5657bd1af768587db6576d96aa331d503c9b1941",
+  "sha256": "sha256:115614e5c51c44ec5f1a06f05935bda84f1048c47aa5d9685436ed40552b697b",
   "status": "accepted",
   "summary": "A managed session runs in the worktree its claim recorded: concord_work_start claims the canonical worktree, moves the calling session, and refuses success unless the directory reads back as the claimed worktree. The launch landing, its candidate read, and the member-Project selector retired; one claimed directory governs session-prepare, and resolution fails closed.",
   "tags": [

@@ -9,7 +9,7 @@
 - **Preserves:** The five-state lifecycle, exact recorded removal receipts, Product and Project
   identity, accepted law, Linear issue identity, and the no-polling boundary
 
-**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+**Consent:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
 acceptance criteria. Other admission, safety, evidence, and historical-pin
 requirements remain unchanged.
@@ -80,7 +80,7 @@ health. A work item without verified active or waiting evidence reports
 ## Consequences
 
 - Shelving removes execution while preserving the planning handoff and history.
-- Cancellation no longer leaves an actionable cancelled WorkItem.
+- Cancellation removal leaves no actionable cancelled WorkItem.
 - Terminal compaction remains a separate retention operation.
 - Every removal is per-item, operator-directed, fenced, bounded, and replay-safe.
 
@@ -91,7 +91,6 @@ health. A work item without verified active or waiting evidence reports
 - `internal/store.TestWorkRemovalRefusesMissingSafetyEvidence` verifies a required
   removal gate.
 - `go test ./internal/store -run 'TestWorkRemoval|TestMigrateV80'`
-  verifies removal and migration; the Product-row liveness query retired
-  with the row under CD-0224.
+  verifies removal and migration.
 - `python3 scripts/generate-agent-contracts.py --check` verifies generated
   contract projections after this decision is indexed.

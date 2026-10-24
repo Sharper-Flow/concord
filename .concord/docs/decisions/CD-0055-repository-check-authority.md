@@ -86,23 +86,19 @@ a probabilistic or judgment-shaped verdict is D4 and never blocks.
 ### D5. The existing checks are audited against this policy
 
 - `check-reachability.py` is the D2 model and stands.
-- `check-tx-scope.py` was retained under D3 until the structural end-state it
-  named existed. That end-state is `internal/store/txscope_test.go`: a
+- The transaction-scope invariant is owned by `internal/store/txscope_test.go`: a
   function receiving a live transaction handle may not hold a `*Store`, every
   `Transact` closure delegates to one transaction-scoped core, and no nil check
-  is written against an interface-typed handle, which cannot fire. The guard is
-  deleted under D3, not extended.
+  is written against an interface-typed handle, which cannot fire.
 - The raw SQLite boundary is owned by `internal/store/boundary_test.go` under
   D2. The toolchain parser inspects Go syntax, and SQL string literals are
-  checked against the schema's table vocabulary. The hand-written Go lexer
-  is deleted, not extended.
+  checked against the schema's table vocabulary.
 
 ## Consequences
 
 1. A proposed check names its authority class — structural, real-tool,
    textual-guard, or warn-only — and a check that cannot is a review finding.
-2. The structural store-boundary tests own the invariant; the retired scanner
-   gains no new lexical rule or compatibility path.
+2. The structural store-boundary tests own the invariant.
 3. Appeasing a guard by reshaping code, rather than improving structure, is
    evidence the guard exceeded its class; the response is to fix or retire the
    guard, not to appease it.

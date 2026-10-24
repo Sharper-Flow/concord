@@ -13,9 +13,6 @@
 - **Preserves:** CD-0043 D1 and D2; the reserved `skills/` boundary under
   CD-0043 D3; the closed lane registry and its digest; `agent-lane-packet.v1`
   and `agent-lane-report.v1`
-- **Amended:** 2026-10-18: Clarify manifest-scoped agent ownership and native
-  user customization. Amendment preserves the central installation and
-  provenance rules; no replacement or compatibility path is needed.
 
 ## Context
 

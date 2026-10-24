@@ -18,21 +18,6 @@
 - **Approval:** The Snowball coordinator approved this record on 2026-10-17
   under the operator's delegation. The record is serious under P12 because it
   affects more than one Domain.
-  The operator approved the D5 coordinator-routing amendment as exact text on
-  2026-10-19 for
-  [Concord (CON) issue 1212](https://linear.app/sharper-flow/issue/CON-1212).
-- **Amended:** 2026-10-19, approved by the operator as exact text
-  for [Concord (CON) issue 1200](https://linear.app/sharper-flow/issue/CON-1200).
-  D4's P12 Domain test counts the child Domains of the laws a change adds,
-  modifies, or removes, not its footprint record. The change is serious under
-  P12 because it narrows when an operator approval applies, which removes
-  behavior the operator sees.
-- **Amended:** 2026-10-19, for
-  [Concord (CON) issue 1212](https://linear.app/sharper-flow/issue/CON-1212).
-  D5 routes a choice that carries a security risk, changes UI/UX, sets a
-  preference, or sets product direction, and that no approval point holds,
-  through the item's coordinator before the operator. The change is serious
-  under P12 because it changes which questions reach the operator.
 
 ## Context
 
@@ -90,13 +75,12 @@ An agent changes a law and records why. Operator approval applies only when
 the change falls within a class defined by
 [CD-0243 D2](CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision).
 Seriousness, Domain count, and crucial size do not independently require
-approval. Adding, removing, or reclassifying an operator approval always
+approval. The P12 Domain test counts the child Domains of the laws a change
+adds, modifies, or removes, not its footprint record. Adding, removing, or reclassifying an operator approval always
 requires the operator's approval of its exact wording.
 
-Where CD-0006 D5 and D10, CD-0013 D9, CD-0159 D4, CD-0218 D1,
-and CD-0222 D1, D4, and D5 require human or operator approval
-for a law change or a law mandate, that approval is required only under
-CD-0243 D2. An agent-owned change carries the agent's recorded reason.
+Law changes and law mandates require operator approval only under CD-0243 D2.
+An agent-owned change carries the agent's recorded reason.
 
 A law revision enacted without the operator's
 approval gives the record the `derived` tier, whatever tier it held before,

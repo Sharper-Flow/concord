@@ -5,8 +5,8 @@ operator, who said that "the concord backlog and operation snowball no longer re
 Quotes are the operator's exact words. Items marked "approved" began as agent proposals that the operator
 approved.
 
-[CD-0243](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md) amends the roles and the
-operator's approval boundary below.
+[CD-0243](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md) defines the roles and the
+operator's approval boundary.
 
 ## Purpose
 - Scope: "a single machine solution using Opencode to coordinate agent led code development of software
@@ -130,8 +130,6 @@ the case (Appendix A), not a ranking.
 - Stop ranking the goals strictly. Defined conflict rules replace the ranking.
 - Stop treating Advance replacement as current direction: "Sections on replacing advance are history."
 - Stop naming the retired launcher as a primary surface: "Remove the bit about the launcher."
-- Remove the first-usable floor section and the decision tracker table from the priorities doc as history
-  (approved).
 
 ## 4. Constraints that must hold
 - Single machine.

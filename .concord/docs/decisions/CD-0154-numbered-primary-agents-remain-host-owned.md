@@ -14,15 +14,8 @@
   The operator approved the Concord-Planner amendment as exact text on
   2026-10-19 for
   [Concord (CON) issue 1183](https://linear.app/sharper-flow/issue/CON-1183).
-- **Amendment reason:** Concord is the self-sufficient primary agent; a user
-  may choose an optional release train engineer for concurrent work.
-  A profile-level allow-all shell rule overrode the host's shell denials, so
-  the profiles deny only named unsafe commands and leave every other command
-  to the host.
-  A work-item session brings the six operator approval classes directly to the
-  operator; the release train engineer (RTE) coordinates dependencies, not those decisions (CD-0243 D1, D2).
-- **Revision choice:** In-place amendment under CD-0036. Existing workflow pins
-  and stored contracts keep their meaning; the managed profile name changes
+- **Profile installation:** Existing workflow pins and stored contracts keep
+  their meaning; the managed profile name changes
   through the installer's existing retirement transaction.
 - **P12:** Serious: the agent name users select, its permission boundary, and
   which choices reach the operator change.
@@ -118,7 +111,7 @@ Linear owns planning. Concord adds no session-launch or portfolio API.
 
 The installer refuses a conflicting unmanaged named-profile file.
 It preserves the numbered host files under D1.
-The host selects the new role names explicitly and owns its launch defaults.
+The host selects the role names explicitly and owns its launch defaults.
 
 ### D3. Machine policy stays outside the profiles and examples
 

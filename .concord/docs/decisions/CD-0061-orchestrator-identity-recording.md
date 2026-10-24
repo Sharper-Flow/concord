@@ -7,10 +7,9 @@
 - **Related:** CD-0016 (context continuity), CD-0027 (typed restart excluded),
   CD-0049 (agent delivery and identity assertion), CD-0034 (host prompt
   provenance), issue #254
-- **Amended:** Concord (CON) issue CON-910 (2026-10-13) re-homes the session
-  assertion from launcher start to session preparation under the Snowball
-  coordinator's operator-delegated approval. [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
-  D2 amends D4: the assertion is a current row; no domain event exists.
+- **Approval:** Session-preparation identity assertion: Concord (CON) issue
+  CON-910 (2026-10-13), under the Snowball coordinator's operator-delegated
+  approval.
 
 ## Context
 
@@ -80,12 +79,9 @@ terms.
 
 ### D2. Orchestrator identity is not recorded on a context boundary
 
-CD-0049's consequence that the D2 assertion populates the reserved
-`typed_agent_*` columns is amended: the assertion does not populate them, and
-CD-0016's clean-restart boundary does not become reachable through it. The
-amendment reaches that consequence only. CD-0049 D3 and its Invariant 3 stand
-unchanged, and the requirement to record an asserted identity is satisfied by D4
-below rather than withdrawn.
+Session preparation records the asserted orchestrator identity separately
+from workflow continuity boundaries, as D4 requires. The assertion does not
+populate `typed_agent_*` columns or make a clean-restart boundary reachable.
 
 A context boundary records a work item crossing a continuity boundary. A session
 identity assertion happens at session preparation, before managed action. A

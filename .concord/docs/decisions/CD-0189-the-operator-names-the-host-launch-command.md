@@ -2,33 +2,21 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-28
-- **Scope:** session-prepare's registry probe of the calling host; the
-  retirement of the configured launch command and its Go launch obligations
+- **Scope:** session-prepare's registry probe of the calling host
 - **Related:** CD-0182, CD-0049, CD-0078, CD-0088, CD-0093
 - **Approval:** The operator approved reopening CD-0093 D4 on 2026-09-28
   after evidence that launcher-started sessions skip the host wrapper. The
   pull request is the public record.
-- **Amended:** Concord (CON) issue CON-910 (2026-10-13) removes the configured launch command and
-  every Go launch obligation under the Snowball coordinator's
-  operator-delegated approval. The calling-host probe obligation survives
-  for session-prepare.
+- **Approval:** Concord (CON) issue CON-910 (2026-10-13), under the Snowball coordinator's operator-delegated approval.
 - **Preserves:** CD-0093 D2's one-directory and one-registry binding, CD-0093
   D3's fail-closed resolution, CD-0049 D4's refusal of a degraded start,
   CD-0078's host ownership of placement
 
 ## Context
 
-An operator could run the host through a wrapper program, and CD-0093 D4
-first fixed the launch command to the bare host executable, so sessions the
-entry route started skipped that wrapper. Live evidence from 2026-09-28
-showed the cost, and this record moved the setting into host configuration
-as a launch option beside the session opener.
-
-The launch removal retires the option with it: the entry route, the
-opener, and the option are gone together; a host-started session enters
+An operator can run the host through a wrapper program. A host-started session enters
 managed work through `concord_work_start`, which launches nothing (CD-0098).
-What
-survives of this record is the probe discipline: session-prepare probes the
+session-prepare must verify the registry that the calling host resolves. It probes the
 calling host once, under the calling host's inherited environment, in the
 claimed worktree.
 
@@ -36,9 +24,7 @@ claimed worktree.
 
 ### D1. Retired: the configured launch command
 
-The launch option, its argv form, its validation rules, and every Go-core
-launch obligation are removed. Concord reads no launch option from host
-configuration, resolves no launch command, and starts no host process.
+The host owns session placement. Concord starts no host process.
 
 ### D2. The registry session-prepare verifies is the one the calling host resolves
 
@@ -50,15 +36,13 @@ probe through any configured command, because no configured command exists.
 
 ### D3. Retired: the argv value and its launch refusals
 
-The argv value, its malformed-value refusals, and its second-document
-mismatch refusals retired with the option. Probe and registry refusals stay
+Probe and registry refusals stay
 typed: an unreadable registry document refuses deterministically before
 managed action.
 
 ### D4. Retired: the launch surfaces
 
-The Product/work launch, the Project-path launch, and the session registry
-probe of a launch are removed. session-prepare launches nothing:
+session-prepare launches nothing:
 `concord_work_start` moves the calling session, which keeps running in the
 host process that called it. Adapter worker dispatch and the move-session
 version diagnostic stay on the bare host. Worker lanes are not
@@ -73,8 +57,6 @@ ships no wrapper name and hard-codes none.
 
 - session-prepare's probe cost is unchanged: one bare probe per prepared
   session, in the claimed worktree.
-- The launch-time probe costs of the configured command retired with the
-  launch.
 
 ## Alternatives considered
 

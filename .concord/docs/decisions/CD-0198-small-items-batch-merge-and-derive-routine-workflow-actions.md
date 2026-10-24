@@ -11,8 +11,7 @@
   record on 2026-09-30
   ([Concord (CON) issue 767](https://linear.app/sharper-flow/issue/CON-767/decide-which-coordinator-workflow-actions-merge-or-become-core-derived)).
 
-**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
-limits this record's operator-consent requirements to its six classes. Failure records, escalation evidence, and other non-consent checks remain required.
+Operator consent is limited to the six classes in [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes). Failure records and other non-consent checks remain required.
 
 ## Context
 
@@ -52,8 +51,7 @@ Implement cannot accept its own result ([CD-0242 D5](CD-0242-knowledge-first-wor
 real coordinator identity, and a combined action cannot accept its own result
 or silently omit a predicate.
 
-This record adopts all five candidates. None removes one of the four floors,
-and each names one implementation item here.
+All five mechanisms retain the four floors.
 
 ### D1. One record_verdict call carries a verdict for every predicate it judges
 
@@ -75,56 +73,42 @@ authorship fencing is untouched. The completion gate keeps demanding a verdict
 for every approved predicate, so a predicate the call omits stays missing and
 named, never silently excused.
 
-Implementation item: [CON-772](https://linear.app/sharper-flow/issue/CON-772/batch-per-predicate-verdicts-in-one-atomic-record-verdict-call),
-`work-bd63058d9040b113a411577d`. Extend the `record_verdict` payload contract to the
-batched form in the one canonical source, so generated contracts derive from
-one source and identities active work needs derive at the integration boundary
+The `record_verdict` payload contract declares the batched form in the one
+canonical source. Generated contracts and the identities active work needs derive
+from that source at the integration boundary
 ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ### D2. The three diagnosis records merge into one typed action on break_fix
 
-`record_reproduction`, `record_alignment`, and `record_root_cause` merge into one
-advance action, `record_diagnosis`. Its payload carries a reproduction section,
+The diagnosis step's advance action is `record_diagnosis`. Its payload carries a reproduction section,
 an alignment-search section, and a root-cause section. Each section is required
-and carries the payload fields and consistency guards its source action carried,
+and carries its payload fields and consistency guards,
 including the CD-0156 D3 `searched`, `outcome`, and `related_ids` fields with
-their guards. The reproduce, alignment, and diagnose steps merge into one
-diagnosis step whose advance actions admit `record_diagnosis` alone, so its
+their guards. The diagnosis step admits `record_diagnosis` alone as its advance action, so its
 single forward edge cannot be crossed without all three sections recorded.
 
-The alignment step leaves the break_fix graph, and the step-shape obligations of
-CD-0156 narrow to `workflow.implementation`, which keeps the alignment step and
-`record_alignment` unchanged. The floor holds against CD-0156 D3 because
+The step-shape obligations of CD-0156 apply to `workflow.implementation`, which
+has the alignment step and `record_alignment`. The floor holds against CD-0156 D3 because
 passing the diagnosis step stays the proof the search happened, and the section
-enum still separates checked-and-found-nothing from never-checked. The merged
+enum separates checked-and-found-nothing from never-checked. The
 action writes the same `workflow_backlog_alignment` rows from its alignment
 section
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)),
-and CD-0156 D5 keeps its force: the merged action records the
+and CD-0156 D5 keeps its force: the action records the
 candidate set and creates no relation.
 
-CD-0156 D2 placed the search before the analysis so a duplicate is found before
-effort is spent on it. The merged action turns that ordering from a graph edge
-into a payload duty: the search section is required in the same recorded act as
-the analysis, so no analysis can be recorded without a search beside it. The
-effort saving of an earlier search narrows, and this record accepts that cost
-because the evidence floor and the mandatory record both survive.
-
-Implementation item: [CON-776](https://linear.app/sharper-flow/issue/CON-776/merge-break-fix-reproduction-alignment-and-root-cause-into-record),
-`work-3d04acde6b5f5f90debdcc91`. Merge the reproduce, alignment, and diagnose steps of
-`workflow.break_fix` into one diagnosis step with `record_diagnosis` as its only
-advance action, in the one canonical source the generated contracts derive from
+The search section is required in the same recorded act as the analysis, so no
+analysis can be recorded without a search beside it. The diagnosis step and its
+action are declared in the one canonical source the generated contracts derive from
 ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ### D3. The start of repair and refine derives from the first action at the step
 
-`start_repair` and `start_refine` stop being callable actions. Recording the
-first workflow action at the `repair` or `refine` step derives the step-start
+Recording the first workflow action at the `repair` or `refine` step derives the step-start
 fact in the same transaction, and the first action recorded at the step wins
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-This extends the derivation mechanism CD-0183 D2 accepted for
-`execution_started_at`, so the change invents no second start fact, and the
-same derivation answers from current rows.
+The derivation mechanism of CD-0183 D2 for `execution_started_at` answers
+from current rows.
 
 The derived start keeps every duty the callable start carried. It opens the step
 epoch. It binds the step fence from the first action's own actor. The delivery
@@ -134,11 +118,8 @@ before it stays stale. The one documented cutover migrates live instances and
 derives each retained start fact there
 ([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
-Implementation item: [CON-773](https://linear.app/sharper-flow/issue/CON-773/derive-repair-and-refine-start-facts-from-their-first-workflow-action),
-`work-2126c8ce04a66f64f73d0cbd`. Derive the step-start fact when the first workflow action
-at the step records, on both families, remove the two callable starts, and
-repoint the delivery admission and refine-proof guards at the derived fact, in
-the one canonical source
+On both families, delivery admission and refine-proof guards read the derived
+step-start fact declared in the one canonical source
 ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ### D4. An accepted report that carries the delivery artifact records the delivery
@@ -177,11 +158,8 @@ The CD-0166 D6 post-rejection refusal names the
 recorded delivery of a step, and a delivery derived at the refused step refuses
 with it.
 
-Implementation item: [CON-774](https://linear.app/sharper-flow/issue/CON-774/let-accepted-worker-results-assert-delivery-through-the-existing),
-`work-f052c024a1075d56e030cade`. Extend the `accept_worker_result` payload and its
-recording on both families,
-reusing the complete delivery-admission mechanism on the new entry
-route. Regression checks on both routes must prove refusal for missing, stale,
+The `accept_worker_result` payload and its recording on both families reuse the
+complete delivery-admission mechanism. Regression checks on both routes must prove refusal for missing, stale,
 failed, dirty, and undeclared verification runs, and for a missing start or
 unsatisfied post-rejection review. A valid bound run permits the combined route
 and records acceptance, delivery, and advance atomically. Generated contracts
@@ -235,11 +213,8 @@ The floor holds because the correction context reads the derived record exactly
 as it reads a recorded one, and
 the dispatch rules keep their single source in the dispatch packet.
 
-Implementation item: [CON-775](https://linear.app/sharper-flow/issue/CON-775/derive-worker-failure-records-and-combine-result-rejection-with-retry),
-`work-1b0708f1de8cd8328b920e38`. Derive the failure record when the attempt terminal result
-records, and
-extend `reject_worker_result` with the optional dispatch, in the one canonical
-source of the families that declare the actions
+The terminal result's derived failure record and `reject_worker_result`'s optional
+dispatch are declared in the one canonical source of the families that declare the actions
 ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ## Alternatives considered
@@ -269,23 +244,19 @@ source of the families that declare the actions
 - The verdict, delivery, and failure records keep their fields, so receipts
   and read surfaces read them unchanged
   ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-- Each implementation item changes an agent-visible typed action surface, so
-  each carries the generated-manifest, digest, schema, scenario, and
+- Each agent-visible typed action surface carries the generated-manifest, digest, schema, scenario, and
   classification cost that agent-tool-surface-evolution attaches, and the
   generated contracts derive from the one canonical source
   ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
-- The alignment step leaves the break_fix graph: a reader that navigates steps
-  must use the merged diagnosis step, and the CD-0156 step-shape tests narrow to
+- A reader that navigates break_fix steps uses the diagnosis step. The CD-0156 step-shape tests apply to
   `workflow.implementation`.
-- The start of repair and refine becomes a derived fact, so a derivation defect
-  would misplace the fence or the refine epoch. The implementation item must
+- The start of repair and refine is a derived fact, so a derivation defect
+  would misplace the fence or the refine epoch. Verification must
   prove the derived start matches the first recorded action at the step
   ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - The batched verdict payload and the merged diagnosis payload grow, and the
   recording is one transaction, so a malformed section refuses the whole call
   and the caller retries the call rather than one section.
-- Each implementation item named above carries its own verification contract
-  when its work dispatches. This record decides and implements nothing.
 
 ## Verification
 

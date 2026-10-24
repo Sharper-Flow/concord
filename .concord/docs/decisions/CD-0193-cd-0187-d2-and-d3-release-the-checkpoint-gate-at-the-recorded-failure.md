@@ -44,8 +44,7 @@ dispositions it yet. The admission is a recovery: the record carries the
 definition's hold-mode action, the step keeps its position, and the recovery
 changes no definition, so no repin is needed.
 
-CD-0187 D2 says: "The advancing accept and the failure record stay off these
-steps." That sentence reads instead: the advancing accept stays off these
+The advancing accept stays off these
 steps, and the failure record stays off their declared actions while the
 engine admits it as the hold-mode recovery of this clause. The operator's own
 gate remains the step's only advancing exit.
@@ -68,9 +67,7 @@ no worker used is not a disposition, so a failed attempt keeps holding the
 operator's own gate until a worker uses a window or a failure record releases
 it.
 
-CD-0187 D3 says: "The hold that keeps advancing exits off a step with an open
-worker attempt also admits `accept_worker_evidence` as a resolution." That
-sentence reads instead: at a confirmation step the hold also admits the
+At a confirmation step the hold also admits the
 failure record of D1 as a resolution, and keys on attempts a worker actually
 dispatched rather than on windows the step opened.
 

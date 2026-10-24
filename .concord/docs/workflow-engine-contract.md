@@ -3,8 +3,8 @@
 > **Status:** Implementation contract for accepted CD-0013, v1.
 > **Authority:** [`CD-0013`](./decisions/CD-0013-workflow-engine-mechanism.md),
 > amended only by a later accepted CD-NNNN.
-> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
-> D2, D4, D6, and D14:** the engine keeps current workflow state and finite
+> **State and definitions ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
+> D2, D4, D6, and D14):** the engine keeps current workflow state and finite
 > snapshots with no event log, fold, replay, or rebuild. Attempts carry their
 > own authority with no escalation wall. Families compose shared stages under
 > the decision-model minimum, and generated definitions derive from one source.
@@ -38,21 +38,20 @@ a fully supplied successor contract, or the work reaches a terminal
 cancellation/supersession. Commit OIDs remain audit context only; recovery pins
 the accepted successor law and preserves the current nonterminal workflow step.
 
-CD-0016 adds V22 context-continuity projections and the two closed workflow
+CD-0016 governs V22 context-continuity projections and the two closed workflow
 events `workflow.context_checkpointed` and `workflow.context_boundary_crossed`.
 `checkpoint_context` and `cross_context_boundary` remain actions on the
-existing workflow-action route. The canonical `C19.Continuity` read is exposed
-by the additive 2.3.0 agent surface; its pinned projection is derived from
+existing workflow-action route. The canonical `C19.Continuity` read has a pinned projection derived from
 durable workflow state and never from advisory summary text.
-The two actions are added to every built-in definition and step by one owning
+The two actions belong to every built-in definition and step through one owning
 definition builder, with strict payload fields and no approval. The explicit
 continuity read does not automatically inject pinned context into current
 OpenCode calls; typed-agent injection on restart belongs to issue #120.
 
-**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+[CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
 acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
+requirements remain required.
 
 ## Context
 
@@ -804,9 +803,8 @@ digests, and runtime policy remain the producer's obligations under CD-0205 D1.
 Its shared evidence limits apply to every recipe family.
 Unsupported or unavailable inputs refuse without a worker attempt or a
 readiness exception.
-`worker.completed` v6 admits oracle receipts, ranked-finding ties, and closed
+`worker.completed` admits oracle receipts, ranked-finding ties, and closed
 resolution claims; no worker record invents them after the fact.
-`worker.failed` remains v2.
 Local job acceptance holds the step. Whole-work delivery still requires the
 complete parent admission, integration evidence, review verdicts, and
 operator confirmation; an oracle pass supplies none of those authorities.

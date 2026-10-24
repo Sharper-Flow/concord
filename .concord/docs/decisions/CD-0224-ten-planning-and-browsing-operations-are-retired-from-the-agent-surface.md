@@ -16,10 +16,10 @@
   [Concord (CON) issue 927](https://linear.app/sharper-flow/issue/CON-927),
   2026-10-11.
 
-**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+[CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
 acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
+requirements remain required.
 
 ## Context
 
@@ -35,10 +35,6 @@ decision, because its subject retires with the read.
 CD-0213 moved planning to Linear, so no planning write belongs on the agent
 surface. The ten operations had no consumer that the surviving reads could
 not serve.
-
-CD-0068's live subject was the observation record and
-dismiss channel, and that channel retires here, so CD-0068 is superseded
-history rather than amended law.
 
 ## Decision
 
@@ -124,18 +120,15 @@ are, and relation changes write current rows in one transaction.
 - The agent surface carries no planning write and no browsing read, so the
   CD-0213 authority boundary holds at the tool boundary and not only in
   prose.
-- One record states the retirement, its surviving writers, and its
-  preserved history, so the superseded records can keep their original
-  text as history.
 - Every relation writer has one stated approval rule, and every surviving
   relation has one writer.
+- Superseded records may retain their original text as history.
 
 ### Cost
 
 - An agent that noticed a Domain gap records it in Linear, not in Concord,
   so the observation leaves the tool that could read it back on `detail`.
-- A lesson needs a pull request, so a lesson author needs a branch, a
-  review, and required checks where one approved call stood.
+- A lesson author needs a branch, a pull request, review, and required checks.
 - Link-made `blocks` rows keep their gate until the blocker turns terminal,
   so a stale row needs a `resolve_overlap` resolution or a terminal
   transition to clear.

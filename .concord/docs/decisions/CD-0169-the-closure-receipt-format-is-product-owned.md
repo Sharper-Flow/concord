@@ -24,9 +24,10 @@ one verb.
 ### D1. One Go renderer owns the receipt bytes
 
 The `internal/receipt` package renders the closure receipt. Its `Render`
-function takes a work pin and returns the receipt string. The `concord
+function takes a `WorkClosure` and returns the receipt string. `RenderForWork`
+obtains the closure through `ReadWorkClosure`. The `concord
 receipt` verb declared in `commandSpecs` is the only render surface: it
-reads the pin through `ReadWorkPin` and prints the string. An agent shells
+prints the string. An agent shells
 one call and never formats the pattern itself.
 
 ### D2. The receipt is an unfenced single-column markdown table
@@ -49,13 +50,13 @@ fixed by the golden tests in `internal/receipt`.
 The adapter's work-state reporter calls the verb through the existing runner
 at a terminal lifecycle and queues the bytes the verb prints. The verb
 prints nothing for a work item outside the completed lifecycle, so a
-cancelled or superseded closure queues no notice. The adapter holds no
-hand-padding machinery: `closureCell`, `closureHeadingCell`,
-`CLOSURE_CELL_MAX`, and the code fence do not exist in the adapter. A failed
+cancelled or superseded closure queues no notice. The adapter delegates
+receipt formatting to the verb. A failed
 call appends a warning and never changes the mutation outcome.
 
-Content law stays CD-0170: completed lifecycle only, verified contract
-predicates only, and an ambiguous projection degrades by omission.
+The receipt renders verified contract predicates under CD-0170 and the problem,
+delivery, exclusions, and follow-ups under CD-0202. It renders only for the
+completed lifecycle, and an ambiguous projection degrades by omission.
 
 ## Rejected alternatives
 

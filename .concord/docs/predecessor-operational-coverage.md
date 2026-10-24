@@ -5,7 +5,7 @@
 > [`priorities.md`](./priorities.md) (canonical floor definition) and
 > [`floor-readiness.md`](./floor-readiness.md) (authorizing readiness record).
 > **Issue:** [#78](https://github.com/Sharper-Flow/concord/issues/78).
-> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5:** review records the
+> **Review authority ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5):** review records the
 > verdict and Implement cannot accept its own result; no separate final evaluator
 > or other executing-actor distinctness exists.
 > **Predecessor:** the public [Advance](https://github.com/Sharper-Flow/Advance)
@@ -18,10 +18,10 @@ replacement-readiness claim by checking that Concord covers predecessor surfaces
 coverage is unassessable without a list of what it *is*. This document is that
 list, and the coverage judgement against it.
 
-**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+[CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
 acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
+requirements remain required.
 
 ## What this document is
 
@@ -222,21 +222,7 @@ Territory that appears across all six and is an outcome in its own right.
 **Total enumerated outcomes: 75.**
 
 No enumerated outcome remains not covered: the floor bar (covered with evidence or
-excluded with an accepted reason) is met. The clustering list is retained below
-for history.
-
-The not-covered entries clustered as follows while the floor was open:
-
-2. **Session visibility** — resolved: blocked-session routing surfaces per session under issue #72.
-   clean typed restart by issue #120 (§2, §3).
-   unreachable; issue #131 owns its deliberate floor exclusion (§4).
-   spec/implementation drift audit; issue #129 owns the durable learning path
-   (§1, §4, §6).
-4. **Shared-resource coordination** — a durable cross-repository claim is tracked
-   by issue #88 (§5).
-
-The operator-surface and isolation groups are gone: CD-0021 resolved the former as
-deliberate exclusions; the latter is covered. CD-0213 excludes
+excluded with an accepted reason) is met. CD-0213 excludes
 Concord Initiative authoring and membership from runtime coverage; Linear MCP
 owns those planning outcomes.
 

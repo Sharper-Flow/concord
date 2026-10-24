@@ -5,15 +5,10 @@
 > **Decision:** PM3; direct accepted authority for Concord's explicit typed Product-memory schema boundary.
 > **Binding inputs:** accepted PM1 query contract, accepted PM2 global SQLite authority, CD-0002 invariants I1–I6.
 > **Research basis:** Exa-discovered/public source models (Plane, Bugzilla, Beads, Fossil, Linear public model), official SQLite/Context7 docs, and accepted Concord Product invariants. No benchmark or PoC is part of this decision.
-> **Supersedes narrowly:** CD-0003 D1's generic `entities` materialized spine;
-> CD-0003 D2/D3 remain binding, and the generic event log is retired
-> ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-> **Amended by CD-0222 and CD-0213:** `domains` replace `components` as canonical
+> **Architecture and planning:** `domains` are canonical
 > Product-internal architecture; business grouping lives in Linear; typed
 > architecture relation families are required.
-> **Amended by CD-0242 D2:** the store keeps current state and finite verified
-> snapshots; no event log, fold, upcaster, or replay exists. Sections 1, 3.1,
-> and 3.1b state the current rule.
+> **Other requirements:** CD-0003 D2/D3 remain binding.
 
 ## Context
 
@@ -23,8 +18,7 @@ I1 through I6. This record decides the explicit typed core: current state and
 finite verified snapshots under
 [CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history),
 a small set of explicit typed relational tables, and JSON only for rare
-versioned extension metadata. It supersedes CD-0003 D1's generic entities spine
-narrowly; CD-0003's typed-edge integrity, short-lived CLI, and SQLite engine
+versioned extension metadata. CD-0003's typed-edge integrity, short-lived CLI, and SQLite engine
 choices remain binding.
 ## Contract
 
@@ -130,7 +124,7 @@ and polymorphic domain relations that cannot enforce integrity.
 
 ### Generic entity spine — superseded for stable Product memory
 
-CD-0003's `entities(type, current_state JSON)` keeps the storage layer uniform but
+The generic `entities(type, current_state JSON)` design keeps the storage layer uniform but
 pushes PM1's stable Product/Project/work fields into JSON or a growing set of facets.
 Once every hot field is promoted for Q1–Q10, the system has recreated explicit
 tables indirectly—with weaker discoverability and integrity.
@@ -192,17 +186,14 @@ Reopen PM3 if research or implementation evidence shows:
 
 ## 9. Narrow CD supersession
 
-- **CD-0003 D1 is superseded narrowly:** replace generic `entities` materialized
-  state with the explicit typed table set in §2. Keep D1's typed-edge
-  integrity rule; generalize its facet principle into §4's typed-core/extension
-  boundary. CD-0003's D2 short-lived CLI and D3
+- **CD-0003:** the explicit typed table set in §2 preserves typed-edge
+  integrity within §4's typed-core/extension boundary. CD-0003's D2 short-lived CLI and D3
   [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite) remain binding;
-  the event log is retired
+  the store keeps current state without an event log
   ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - **CD-0002 I2/I3:** [CD-0242 D1](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d1-each-kind-of-state-has-one-owner)
   and D2 govern; each kind of state has one owner, and typed tables are current
   state written in one transaction.
-- PM4/PM5 are accepted; the PM1–PM5 storage design sequence is complete.
 
 ## 10. Primary sources
 

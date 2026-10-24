@@ -64,7 +64,6 @@ enumeration.
   carries lifecycle) but not the verdict's kind, author, or impact assessment.
 - Verdict reads are omitted only for the executing actor tuple; every other
   session, including review and verification lanes, reads the full verdict.
-- The operator's launcher reads the store directly and is unaffected.
 - `work_scope` in `contracts/agent-tool-surface-payloads.schema.json` gains the
   optional `verdict` object; the generated manifest digest remains the only
   pre-go-live agent-surface identity.

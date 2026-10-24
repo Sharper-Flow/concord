@@ -8,14 +8,15 @@
 - **Preserves:** Product law, repository review and merge evidence, worktree
   isolation, and host-owned roles
 
-**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
-limits this record's operator-consent requirements to its six classes; its D5 governs recovery and permanent loss. Execution relinquishment and other non-consent checks remain required.
+**Consent:** This record's operator-consent requirements follow the six classes in
+[CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes).
+Its D5 governs recovery and permanent loss. Execution relinquishment and other
+non-consent checks remain required.
 
 ## Context
 
-CD-0089 authorizes Concord to coordinate its development. Its broad wording can
-be read to require every project action to enter Concord workflow. CD-0102 now
-scopes native Task authorization to explicitly managed participation.
+Concord coordinates explicitly managed development. Native Task authorization
+under CD-0102 applies to explicitly managed participation.
 
 A defect in Concord workflow can also block normal recording or execution. A
 safe repository repair needs a route that does not invent workflow state while

@@ -211,10 +211,6 @@ answer different questions — an obligation is what a lane owes its dispatcher,
 worker report to `workflow.evidence_bound` would give a worker reach into
 completion evidence that CD-0017's authority boundary denies it.
 
-It does not touch `agent-lane-packet.v1`. CD-0043 D5's no-version-move,
-no-digest-churn condition holds: the obligation tokens are unchanged, so
-`LaneDefinitionDigest` hashes the same content and every lane digest is stable.
-
 It does not judge evidence quality, and it sets no bound on how large a
 dispatched task may be. Granularity remains a property of the registered workflow
 step graph under CD-0013 D1.

@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ee0f8a31c092bf12ed9f7dd21e5874fb26644ce9a5e37abdebc2c5e0f20ce60e",
+  "sha256": "sha256:69d011d7f6c93e520a650d2f934ced00616bf1a33d8fcc749662fb905976e05b",
   "status": "accepted",
   "summary": "A dispatch-pinned review report names one CD-0242 D5 disposition and up to 64 ranked findings with closed severity and confidence. Oracle-bound findings classify delivery blockers, uncovered cases, follow-ups, and oracle defects, with source bindings and canonical ordinal lineage. Closed resolution claims name finding IDs and qualifying evidence. Main records acceptance of the disposition, and an open in-scope blocking finding blocks a new assignment and leaving execution. The report grants no workflow verdict or acceptance authority.",
   "tags": [

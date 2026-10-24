@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4d3e5d28754e49aa6f296894b84bdd0357ae7fe36283cbac50518cc7126cc2e9",
+  "sha256": "sha256:05070eb8de11f3a7820c3a280540dd17a765731f241e3004bc48c997be3cd1bb",
   "status": "accepted",
   "summary": "Records the decision to retain direct local SQLite after conformance review.",
   "tags": [

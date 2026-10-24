@@ -80,10 +80,10 @@ already owned them.
 - `TestCommittedManifestCarriesNoFieldTheModelDrops` proves the guard: it
   fails a committed shard that carries a field the model drops, with the
   `doc_contract` subtree declared out of the model.
-- `go test ./internal/store` carries the flipped admission cases: the
+- `go test ./internal/store` proves the admission cases: the
   unknown-field case of
   `TestKnowledgeManifestRejectsUnknownFieldsAndInvalidCombinations`, the
-  disposition unknown-field case, and the retired component-scope case admit,
+  disposition unknown-field case, and the component-scope case admit,
   and the refusals around them hold.
 - `python3 scripts/check-json.py` proves the authoring side: the closed
   schema, the knowledge-index checker, and this record's shard compose and

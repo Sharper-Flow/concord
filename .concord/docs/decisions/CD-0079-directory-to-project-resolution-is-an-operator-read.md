@@ -66,8 +66,7 @@ duplicate database access or double-hop through this verb anyway.
 ### D2. The verb does not authenticate its caller
 
 No operator verb authenticates the operator. `worktree-locate` and
-`predecessor-inventory` are already unauthenticated reads, and the launcher
-renders portfolio state through the store with no grant at all. Concord's trust
+`predecessor-inventory` are unauthenticated reads. Concord's trust
 boundary for the operator surface is filesystem access to the authority
 database.
 
@@ -112,12 +111,10 @@ creation, so CD-0021's rejection of an operator authoring surface is untouched
 ## Rejected alternatives
 
 **Gate the verb behind an interactive-terminal check.** Rejected because
-host-script integration is the whole purpose. The launcher requires an
-interactive terminal because a human reads it. This verb exists for a program.
+host-script integration is the whole purpose. This verb exists for a program.
 
-**Gate the verb behind a durable identity-assertion event, as `concord session`
-does.** Rejected because `session` mints identity for a session that will act.
-This verb answers a question and returns. Recording an event for every host
+**Gate the verb behind a durable identity-assertion event.** Rejected because
+this verb answers a question and returns. Recording an event for every host
 refresh would make a read into a write.
 
 **Return the Project without the Product hop.** Rejected because the host's

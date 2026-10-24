@@ -90,8 +90,7 @@ runs a green worktree_verify command inside the refine epoch and binds its
 operation ref as verification evidence before the step exits. A Project
 declares its checks once on the default ref, and every later change proves
 itself against that declaration. Projects without a manifest still run a real
-green check, which is strictly stronger than the unchecked artifact the
-previous rule accepted.
+green check.
 
 The gate reads the manifest outside the store transaction, so a slow git read
 never holds the store's single connection. A missing manifest at the default

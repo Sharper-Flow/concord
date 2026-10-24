@@ -122,12 +122,8 @@ composes under real work.
 
 ## Consequences
 
-- CD-0019 D3's three open questions are closed. No predecessor strength
-  remains un-mandated-but-live: six features were preservation-mandated with
-  Concord shapes, and these three are now answered absorbed or
-  preserved-with-shape, each citing its mechanism and evidence.
-- The 7-gate lifecycle as a universal ceremony is formally dropped; its
-  discipline survives as typed approval steps bound to workflow definitions.
+- Human approval applies at consequence boundaries declared by workflow
+  definitions, not as a universal seven-gate ceremony.
 - The migration import design may rely on: approval/consequence machinery
   carrying checkpoint discipline, the outcome contract carrying agreements,
   and lesson publication carrying durable wisdom — so imported work carries

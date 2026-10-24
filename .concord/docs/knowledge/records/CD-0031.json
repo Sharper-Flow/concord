@@ -25,7 +25,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:92b3a8cc7e74273b446588cd5481919e5d77329d61d82add13dedb8aadf4627d",
+  "sha256": "sha256:966920e6e331b222515d174abe627b08287c63af2f2e3d73932196d1b9d6531b",
   "status": "accepted",
   "summary": "Host-started operator sessions receive one generated, digest-bound packet rendered from canonical continuity through work-start preparation; the host start stays identity-only, and the per-turn hook re-renders the same bytes (CD-0090).",
   "tags": [

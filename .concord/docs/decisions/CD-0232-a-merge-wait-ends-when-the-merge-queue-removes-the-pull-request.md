@@ -99,7 +99,7 @@ endpoints read with `GET` and for the one constant GraphQL query document of
 D1. Owner, name, and number travel as GraphQL variables. Every `gh`
 invocation stays a query.
 
-The `repo` input now names API paths, so it must be exactly two plain
+The `repo` input names API paths, so it must be exactly two plain
 segments: an owner and a repository name joined by one slash. Each segment
 holds only ASCII letters, digits, `.`, `_`, and `-`, and is never `.` or
 `..`. A request with any other value is `refused`. Every poll repeats the
@@ -119,9 +119,8 @@ ends as `error`. Neither case reaches a `gh` call.
 
 ## Consequences
 
-Each merge poll costs one GraphQL request more. A merge wait on a repository
-without a merge queue reads an empty timeline and behaves as before, except
-that a failed queue read is an `error`.
+Each merge poll includes one GraphQL queue request. A merge wait on a repository
+without a merge queue reads an empty timeline; a failed queue read is an `error`.
 
 Only the reasons `failed_checks` and `merged` have been observed. Every other
 reason counts as a drop. GitHub's auto-merge state after a removal was not
@@ -129,7 +128,7 @@ probed, so a removal that GitHub enqueues again later still ends the wait.
 The queue run list names runs of the merge-group commit. It cannot prove that
 a listed failure caused the removal.
 
-A `repo` value with other characters, such as a host prefix, is now refused.
+A `repo` value with other characters, such as a host prefix, is refused.
 The `concord_ci_watch` input schema already refuses every such value.
 
 ## Verification

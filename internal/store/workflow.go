@@ -378,13 +378,8 @@ type workflowActionCompletedPayload struct {
 	ChecksRepairReview *WorkerChecksRepairReviewAdmission `json:"checks_repair_review,omitempty"`
 	DeliveryArtifact   string                             `json:"delivery_artifact,omitempty"`
 	DeliveryState      string                             `json:"delivery_state,omitempty"`
-	// ReviewAdvanceHeld records the accept guard's one admission decision
-	// over the review-debt family: the accepted attempt is the ready
-	// non-settling review whose verdict leaves the debt outstanding, so the
-	// step advance waits for a settling review (CD-0201 D3). The guard
-	// writes it on the completion it authors; the fold honors the recorded
-	// field only and never re-derives the verdict, so an event without the
-	// field advances as recorded and recorded history replays unchanged.
+	// ReviewAdvanceHeld records local acceptance without a delivery assertion.
+	// The disposition is accepted while execution remains at its current step.
 	ReviewAdvanceHeld bool `json:"review_advance_held,omitempty"`
 	// FailureAttribution is the coordinator's typed failure attribution on
 	// a rejected result or a correction request : the direct
@@ -1506,7 +1501,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if err := invalidateWorkflowOverlapForContractRevisionTx(ctx, tx, event, predecessors, p.NewContractVersion); err != nil {
 		return err
 	}
-	// A contract supersession before the ship verdict is accepted voids an
+	// A contract supersession before the confirming Review is accepted voids an
 	// unconfirmed checks repair (CD-0205 D4): the named revisions lose their
 	// provisional readiness at the strict prefix of this supersession, and a
 	// confirmed repair keeps its confirmation.
@@ -2694,14 +2689,6 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 		if _, ok := workflowActionExecutionMode(entry.Definition, p.ActionID); !ok && !isWorkflowReplay(ctx) {
 			return newFailure(KindInvariantViolation, "fold_event", "workflow action execution mode is not declared", false, "repair the pinned workflow definition")
 		}
-		// A non-settling accepted review keeps the step current: refine does
-		// not advance to delivery behind a no_ship review, and the advance
-		// waits for a settling review (CD-0201 D3). The decision is the
-		// admission's alone: the accept guard records it on the completion
-		// it authors (review_advance_held), and the fold honors the recorded
-		// field only. An event without the field advances as recorded, so
-		// recorded history replays unchanged.
-		//
 		// A job-bound acceptance without a delivery assertion is local
 		// acceptance (CD-0205): it records the disposition of its one worker
 		// job and holds the parent step. Whole-work delivery stays with

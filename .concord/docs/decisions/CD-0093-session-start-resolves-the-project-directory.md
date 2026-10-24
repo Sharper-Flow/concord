@@ -10,11 +10,9 @@
   the public record.
 - **Related:** CD-0078, CD-0079, CD-0031, CD-0049, CD-0088, issues #661, #664,
   and the closed #426, #428, #430, #466
-- **Amended:** CD-0176 (2026-09-24) landed work-selected sessions in the active
-  worktree, and CD-0189 (2026-09-28) configured the launch host command.
-  Concord (CON) issue CON-910 (2026-10-13) removes the launch landing and the configured launch
-  command under the Snowball coordinator's operator-delegated approval. The
-  surviving rule binds session-prepare and the claimed work directory.
+- **Approval:** Session-preparation directory discipline: Concord (CON)
+  issue CON-910 (2026-10-13), under the Snowball coordinator's
+  operator-delegated approval.
 - **Preserves:** CD-0078 D1's host ownership of placement, CD-0031's
   core-derived session boot, CD-0049 D4's refusal of a degraded start, and
   CD-0098 D4's session-prepare directory refusal
@@ -34,8 +32,7 @@ Issues #426, #428, #430, and #466 closed earlier instances of that class, and
 issue #664 recorded the cost: the refusal arrived only after the session had
 already started.
 
-The launch landing this record once decided is removed. What survives is
-the directory discipline: one claimed directory governs the
+One claimed directory governs the
 context read, the agent definition resolution, and the registry probe, and
 that directory is established before any of them runs.
 
@@ -76,18 +73,13 @@ after the session is running rather than before.
 
 ### D4. Retired: the configured launch host command
 
-The `concord session` launch and its configured host command are removed.
-The option, its argv form, its second-probe verification, and every Go-core
-launch obligation retire with the launch. Concord reads no launch option from
-host configuration and resolves no launch command.
-
-session-prepare keeps its probe obligation: one bare probe of the calling
+session-prepare requires one bare probe of the calling
 host in the claimed directory. A probe refusal stays typed.
 
 ### D5. Retired: the per-Project launch environment gap
 
-The launch-path environment gap closed with the launch. A host that prepares
-a per-Project environment does so for its own sessions before managed entry.
+A host that prepares a per-Project environment does so for its own sessions
+before managed entry.
 The store stays out of the host path, and no Concord surface derives a
 per-Project host environment.
 

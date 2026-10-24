@@ -40,11 +40,10 @@ to reclaim.
 
 ### D1. A verified landing or a session_vacate releases every row of that session
 
-The host runs a session in one directory at a time. A verified landing of a
-session, or a session_vacate of that session, therefore proves every other
-occupancy row of the same session stale, in any work item, and releases all
-of them. The landing records the released source paths, and the
-vacate mutation releases them with the vacated row
+The host runs a session in one directory at a time. A verified landing releases
+the session's prior occupancy rows in every work item and records the released
+source paths. A session_vacate request retains occupancy until host readback
+verifies the requested destination
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 A row another session holds
 is never released by a rule of this record.
@@ -74,8 +73,9 @@ moves a calling session that runs in that work
 item's worktree to the registered main checkout. The core names the vacate
 target on the transition result only when the calling session's linked
 worktree is that work item's active worktree. The adapter then runs
-session_vacate, which releases the occupancy rows, and moves the session to
-the derived destination. A failed vacate or move never undoes the transition;
+session_vacate, which records the requested destination while retaining occupancy,
+and moves the session to the derived destination. Host readback must verify that
+destination before the landing releases occupancy. A failed vacate or move never undoes the transition;
 the adapter reports it and the session can replay session_vacate.
 
 ### D5. The audit reclaim limit bounds attempts, not classification
@@ -135,7 +135,7 @@ that ran the transition from the main checkout moves nowhere, and the
 transition result of every other caller is unchanged.
 
 The reclaim pass reports more than it acts on by design. Its report-only list
-now names every classified row the pass did not attempt, including
+names every classified row the pass did not attempt, including
 reclaimable rows beyond the limit, so the next pass or the operator can act
 on them.
 

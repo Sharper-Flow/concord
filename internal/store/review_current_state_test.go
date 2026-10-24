@@ -246,7 +246,7 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	db, appendEvent, _ := progressHistory(t)
 	for _, statement := range []string{
 		`CREATE TABLE worker_authorizations(work_id TEXT,attempt_id TEXT,seq INTEGER,payload BLOB)`,
-		`CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,terminal_kind TEXT,terminal_payload BLOB)`,
+		`CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,terminal_kind TEXT,terminal_payload BLOB,terminal_event_id TEXT)`,
 		`CREATE TABLE worker_job_revisions(work_id TEXT,job_id TEXT,revision INTEGER,group_permission TEXT,group_review_ref TEXT,correction_ref TEXT)`,
 		`CREATE TABLE workflow_contracts(work_id TEXT,contract_version INTEGER,superseded_by INTEGER)`,
 		`CREATE TABLE workflow_contract_predicates(work_id TEXT,contract_version INTEGER,predicate_id TEXT,outcome_kind TEXT,outcome_payload BLOB)`,
@@ -270,13 +270,29 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 		t.Helper()
 		auth := workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: attempt, WorkerCapabilityClass: capability, WorkerSubjectCommit: subject}
 		seq := appendEvent(WorkflowActionCompleted, auth)
-		appendEvent(WorkerCompleted, result)
+		terminalSeq := appendEvent(WorkerCompleted, result)
 		if _, err := db.Exec(`INSERT INTO worker_authorizations VALUES('work-history',?,?,?)`, attempt, seq, mustJSONValue(auth)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec(`INSERT INTO worker_attempts VALUES('work-history',?,?,?)`, attempt, WorkerCompleted, mustJSONValue(result)); err != nil {
+		if _, err := db.Exec(`INSERT INTO worker_attempts SELECT 'work-history',?,?,?,event_id FROM domain_events WHERE seq=?`, attempt, WorkerCompleted, mustJSONValue(result), terminalSeq); err != nil {
 			t.Fatal(err)
 		}
+	}
+	projectAcceptance := func(state WorkflowReviewState, attempt string) WorkflowReviewState {
+		t.Helper()
+		before := string(mustJSONValue(state))
+		auth, result, err := readReviewAttempt(t.Context(), db, "work-history", attempt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		projected, err := projectWorkflowReviewAcceptance(t.Context(), db, "work-history", state, auth, result, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(mustJSONValue(state)) != before {
+			t.Fatal("projected acceptance changed the pre-acceptance Review state")
+		}
+		return projected
 	}
 	appendReview := func(attempt string, report *WorkerReviewBlock) {
 		appendAttempt(attempt, "review", report.InputCandidate.Commit, WorkerCompletedPayload{AttemptID: attempt, Review: report})
@@ -298,6 +314,10 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	if *state.Candidate != baseline.OutputCandidate || state.Accepted.Report.Disposition != "continue" || state.blocker() == "" {
 		t.Fatalf("unaccepted repair changed authority or closed its finding: %+v", state)
 	}
+	projected := projectAcceptance(state, "review:repair")
+	if err := workflowAdmitReview(projected, ""); err != nil {
+		t.Fatalf("projected repair acceptance did not close its blocker: %v", err)
+	}
 	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "review:repair"})
 	state, err = loadWorkflowReviewState(context.Background(), db, "work-history", 0)
 	if err != nil {
@@ -305,6 +325,9 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	}
 	if *state.Candidate != repair.OutputCandidate || state.Accepted.Report.Disposition != "ready_for_final_proof" || state.blocker() != "" {
 		t.Fatalf("accepted repair not installed atomically: %+v", state)
+	}
+	if string(mustJSONValue(projected)) != string(mustJSONValue(state)) {
+		t.Fatalf("projected repair acceptance differs from committed acceptance: projected=%+v actual=%+v", projected, state)
 	}
 	late := reviewBlockFixture()
 	late.Dependencies = dependencies
@@ -335,6 +358,14 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	omitted := *open
 	omitted.Findings = []WorkerReviewFinding{}
 	appendReview("review:omitted-blocker", &omitted)
+	state, err = loadWorkflowReviewState(t.Context(), db, "work-history", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected = projectAcceptance(state, "review:omitted-blocker")
+	if err := workflowAdmitReview(projected, ""); !hasFailureKind(err, KindMissingEvidence) || !strings.Contains(err.Error(), "open in-scope blocking finding") {
+		t.Fatalf("projected omission erased the blocker: %v", err)
+	}
 	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "review:omitted-blocker"})
 	state, err = loadWorkflowReviewState(context.Background(), db, "work-history", 0)
 	if err != nil {
@@ -342,6 +373,9 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	}
 	if state.blocker() == "" {
 		t.Fatal("omitting a current blocking finding closed it")
+	}
+	if string(mustJSONValue(projected)) != string(mustJSONValue(state)) {
+		t.Fatal("projected omission differs from committed acceptance")
 	}
 	before = string(mustJSONValue(state))
 	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: "member:review-claim", WorkerCapabilityClass: "implementation", WorkerSubjectCommit: repair.OutputCandidate.Commit})

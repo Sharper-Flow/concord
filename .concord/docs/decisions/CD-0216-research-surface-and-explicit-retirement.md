@@ -3,14 +3,13 @@
 - **Status:** Accepted
 - **Date:** 2026-10-09
 - **Approval:** `CON-816` A1 under operator delegation on 2026-10-09, without calendar expiration.
-- **Research-context amendment approval:** The Snowball coordinator approved this law change on 2026-10-14 under the operator's delegation.
 - **Related:** [CD-0215](CD-0215-retained-research-context.md),
   [CD-0036](CD-0036-breaking-law-cutovers.md), PM1 Q11, and PM3
 
-**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
-qualifies every operator-consent clause in this record, including tables and
-acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
+[CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+governs every operator-consent clause in this record, including tables and
+acceptance criteria. Admission, safety, evidence, and historical-pin
+requirements remain required.
 
 ## Context
 

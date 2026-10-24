@@ -25,7 +25,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:3de36d2084ca7b08a2d2da05acb420f0887e76e461bdebc136cfb3f0f71cab71",
+  "sha256": "sha256:8f90cd10ef993cecb17d58d0190264fce2ae0331175d9297feaf874baa794d33",
   "status": "accepted",
   "summary": "The closed lane registry becomes research, implement, design, review, verify. The design lane implements visual UI and UX changes for one approved bounded task under implement-matching budgets, and its completions must discharge a new visual_artifacts obligation extended into the CD-0056 closed vocabulary across both schema enums, the Go slice, and the worker-complete CLI spec. The manifest digest moves, the four pre-existing lane digests do not, and model resolution stays with the host under CD-0058.",
   "tags": [

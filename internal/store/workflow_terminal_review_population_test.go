@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// Terminal subject checks consume only accepted reviews that remain current
-// under CD-0242 D5. The
+// CD-0242 D5 requires an accepted Review disposition bound to the current
+// candidate; D9 holds progression on open in-scope blocking findings. The
 // candidate moves only through a recorded integration, here a Review's
-// corrective pass that Main accepts (CD-0242 D5).
+// corrective pass that Main accepts.
 
 // Job-bound reviews run at refinement, where a ready revision can be recorded.
 func terminalRefineReview(t *testing.T, j *candidateAtVerify, attemptID, jobID, observeID, wantSubject string) {
@@ -70,41 +70,6 @@ func terminalRequireCompleted(t *testing.T, j *candidateAtVerify) {
 	}
 }
 
-// terminalCharacterize runs the declared acceptance routes and reports their
-// actual typed outcomes. No expected disposition is asserted: the case pins
-// only that a refusal leaves the durable state unchanged and that retained
-// records stay byte-identical. An admission is the review-obligation owner's
-// question and is reported, never repaired here.
-func terminalCharacterize(t *testing.T, j *candidateAtVerify, label string) {
-	t.Helper()
-	t.Logf("case4[%s] live_HEAD=%s native_pin=%s", label, j.head(t), j.pinned(t))
-	before := j.effects(t)
-	confirmErr := j.confirmPremise(t)
-	if confirmErr != nil {
-		t.Logf("case4[%s] confirm_premise -> refused kind=%s: %v", label, failureKind(confirmErr), confirmErr)
-		if after := j.effects(t); after != before {
-			t.Errorf("case4[%s] confirm_premise refusal changed durable state:\nbefore=%s\nafter=%s", label, before, after)
-		}
-		return
-	}
-	t.Logf("case4[%s] confirm_premise -> admitted", label)
-	before = j.effects(t)
-	completeErr := j.completeOrdinary(t)
-	if completeErr != nil {
-		t.Logf("case4[%s] complete -> refused kind=%s: %v", label, failureKind(completeErr), completeErr)
-		if after := j.effects(t); after != before {
-			t.Errorf("case4[%s] complete refusal changed durable state:\nbefore=%s\nafter=%s", label, before, after)
-		}
-		return
-	}
-	t.Logf("case4[%s] complete -> admitted", label)
-	var state string
-	if err := j.s.db.QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, j.workID).Scan(&state); err != nil {
-		t.Fatalf("read instance state: %v", err)
-	}
-	t.Logf("case4[%s] instance_state=%s", label, state)
-}
-
 func terminalJourneyThroughRefineReviews(t *testing.T, workID string) *candidateAtVerify {
 	t.Helper()
 	j := journeyToRefineA(t, workID)
@@ -131,7 +96,7 @@ func terminalDeliverB(t *testing.T, j *candidateAtVerify, runB WorktreeVerifyRes
 }
 
 func TestManagedCandidateTerminalReviewPopulation(t *testing.T) {
-	t.Run("superseded_reviews_admit_on_fresh_b_review", func(t *testing.T) {
+	t.Run("accepted_b_review_binds_integrated_candidate", func(t *testing.T) {
 		j := journeyThroughA(t, "candidate-terminal-review-g01", true)
 
 		// A second pass-0 review of A, accepted at the verify step beside
@@ -143,23 +108,22 @@ func TestManagedCandidateTerminalReviewPopulation(t *testing.T) {
 		}
 		j.snapshotA = j.snapshotSubjectRecords(t, j.a)
 
-		// A corrective Review supersedes the pass-0 reviews and integrates
-		// B; the reviewer's verdict cites a fresh qualified B run.
+		// Main accepts the corrective Review and integrates B; the reviewer's
+		// verdict cites a qualified B run.
 		terminalRecordCurrentVerdict(t, j, terminalCorrectiveReview(t, j, "attempt-review-b", "job:terminal-review-b", "review-b"))
 
-		// The reviews the corrective pass superseded must not block the
-		// accepted B review: terminal admission admits.
+		// The accepted Review and criterion proof both bind integrated B.
 		if err := j.confirmPremise(t); err != nil {
-			t.Fatalf("confirm premise over B with the newest review accepted on B: %v", err)
+			t.Fatalf("confirm premise over B with an accepted Review bound to B: %v", err)
 		}
 		if err := j.completeOrdinary(t); err != nil {
-			t.Fatalf("ordinary complete over B with the newest review accepted on B: %v", err)
+			t.Fatalf("ordinary complete over B with an accepted Review bound to B: %v", err)
 		}
 		terminalRequireCompleted(t, j)
 		j.requireRecordsUnchanged(t, j.snapshotA)
 	})
 
-	t.Run("consumed_review_on_a_refuses_clean_b", func(t *testing.T) {
+	t.Run("accepted_a_review_refuses_unrecorded_clean_b", func(t *testing.T) {
 		j := journeyToVerify(t, "candidate-terminal-review-a", true)
 		j.observeB(t)
 		// B is unrecorded, so its run is no proof of the integrated A.
@@ -182,53 +146,18 @@ func TestManagedCandidateTerminalReviewPopulation(t *testing.T) {
 		j.requireRecordsUnchanged(t, j.snapshotA)
 	})
 
-	t.Run("distinct_job_reviews_admit_on_fresh_b_review", func(t *testing.T) {
+	t.Run("distinct_job_reviews_admit_on_integrated_b", func(t *testing.T) {
 		j := terminalJourneyThroughRefineReviews(t, "candidate-terminal-review-jobs")
 		runB := terminalCorrectiveReview(t, j, "attempt-review-b", "job:terminal-review-refine-one", "review-b")
 		terminalDeliverB(t, j, runB)
 		terminalRecordCurrentVerdict(t, j, runB)
 		if err := j.confirmPremise(t); err != nil {
-			t.Fatalf("confirm premise over B with the newest review accepted on B: %v", err)
+			t.Fatalf("confirm premise over B with an accepted Review bound to B: %v", err)
 		}
 		if err := j.completeOrdinary(t); err != nil {
-			t.Fatalf("ordinary complete over B with the newest review accepted on B: %v", err)
+			t.Fatalf("ordinary complete over B with an accepted Review bound to B: %v", err)
 		}
 		terminalRequireCompleted(t, j)
-		j.requireRecordsUnchanged(t, j.snapshotA)
-	})
-
-	t.Run("undispositioned_newest_review_characterized", func(t *testing.T) {
-		j := journeyThroughA(t, "candidate-terminal-review-open", true)
-
-		// The newest completed review is a second Review of A, completed
-		// with no disposition.
-		j.dispatchReview(t, "attempt-review-newest")
-		j.completeLane(t, "attempt-review-newest", "review", nil, nil)
-
-		terminalCharacterize(t, j, "undispositioned")
-		j.requireRecordsUnchanged(t, j.snapshotA)
-	})
-
-	t.Run("rejected_newest_review_characterized", func(t *testing.T) {
-		j := journeyThroughA(t, "candidate-terminal-review-rejected", true)
-
-		j.dispatchReview(t, "attempt-review-newest")
-		j.completeLane(t, "attempt-review-newest", "review", nil, nil)
-
-		// The newest completed review is the second Review of A, completed
-		// and then rejected. A refusal of the rejection itself is
-		// characterized and reported, never routed around.
-		rejector := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/terminal-review-rejector", SessionRef: "session/" + j.workID + "-rejector", ActorClass: ActorAgent}
-		rejectErr := j.action(t, "reject_worker_result", map[string]any{
-			"attempt_id": "attempt-review-newest", "attempt_epoch": j.dispatchEpoch(t, "attempt-review-newest"),
-			"diagnosis": "the newest review result does not satisfy the review obligation", "strategy": "obtain a fresh independent review of the current subject",
-			"predicate_ids": []string{"predicate:work-context"}, "evidence_refs": []string{"candidate-completed-attempt-review-newest"},
-		}, rejector)
-		if rejectErr != nil {
-			t.Fatalf("reject the newest completed review: %v", rejectErr)
-		}
-		t.Logf("case4[rejected] reject_worker_result -> admitted")
-		terminalCharacterize(t, j, "rejected")
 		j.requireRecordsUnchanged(t, j.snapshotA)
 	})
 }

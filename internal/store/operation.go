@@ -805,9 +805,6 @@ var replayProjectionClearTables = []string{
 	// lets the replay rebuild every claim generation instead of upserting
 	// onto the live row of the newest claim.
 	"worktree_occupancy", "worktree_entries",
-	// Session relocation state folds purely from the vacate and landing
-	// events; the replay rebuilds it in log order.
-	"session_vacate_requests", "session_claim_landings",
 	// Per-ref outcome rows (CD-0212 D4) fold purely from the reclamation
 	// plan and the chronological settlement events; clearing them lets the
 	// replay rebuild each generation's trajectory in log order instead of

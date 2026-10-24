@@ -396,7 +396,17 @@ func foldWorktreeRemovalSettled(ctx context.Context, tx *sql.Tx, event Event) er
 	if err := decodePayload(event, &p); err != nil {
 		return err
 	}
-	return applyWorktreeRefOutcomeTx(ctx, tx, p, event.OccurredAt.Format(time.RFC3339Nano))
+	if err := applyWorktreeRefOutcomeTx(ctx, tx, p, event.OccurredAt.Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	// Only identities minted by this ref's settlement owner consume its
+	// invocation sequence. Other effect identities do not share that prefix.
+	base := worktreeRefSettlementEventBase(event.SubjectID, p.ProjectID, p.ClaimOpID, p.Branch)
+	if !strings.HasPrefix(event.EventID, base) {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE worktree_ref_outcomes SET settlement_count=settlement_count+1 WHERE set_id=? AND project_id=? AND claim_op_id=? AND claim_incarnation=? AND branch=?`, p.SetID, p.ProjectID, p.ClaimOpID, p.ClaimIncarnation, p.Branch)
+	return err
 }
 
 // applyWorktreeRefOutcomeTx is the durable phase owner's admission and
@@ -1591,12 +1601,10 @@ func (s *Store) settleWorktreeNativeOutcomes(ctx context.Context, removal *Workt
 }
 
 // settleWorktreeRefOutcomeTx records one per-ref native outcome through the
-// durable owner. The row is fold state of the settlement log: a settlement
-// the row already holds — same phase, tip, and reason — converges with no
-// new event and no mutation, and every other record is one fresh
-// chronological settlement event whose identity derives from the durable
-// per-ref predecessor and the event sequence the log holds, appended and
-// folded atomically in this SQL-only transaction. A move the transition
+// durable owner. A settlement the row already holds — same phase, tip, and
+// reason — converges with no mutation. Every other record derives its identity
+// from the durable per-ref predecessor and invocation count, and advances
+// that count atomically in this SQL-only transaction. A move the transition
 // table refuses from the row's current phase refuses typed before anything
 // is appended, so a phase some earlier attempt recorded — or a stale probe
 // carried — never authorizes an effect against a different predecessor
@@ -1632,7 +1640,7 @@ func settleWorktreeRefOutcomeTx(ctx context.Context, tx *sql.Tx, removal *Worktr
 		fromPhase = currentPhase.String
 	}
 	base := worktreeRefSettlementEventBase(removal.WorkID, removal.ProjectID, removal.ClaimOpID, outcome.Branch)
-	sequence, err := worktreeRefSettlementSequence(ctx, tx, base)
+	sequence, err := worktreeRefSettlementSequence(ctx, tx, removal.WorkID, removal.ProjectID, removal.ClaimOpID, outcome.Branch)
 	if err != nil {
 		return err
 	}
@@ -1655,12 +1663,12 @@ func worktreeRefSettlementEventBase(workID, projectID, claimOpID, branch string)
 	return fmt.Sprintf("%s:%s:%s:worktree-removal-settled:%s:", workID, projectID, claimOpID, branch)
 }
 
-// worktreeRefSettlementSequence derives the next per-ref settlement
-// invocation from the durable log: the count of settlement events this
-// claim generation's branch already holds.
-func worktreeRefSettlementSequence(ctx context.Context, tx *sql.Tx, base string) (int, error) {
+// worktreeRefSettlementSequence counts this ref's owned settlement identities
+// across claim incarnations. Reclaiming or re-recording an identical outcome
+// does not consume an invocation.
+func worktreeRefSettlementSequence(ctx context.Context, tx *sql.Tx, workID, projectID, claimOpID, branch string) (int, error) {
 	var sequence int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM domain_events WHERE event_id >= ? AND event_id < ?`, base, base+"\xff").Scan(&sequence); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(settlement_count),0) FROM worktree_ref_outcomes WHERE set_id=? AND project_id=? AND claim_op_id=? AND branch=?`, WorktreeSetID(workID), projectID, claimOpID, branch).Scan(&sequence); err != nil {
 		return 0, wrapFailure(KindUnavailable, "worktree_native_removal", "cannot derive the settlement sequence", true, "retry the same operation", err)
 	}
 	return sequence, nil

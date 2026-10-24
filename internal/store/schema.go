@@ -6991,16 +6991,23 @@ DELETE FROM fold_guard;
 	},
 	{
 		Version: 144,
-		Name:    "project_handoff_recorded_seq",
-		// The recording fold writes the column once per handoff INSERT. An
-		// older writer would leave a newer handoff at 0, ranking it oldest in
-		// every "newest handoff" selection, so older writers are fenced.
+		Name:    "session_window_current_facts",
+		// Older writers cannot maintain handoff ordering or the advancing
+		// settlement count, so they must not write these current facts.
 		Breaking:       true,
-		FoldMaintained: "origin",
+		FoldMaintained: "advance",
 		SQL: `
 ALTER TABLE project_handoffs ADD COLUMN recorded_seq INTEGER NOT NULL DEFAULT 0;
 INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
 UPDATE project_handoffs AS h SET recorded_seq=COALESCE((SELECT MAX(l.seq) FROM domain_events l WHERE l.kind='work.project_handoff_recorded' AND l.subject_id=h.work_id AND json_extract(l.payload,'$.handoff_id')=h.handoff_id),0);
+ALTER TABLE worktree_ref_outcomes ADD COLUMN settlement_count INTEGER NOT NULL DEFAULT 0 CHECK(settlement_count>=0);
+WITH ref_prefixes AS (
+ SELECT set_id,project_id,claim_op_id,claim_incarnation,branch,substr(set_id,5)||':'||project_id||':'||claim_op_id||':worktree-removal-settled:'||branch||':' AS base FROM worktree_ref_outcomes
+)
+UPDATE worktree_ref_outcomes AS o SET settlement_count=(
+ SELECT COUNT(*) FROM domain_events e JOIN ref_prefixes r ON r.set_id=o.set_id AND r.project_id=o.project_id AND r.claim_op_id=o.claim_op_id AND r.claim_incarnation=o.claim_incarnation AND r.branch=o.branch
+ WHERE e.event_id>=r.base AND e.event_id<r.base||CAST(X'FF' AS TEXT) AND COALESCE(json_extract(e.payload,'$.claim_incarnation'),0)=o.claim_incarnation
+);
 DELETE FROM fold_guard;
 CREATE INDEX project_handoffs_recorded_seq ON project_handoffs (work_id, recorded_seq);
 `,

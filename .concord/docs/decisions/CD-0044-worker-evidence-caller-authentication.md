@@ -12,10 +12,7 @@
 - **Related:** CD-0017 (D2, D4, D5), CD-0034, CD-0013 D5, CD-0042 D3/D4
 - **Preserves:** The worker authority boundary; pinned-model readback identity;
   owner-only result acceptance; short-lived CLI
-  transport with no daemon ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) governs: no reviewer/model distinctness exists beyond D5)
-- **Supersedes:** The unauthenticated worker-evidence path and its literal
-  `worker:cli` actor string
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 and D5 — evidence writes are current-row writes; no reviewer/model distinctness exists beyond D5.
+  transport with no daemon
 
 ## Context
 

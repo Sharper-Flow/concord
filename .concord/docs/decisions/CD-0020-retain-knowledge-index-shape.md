@@ -55,7 +55,7 @@ rebuildable query projection and never authors durable knowledge or law.
 This current shape satisfies CD-0019's preservation requirement for the knowledge
 index. CD-0020 does not authorize a replacement index.
 
-Amended 2026-10-01 by CD-0200 D1: the one-home placement boundary opens. A
+The one-home placement boundary opens. A
 Product resolves knowledge over one designated shared-law home plus the
 member Project canonical-path locators the operator registers as sources.
 The manifest stays the authority per source, the projection stays derived
@@ -135,7 +135,7 @@ add a second law-freshness enum, generic `HEAD` assumption, or duplicate entity-
 hash mechanism. Law status remains `accepted` or `superseded`; projection lag is
 read authority/freshness, not a change in law status.
 
-Amended 2026-10-01 by CD-0200 D3: over a registered source set, each source's
+Over a registered source set, each source's
 watermark is verified separately, the answer carries per-source watermarks, and
 the cursor binds to a source-set digest. A missing or stale source refuses, or
 returns an explicit omission under allow_degraded; an empty answer is never an

@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// CD-0206 D3 retires superseded completed reviews. Terminal subject checks
-// consume only accepted reviews that remain current under that rule. The
+// Terminal subject checks consume only accepted reviews that remain current
+// under CD-0242 D5. The
 // candidate moves only through a recorded integration, here a Review's
 // corrective pass that Main accepts (CD-0242 D5).
 

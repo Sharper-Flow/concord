@@ -17,9 +17,6 @@
 - **Preserves:** `synchronous=NORMAL` for ordinary writes; the conformance
   harness, its pacing, threshold, and population authority; CD-0011's
   falsifier list and retention decision
-- **Supersedes:** nothing; adds a mechanism the retained architecture lacked
-- **Amended by:** [CD-0207](CD-0207-a-durable-commit-replaces-the-checkpoint-barrier.md) at D1, D3, D4, and the statements that describe `SyncDurable`: a durable commit under `synchronous=FULL` replaces the TRUNCATE checkpoint barrier, D3 adds the bootstrap, predecessor-import, and recovery families, and the fence entry points commit durably. D2 and D5 stand unchanged.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — recovery uses verified snapshots and reconciliation; no fold, replay, or projection rebuild exists.
 
 ## Context
 
@@ -82,13 +79,12 @@ The contract, stated as Product law:
   before a consequential acknowledgement is durable with it. The database
   remains consistent in every case.
 - Nothing in this decision claims a snapshot restore recovers a row absent from
-  the store ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no fold, log, or reconstruction exists). If an ordinary write rolls back, it rolls back; there is
+  the store. If an ordinary write rolls back, it rolls back; there is
   no silent reconstruction.
 
 ### D3. The consequential boundary enumeration
 
 Consent classification is not durability classification. Removing a routine approval under CD-0013 D11 does not remove a durable acknowledgement boundary. Workflow actions, terminal transitions, authority changes, and cross-authority claims retain their durable commits under CD-0207. Mutation and recovery paths must select durability from the effect and retained intent, not merely from the presence of an approval reference.
-
 
 `SyncDurable` runs at the acknowledgement point — after the outermost
 commit, before success returns to the caller — of exactly these families:

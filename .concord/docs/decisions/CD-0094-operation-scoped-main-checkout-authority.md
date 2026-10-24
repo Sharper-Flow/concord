@@ -8,7 +8,6 @@
 - **Approval:** The operator approved the disposition in issue #660 and
   directed its completion on 2026-09-01.
 - **Related:** CD-0008, CD-0072, CD-0089, CD-0092, issue #660
-- **Amends:** CD-0092 D2 and D3 at the `work_transition.lifecycle` boundary only
 
 **Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and

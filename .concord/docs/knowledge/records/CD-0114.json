@@ -28,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fe034cb5fb0396d36c888dceebac05f984e5e8fbc6921d8718b20d03be4d703e",
+  "sha256": "sha256:a4013898bb09023f89c9448abf7066cd07a6bbc0c2a044ad9d04b2cb30ad872f",
   "status": "accepted",
   "summary": "The knowledge manifest and law-coverage record are committed as shards and composed on read. A lesson publication adds a note, one record shard, and one coverage shard on a branch, published by pull-request merge. Historical reads support pre-shard aggregate commits. Separate shards keep concurrent additions from editing one aggregate.",
   "tags": [

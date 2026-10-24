@@ -7,12 +7,10 @@
 - **Approval:** The operator approved this bounded contract change on
   2026-09-13 after the binding made review evidence unreachable in two live
   Toolbox work items.
-- **Related:** CD-0117, CD-0138, CD-0059, CD-0115
-- **Amends:** CD-0117 D1, which bound read-only classes to read steps only
+- **Related:** CD-0117, CD-0138, CD-0059
 - **Preserves:** CD-0117 D2–D5, the research binding, the terminal-step
   exclusion, and worker fences; CD-0187 carries the review binding's own
   confirmation-step reach
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14
 
 ## Context
 

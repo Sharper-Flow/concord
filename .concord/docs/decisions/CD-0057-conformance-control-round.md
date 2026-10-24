@@ -8,7 +8,6 @@
   [PR #341 comment](https://github.com/Sharper-Flow/concord/pull/341#issuecomment-5381037907); the orchestrator posts acceptance on PR #341 after review, and the PR thread is the record.
 - **Related:** CD-0051 D1, CD-0045, CD-0046, CD-0011, issue #341
 - **Preserves:** the 100ms P99 target; correctness precedence; population authority; the majority-of-paced-rounds rule; CD-0051 D2's diagnostic wall and begin-wait measurements
-- **Supersedes:** CD-0051 D1's assumption that commit-duration tails are host-load-independent
 
 ## Context
 

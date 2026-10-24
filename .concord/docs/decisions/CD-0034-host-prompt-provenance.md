@@ -4,8 +4,6 @@
 - **Date:** 2026-08-16
 - **Scope:** Worker dispatch evidence; adapter; issue #103
 - **Related:** CD-0017 (D1, D5, D7, Invariant 8), issue #103
-- **Supersedes:** nothing
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 and D13 — no upcast exists; the cutover is one documented migration.
 
 ## Context
 
@@ -51,9 +49,7 @@ behavior change at migration is thus recorded, never silent: the last
 dispatch under the old provenance and the first under the new bound the
 transition in evidence.
 
-**Provenance recorded before declaration.** [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) governs: the documented cutover migrates retained evidence, and provenance
-recorded before declaration is unknown by construction, stamped as an
-`unenumerated` source with a zero digest rather than fabricated. The CLI
+**Provenance recorded before declaration.** The documented cutover migrates retained evidence, and provenance recorded before declaration is unknown by construction, stamped as an `unenumerated` source with a zero digest rather than fabricated ([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)). The CLI
 refuses v3 dispatch evidence without `host_provenance` — injection is
 permitted only when recorded, and the emitter gate is the enforcement point.
 

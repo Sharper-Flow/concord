@@ -6,8 +6,6 @@
   overlap-resolution rows
 - **Approval:** The operator approved this amendment on 2026-09-15.
 - **Related:** CD-0036, CD-0222 D5–D7, CD-0144, CD-0145, and [PR 1084](https://github.com/Sharper-Flow/concord/pull/1084)
-- **Amends:** CD-0222 D6's rule for staleness after a contract revision
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D10
 - **Preserves:** D6's closed resolution-kind set and operator approval;
   D7's seven action classes; CD-0036 breaking-law cutovers; and the
   execution-start claim boundary from PR 1084
@@ -78,9 +76,7 @@ blocking, and pure dependency answers require no consent. All answers retain
 both work versions, contract pins, and judged-content freshness. A dependency
 answer grants no standing Domain compatibility waiver.
 D7's seven consequential action classes remain unchanged. CD-0036 remains the
-authority for breaking law cutovers; [CD-0242 D10](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d10-knowledge-is-an-input-and-a-law-edit-changes-only-what-it-changes)
-governs: a law edit triggers reassessment only of the obligations whose meaning
-it changes.
+authority for breaking law cutovers; a law edit triggers reassessment only of the obligations whose meaning it changes ([CD-0242 D10](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d10-knowledge-is-an-input-and-a-law-edit-changes-only-what-it-changes)).
 
 ## Consequences
 

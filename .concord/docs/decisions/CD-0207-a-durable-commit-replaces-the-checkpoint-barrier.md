@@ -6,9 +6,6 @@
   family and D3 drops `ClaimStep`. No shipped route reached either site.
 - **Scope:** The mechanism that makes a CD-0050 consequential acknowledgement
   durable, the CD-0050 D3 enumeration, and the CD-0050 D4 placement rule
-- **Amends:** CD-0050 D1, the mechanism; CD-0050 D3, the family list;
-  CD-0050 D4, the fence placement; and the CD-0050 Consequences, Rejected
-  alternatives, and Verification statements that describe `SyncDurable`
 - **Preserves:** CD-0050 D2, the durability guarantee; CD-0050 D5, the
   migration exclusion; `synchronous=NORMAL` for ordinary writes; the
   conformance harness, its pacing, threshold, and population authority; the
@@ -22,7 +19,6 @@
   the work item contract that carries this record on 2026-10-06.
   The Snowball coordinator approved the 2026-10-17 amendment under the
   operator's delegation.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 
 ## Context
 

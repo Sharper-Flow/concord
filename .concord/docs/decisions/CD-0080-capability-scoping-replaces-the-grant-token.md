@@ -14,8 +14,6 @@
   `cross_scope` gate, manifest-digest pinning, typed `unauthorized` refusals,
   the operator approval checkpoint with core-derived consequence summaries,
   `principal_ref` as checked identity, worker evidence signing under CD-0067 D6
-- **Supersedes:** The core-issued opaque session handle named in CD-0071 D4;
-  the phrase "at issuance" in CD-0071 D4's load-bearing list
 
 ## Context
 
@@ -130,11 +128,9 @@ Resolved Product scope is recorded beside the identity tuple D5 places on
 This is the one place where D2 is not purely subtractive, and it is named here
 so that it is not discovered during implementation.
 
-*(Amended 2026-08-28, issue #465 — this decision first named a session identity
-record as the new home. No such record exists. Concord has no session table, no
+Concord has no session table, no
 session projection, and no session event type; `session_ref` is an opaque string
-carried on grant and approval rows. The correction was found while writing the
-migration, before any code was written.)*
+carried on grant and approval rows.
 
 *Building the named record would have cost more than a table. Nothing creates a
 session row today, because the `grant` verb was its creation moment and D2

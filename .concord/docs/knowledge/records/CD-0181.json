@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bbd022d996e4bdfab0d15449a78c7aa50a15d70b63d32a3a31f4417b39ce7f2b",
+  "sha256": "sha256:e73c62817e40a29c59eeb2b141b3192891dfe35e9185838f9b26358086e4916f",
   "status": "accepted",
   "summary": "A terminal branch counts as merged and durable when the default ref holds a commit whose git patch-id --stable equals the branch's net diff from its merge base; the remote-ref count stays the first way to pass, and the audit classifier and the reclaim gate use this one check.",
   "tags": [

@@ -9,10 +9,7 @@
 - **Related:** CD-0060 (partitions the corpus; D2 gives the root Product-wide
   law), CD-0222 D2/D3/D9.2, CD-0042 D1 (pre-go-live), CD-0002, PM1.Q10
 - **Preserves:** CD-0222 D3's one-home invariant; the derived-projection role of
-  SQLite; the one-schema manifest rule ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no upcast exists;
-  [CD-0076](CD-0076-current-knowledge-manifest-has-no-legacy-migration.md) ends the legacy-manifest migration)
-- **Supersedes:** nothing
-- **Amended by:** [CD-0076](CD-0076-current-knowledge-manifest-has-no-legacy-migration.md) ends D3's legacy-manifest upcast; [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 governs: no upcast or rebuild exists.
+  SQLite; the one-schema manifest rule
 
 ## Context
 
@@ -58,13 +55,13 @@ follows them.
 
 ### D3. No legacy-manifest upcast exists
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no upcaster exists. [CD-0076](CD-0076-current-knowledge-manifest-has-no-legacy-migration.md) removes the legacy-manifest migration and its undecided-root marker; schema 1.2 is the only knowledge-manifest schema, and root-home claims follow D1 and D2.
+ [CD-0076](CD-0076-current-knowledge-manifest-has-no-legacy-migration.md) removes the legacy-manifest migration and its undecided-root marker; schema 1.2 is the only knowledge-manifest schema, and root-home claims follow D1 and D2.
 
 ### D4. The claim is projected, not merely parsed
 
 PM1.Q10 compares the manifest against the store's current projected rows and
 requires byte equality
-([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: consumers read current rows; no rebuild exists). A field the projection drops therefore makes every root-homed
+(consumers read current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))). A field the projection drops therefore makes every root-homed
 record fail its own proof.
 
 `law_domain_homes` gains `product_wide_rationale` under migration 45, the

@@ -10,16 +10,9 @@
   [issue #195 comment](https://github.com/Sharper-Flow/concord/issues/195#issuecomment-5347857526)
 - **Related:** CD-0005, CD-0007, CD-0010, CD-0024, CD-0031, CD-0222, TS1,
   TS5–TS9
-- **Amends:** CD-0005 D6/D8/D9 and implementation acceptance; CD-0024 D3/D4;
-  CD-0031's agent-surface identity; CD-0222's pre-go-live surface sequencing; TS7,
-  TS8, and TS9
 - **Preserves:** One generated canonical manifest and digest; strict schemas; signed
   client bootstrap; fail-closed unknown input; durable Product state authority; release
-  automation ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current rows; no event log exists)
-- **Supersedes:** Pre-go-live agent-surface SemVer, range negotiation, compatibility
-  windows, deprecation metadata, supported-model release trials, and replay/upcast code
-  retained only for unreleased surface revisions
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — the store keeps current rows; no event log exists.
+  automation (the store keeps current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)))
 
 ## Context
 

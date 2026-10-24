@@ -607,7 +607,7 @@ type workflowJobObligationState struct {
 // discharge owns acceptance satisfaction for both projections. A reset needs
 // every debt cleared by the same job's equal base obligation with retained
 // oracle owners, cases, controls, and contract authority. With no job-bound
-// debt, any acceptance resets the window (CD-0164 D2). The accepted dispatch
+// debt, any acceptance resets the window. The accepted dispatch
 // binds the revision being compared; it does not supply semantic proof.
 func (h *workflowCorrectionHistory) discharge(jobID string, revision int64) bool {
 	if len(h.unresolved) == 0 {
@@ -1141,7 +1141,7 @@ func workflowAttemptDispatchSequence(ctx context.Context, q queryer, workID, att
 // record_worker_failure dispositions that attempt, a current non-ok verdict
 // admits the evidence-bearing corrective return the accepted-delivery route
 // cannot. The failure disposition is not an accepted success: it opens only
-// this typed return, and the counting follows the CD-0164 D4 verification
+// this typed return, and the counting follows the verification
 // comparator (requests since the last comparable-healthy verdict, plus the
 // pending request). The admitted pair must be current: the dispositioned
 // attempt's dispatch must postdate the step recovery anchor — a later

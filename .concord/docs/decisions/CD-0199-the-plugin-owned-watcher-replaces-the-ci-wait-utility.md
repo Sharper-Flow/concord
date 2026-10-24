@@ -6,10 +6,6 @@
   `adapter/opencode/concord-plugin.ts`; the removed `ci-wait` utility registry
   entry, generated body, installer file list, and placement docs; the
   `concord ci-wait` verb in `cmd/concord` stays unchanged
-- **Amends:** [CD-0160](CD-0160-the-ci-wait-utility-delegates-its-wait-to-a-deterministic-cli-verb.md)
-  at D6's utility half: the utility registry entry and its generated model
-  session are removed, and the plugin-owned watcher owns the invocation loop
-  the body used to run
 - **Preserves:** CD-0160 D1 through D5 and D7 in full (the verb half), CD-0161
   and CD-0168 in full (both bind the verb), CD-0166 D1 and D4 (no core prober,
   no timer), CD-0028 D5, and CD-0149's remaining utilities

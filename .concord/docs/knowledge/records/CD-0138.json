@@ -25,10 +25,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0059"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0115"
     }
   ],
   "path": ".concord/docs/decisions/CD-0138-mandatory-refinement-pass.md",
@@ -39,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c38058767916f2ba51c12e54a9b455fc8f261c02a6c70416cf9a829925190270",
+  "sha256": "sha256:075345bcb25ae6594cf4971053a321c3e35ee19995b5c57df6a6205afcc23e86",
   "status": "accepted",
   "summary": "Adds a mandatory artifact-backed refinement pass before verdicts in implementation and break-fix workflows, composed into the families' canonical source.",
   "tags": [

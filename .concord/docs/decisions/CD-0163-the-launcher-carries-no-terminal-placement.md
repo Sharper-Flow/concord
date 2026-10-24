@@ -14,8 +14,6 @@
   and command with no entry route at all.
 - **Preserves:** The CD-0078 D1 placement boundary and the store-write-free
   managed-entry boundary of CD-0108 D4
-- **Supersedes:** The launch-placement clause of CD-0108 D1 as the remake
-  record first worded it
 
 ## Context
 

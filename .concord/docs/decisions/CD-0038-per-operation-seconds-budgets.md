@@ -12,7 +12,6 @@
   ([`agent-adapter-transport-contract.md`](../agent-adapter-transport-contract.md)),
   TS7 ([`agent-result-envelope.md`](../agent-result-envelope.md)), TS8
   ([`agent-tool-surface-evolution.md`](../agent-tool-surface-evolution.md))
-- **Supersedes:** the undifferentiated `budget.max_millis` operation-time input
 - **Historical surface note:** CD-0042 supersedes the pre-go-live agent-surface
   compatibility and negotiation treatment described in D6/D7; those passages are
   historical evidence, not current compatibility policy.
@@ -140,7 +139,7 @@ so negotiation may omit that field for a supported old client. Relative to the m
 shipped first, it is a minor on the current line. It never requires a second
 major by itself. The manifest, generated contracts, adapter, compatibility matrix, corpus, and digests move together.
 
-### D8. The agent-facing budget object is retired (2026-10-02 amendment)
+### D8. The agent-facing budget object is retired
 
 The result-size `budget` input object leaves the tool surface. No operation
 input declares `budget`, `max_bytes`, `max_items`, or `max_millis`. The D6

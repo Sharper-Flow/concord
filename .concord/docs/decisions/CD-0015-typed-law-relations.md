@@ -23,8 +23,7 @@ Concord's durable law authority remains the Git knowledge manifest. SQLite may
 hold only a derived projection of that manifest; it cannot author law, relation
 edges, or law events.
 
-The manifest evolves compatibly from schema version `1.0` to `1.1`. Version
-`1.0` remains readable. Decision and spec records may optionally declare the
+Decision and spec records may optionally declare the
 closed relations `supersedes`, `refines`, `subordinate_to`, and
 `conflicts_with`, each with a target law ID. Relations are authored only by an
 operator-approved manifest/spec/decision delta. No per-rule obligation field is
@@ -36,7 +35,7 @@ not an amendment. Manifest parsing validates same-manifest decision/spec
 endpoints, closed kinds, no self or duplicate edges, acyclic directed graphs,
 and exact agreement between supersession edges and `successor` declarations.
 
-Amended 2026-10-01 by CD-0200 D5: a relation whose target lives outside the
+A relation whose target lives outside the
 declaring manifest names the target's source Project in a structured field,
 never by packing the qualified form into the target ID. The relation
 validates over the Product's verified source set at the declaring source's
@@ -75,7 +74,7 @@ Before completion, the same bounded check runs without that exception. An
 amendment intent therefore permits planning only; completion requires a Git
 manifest delta that removes or resolves the conflict.
 
-Amended 2026-10-01 by CD-0200 D6: over a registered source set, a mandated
+Over a registered source set, a mandated
 bare law ID resolves across every verified source, refuses as ambiguous when
 two sources hold it, and names the resolving source's repository in the law
 context. A source-qualified `<project_id>/<law_id>` reference resolves only
@@ -83,7 +82,7 @@ through that Project's canonical knowledge locator.
 
 Heuristics may suggest conflicts in memory or UI, but they never persist rows
 or blocking decisions. Concord adds no runtime policy engine, LegalRuleML
-dependency, law-authoring store write, or agent tool ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no domain event exists).
+dependency, law-authoring store write, or agent tool.
 
 ## Consequences
 

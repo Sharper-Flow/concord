@@ -5,7 +5,6 @@
 - **Scope:** Agent-surface Domain granularity, TS1–TS9 law homing, and the registry migration
 - **Approval:** The operator approved this bounded decision objective in Concord work-2e8afff1f907a403561806e5; this record states the resulting decision.
 - **Related:** CD-0005, CD-0222 D2–D4 and D9, CD-0060 D1 and D4–D6, CD-0017, CD-0082, and TS1–TS9
-- **Amends:** Nothing. The later registry delta enacts this decision without changing the accepted TS contracts.
 - **Preserves:** One-home law, non-empty Domains, Git registry authority, the static generated agent surface, and demand-driven migration
 
 ## Context

@@ -29,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9bc9a931a7b3568e8c3b633c20a2d674e26a02512a5bb3b0f9eacadf93076ebb",
+  "sha256": "sha256:d1ee4273ed2d3f9533ce8f18c9dcdfb652bbb283568224969adef541cebfce6b",
   "status": "accepted",
   "summary": "Admits an advisor utility with an explore-matching read-only evidence channel, a collaborative body that refuses a supplied conclusion, permits a no-concerns result, and requires the adviser to state its serving model. Advisory output stays outside worker evidence and gates nothing.",
   "tags": [

@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b6d09af1e8775bcb0d078e516dbbff6073f465e1bb70f2dc2cd97371b67ef850",
+  "sha256": "sha256:8de43012044d7be2c76d629d4b587c58abfe508af27acf3e9a4a9f2958f75bc6",
   "status": "accepted",
   "summary": "Acknowledged consequential operations are durable across power loss via a TRUNCATE-checkpoint barrier that syncs the whole WAL even under synchronous=NORMAL; ordinary writes stay NORMAL and are durable through the last boundary; the barrier lives at the acknowledgement layer, not inside fence primitives.",
   "tags": [

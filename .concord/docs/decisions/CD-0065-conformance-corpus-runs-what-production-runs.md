@@ -13,8 +13,6 @@
   [`workflow-engine-contract.md`](../workflow-engine-contract.md)
 - **Preserves:** Scenario count and 1..48 numbering; the six evidence records
   that cite the corpus, which regain the anchors their text already claims
-- **Supersedes:** nothing
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 and D14 — no rebuild exists, and no released-definition versions are retained.
 
 ## Context
 
@@ -98,8 +96,8 @@ leaves two corpora to keep in sync.
   binding in setup; at least one declares unresolved overlap and is blocked.
 - `internal/store` suite passes against the corpus, including
   `initializeWorkflowRawTx`, `CompleteWorkflow`, and
-  `AppendWorkflowStalenessObservation` over real SQLite ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no rebuild exists; recovery restores a verified snapshot and reconciles).
+  `AppendWorkflowStalenessObservation` over real SQLite (recovery restores a verified snapshot and reconciles ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))).
 - `.concord/docs/workflow-engine-contract.md` describes the single-version
-  definitions and documents no pinned replay ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: no released-definition versions are retained).
+  definitions and documents no pinned replay.
 - `python3 scripts/check-agent-contracts.py`,
   `python3 scripts/check-json.py`, and `python3 scripts/check-doc-links.py` pass.

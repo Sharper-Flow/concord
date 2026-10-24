@@ -6,7 +6,6 @@
 - **Approval:** The operator approved this bounded collision gate.
 - **Related:** CD-0002, CD-0013, CD-0035, CD-0050
 - **Preserves:** Terminal work reuse, one-way Linear import, and domain-overlap detection
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 
 ## Context
 

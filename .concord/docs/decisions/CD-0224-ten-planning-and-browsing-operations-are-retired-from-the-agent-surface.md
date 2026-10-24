@@ -6,24 +6,15 @@
   relation writers, the lesson publication route, the unprocessed-knowledge
   negative, the surviving Domain reads, and the closed relation kinds;
   [Concord (CON) issue 927](https://linear.app/sharper-flow/issue/CON-927)
-- **Amends:** CD-0018, CD-0026, CD-0048, CD-0052, CD-0053, CD-0106, CD-0114,
-  CD-0142, CD-0156, CD-0166, and CD-0179 at the clauses this retirement makes
-  false; each amended record states the current rule in place
 - **Preserves:** The PM1.Q4 and PM1.Q5 readiness gates, the relation
   vocabulary, the `domain_observations` store, and contract supersession
-  through `supersede_contract`; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-  governs: relation writes are current rows in one transaction, not folded
-  events
+  through `supersede_contract`; relation writes are current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))
 - **Related:** CD-0005, CD-0020, CD-0030, CD-0114, CD-0213,
   [CD-0219](CD-0219-the-terminal-launcher-tui-is-retired.md), and
   [CD-0223](CD-0223-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-carries-only-declared-context.md)
 - **Approval:** Operator-delegated law ruling for
   [Concord (CON) issue 927](https://linear.app/sharper-flow/issue/CON-927),
   2026-10-11.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
-  D4, D6: no size measurement, production-line cap, or mandatory split
-  applies, so the size-revision relation writer this record listed no longer
-  exists.
 
 **Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
@@ -55,7 +46,6 @@ history rather than amended law.
 ## Decision
 
 The retained `resolve_overlap` route uses CD-0013 D11's per-kind consent rule: exact operator approval for merger and supersession, none for dependency, blocking, or compatibility. Every kind still pins both work versions and judged contract content. The retired planning/browsing operations remain retired; changing consent creates no replacement tool or bypass writer.
-
 
 The agent surface retires ten operations: `concord_domain.active_work`,
 `concord_domain.observation_record`, `concord_domain.observation_dismiss`,
@@ -114,8 +104,7 @@ bounded open window, an observation satisfies nothing, and promotion out of
 an observation stays the CD-0018 `raised_from` capture path that CD-0068 D4
 left unchanged.
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-governs: the store keeps current rows and finite snapshots, not an event log.
+The store keeps current rows and finite snapshots ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 The relation vocabulary and every stored relation kind stay closed as they
 are, and relation changes write current rows in one transaction.
 

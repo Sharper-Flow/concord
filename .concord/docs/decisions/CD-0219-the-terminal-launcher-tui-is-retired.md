@@ -12,12 +12,8 @@
   The public pull request
   carries its delivery evidence. This record creates no managed workflow
   approval record. Its authority tier is `derived` under CD-0159 D3.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 - **Related:** CD-0014, CD-0031, CD-0048, CD-0078, CD-0083, CD-0108, CD-0222,
   CD-0163, CD-0176, C14, C17
-- **Amends:** CD-0014 (the rendering stack retires with the TUI); CD-0108 D1
-  through D3 (the interactive remake clauses retire; D4 stands); CD-0163
-  (the placement boundary re-homes to the session entry route)
 - **Amended:** Concord (CON) issue CON-910 (2026-10-13) removes the session entry route this
   record preserved, under the Snowball coordinator's operator-delegated
   approval. D4's kept clauses bind the surviving managed surfaces.

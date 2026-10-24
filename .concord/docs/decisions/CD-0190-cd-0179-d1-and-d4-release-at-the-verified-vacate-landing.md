@@ -6,12 +6,6 @@
   CD-0179 D4, and the main-checkout admission of the session_vacate replay
   that completes an unconfirmed landing;
   [Concord (CON) issue 430](https://linear.app/sharper-flow/issue/CON-430)
-- **Amends:** CD-0179 D1 at its first sentence ("A verified landing of a
-  session, or a session_vacate of that session, therefore proves every other
-  occupancy row of the same session stale, in any work item, and releases all
-  of them."), and CD-0179 D4 at its sentence ("The adapter then runs
-  session_vacate, which releases the occupancy rows, and moves the session to
-  the derived destination.")
 - **Preserves:** CD-0179 D2, D3, D5, and D6 in full, every other D1 and D4
   sentence, CD-0178 D4's content gates, and CD-0092 D1's capability-scoped
   main-checkout refusal
@@ -19,7 +13,6 @@
   [Concord (CON) issue 430](https://linear.app/sharper-flow/issue/CON-430)
 - **Approval:** The operator accepted the work item CON-430 contract that
   carries this record on 2026-09-28.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D13
 
 ## Context
 
@@ -54,9 +47,7 @@ session, therefore proves every other occupancy row of the same session stale,
 in any work item, and releases all of them." That sentence reads instead: the
 release a vacate produces happens at its verified landing, which the
 adapter-only vacate-landing verb records after the host readback names the
-committed destination. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-governs: recovery restores a verified snapshot and reconciles current rows, so
-the release always belongs to the readback-verified landing.
+committed destination. Recovery restores a verified snapshot and reconciles current rows, so the release always belongs to the readback-verified landing ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### D2. The verified vacate landing releases the session's rows in one transaction
 

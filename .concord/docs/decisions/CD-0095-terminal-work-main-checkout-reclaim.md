@@ -10,7 +10,6 @@
 - **Approval:** The operator approved the disposition in issue #674 and
   directed its completion on 2026-09-01.
 - **Related:** CD-0008, CD-0089, CD-0092, CD-0094, issue #674
-- **Amends:** CD-0094 D2 at the `worktree_reclaim` boundary only
 
 ## Context
 

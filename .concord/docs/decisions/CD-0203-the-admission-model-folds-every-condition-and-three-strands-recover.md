@@ -4,16 +4,9 @@
 - **Date:** 2026-10-04
 - **Scope:** The workflow liveness, well-formed-exit, and conformance checks;
   three store admission routes those checks proved stranded
-- **Extends:** CD-0201 at D1, which names the widening of the checks to the
-  full derived state as later work in a separate record
-- **Amends:** CD-0172 D1 at its contract count: the complete-step correction
-  admits one or more active contracts, so a duplicated projection at that
-  step recovers instead of refusing
 - **Preserves:** CD-0201 D2, the liveness law; CD-0112 D1, continuity actions never move
   the step; every other route refusal keeps its scope (CD-0186)
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
 - **Related:** CD-0090, CD-0133, CD-0166, CD-0173, CD-0186
-- **Amended by:** [CD-0204](CD-0204-the-acceptance-gate-is-one-admission-condition-and-a-missing-verdict-records-late.md) at D2's consequence: a frozen ops runbook that reaches cleanup without a verdict records the verdict there through the late verdict route before it confirms the premise.
 - **Approval:** The operator directed in session chat on 2026-10-02 that the
   checks stay strict, with no named exception, and that the engine routes
   change until the law holds. The operator approved the fix of all three
@@ -48,7 +41,6 @@ The widened checks found three strands in the engine:
 ## Decision
 
 For `approval_policy=consequence_v1`, CD-0013 D11 determines whether an operator question is required; engineering confirmation and routine correction/supersession have non-consent routes. The same derived admission state owns those routes and preserves investigation, evidence, recovery targets, and non-hold exits. The registered-version scenarios below retain their operator questions and approval requirements.
-
 
 ### D1. The contract step and the complete step keep their contract routes
 
@@ -86,9 +78,6 @@ reads. The step-kind checks cover every registered definition and use
 the same question function as the engine.
 
 No definition version changes. Admission code is not definition content;
-[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-governs: definitions generate from one canonical source, and active work
-receives the corrected admission routes at the integration boundary.
 
 ## Alternatives considered
 

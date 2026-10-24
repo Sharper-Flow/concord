@@ -106,7 +106,7 @@ func workflowContractRecoveryActionDefinition() WorkflowActionDefinition {
 		// workflowActionCrossField("supersede_contract"), not digest-covered
 		// definition content: core validation and the generated published
 		// supersede variant derive their oneOf branches from that one
-		// declaration (CON-412, CD-0115 D1).
+		// declaration (CON-412).
 		Payload: WorkflowPayloadDefinition{Closed: true, Fields: workflowContractRecoveryPayloadFields()},
 	}
 }

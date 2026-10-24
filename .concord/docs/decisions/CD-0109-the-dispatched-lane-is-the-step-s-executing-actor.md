@@ -3,18 +3,12 @@
 - **Status:** Accepted
 - **Date:** 2026-09-04
 - **Scope:** worker-dispatch evidence, workflow actor identity, and
-  `accept_worker_result`; [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
-  governs: Implement cannot accept its own result, and no executing-actor
-  distinctness beyond the loop's rules exists
+  `accept_worker_result`; Implement cannot accept its own result ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls))
 - **Approval:** The operator selected the lane-as-executing-actor reading of
   the refusal on 2026-09-04 in Concord work-dbb32e3679f758b553ae0745, after
   issue #800 established that no dispatched result could be accepted.
 - **Related:** CD-0013, CD-0017, CD-0034, CD-0059, CD-0067, and issues
   #781, #794, #800
-- **Extends:** CD-0013 D5 (workflow actor identity) with the actor the
-  dispatched lane executes as; CD-0017 D4 (a worker legitimately runs its own
-  step) with the recorded lane actor
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5
 
 Under [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md), ordinary acceptance records Main's disposition and leaves progression to Main's separate act.
 
@@ -50,27 +44,24 @@ route that admits exactly that pair. The lane actor's tuple is derived, not
 supplied: the agent reference is the lane, the session reference is the
 attempt, and the principal and client references come from the host identity
 that authenticated the signed dispatch assertion. A host cannot choose the
-identity its lane executes as; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: these are current rows written in one transaction, not appended events.
+identity its lane executes as; these are current rows written in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### D2. The dispatch pins the executing actor
 
 A dispatch whose `lane_actor_ref` does not name a recorded workflow actor
 refuses; otherwise the recorded actor pins the workflow instance's executing
-actor. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the pin is a current row on the instance, written in the dispatch's one transaction, with no fold. A work item without a running workflow instance keeps its rows
+actor. The pin is a current row on the instance, written in the dispatch's one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). A work item without a running workflow instance keeps its rows
 untouched.
 
 ### D3. A lane cannot accept its own result
 
-[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
-governs: Implement cannot accept its own result, so the owner's acceptance of a
-dispatched lane's completed result is compared against the recorded executing
-actor, and the lane's own identity submitting `accept_worker_result` refuses. No
+Implement cannot accept its own result, so the owner's acceptance of a dispatched lane's completed result is compared against the recorded executing actor, and the lane's own identity submitting `accept_worker_result` refuses ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). No
 separate final evaluator and no executing-actor distinctness beyond the loop's
 rules is required, so `record_verdict` and completion add no actor comparison.
 
 ### D4. Recorded attempts read back unchanged
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each attempt result is a recorded current fact; attempts recorded before the lane actor read back unchanged, with no upcast or replay, and pin no executing actor.
+Each attempt result is a recorded current fact ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ## Acceptance Criteria
 

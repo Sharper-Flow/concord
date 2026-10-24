@@ -15,8 +15,6 @@
 - **Preserves:** the grant-level main-checkout refusal
   (`internal/agent/authority.go`), the one-active-worktree-per-Project refusal
   (`internal/store/worktrees.go`), and reclamation derived from git facts
-- **Supersedes:** nothing; records an exclusion the coverage table implied
-  was covered
 
 ## Context
 

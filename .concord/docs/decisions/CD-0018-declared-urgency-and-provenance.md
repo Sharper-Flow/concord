@@ -102,8 +102,7 @@ other relation.
 guard (unlike `parent`), no composite-operation path (unlike `supersedes`), and no
 exemption from the relation cycle check (unlike `implements`). It is created only by capture's
 `raised_from_work_id` input: capture inserts the relation row in the same transaction, and
-no operation removes it ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each mutation writes current rows in one
-transaction; no event exists). It records provenance
+no operation removes it (each mutation writes current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))). It records provenance
 only; it asserts no dependency, no hierarchy, and no replacement.
 
 One symmetric kind is sufficient for the motivating pairings — an ops task beside a

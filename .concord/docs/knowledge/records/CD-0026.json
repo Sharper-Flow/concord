@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:3ee82ac6231320e6c9cfebb3e2b98c1e87942b45ac45cce4e649cac181b805c0",
+  "sha256": "sha256:438f024ff32c0df175545b60dc9b213e10d18aa1f11178b6b70bc642be228c67",
   "status": "accepted",
   "summary": "A lesson is authored as the lesson markdown with its manifest record shard and explicit law-coverage shard and publishes through a reviewed pull request into the git knowledge home; publication follows pull-request merge and a verified knowledge read. Promotion uses scope, reflections use tags, and evidence paths support the drift audit.",
   "tags": [

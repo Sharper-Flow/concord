@@ -13,13 +13,7 @@
   [Concord (CON) issue 908](https://linear.app/sharper-flow/issue/CON-908).
   The Snowball coordinator (operator-delegated) approved this record alignment
   on 2026-10-10 at 07:10 Eastern Daylight Time (EDT).
-- **Amended by:** CD-0219 (2026-10-09) vacates the no-color render anchors,
-  the operator screen-reader obligation, the C14 §9 render condition, and the
-  CD-0014 falsifier with the retired launcher render surface
 - **Related:** CD-0014, CD-0219, C14 §§9 and 11, issue #527
-- **Amends:** CD-0014 §147
-- **Supersedes:** The deferral of assistive-technology validation to launcher
-  implementation acceptance
 
 ## Context
 
@@ -38,7 +32,7 @@ exists for a screen-reader run to cover.
 
 ### D1. Both validation obligations retire with the render surface
 
-Amended 2026-10-09: the no-color render condition of C14 §9 and the operator
+The no-color render condition of C14 §9 and the operator
 screen-reader obligation are vacated with the retired launcher render surface
 (CD-0219). No repository test claims assistive-technology behavior, and this
 record claims none.

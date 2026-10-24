@@ -8,8 +8,6 @@
 - **Approval:** The operator approved the objective for
   `work-2b315bf5d5d3e2241bb6911d` at its repair step on 2026-09-20.
 - **Related:** CD-0092, CD-0105, CD-0118, issues #674, #723
-- **Amends:** CD-0105 D4 at its rationale, which rested on the pass
-  reclaiming only terminal work
 - **Preserves:** The CD-0092 D2 refusal for every operation whose row gates
   do not close the implementation surface; every tier gate on every reclaimed
   row

@@ -13,7 +13,6 @@
 - **Preserves:** the coordination plane's prior exclusion of heuristic
   authority; the invariants `internal/store/txscope_test.go` and
   `internal/store/boundary_test.go` guard; CD-0047's computed reachability
-- **Supersedes:** nothing
 
 ## Context
 

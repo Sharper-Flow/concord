@@ -4,7 +4,6 @@
 - **Date:** 2026-09-24
 - **Scope:** Where a managed session for selected work runs; the claimed
   directory and everything that directory governs
-- **Amends:** CD-0093
 - **Amended:** CD-0182 (2026-09-27) added the explicit member-Project
   selector to the launch landing, and CD-0189 (2026-09-28) configured the
   launch host command. Concord (CON) issue CON-910 (2026-10-13) removes the launch landing and

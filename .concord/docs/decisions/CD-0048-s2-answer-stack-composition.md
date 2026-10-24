@@ -15,15 +15,10 @@
   [Concord (CON) issue 908](https://linear.app/sharper-flow/issue/CON-908).
   The Snowball coordinator (operator-delegated) approved this record alignment
   on 2026-10-10 at 07:10 Eastern Daylight Time (EDT).
-- **Amended by:** CD-0219 (2026-10-09) vacates the S2 answer-stack clauses
-  with the retired launcher TUI; no recency column or stamp obligation survives
-  this record; [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
-  D2 keeps current state and finite snapshots, not an event or replay contract
 - **Related:** CD-0014, CD-0108, CD-0219
 - **Preserves:** the store materialization contracts the record documented —
   `internal/store/domain_reads.go`,
   `cmd/concord/session.go` — and the versioned-write meaning of `updated_at`
-- **Supersedes:** nothing
 
 ## Context
 
@@ -48,14 +43,14 @@ amendment carried, so no release's writes can drift a stored stamp
 
 ### D1. The S2 answer-stack clauses are vacated
 
-Amended 2026-10-09: CD-0219 retires the interactive terminal launcher TUI,
+CD-0219 retires the interactive terminal launcher TUI,
 and the S2 surface is deleted with it. The panel-stack composition, the
 quiet-means-healthy render, the stored last-activity ordering, the Tab-row
 realignment, and the read-only action surface are vacated with the screen. No
 clause of this record obliges a render, a display order, a stored recency
 column, or a stamp advance.
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current rows and their query contracts, not an event or replay contract. The store
+The store keeps current rows and their query contracts ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). The store
 materialization named in Context keeps its owning contracts and serves the
 JSON agent tools and the managed session context. `updated_at` keeps its
 versioned-write meaning.

@@ -3,20 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-10-19
 - **Scope:** Host process claims, landing refresh, and failure attribution at
-  dispatch admission. [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-  governs: no convergence basis, escalation wall, or attempt count exists;
-  each launch carries its own authority.
-- **Amends:** [CD-0201](CD-0201-workflow-action-admission-is-derived-once-and-every-reachable-state-stays-live.md)
-  its equal-answer consequence (equal history and equal host inputs);
-  [CD-0178](CD-0178-each-repository-gets-its-own-coordinator-session.md) D3
-  (a same-session landing records a replacement host process).
-  [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-  supersedes the counted-attempt relations this record made: no basis family,
-  escalation wall, retry approval, or counted exit exists.
+  dispatch admission. Each launch carries its own authority ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 - **Preserves:** CD-0205 D7's rule that a bare cancellation proves no cause;
-  [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-  governs: no dispatch count, three-attempt limit, or nonprogress window
-  exists.
 - **Approval:** The operator approved the exact text of this record and of
   the amendments it makes on 2026-10-19 (CD-0230 D4), for
   [Concord (CON) issue 1188](https://linear.app/sharper-flow/issue/CON-1188).
@@ -25,19 +13,14 @@
   supersession a failed launch needed before another launch. It touches
   security: a caller-supplied process claim, which an authorized agent with
   shell access can arrange, feeds a recorded claim the admission checks.
-  [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-  governs: it authorizes no launch, and each launch is admitted on its own
-  scope and safety checks. The Domain test counts one child Domain,
+  It authorizes no launch, and each launch is admitted on its own scope and safety checks ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)). The Domain test counts one child Domain,
   `workflow-engine`; CD-0178 is root-homed and no amended law declares
   applicability. It changes no UI/UX.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D6
 
 ## Context
 
 A worker attempt can fail because the host killed it, not because the worker
-or the contract was wrong. [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-governs: each launch is one admitted request on its own scope and safety
-checks, with no attempt count, findings basis, or approval-gated exit. A
+or the contract was wrong. Each launch is one admitted request on its own scope and safety checks ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)). A
 launch with an unknown effect is reconciled before another launch for that
 assignment.
 
@@ -54,28 +37,18 @@ worktree: the process id supplied by the adapter and its start time read from
 
 ### D1. A later recorded process claim
 
-[CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-governs: each launch is one admitted request with its own scope and subject
-bindings, no attempt count, convergence basis, or escalation wall exists, and
-a launch with an unknown effect is reconciled before another launch for that
-assignment.
+Each launch is one admitted request with its own scope and subject bindings, and a launch with an unknown effect is reconciled before another launch for that assignment ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ### D2. Recorded facts gate no launch
 
-[CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-governs: authorization, actual start, terminal result, and result acceptance
-are distinct recorded facts, and no basis token, retry approval, or count
-gates a launch; scope, prerequisite, ownership, and safety checks remain.
+Authorization, actual start, terminal result, and result acceptance are distinct recorded facts; scope, prerequisite, ownership, and safety checks remain ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ### D3. Host observation is a loader input, and a landing refreshes it
 
 The current host observation is an input to the single admission loader
 (CD-0201 D1), not a separate admission route. The dispatch admission reads it
 from current rows.
-[CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-governs: no `host_changed` or other convergence basis exists, and no pin
-advertises an escalated retry; equal history and equal host inputs give equal
-answers.
+Equal current state and equal host inputs give equal answers ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 CD-0201's liveness checks keep their owners, and contract supersession keeps
 its own exit; no counted `host_changed` exit or conditional host-recovery
@@ -91,10 +64,7 @@ The caller reads the host lease set before the dispatch transaction opens
 
 ### D4. Attribution is an eligibility condition, not an authority
 
-[CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-governs: recorded observations grant no launch authority; each launch is one
-admitted request, and attribution records what its producer observed without
-counting attempts or opening windows.
+Recorded observations grant no launch authority; each launch is one admitted request, and attribution records what its producer observed ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ## Alternatives considered
 
@@ -111,10 +81,7 @@ counting attempts or opening windows.
 
 ## Consequences
 
-[CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-governs: no escalation wall, convergence basis, or counted attempt exists; a
-recorded process claim authorizes no launch, and each launch is admitted on
-its own scope and safety checks. A genuine restart is evidence that new host
+A recorded process claim authorizes no launch, and each launch is admitted on its own scope and safety checks ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)). A genuine restart is evidence that new host
 code can run, not proof that the fault is fixed.
 
 The landing and host-lease CLI verbs are not signed producer attestations.
@@ -122,14 +89,9 @@ They supply a recorded process claim that the core checks against the live
 process and lease; they prove neither that this session runs in that process
 nor that it loaded repaired plugin code. An ordinary authorized agent with
 shell access can invoke those verbs and record a process claim without
-repairing or restarting its actual host. [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-governs: that record authorizes no launch, no result acceptance, and no
-window reset; launches are admitted on their own scope, prerequisite,
-ownership, and safety checks.
+repairing or restarting its actual host. That record authorizes no launch or result acceptance; launches are admitted on their own scope, prerequisite, ownership, and safety checks ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
-Recorded results do not change. [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-governs: no host basis is derived from any recorded failure, and a recorded
-failure authorizes no launch.
+Recorded results do not change. A recorded failure authorizes no launch ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ## Verification
 

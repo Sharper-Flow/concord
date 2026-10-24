@@ -21,20 +21,19 @@ model may assume it is the only writer.
 
 ## Decision
 
-A resource claim grants no approval or workflow authority. Terminal-transition consent follows CD-0013 D11: routine acceptance-backed completion needs no operator approval, and cancellation and work removal require it only when a CD-0243 D2 class applies. All lifecycle, evidence, dependency, and claim-release invariants remain required. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: no historical workflow pins are retained; identities active work needs derive at the integration boundary.
-
+A resource claim grants no approval or workflow authority. Terminal-transition consent follows CD-0013 D11: routine acceptance-backed completion needs no operator approval, and cancellation and work removal require it only when a CD-0243 D2 class applies. All lifecycle, evidence, dependency, and claim-release invariants remain required. Identities active work needs derive at the integration boundary ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 **D1. A claim is a durable record of intent, not a lock.**
 `concord_work_relate.resource_claim` records that one work item holds one
 typed resource key for a stated reason. `resource_release` releases it. The
-`resource_claims` table is one row per key ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each mutation writes current rows in one transaction; no fold projection exists): the second claimant
+`resource_claims` table is one row per key (each mutation writes current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))): the second claimant
 receives a typed refusal (`resource_claim_held`) naming coordination, not
 authority. The same holder re-claiming is an idempotent replay.
 
 **D2. The holder is the work item, not the session.** Claims attach to work
 items as versioned current rows, so they survive session
 restart, compaction, and context loss by construction — the same durability
-every work fact has ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no event log exists). A terminal transition of the holding
+every work fact has. A terminal transition of the holding
 work releases everything it still holds: completion, cancellation, or
 supersession cannot deadlock a resource.
 

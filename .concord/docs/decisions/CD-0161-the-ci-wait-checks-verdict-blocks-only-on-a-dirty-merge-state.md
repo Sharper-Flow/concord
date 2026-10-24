@@ -15,8 +15,6 @@
 - **Preserves:** The CD-0160 verb ownership, one bounded slice, carried
   deadline, head-SHA supersession, narrowed command allowance, and explicit
   error reporting
-- **Amends:** CD-0160 D1 (the `mode` input), D2 (the `merged` and `closed`
-  statuses), and D4
 
 ## Context
 

@@ -8,7 +8,6 @@
   [CD-0215](CD-0215-retained-research-context.md),
   [CD-0216](CD-0216-research-surface-and-explicit-retirement.md),
   [CD-0142](CD-0142-operator-directed-execution-removal.md), PM8, PM9, and PM10
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 owns store retention and snapshots
 
 **Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 limits this record's operator-consent requirements to its six classes; its D5 replaces an unconditional recovery veto. Retention eligibility, publication proof, and other non-consent checks remain required.

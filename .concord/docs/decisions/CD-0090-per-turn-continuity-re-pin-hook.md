@@ -13,9 +13,6 @@
 - **Amended:** Concord (CON) issue CON-910 (2026-10-13) re-homes D2's work resolution from the
   launcher identity environment to the session's directory and active claim,
   under the Snowball coordinator's operator-delegated approval.
-- **Supersedes:** nothing. Amends the recorded consequences of CD-0016
-  (§Consequences, "does not add a generic host hook") and CD-0031
-  (§Consequences, "OpenCode host hooks and plugins are unnecessary").
 - **Amended:** D2 resolves the session's work from the directory the session
   runs in, through its active claimed worktree, not from the launcher identity
   environment; a session under a managed parent adds no block. Compatible

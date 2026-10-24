@@ -8,8 +8,6 @@
   of the plugin tuple entry, the coordinator instructions that name the
   route, and the bounded Project-session handoff its sessions record and
   consume
-- **Amends:** CD-0078 D1 and D2 and its rejected pluggable-placement
-  alternative, CD-0163, CD-0176 D2
 - **Amended:** D5's consume binding widened from the authenticated
   receiving session to the work-and-Project pair: every coordinator
   session with a verified landing in the receiving Project may dispatch

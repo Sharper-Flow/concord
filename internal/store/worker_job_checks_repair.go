@@ -51,7 +51,7 @@ type WorkerChecksRepairReviewAdmission struct {
 // checks repair: the record_worker_job action's declared payload names the
 // repair_revisions member. The capability derives from the pinned payload
 // exactly as the acceptance oracle does, so released pins keep the rule they
-// shipped with (CD-0115) and no behavior flag exists.
+// shipped with and no behavior flag exists.
 func workflowChecksRepairActive(definition WorkflowDefinition) bool {
 	for _, action := range definition.ActionDefinitions {
 		if action.ID != "record_worker_job" {

@@ -27,7 +27,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d635a062e1d5013d2cda111e74444fd1dce2d5143d2502f6ce41231eaf6b6c79",
+  "sha256": "sha256:87905f15315ed30abb311708349e87c97af97781a7045cfc0fcb433572718322",
   "status": "accepted",
   "summary": "The worker completion readback reads the host session API in process over bounded message pages, and one serializer escapes '@' in the lane packet so no host agent mention forms, while the opening-packet check, the model and agent identity, and the born-failed recording stay unchanged.",
   "tags": [

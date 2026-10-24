@@ -55,7 +55,7 @@ restore.
 The claimed worktree directory is the only directory `session-prepare` uses.
 Agent definition resolution, the calling-host registry probe, and the context
 read all take it. The probe is one bounded bare probe under the calling
-host's inherited environment (CD-0189 as amended). None of the three treats
+host's inherited environment (CD-0189). None of the three treats
 an inherited launch working directory as work authority.
 
 The ordering is part of the decision. The claimed directory is established by

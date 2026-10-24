@@ -4,8 +4,6 @@
 - **Date:** 2026-09-28
 - **Scope:** The reading of CD-0172 D1's refusal sentence at the complete step
   of a workflow kind with no complete-step correction route
-- **Amends:** CD-0172 D1 at its last sentence ("Any other work kind or step
-  refuses.")
 - **Preserves:** CD-0172 D1's admission gate and D2 through D6 in full;
   CD-0222 D7's ordinary stale recovery; the stale re-pin admission the store
   already performs

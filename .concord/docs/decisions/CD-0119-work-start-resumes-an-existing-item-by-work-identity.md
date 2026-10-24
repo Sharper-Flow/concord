@@ -15,8 +15,6 @@
   existing item without an active worktree starts through the durable
   host-owned bootstrap under its original work identity.
 - **Related:** CD-0096, CD-0098, CD-0104, CD-0110, issues #891, #822
-- **Amends:** CD-0098 D1 at its capture-only clause; CD-0104 D3 at its
-  digest-keyed clause
 - **Preserves:** CD-0096 D2 (identity over input), CD-0098 D2 and D3 (the move
   route and its read-back), CD-0104 D1 and D5 (no stored session binding; no
   occupancy refusal)

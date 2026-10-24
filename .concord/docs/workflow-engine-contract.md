@@ -18,8 +18,6 @@
 This document fills the implementation-design boundary left by CD-0013. It does
 not add a workflow family, predicate kind, authority, or agent tool. The
 workflow tables are current state written one mutation at a time;
-[CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-governs: no event log, fold, upcaster, or replay exists.
 
 CD-0015 adds the law boundary without adding a workflow tool.
 Only contracts approved through surface `2.2.0` carry the internal persisted
@@ -70,7 +68,7 @@ dispatch, and the built-in family graphs.
 
 ## Contract
 
-For definitions declaring `approval_policy=consequence_v1`, CD-0013 D11 qualifies every operator-only contract, premise, verdict, correction, supersession, and completion clause in this contract, including their actor mappings. Engineering records a valid contract and coordinator confirmation; review records verdicts without consent, and Implement cannot accept its own result ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)); coordinators record completion against those verdicts. No synthetic operator or approval evidence is created. Decision-bearing checkpoints retain human authority. [CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: generated definitions derive from one source with no retained released version, and every evidence, recovery, source, and liveness obligation remains required.
+For definitions declaring `approval_policy=consequence_v1`, CD-0013 D11 qualifies every operator-only contract, premise, verdict, correction, supersession, and completion clause in this contract, including their actor mappings. Engineering records a valid contract and coordinator confirmation; review records verdicts without consent, and Implement cannot accept its own result ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)); coordinators record completion against those verdicts. No synthetic operator or approval evidence is created. Decision-bearing checkpoints retain human authority. Generated definitions derive from one source, and every evidence, recovery, source, and liveness obligation remains required ([CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 The binding contract is sections 1 through 12: the common representation and
 bounds, the definition registry, the instance state machine, current workflow
@@ -206,9 +204,7 @@ current epoch.
 
 ## 4. Typed mutation records
 
-[CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-governs: the store keeps current state and finite snapshots, not an append-only
-workflow history; no workflow event log, upcaster, or replay exists. Each
+The store keeps current state and finite snapshots ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Each
 mutation writes current rows in one transaction checked by an expected version
 and recorded by its idempotency key. The names below identify the typed
 mutation records that the §12 action tables map actions to; omitted and unknown keys are
@@ -256,10 +252,7 @@ beside the two resolver states.
 ## 5. V15 projections, constraints, and state tables
 
 The tables below are the workflow engine's current-state tables.
-[CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-governs: each mutation writes current rows in one transaction checked by an
-expected version and recorded by its idempotency key, and no fold or
-rebuild-from-log route exists. Direct writes are refused; only
+Each mutation writes current rows in one transaction checked by an expected version and recorded by its idempotency key ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Direct writes are refused; only
 `ApplyOperationTx` and `CompleteWorkflowTxWithRegistry` mutate these tables.
 `work_id` references the
 existing `work_items(id)` key; actor references point to `workflow_actors`.
@@ -385,11 +378,7 @@ lease and its streams; worktree reclamation alone does not erase access.
 
 ### 5.2 Current-row effects
 
-[CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-governs: workflow state is current rows written by each mutation in one
-transaction; no fold or rebuild-from-log exists, and recovery uses verified
-snapshots plus reconciliation of current rows with Git, worktrees, artifacts,
-and external effects.
+Workflow state is current rows written by each mutation in one transaction, and recovery uses verified snapshots plus reconciliation of current rows with Git, worktrees, artifacts, and external effects ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 | Record | Current-row effect |
 |---|---|
@@ -717,9 +706,7 @@ WF09, WF22, and WF25 each bind their criterion to a production route.
 
 ## 12. Built-in family graphs and actions
 
-[CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-governs: each family's definition is generated from one canonical source, and no
-released definition version is retained for history. Every family has typed
+Every family has typed
 action execution modes. The
 `accept_worker_result`, `record_worker_failure`, and `dispatch_worker` set lands
 on each dispatchable, non-terminal step. The generated lane-step join decides
@@ -826,10 +813,7 @@ operator confirmation; an oracle pass supplies none of those authorities.
 
 ### 12.2 Action definitions and composition
 
-[CD-0242 D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-governs: each launch is one admitted request with its own scope, assignment,
-and subject bindings; no attempt count, correction count, convergence basis,
-escalation wall, or reset exists. A launch confirmed never started leaves the
+Each launch is one admitted request with its own scope, assignment, and subject bindings ([CD-0242 D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)). A launch confirmed never started leaves the
 assignment and its valid proof unchanged, and a launch with an unknown effect
 is reconciled before another launch for that assignment.
 

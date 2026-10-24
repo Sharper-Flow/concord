@@ -10,15 +10,11 @@
   for [Concord (CON) issue 1063](https://linear.app/sharper-flow/issue/CON-1063).
   The full-successor framing is removed; D2 follows current Product law.
 - **Related:** CD-0006 D1-D2, CD-0053 D4, CD-0222, PM4, C15, and issue #571
-- **Amends:** CD-0006 D1-D2 and CD-0053 D4's cutover framing
 - **Preserves:** CD-0053's three accepted predecessor-strength answers; CD-0222's
   Domain-overlap execution block and Domain `replaces` relation; PM4 work-item
   supersession; immutable schema migrations and the other data-integrity
   controls that keep current state authoritative
   ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2)
-- **Supersedes:** No whole-record relation. This record governs local migration
-  and correction without changing unrelated runtime contracts.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 
 ## Context
 
@@ -63,10 +59,7 @@ remain current. PM4's `supersedes` relation remains the bounded work-item
 operation that atomically changes the predecessor's terminal state.
 
 No generic Product, Project, resource, or workflow replacement relation is added
-by this decision. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-governs: the store keeps current state in one transaction per mutation; immutable
-schema migrations, native authority, and the other data-integrity controls
-remain current.
+by this decision. The store keeps current state in one transaction per mutation; immutable schema migrations, native authority, and the other data-integrity controls remain current ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ## Explicit amendments
 

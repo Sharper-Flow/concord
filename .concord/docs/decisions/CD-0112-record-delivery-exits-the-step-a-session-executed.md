@@ -12,10 +12,6 @@
   2026-09-08 in Concord work-8bc9259e3a54d5db68e3a60e.
 - **Related:** CD-0013, CD-0016, CD-0027, CD-0109, and issues #801, #833, #837,
   and #869
-- **Amends:** CD-0016 (context continuity) by fixing the execution mode of
-  `checkpoint_context` and `cross_context_boundary` to hold; extends CD-0013
-  §12 with `record_delivery`; extends CD-0059 with failed-result recording
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D3, D5, D14
 
 ## Context
 
@@ -48,9 +44,7 @@ Every external-effect step declares `record_delivery` as its exit, with an
 ([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).
 The dispatcher admits it only when the step's fenced start action ran in the
 current attempt, since delivery states that the step's own work finished.
-[CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)
-governs: admission refuses `record_delivery` after a lane dispatch in that
-attempt. A completed lane exits through `accept_worker_result`. A failed lane
+Admission refuses `record_delivery` after a lane dispatch in that attempt ([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)). A completed lane exits through `accept_worker_result`. A failed lane
 holds the step until the owner records the failure and starts a fresh attempt.
 
 ### D3. The decision record advances, and acceptance of it lives on review
@@ -72,8 +66,7 @@ the attempt ID and the current step epoch.
 Admission requires an exact failed attempt from this work item, and checks
 the dispatch order, step epoch, and authenticated actor
 ([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).
-[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)
-governs: no evaluator distinctness beyond its rules is checked. The action
+The action
 refuses active, completed, foreign, stale, and previously recorded attempts
 without mutation.
 
@@ -125,9 +118,6 @@ Scenario: A fresh attempt exits after a recorded lane failure
 
 ## Consequences
 
-[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-governs: the worker-action set is generated from the one canonical source, and
-no prior definition bytes or digest pins are retained.
 `record_worker_failure` joins the worker-action set in current definitions and
 the generated agent payload contract. The conformance corpus keeps successful
 lane exits on `accept_worker_result` and session exits on `record_delivery`.

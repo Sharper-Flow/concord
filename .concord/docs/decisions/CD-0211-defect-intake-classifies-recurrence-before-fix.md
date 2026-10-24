@@ -4,12 +4,9 @@
 - **Date:** 2026-10-08
 - **Scope:** Public defect capture, its Product-scoped sibling classification,
   the research prerequisite for recurrence, and the exploration utility body
-- **Amends:** CD-0149 D2 at its exploration return prose: the generated explore
-  body returns a facts-only packet, per D5 below
 - **Preserves:** CD-0122 D2, CD-0156 D5 relation authority,
   CD-0198 D2 diagnosis consolidation, operator approval, independent verdicts,
-  and evidence provenance; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded rows read back unchanged
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
+  and evidence provenance; recorded rows read back unchanged ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))
 - **Planning record:** Concord (CON) issue [CON-797](https://linear.app/sharper-flow/issue/CON-797/defect-intake-skips-root-cause-analysis-so-a-systemic-workflow-fault),
   `work-b0b08d6e28a8db2bad386ee6`
 - **Approval:** The operator approved this record's obligations on 2026-10-08,
@@ -218,13 +215,13 @@ with source `path:line`, relevant counts with their populations, historical
 commit identifiers, and explicit unknowns. It prohibits inferred root causes,
 diagnoses, and repair recommendations. The parent coordinator owns diagnosis.
 
-This amends CD-0149 D2's return prose on approval. It creates no report schema,
+It creates no report schema,
 lane evidence, new tool permission, or workflow authority. Generator tests
 prove the body contract; they do not prove that a model obeys prose.
 
 ### D6. Historical records and workflow law remain intact
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded captures read back as recorded, with no payload version, upcast, or prefix replay, and no existing bug is reclassified retroactively. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source, so the prerequisite changes no workflow digest or graph.
+Recorded captures read back as recorded, and no existing bug is reclassified retroactively ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 CD-0198 D2 remains authoritative for future diagnosis consolidation. This
 capture prerequisite does not add another break-fix diagnosis action or

@@ -5,10 +5,6 @@
 - **Scope:** The escaped-`SQLITE_BUSY` occurrences on record through
   2026-09-30, the write-transaction boundary in the store, and the conformance
   workload population, [Concord (CON) issue 750](https://linear.app/sharper-flow/issue/CON-750)
-- **Amends:** CD-0011 §Falsifier interpretation at its escaped-`SQLITE_BUSY`
-  condition: this record holds the disposition of the two escape classes on
-  record through 2026-09-30, and the condition itself stands unchanged for
-  any later escape
 - **Preserves:** CD-0011's reopen conditions as written, CD-0045's bounded
   writer admission quantities, and the single-writer comparison as the first
   bounded comparison

@@ -13,9 +13,6 @@
 - **Related:** CD-0043 (D1), CD-0074, issue #510
 - **Preserves:** CD-0074 D2's path-containment rules, D4's probe exclusion, the
   `tier` cost fact, optional `cost_hint`, `config_path`, and `automation_path`
-- **Supersedes:** CD-0074 D1 only where it requires `cadence`; D2's bad-cadence
-  claim; D3's classification of `on_demand` as a fact; D5 in full; and the
-  cadence clauses in CD-0074's consequences and verification
 
 ## Context
 

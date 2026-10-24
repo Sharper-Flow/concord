@@ -5,7 +5,6 @@
 - **Scope:** Concord workflow participation, outside project work, and defect repair
 - **Approval:** The operator approved this repository policy.
 - **Related:** CD-0089, CD-0102, CD-0104, and CD-0213
-- **Amends:** CD-0089 at the scope of Concord development coordination
 - **Preserves:** Product law, repository review and merge evidence, worktree
   isolation, and host-owned roles
 

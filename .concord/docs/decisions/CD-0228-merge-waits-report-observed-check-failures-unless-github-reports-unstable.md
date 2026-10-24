@@ -3,13 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-10-15
 - **Scope:** Merge-mode classification in `concord ci-wait`
-- **Amends:** [CD-0161](CD-0161-the-ci-wait-checks-verdict-blocks-only-on-a-dirty-merge-state.md) D2 and
-  [CD-0168](CD-0168-the-ci-wait-pr-population-follows-the-rollup-page-boundary.md) D1
 - **Preserves:** Checks-mode completeness, head supersession, merged and closed
   precedence, bounded slices, carried deadlines, and the closed report statuses
-- **Amended by:** [CD-0232](CD-0232-a-merge-wait-ends-when-the-merge-queue-removes-the-pull-request.md)
-  at D1 and D2: a merge-queue removal ends the wait before check failures,
-  and merge mode reads the newest merge-queue event
 - **Related:** [CD-0160](CD-0160-the-ci-wait-utility-delegates-its-wait-to-a-deterministic-cli-verb.md)
 - **Approval:** The Snowball coordinator approved this law change on 2026-10-15
   under the operator's delegation (coordinator, operator-delegated).

@@ -6,11 +6,8 @@
   repair session entry
 - **Related:** CD-0122, CD-0183, CD-0111, CD-0104, CD-0189,
   [Concord (CON) issue 869](https://linear.app/sharper-flow/issue/CON-869)
-- **Amends:** CD-0183 D4 only for the explicit outside-repair reconciliation
-- **Extends:** CD-0122 D2 with typed entry and reconciliation routes
 - **Preserves:** CD-0122 D1 and D3, ordinary managed completion gates,
   repository review and merge evidence, and host-owned permissions and roles
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D3
 - **Approval:** The operator approved this law change on 2026-10-07,
   relayed by the Snowball coordinator. The public pull request carries its
   delivery evidence. This repair creates no managed workflow approval record.

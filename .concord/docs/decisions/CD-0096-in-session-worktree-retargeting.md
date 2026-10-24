@@ -9,15 +9,6 @@
   2026-09-01 (issue #689).
 - **Related:** CD-0088, CD-0090, CD-0092, CD-0093, CD-0094, CD-0095, CD-0104,
   issue #689
-- **Amends:** CD-0093 D2 at the session-directory clause only
-- **Amended by:** CD-0104 at Context, D1, D3 Take over, D5, and D6. The
-  effective target was a stored copy of the session directory, kept because
-  the session could not move. CD-0098 moved the session, and CD-0104 removed
-  the copy. D2, D3 Inspect, Verify, and Destroy, and D4 stand. CD-0105 at D3
-  Destroy names the trigger this tier left unnamed. CD-0118 at D3 Destroy
-  widens approval-free removal to unstarted work under its own gate. CD-0212
-  at D3 Destroy re-binds the git gates to one immutable live `HEAD`
-  observation and separates stored-ref deletion from directory removal.
 
 **Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 limits this record's operator-consent requirements to its six classes; its D5 replaces an unconditional recovery veto. Occupancy, identity, and other non-consent checks remain required.
@@ -60,7 +51,7 @@ property stands, and the tiers in D3 stand with it.
 
 ### D1. A session may adopt its current work item's canonical worktree as the effective target
 
-*Amended by CD-0104 D1.* There is no stored effective target and no retarget
+There is no stored effective target and no retarget
 operation. A session enters its work item's canonical worktree through
 `concord_work_start`, which moves the session (CD-0098), and later Concord
 operations resolve the tree from the directory the host reports per call. The
@@ -112,7 +103,7 @@ Bounded result metadata contains descriptors, not raw stream bodies.
 No separate output store, dispatch authority, or evidence kind is created.
 Existing scope, budget, lease, and mutation-refusal gates remain mandatory.
 
-**Take over.** *Amended by CD-0104 D5.* There is no typed transfer, because
+**Take over.** There is no typed transfer, because
 there is no stored holder to transfer from. A session that needs to edit
 another work item's worktree starts that work item. Two sessions in one
 worktree are refused only at the command level, by the Verify lease. The
@@ -141,7 +132,7 @@ it held before the retarget.
 
 ### D5. Continuity re-pins the target and the lease
 
-*Amended by CD-0104 D1.* The pinned continuity projection carries the reading
+The pinned continuity projection carries the reading
 session's active verify leases and no target. There is no target version to
 pin. The original clause follows for the record.
 
@@ -153,7 +144,7 @@ authorized.
 
 ### D6. The bootstrap route and its identity guarantees are unchanged
 
-*Amended by CD-0104 D3.* `concord_work_start` is the one route, and it replays
+`concord_work_start` is the one route, and it replays
 to convergence on its derived key. `session-prepare` still refuses a directory
 other than the active claimed worktree and records nothing. There is no
 in-session route to converge with. The original clause follows for the record.

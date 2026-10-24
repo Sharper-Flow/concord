@@ -13,9 +13,6 @@
 - **Preserves:** Git-derived scope resolution; the `cross_scope` gate; manifest
   digest pinning; the operator approval checkpoint; `principal_ref` as checked
   identity; every refusal the authority system currently returns
-- **Supersedes:** The process-level adversary asserted in CD-0044's context and
-  its third rejected alternative
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — no event-log table exists.
 
 ## Context
 
@@ -41,7 +38,7 @@ Three facts establish this, and none of them is a defect to be repaired:
 
 1. **The authority tables carry no integrity guard.** `internal/store/schema.go`
    declares 204 triggers. They protect projection tables, archived work, and the
-   workflow plane against UPDATE and DELETE ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no event-log table exists). Not one
+   workflow plane against UPDATE and DELETE. Not one
    protects `agent_clients`, `agent_client_keys`, `agent_grants`,
    `agent_approvals`, `agent_approval_challenges`, `agent_nonce_replay`, or
    `agent_installation_keys`. The tables the authority system trusts are the

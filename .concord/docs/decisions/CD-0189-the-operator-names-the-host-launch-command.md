@@ -4,8 +4,6 @@
 - **Date:** 2026-09-28
 - **Scope:** session-prepare's registry probe of the calling host; the
   retirement of the configured launch command and its Go launch obligations
-- **Amends:** CD-0093 (D4 and D5, retired by this record), CD-0176 (the D3
-  restatement)
 - **Related:** CD-0182, CD-0049, CD-0078, CD-0088, CD-0093
 - **Approval:** The operator approved reopening CD-0093 D4 on 2026-09-28
   after evidence that launcher-started sessions skip the host wrapper. The
@@ -68,8 +66,6 @@ operator-resumable sessions.
 
 ### D5. The law moves with the code
 
-This record's amendments to CD-0093 D4 and D5 and the CD-0176 D3
-restatement are superseded by this record's retirement of the option.
 `OPENCODE_BIN` stays a test seam and acquires no operator meaning. Concord
 ships no wrapper name and hard-codes none.
 

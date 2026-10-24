@@ -4,27 +4,10 @@
 - **Date:** 2026-10-01
 - **Scope:** Workflow action admission in the store; the post-rejection
   review debt settlement clause; the workflow liveness checks
-- **Extends:** CD-0172 at D1 and CD-0193 at D2, which require shared
-  predicates
-- **Amends:** CD-0166's settlement clause in one point — a fresh accepted
-  review settles the post-rejection review debt only when its verdict is
-  ship, or absent for the pre-CD-0197 reports
-- **Amended by:** CD-0209 D1, the typed `WorkflowRecoveryRoute` table and
-  the producer rule the route target must carry; CD-0209 D2, the
-  registration gate that refuses an undeclared or non-producer route;
-  CD-0209 D3, the one reader every runtime cross-step correction feeds
-  from; CD-0209 D4, the closed positive production classification;
-  CD-0209 D5, the artifact-staleness derivation and its admission halves;
-  CD-0209 D6, the work-pin sequence that names the next step;
-  CD-0209 D7, the liveness and conformance replay that read the
-  artifact-staleness bit;
-  [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
-  D3, equal answers require equal history and equal host observations
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D6, D14
 - **Preserves:** every other route refusal keeps its own scope (CD-0186);
   payload and identity checks stay in the guards; no generated contract
   changes
-- **Related:** CD-0043, CD-0133, CD-0137, CD-0143, CD-0164, CD-0166,
+- **Related:** CD-0043, CD-0133, CD-0137, CD-0143, CD-0166,
   CD-0173, CD-0187, CD-0197
 - **Approval:** The operator approved the approach in session chat on
   2026-10-01, including the well-formed-state exit check and excluding

@@ -28,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8229dfd14571548bffead085c388008c396787627ff3e5a697240bc00517d967",
+  "sha256": "sha256:fe280ed73867481d70aa77b84fd144a02e4e2e6d54b18c254bc415d0d016c005",
   "status": "accepted",
   "summary": "In checks mode only DIRTY blocks a complete passing check verdict. Merge mode waits for an actual merge and selects the newest attempt per CheckRun name/workflow or StatusContext context. A failed or cancelled selected attempt ends the wait unless merge_state is UNSTABLE. Pending peers do not block that failure verdict. In merge mode merged and closed outcomes retain precedence; checks mode still judges the watched head's checks after a merge or close. Head supersession retains precedence in both modes, and every report carries the observed merge_state.",
   "tags": [

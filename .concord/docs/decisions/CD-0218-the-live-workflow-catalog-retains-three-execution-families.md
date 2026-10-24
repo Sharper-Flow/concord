@@ -6,26 +6,16 @@
   live migration or release activation is authorized.
 - **Classification:** Breaking replacement under CD-0036 D2
 - **Planning record:** [Concord (CON) issue 902](https://linear.app/sharper-flow/issue/CON-902/delete-redundant-workflow-ceremony-retain-minimal-authorized-agent)
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D4, D5, D6, D13, D14
 - **Approval:** The operator approved this successor as designed on 2026-10-09
   at 19:35 Eastern Daylight Time (EDT), relayed through the Snowball
   coordinator. This publication is the isolated candidate only: it does not
   update a serving Product's law projection, disposition live consumers, or
   activate a release.
 - **Candidate supersession set:** CD-0007, CD-0012, CD-0013, CD-0039,
-  CD-0077, CD-0115, CD-0156, CD-0198. This set comes from the approved design;
+  CD-0077, CD-0156, CD-0198. This set comes from the approved design;
   the D5 owner must resolve its current successor identities before cutover.
-- **Amends:** CD-0115, which
-  [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
-  supersedes in full;
-  [D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-  keeps current state and finite snapshots instead of retained historical
-  readers, and the cutover follows
-  [D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot):
-  one documented migration with a verified snapshot and the operator's
-  approval of its destructive operation.
 - **Related:** CD-0007, CD-0012, CD-0013, CD-0036, CD-0039, CD-0077,
-  CD-0115, CD-0156, CD-0172, CD-0186, CD-0198, CD-0215
+  CD-0156, CD-0172, CD-0186, CD-0198, CD-0215
 
 **Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 governs D1: Product-law changes require approval only under its six classes. Workflow-family and repository-law-route requirements do not change.
@@ -39,7 +29,7 @@ requirements remain unchanged.
 
 The live workflow catalog requires seven families. Four families repeat bounded
 job, independent evidence, and delivery duties that the retained execution owners
-already carry. Their public authoring can retire; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) and [D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) govern: the store keeps current state and finite snapshots, and the one documented cutover retires what the migration discards.
+already carry. Their public authoring can retire; the store keeps current state and finite snapshots, and the one documented cutover retires what the migration discards ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) and [D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
 This document proposes a replacement, not a same-ID amendment of removed duties.
 The replacement does not make research conclusions into binding Product law.
@@ -47,8 +37,7 @@ The accepted research-pack capability remains independent of workflow selection.
 
 ## Decision
 
-Only the three live execution families receive new `approval_policy=consequence_v1` versions under CD-0013 D11. [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current state and finite snapshots, not frozen history, and recorded work keeps its recorded consent and attribution facts. [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) governs: Review inspects the accumulated solution, verifies the corrected candidate, and reports one disposition that Main records, with no separate final evaluator; completion and engineering confirmation use their real authorized coordinators. No old work migrates implicitly and no retired family gains a new authoring route.
-
+Only the three live execution families receive new `approval_policy=consequence_v1` versions under CD-0013 D11. The store keeps current state and finite snapshots, and recorded work keeps its recorded consent and attribution facts ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Review inspects the accumulated solution, verifies the corrected candidate, and reports one disposition that Main records; completion and engineering confirmation use their real authorized coordinators ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). No old work migrates implicitly and no retired family gains a new authoring route.
 
 ### D1. Three families own new execution
 
@@ -75,11 +64,7 @@ claim, timer service, or new authority for external effects.
 
 ### D2. Fewer calls carry the same enforceable facts
 
-[CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)
-governs: the live families are implementation, break-fix, and research, rules
-derived from change type and risk set the mandatory stages, break-fix keeps
-diagnosis and regression proof, and no agent waives a mandatory stage or an
-operator approval.
+The live families are implementation, break-fix, and research, rules derived from change type and risk set the mandatory stages, break-fix keeps diagnosis and regression proof, and no agent waives a mandatory stage or an operator approval ([CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
 
 ### D3. Authorization and correction keep their owners
 
@@ -88,7 +73,7 @@ independent verdict evidence. Immutable job revisions, attempts, subject commits
 packet/report identities, actor/session/Project/worktree bindings, law/research
 pins, and operation/idempotency keys remain executable admission facts.
 
-One admission owner serves dispatch, delivery, correction, and closure; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: admission validates current rows in one transaction, with no folded event validation. Host preauthorization remains at its own
+One admission owner serves dispatch, delivery, correction, and closure; admission validates current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Host preauthorization remains at its own
 boundaries. No caller-supplied echo replaces dispatch-owned provenance.
 
 Complete-step contract correction remains confined to implementation and
@@ -113,19 +98,11 @@ no compatible-with approval requirement.
 
 ### D4. Recorded work reads back exactly
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-and
-[D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-govern: the store keeps current state and verified finite snapshots, not
-frozen history, and derived definitions are generated from one canonical
-source with no released version retained for history.
+The store keeps current state and verified finite snapshots ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### D5. Cutover is an operator-owned boundary
 
-[CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)
-governs: the cutover is one documented migration that inventories what
-survives, preserves every worktree and its uncommitted files, verifies the
-target, and needs the operator's approval of its destructive operation.
+The cutover is one documented migration that inventories what survives, preserves every worktree and its uncommitted files, verifies the target, and needs the operator's approval of its destructive operation ([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
 ### D6. Unchanged obligations must survive publication
 
@@ -134,7 +111,7 @@ Before publication, carry every unaffected obligation from those records into
 the accepted successor text or an approved coherent successor set. Retain the
 bootstrap/platform floor, explicit end-state and independent-verdict rules,
 research-pack guarantees, vocabulary ownership, the identities active work
-needs, mandatory backlog search, and CD-0198's evidence and approval floors. [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) governs: no retry count or retry floor exists; each launch carries its own authority, and its scope and safety checks remain.
+needs, mandatory backlog search, and CD-0198's evidence and approval floors. Each launch carries its own authority, and its scope and safety checks remain ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 Do not publish this draft with only a prose exception to still-accepted rules.
 The publication owner must update old record status, manifest identities,
@@ -195,7 +172,7 @@ than publish competing overrides.
 
 ## Alternatives considered
 
-- Delete historical definitions and recover them manually from Git. [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) governs: the one documented cutover migration, not manual recovery, retires what it discards.
+- Delete historical definitions and recover them manually from Git. The one documented cutover migration, not manual recovery, retires what it discards ([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 - Remap old families to implementation. The replacement would change authority,
   actors, graph exits, and the meaning of existing evidence.
 - Replace typed records with a progress field bag. Structural admission would
@@ -225,17 +202,13 @@ D9 for historic attributed reports, failures, and effects.
 
 CD-0077 keeps operator kind separation, stored historical names, and immutable
 migration checksums. CD-0156 keeps mandatory backlog search. CD-0198 keeps its
-evidence, approval, and start floors; [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-governs: no retry floor exists. CD-0215 owns the research-pack
+evidence, approval, and start floors. CD-0215 owns the research-pack
 guarantees, and this record leaves it standing.
 
 CD-0215 D2 still requires a separate architecture spike decision. Before cutover,
 the approved successor set resolves that obligation.
 This candidate does not change CD-0215.
 
-[CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) supersedes CD-0115 in full and resolves the CD-0115 amendment:
-[D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) keeps current state and finite snapshots, and
-[D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) generates derived definitions from one source.
 Retired families keep no live capture eligibility; that refusal activates with the
 set at the D5 boundary.
 

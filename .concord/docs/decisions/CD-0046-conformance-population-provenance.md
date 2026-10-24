@@ -16,8 +16,6 @@
   accepted load profile, the correctness-precedes-latency precedence, and
   the diagnostic entry point under `CONCORD_CONFORMANCE_UNPACED=1`. The
   threshold itself and the pacing profile are untouched.
-- **Supersedes:** nothing; amends the wording of a population-authority claim
-  CD-0011 already decided the substance of
 
 ## Context
 

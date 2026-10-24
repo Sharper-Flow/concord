@@ -32,7 +32,7 @@ The current architecture therefore remains:
 2. short-lived processes using the in-process store library;
 3. `WAL`, `synchronous=NORMAL`, per-connection foreign keys and busy timeout;
 4. current-row writes checked by expected version and recorded by idempotency key
-   ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no event log or projection fold exists), explicit attempt
+, explicit attempt
    epochs, and PM10 Online Backup/Restore;
 5. git as the separate durable-knowledge authority fixed by PM6–PM10.
 

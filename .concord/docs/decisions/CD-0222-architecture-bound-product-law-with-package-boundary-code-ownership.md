@@ -30,7 +30,6 @@
   of Product-changing work follows
   [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
   D4.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D7
 
 **Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 governs D1, D4, and D5: law mandates and enactment require approval only under its six classes. It also governs D6's overlap approval rule. Law homes, applicability, footprint, and architecture checks do not change.
@@ -77,7 +76,6 @@ package-boundary code ownership. D12 states the navigation retirement.
 ## Decision
 
 D6's approval rule follows CD-0013 D11: `depends_on`, `blocks`, and `compatible_with` are routine version-pinned coordination answers; `merged_into` and `supersedes` abandon or replace work identity and require operator approval only when a CD-0243 D2 class applies. Current Domain intersections, judged-content freshness, both endpoint versions, the dedicated atomic writer, cycle rules, and D7 consequential admission remain required. Routine supersession grants neither legislative authority nor a standing overlap exemption.
-
 
 ### D1. Product law and architectural concordance serve the goals
 
@@ -411,7 +409,7 @@ Implementation uses an explicit major migration rather than permanent aliases:
    current law. New writes use `home_domain_id` and
    `applies_to_domain_ids`.
 3. Historical `kind=epic` rows and `epic_entries` remain readable as recorded
-   rows; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded rows read back unchanged, with no upcaster or rebuild. History is not rewritten.
+   rows; recorded rows read back unchanged ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
    Recorded `component` applicability scopes read as `domain` with the retained ID.
 4. New writes use neither `kind=epic` nor `kind=initiative`. Historical
    initiative work reads back unchanged and refuses new writes under CD-0213 D8.

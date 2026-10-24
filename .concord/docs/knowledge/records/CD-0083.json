@@ -18,7 +18,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:affaddaa6fbfc5610f284e873c1c6dea1a5b5d78667d3d8de292d500909add17",
+  "sha256": "sha256:651b8ed725123613e2a614c959c73fc460e2b3350bca87beaefd81dae9fcb8ff",
   "status": "accepted",
   "summary": "The assistive-technology validation obligations retired with the launcher render surface under CD-0219: the C14 section 9 no-color condition, the operator screen-reader obligation, and the CD-0014 falsifier are vacated with their subject, and coverage carries an out-of-scope state rather than a satisfied one.",
   "tags": [

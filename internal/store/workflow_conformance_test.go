@@ -837,8 +837,7 @@ func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
 const workflowScenarioNumberCeiling = 57
 
 // WF03 and WF52 asserted the label-only vacuity refusal and were retired with
-// CD-0236. WF36 asserted core point-in-time reconstruction and was retired
-// with CD-0238.
+// CD-0236. WF36 is excluded from the current-state contract (CD-0242 D2).
 var retiredWorkflowScenarioNumbers = map[int]bool{3: true, 36: true, 52: true}
 
 func workflowScenarioIDs() []string {

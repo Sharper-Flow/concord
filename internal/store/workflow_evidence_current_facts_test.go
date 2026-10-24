@@ -97,17 +97,35 @@ func TestWorkflowEvidenceCurrentFactsMigrationBackfill(t *testing.T) {
  ('removed-completion','workflow.action_completed','work_item','removed-work','actor:removed','2026-10-01T00:00:00Z',1,'{"action_id":"confirm_premise"}')`); err != nil {
 		t.Fatal(err)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	repopulateWorkflowCurrentFactsForTest(t, s)
+	if _, err := s.db.Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
+		t.Fatal(err)
+	}
+	if got := workerFactsQueryRows(t, s, queries); !reflect.DeepEqual(got, want) {
+		t.Fatalf("migration changed current facts:\ngot %v\nwant %v", got, want)
+	}
+}
+
+func repopulateWorkflowCurrentFactsForTest(t *testing.T, s *Store) {
+	t.Helper()
+	tx, err := s.db.BeginTx(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(`
 DROP TABLE workflow_phase_exits;
+DROP TABLE workflow_correction_state;
+DROP TABLE workflow_predicate_verdicts;
+DROP TABLE workflow_delivery_state;
 DROP TABLE compaction_publications;
 DROP TABLE workflow_evidence_bindings;
 DROP TABLE workflow_staleness_observations;
 ALTER TABLE workflow_contracts DROP COLUMN supersession_seq;
+ALTER TABLE workflow_instances DROP COLUMN completion_payload;
+ALTER TABLE workflow_instances DROP COLUMN completion_occurred_at;
+ALTER TABLE workflow_instances DROP COLUMN unhealthy_verdict_seq;
+ALTER TABLE work_observations DROP COLUMN recorded_seq;
 ALTER TABLE workflow_step_epochs DROP COLUMN latest_start_seq;
 ALTER TABLE workflow_step_epochs DROP COLUMN latest_start_event_id;
 ALTER TABLE workflow_step_epochs DROP COLUMN latest_start_payload;
@@ -119,18 +137,12 @@ ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_payload;
 	}
 	for _, m := range migrations {
 		if m.Version == 142 {
-			if _, err := tx.Exec(m.SQL); err != nil {
+			if err := applyMigration(t.Context(), tx, m); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
-	}
-	if _, err := s.db.Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
-		t.Fatal(err)
-	}
-	if got := workerFactsQueryRows(t, s, queries); !reflect.DeepEqual(got, want) {
-		t.Fatalf("migration changed current facts:\ngot %v\nwant %v", got, want)
 	}
 }

@@ -202,7 +202,7 @@ func foldWorkflowDeliveryCorrected(ctx context.Context, tx *sql.Tx, event Event)
 		return newFailure(KindInvalidOperation, "fold_event", "delivery correction target is not the current delivery assertion", false, "target the latest recorded delivery assertion")
 	}
 	var corrections int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND event_id<>? AND json_extract(payload,'$.target_event_id')=?`, string(SubjectWorkItem), event.SubjectID, WorkflowDeliveryCorrected, event.EventID, p.TargetEventID).Scan(&corrections); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_delivery_state WHERE work_id=? AND assertion_id=? AND correction_id IS NOT NULL AND correction_id<>?`, event.SubjectID, p.TargetEventID, event.EventID).Scan(&corrections); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect prior delivery corrections", true, "retry once the event log is readable", err)
 	}
 	if corrections != 0 {
@@ -218,9 +218,9 @@ func foldWorkflowDeliveryCorrected(ctx context.Context, tx *sql.Tx, event Event)
 	if instanceState != "completed" {
 		return newFailure(KindInvalidOperation, "fold_event", "delivery correction applies only to a completed workflow instance", false, "correct delivery on a live instance through record_delivery")
 	}
-	// The fold writes nothing besides the version advance: the instance stays
-	// closed, the original event stays untouched, and the read surfaces derive
-	// the effective assertion from the log.
+	if _, err := tx.ExecContext(ctx, `UPDATE workflow_delivery_state SET correction_id=?,correction_occurred_at=?,correction_payload=? WHERE work_id=? AND assertion_id=?`, event.EventID, event.OccurredAt.UTC().Format(time.RFC3339Nano), string(event.Payload), event.SubjectID, p.TargetEventID); err != nil {
+		return workflowProjectionError(err, "cannot record the current delivery correction")
+	}
 	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
 }
 
@@ -260,7 +260,7 @@ func workflowDeliveryAssertionEventTx(ctx context.Context, tx *sql.Tx, workID, e
 // answer as one kind of event.
 func workflowLatestDeliveryAssertionSeqTx(ctx context.Context, tx *sql.Tx, workID string) (int64, error) {
 	var seq int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND COALESCE(json_extract(payload,'$.delivery_artifact'),'')<>'' AND COALESCE(json_extract(payload,'$.delivery_state'),'')='asserted'`, string(SubjectWorkItem), workID, WorkflowActionCompleted).Scan(&seq); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(assertion_seq),0) FROM workflow_delivery_state WHERE work_id=?`, workID).Scan(&seq); err != nil {
 		return 0, wrapFailure(KindUnavailable, "fold_event", "cannot read the latest delivery assertion", true, "retry once the event log is readable", err)
 	}
 	return seq, nil
@@ -308,7 +308,7 @@ func workflowDeliveryAssertionRead(ctx context.Context, q queryer, workID string
 	var seq int64
 	var eventID, actor, occurredAt, payload string
 	var payloadVersion int
-	if err := q.QueryRowContext(ctx, `SELECT seq,event_id,actor,occurred_at,payload_version,payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND COALESCE(json_extract(payload,'$.delivery_artifact'),'')<>'' AND COALESCE(json_extract(payload,'$.delivery_state'),'')='asserted' ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted).Scan(&seq, &eventID, &actor, &occurredAt, &payloadVersion, &payload); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT assertion_seq,assertion_id,actor,occurred_at,payload_version,payload FROM workflow_delivery_state WHERE work_id=?`, workID).Scan(&seq, &eventID, &actor, &occurredAt, &payloadVersion, &payload); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -333,7 +333,7 @@ func workflowDeliveryAssertionRead(ctx context.Context, q queryer, workID string
 
 func workflowDeliveryCorrectionRead(ctx context.Context, q queryer, workID, targetEventID string) (*WorkflowReadDeliveryCorrection, error) {
 	var eventID, reason, artifact, evidenceSource, approvalRef, occurredAt string
-	if err := q.QueryRowContext(ctx, `SELECT event_id,COALESCE(json_extract(payload,'$.reason'),''),COALESCE(json_extract(payload,'$.delivery_artifact'),''),COALESCE(json_extract(payload,'$.evidence_source'),''),COALESCE(json_extract(payload,'$.approval_ref'),''),occurred_at FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.target_event_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowDeliveryCorrected, targetEventID).Scan(&eventID, &reason, &artifact, &evidenceSource, &approvalRef, &occurredAt); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT correction_id,COALESCE(json_extract(correction_payload,'$.reason'),''),COALESCE(json_extract(correction_payload,'$.delivery_artifact'),''),COALESCE(json_extract(correction_payload,'$.evidence_source'),''),COALESCE(json_extract(correction_payload,'$.approval_ref'),''),correction_occurred_at FROM workflow_delivery_state WHERE work_id=? AND assertion_id=? AND correction_id IS NOT NULL`, workID, targetEventID).Scan(&eventID, &reason, &artifact, &evidenceSource, &approvalRef, &occurredAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}

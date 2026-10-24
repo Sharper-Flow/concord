@@ -946,7 +946,7 @@ func workflowDeliveryGateCorrectionContextFolded(ctx context.Context, q queryer,
 		return nil, nil
 	}
 	var seq int64
-	if err := q.QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE event_id=? AND subject_id=?`, state.Review.Accepted.ReportRef, workID).Scan(&seq); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT terminal_seq FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_event_id=? AND terminal_seq>0`, workID, state.Review.Accepted.AttemptID, state.Review.Accepted.ReportRef).Scan(&seq); err != nil {
 		return nil, err
 	}
 	return &WorkflowCorrectionContext{
@@ -1099,7 +1099,7 @@ func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q querye
 				return nil, workflowCorrectionMissingNone, err
 			}
 			var seq int64
-			if err := q.QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE event_id=? AND subject_id=?`, review.Accepted.ReportRef, workID).Scan(&seq); err != nil {
+			if err := q.QueryRowContext(ctx, `SELECT terminal_seq FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_event_id=? AND terminal_seq>0`, workID, review.Accepted.AttemptID, review.Accepted.ReportRef).Scan(&seq); err != nil {
 				return nil, workflowCorrectionMissingNone, err
 			}
 			// One accepted Review authorizes one correction (CD-0166).

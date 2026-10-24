@@ -40,7 +40,7 @@
 - **Related:** CD-0013, CD-0059, CD-0067, CD-0115, CD-0116, CD-0122, CD-0124,
   CD-0133, CD-0137, CD-0138, CD-0143, CD-0147, CD-0159, CD-0164, CD-0166,
   CD-0172, CD-0173, CD-0186, CD-0187, CD-0193, CD-0197, CD-0201, CD-0203,
-  CD-0204, CD-0206, CD-0207, and Concord (CON) issue 861
+  CD-0204, CD-0207, and Concord (CON) issue 861
 - **Approval:** The operator authorized completion of the
   declared-recovery-route contract under CD-0122 D2 as outside repair for
   CON-861. The latest managed proposal for CON-861, not a fabricated

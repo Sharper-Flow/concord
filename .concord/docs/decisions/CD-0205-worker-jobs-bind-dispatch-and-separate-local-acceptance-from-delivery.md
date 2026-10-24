@@ -19,7 +19,7 @@
   D4 (attribution records the observer and phase its producer observed;
   [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
   governs: no `host_changed` or other convergence basis exists)
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D6, D14
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D6, D14
 - **Amended:** 2026-10-19, approved by the operator as exact text for
   [Concord (CON) issue 1221](https://linear.app/sharper-flow/issue/CON-1221).
   D4 adds the checks repair; [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)

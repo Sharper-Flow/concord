@@ -12,16 +12,13 @@
   [CD-0164](CD-0164-correction-attempt-counting-population.md),
   [CD-0225](CD-0225-worker-job-size-overruns-split-without-raising-the-cap.md),
   [CD-0226](CD-0226-review-findings-carry-fixes-with-cross-family-checks.md),
-  [CD-0206](CD-0206-an-accepted-no-ship-review-opens-the-settling-review-obligation.md),
   [CD-0237](CD-0237-a-resize-successor-writes-its-own-forward-link-and-supersession.md),
   and [CD-0238](CD-0238-point-in-time-reconstruction-runs-outside-the-core.md)
 - **Approval:** The operator approved D1–D14, the amendment map, and the
   quoted `goals.md` and `priorities.md` edits as exact text on 2026-10-21 for
   [Concord (CON) issue 1275](https://linear.app/sharper-flow/issue/CON-1275).
   The change is serious under P12: it affects more than one Domain, touches
-  data safety, and changes operator approval points. On 2026-10-23 the
-  operator directed that review debt retire with the event-sourced engine:
-  CD-0206 is superseded and CD-0201 D3 is replaced under D5 and D9.
+  data safety, and changes operator approval points.
 
 ## Context
 
@@ -284,7 +281,6 @@ This record supersedes these records in full:
 | CD-0115, released definitions never change in place | D14 |
 | CD-0148, approved fresh worker retries | D6 |
 | CD-0164, correction attempt counting | D6 |
-| CD-0206, an accepted no-ship review opens the settling review obligation | D5, D9 |
 | CD-0225, size overruns split without raising the cap | D6 |
 | CD-0226, review findings carry fixes with cross-family checks | D5 |
 | CD-0237, resize successor lineage | D4, D6 |
@@ -297,7 +293,7 @@ Any other clause or heading, in any record, that states an event log, fold,
 upcaster, or replay of history; a retained released-definition version or
 in-flight pin; an attempt count, escalation wall, production-line cap, or
 mandatory split; a separate final evaluator or executor distinctness beyond D5;
-strict quiescence; or review debt or a settling review verdict, is replaced by one sentence that states the current rule
+or strict quiescence, is replaced by one sentence that states the current rule
 and cites the governing decision here.
 
 | Record | Replaced clauses | Governing decision |
@@ -315,7 +311,6 @@ and cites the governing decision here.
 | CD-0173 | D1 | D6 |
 | CD-0178 | D1 worker directory and completion directory check | D5 |
 | CD-0197 | D1 verdict vocabulary; D4; D6 | D5 |
-| CD-0201 | D3 review debt | D5, D9 |
 | CD-0205 | D4; D6 | D6, D14 |
 | CD-0213 | D8 replay readability | D2 |
 | CD-0218 | preamble pins; D2; D4; D5 | D2, D4, D13, D14 |

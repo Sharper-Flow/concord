@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e14a643ed6b5ef37587789a812ef7dba1889142a8bea3f3c146e8558fdac8f5a",
+  "sha256": "sha256:211ff75ef9344ece5f3fa6fe93b85346075c3989899593d92db89aec8ffbb3b1",
   "status": "accepted",
   "summary": "The record_delivery action carries an asserted delivery artifact and state, and workflow.implementation and workflow.break_fix cross a gated delivery step whose single forward edge requires that record, reusing the CD-0156 single-advance-action shape. The core records the assertion and never observes GitHub, acquires no client, and runs no prober. A completed transition refuses at the gate, while cancellation and supersession stay legal and mark the item unreconciled in the workflow read projection. Live items on the gate project a parked delivery with a read-time duration, and Product rows count them as parked_deliveries, so a session that ends before the merge leaves a findable, resumable item instead of an orphaned pull request. No session waits on a merge queue.",
   "tags": [

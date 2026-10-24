@@ -34,7 +34,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4ad02e2b0442b9edd006e2026efb05fa5a2a22ff3e0b8cf0c82c7c280399db48",
+  "sha256": "sha256:e50da5a3455a02f9064f677d3a73f6d7d42c700dd8915615d1e37c0dc95901a3",
   "status": "accepted",
   "summary": "The review class binds human checkpoints, where hold-mode acceptance preserves the operator gate. At combined-delivery refinement steps, the same evidence acceptance is an engine recovery for the exact completed current review, with no delivery or advance. A blocking Review disposition holds delivery. Operator contract correction reopens only after every current authorization has a terminal disposition. Identity, approval, and delivery checks remain intact.",
   "tags": [

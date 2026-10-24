@@ -47,7 +47,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:22e3ce9d701d5effdba95302b3b43a60314909d1cfeefe255c391811b09e565f",
+  "sha256": "sha256:1b5be2cbb7bba4adb818ad21929332abb8824aadff7b6ab89dfb7304b2d42527",
   "status": "accepted",
   "summary": "Immutable worker-job revisions bind every admitted lane end to end. Implementation v27 and break-fix v24 require one typed owner/case/control acceptance oracle in the job digest, with closed source and authority joins and retained readiness evidence. Definitions generate from one canonical source, and no released-definition version or pin is retained for history (CD-0242 D14). Local acceptance holds the step without delivery; whole-work delivery keeps complete parent admission and integration evidence. A revision recorded under a superseded contract is not ready. Under CD-0242 D6 each launch carries its own scope and subject bindings, and no attempt count, correction window, convergence basis, or escalation wall exists.",
   "tags": [

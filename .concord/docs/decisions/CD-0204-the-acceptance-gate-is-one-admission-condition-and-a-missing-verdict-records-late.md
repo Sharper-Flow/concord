@@ -19,7 +19,7 @@
   ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14);
   every other route refusal keeps its scope
   (CD-0186)
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D3, D5, D14
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D3, D14
 - **Related:** CD-0116, CD-0197, CD-0203
 - **Approval:** The operator directed in session chat on 2026-10-02 that the
   checks stay strict, with no named exception, and that the engine routes

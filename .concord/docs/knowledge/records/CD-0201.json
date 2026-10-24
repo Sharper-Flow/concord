@@ -46,9 +46,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:3a1318d14d58cb9e0e2872db9135cb6de2308ac903399570a1d63e4f96818996",
+  "sha256": "sha256:6025ac1c6faeef8b2543f88fce14a4a344f190ad93f6abbc58c65a07363489f4",
   "status": "accepted",
-  "summary": "One tx-scoped loader and pure workflowAdmit function own admission across all sites, derived from current rows; payload and identity checks stay at existing boundaries. Oracle work consumes one ranked-finding lineage, counts its open findings, and exposes canonical IDs and retained receipts through shared correction/context readers. Dispatch refuses above 32 blockers without truncation. Readiness, oracle defects, and uncovered cases retain declared preparation, correction, supersession, or stop recovery without erasing open blockers. The registered definitions keep the liveness law and conformance checks over modeled dimensions. A blocking Review disposition holds delivery under CD-0242 D5; no review debt exists.",
+  "summary": "One tx-scoped loader and pure workflowAdmit function own admission across all sites, derived from current rows; payload and identity checks stay at existing boundaries. Oracle work consumes one ranked-finding lineage, counts its open findings, and exposes canonical IDs and retained receipts through shared correction/context readers. Dispatch refuses above 32 blockers without truncation. Readiness, oracle defects, and uncovered cases retain declared preparation, correction, supersession, or stop recovery without erasing open blockers. The registered definitions keep the liveness law and conformance checks over modeled dimensions.",
   "tags": [
     "workflow",
     "workflow-engine",

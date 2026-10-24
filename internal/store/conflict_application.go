@@ -229,7 +229,8 @@ func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, 
 		PayloadVersion: 2,
 		Payload:        encoded,
 	}
-	if _, err := AppendEvent(ctx, tx, event); err != nil {
+	seq, err := AppendEvent(ctx, tx, event)
+	if err != nil {
 		var failure *Failure
 		if errors.As(err, &failure) && failure.Kind == KindDuplicateEvent {
 			// An exact retry of the same settlement inputs: the recorded event
@@ -239,6 +240,10 @@ func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, 
 		return "", err
 	}
 	if err := foldRegisteredEvent(ctx, tx, event); err != nil {
+		return "", err
+	}
+	event.Seq = seq
+	if err := advanceWorkEffectSeqTx(ctx, tx, event); err != nil {
 		return "", err
 	}
 	return eventID, nil

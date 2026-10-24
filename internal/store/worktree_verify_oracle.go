@@ -960,17 +960,17 @@ func readNativeOracleReleaseStamp(ctx context.Context, q queryer, req WorktreeVe
 		job = *req.Oracle.WorkerJobBinding
 	}
 	err := q.QueryRowContext(ctx, `SELECT
-		coalesce((SELECT max(seq) FROM domain_events WHERE subject_type='work_item' AND subject_id=?),0),
+		coalesce((SELECT effect_seq FROM work_items WHERE id=?),0),
 		coalesce((`+oracleCurrentVerifyReceiptSQL+`),''),
 		coalesce((SELECT json_array(lane_id,lane_version,lane_digest,capability_class,lifecycle_state)
 			FROM worker_attempts WHERE work_id=? AND attempt_id=?),''),
 		(SELECT json_group_array(json_array(lease_id,state,outcome,result_json,native_plan_json,native_plan_sha256,stdout_length,stderr_length))
 		 FROM (SELECT lease_id,state,outcome,result_json,native_plan_json,native_plan_sha256,length(stdout_blob) stdout_length,length(stderr_blob) stderr_length
 			FROM worktree_verify_leases WHERE work_id=? AND project_id=? AND json_extract(result_json,'$.operation_ref') IN
-			(SELECT refs.value FROM domain_events j,json_each(j.payload,'$.acceptance_oracle.controls') controls,json_each(controls.value,'$.readiness_evidence_refs') refs
-			 WHERE j.subject_type='work_item' AND j.subject_id=? AND j.kind=? AND json_extract(j.payload,'$.job_id')=? AND json_extract(j.payload,'$.revision')=? AND json_extract(j.payload,'$.digest')=?)
+			(SELECT refs.value FROM worker_job_revisions j,json_each(j.recorded_payload,'$.acceptance_oracle.controls') controls,json_each(controls.value,'$.readiness_evidence_refs') refs
+			 WHERE j.work_id=? AND j.job_id=? AND j.revision=? AND j.digest=? AND j.recorded_payload IS NOT NULL)
 			ORDER BY lease_id))`, req.WorkID, req.WorkID, WorktreeSetID(req.WorkID), req.WorkID, req.Oracle.AttemptID,
-		req.WorkID, req.ProjectID, req.WorkID, WorkerJobRecorded, job.JobID, job.Revision, job.Digest).
+		req.WorkID, req.ProjectID, req.WorkID, job.JobID, job.Revision, job.Digest).
 		Scan(&stamp.Frontier, &stamp.CoreReceipt, &stamp.Attempt, &stamp.Preparations)
 	return stamp, err
 }

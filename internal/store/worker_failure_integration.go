@@ -71,11 +71,10 @@ AND NOT EXISTS (
 ORDER BY e.seq`
 
 // workerFailureIntegrationJobRecordedQuery joins one accepted revision to
-// its retained recording, by the exact job, revision, and digest the
+// its recorded revision row, by the exact job, revision, and digest the
 // acceptance names.
-const workerFailureIntegrationJobRecordedQuery = `SELECT EXISTS(SELECT 1 FROM domain_events
-WHERE subject_type=? AND subject_id=? AND kind=?
-AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=?)`
+const workerFailureIntegrationJobRecordedQuery = `SELECT EXISTS(SELECT 1 FROM worker_job_revisions
+WHERE work_id=? AND job_id=? AND revision=? AND digest=?)`
 
 // workerFailureIntegrationLease is one resolved lease row, scanned raw:
 // ambiguity is decided on row identity alone, and only the single resolved
@@ -308,7 +307,7 @@ func workerFailureIntegrationInputs(ctx context.Context, q queryer, workID strin
 			return nil, false, newFailure(KindInvariantViolation, "worker_failure_integration", "the accepted worker-job completion at "+key+" of "+workID+" carries a malformed binding", false, "reconcile_operation")
 		}
 		var recorded int
-		if err := q.QueryRowContext(ctx, workerFailureIntegrationJobRecordedQuery, string(SubjectWorkItem), workID, WorkerJobRecorded, entry.jobID, entry.revision, entry.digest).Scan(&recorded); err != nil {
+		if err := q.QueryRowContext(ctx, workerFailureIntegrationJobRecordedQuery, workID, entry.jobID, entry.revision, entry.digest).Scan(&recorded); err != nil {
 			return nil, false, wrapFailure(KindUnavailable, "worker_failure_integration", "cannot read the recorded job revision of "+key, true, "retry once the event log is readable", err)
 		}
 		if recorded != 1 {

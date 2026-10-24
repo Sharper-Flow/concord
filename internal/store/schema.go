@@ -6771,6 +6771,18 @@ DROP TABLE law_relations_v140;
 DROP TABLE law_subjects_v140;
 `,
 	},
+	{
+		Version:        143,
+		Name:           "worker_current_windows",
+		Breaking:       true,
+		FoldMaintained: "advance",
+		SQL: `
+INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
+ALTER TABLE work_items ADD COLUMN effect_seq INTEGER NOT NULL DEFAULT 0 CHECK(typeof(effect_seq)='integer' AND effect_seq>=0);
+UPDATE work_items SET effect_seq=COALESCE((SELECT MAX(seq) FROM domain_events WHERE subject_type='work_item' AND subject_id=work_items.id),0);
+DELETE FROM fold_guard;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

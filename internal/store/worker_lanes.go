@@ -2105,7 +2105,7 @@ func verifyWorkerPredicateTies(declared []string, evidence []WorkerReportEvidenc
 // silently widen the predicates a report may tie.
 func workerJobRevisionPredicateIDsTx(ctx context.Context, tx *sql.Tx, workID string, job WorkerJobBinding) ([]string, error) {
 	var raw *string
-	if err := tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.predicate_ids') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerJobRecorded, job.JobID, job.Revision, job.Digest).Scan(&raw); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT predicate_ids FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=? AND digest=?`, workID, job.JobID, job.Revision, job.Digest).Scan(&raw); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, newFailure(KindInvariantViolation, "worker_predicate_discharge", "the dispatched job revision "+job.JobID+":"+strconv.FormatInt(job.Revision, 10)+" names no retained worker.job_recorded recording under its digest", false, "reconcile_operation")
 		}

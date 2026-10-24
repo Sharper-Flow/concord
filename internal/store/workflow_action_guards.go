@@ -1717,10 +1717,15 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *foldS
 	// consuming one expected version each, so the completion event that
 	// follows sequences on top of a recorded actor.
 	for _, event := range prefixEvents {
-		if _, err := appendEvent(ctx, tx, event, true); err != nil {
+		seq, err := appendEvent(ctx, tx, event, true)
+		if err != nil {
 			return result, err
 		}
 		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
+			return result, err
+		}
+		event.Seq = seq
+		if err := advanceWorkEffectSeqTx(ctx, tx, event); err != nil {
 			return result, err
 		}
 	}

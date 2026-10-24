@@ -241,11 +241,16 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		noticePayload["expected_version"] = nextVersion - 1
 		noticePayload["resulting_version"] = nextVersion
 		notice.Payload, _ = json.Marshal(noticePayload)
-		if _, err := appendEvent(ctx, tx, notice, true); err != nil {
+		noticeSeq, err := appendEvent(ctx, tx, notice, true)
+		if err != nil {
 			return workflowClauseFailure(KindOperationConflict, 7, "impact notice append conflicted", "reconcile_operation")
 		}
 		notice.Seq = 0
 		if err := foldRegisteredEvent(ctx, tx, notice, scope); err != nil {
+			return workflowClauseError(err, 7)
+		}
+		notice.Seq = noticeSeq
+		if err := advanceWorkEffectSeqTx(ctx, tx, notice); err != nil {
 			return workflowClauseError(err, 7)
 		}
 	}
@@ -261,11 +266,16 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		completionPayload["warnings"] = warnings
 	}
 	completion.Payload, _ = json.Marshal(completionPayload)
-	if _, err := appendEvent(ctx, tx, completion, true); err != nil {
+	completionSeq, err := appendEvent(ctx, tx, completion, true)
+	if err != nil {
 		return workflowClauseFailure(KindOperationConflict, 7, "completion append conflicted", "reconcile_operation")
 	}
 	completion.Seq = 0
 	if err := foldRegisteredEvent(ctx, tx, completion, scope); err != nil {
+		return workflowClauseError(err, 7)
+	}
+	completion.Seq = completionSeq
+	if err := advanceWorkEffectSeqTx(ctx, tx, completion); err != nil {
 		return workflowClauseError(err, 7)
 	}
 	// CD-0183 D3: the workflow's terminal state closes the work item
@@ -296,11 +306,15 @@ func appendWorkflowTerminalLifecycleTx(ctx context.Context, tx *sql.Tx, scope *f
 		return newFailure(KindInvariantViolation, "complete_workflow", "terminal lifecycle payload cannot be encoded", false, "repair the workflow completion path")
 	}
 	transition := Event{EventID: completion.EventID + ":lifecycle", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: completion.SubjectID, Actor: completion.Actor, OccurredAt: completion.OccurredAt, PayloadVersion: 1, Payload: payload}
-	if _, err := appendEvent(ctx, tx, transition, true); err != nil {
+	seq, err := appendEvent(ctx, tx, transition, true)
+	if err != nil {
 		return err
 	}
-	transition.Seq = 0
-	return foldRegisteredEvent(ctx, tx, transition, scope)
+	if err := foldRegisteredEvent(ctx, tx, transition, scope); err != nil {
+		return err
+	}
+	transition.Seq = seq
+	return advanceWorkEffectSeqTx(ctx, tx, transition)
 }
 
 type workflowCompletionContractData struct {

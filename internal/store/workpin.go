@@ -502,7 +502,7 @@ func workPinReadAttemptTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 	var epoch sql.NullInt64
 	if err := tx.QueryRowContext(ctx, `SELECT a.attempt_id,a.lane_id,a.lifecycle_state,COALESCE((SELECT json_extract(e.payload,'$.attempt_epoch') FROM worker_authorizations e WHERE e.work_id=a.work_id AND e.attempt_id=a.attempt_id),(SELECT attempt_epoch FROM workflow_step_epochs e WHERE e.work_id=a.work_id AND e.step_id=(SELECT current_step FROM workflow_instances WHERE work_id=a.work_id)),0) FROM worker_attempts a WHERE a.work_id=? ORDER BY a.dispatched_at DESC,a.attempt_id DESC LIMIT 1`, workID).Scan(&attempt.ID, &attempt.Lane, &attempt.State, &epoch); err == nil {
 		if !epoch.Valid || epoch.Int64 < 1 {
-			return newFailure(KindInvariantViolation, "work_pin", "worker attempt has no valid workflow epoch", false, "rebuild the worker and workflow projections from the event log")
+			return newFailure(KindInvariantViolation, "work_pin", "worker attempt has no valid workflow epoch", false, "reconcile the retained worker authorization and workflow step epoch before retrying")
 		}
 		attempt.Epoch = epoch.Int64
 		// The pin and the dedicated attribution reader use the same retained

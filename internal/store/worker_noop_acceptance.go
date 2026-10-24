@@ -23,7 +23,7 @@ func guardAcceptWorkerResultChanges(g *workflowActionGuardContext, fields map[st
 	}
 	var completed WorkerCompletedPayload
 	if err := json.Unmarshal(raw, &completed); err != nil {
-		return newFailure(KindInvariantViolation, "workflow_action", "the completed editing result is malformed", false, "rebuild workflow projections from the event log")
+		return newFailure(KindInvariantViolation, "workflow_action", "the completed editing result is malformed", false, "reconcile the invalid retained worker terminal fact before retrying")
 	}
 	if completed.WorkerJob == nil || completed.ObservedDelivery == nil || completed.ObservedDelivery.State != "clean" {
 		return nil

@@ -796,7 +796,7 @@ func readWorkerJobOraclesTx(ctx context.Context, q queryer, workID string) (map[
 		oracle, decodeErr := decodeAcceptanceOracle(json.RawMessage(rawOracle.String))
 		if decodeErr != nil {
 			_ = rows.Close()
-			return nil, newFailure(KindInvariantViolation, "worker_oracle", "a recorded worker-job revision carries an acceptance oracle that is not one closed object", false, "rebuild the worker-job events from the authoritative log")
+			return nil, newFailure(KindInvariantViolation, "worker_oracle", "a recorded worker-job revision carries an acceptance oracle that is not one closed object", false, "reconcile the invalid retained worker-job descriptor before retrying")
 		}
 		oracles[binding] = oracle
 	}

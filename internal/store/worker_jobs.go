@@ -883,7 +883,7 @@ FROM worker_job_revisions j WHERE j.work_id=? ORDER BY j.job_id,j.revision`, wor
 	for index := range views {
 		oracle, recorded := oracles[views[index].Binding]
 		if !recorded {
-			return nil, wrapFailure(KindInvariantViolation, "worker_job", "a worker-job revision holds no job-recorded event for its oracle", false, "rebuild the worker-job events from the authoritative log", nil)
+			return nil, wrapFailure(KindInvariantViolation, "worker_job", "a worker-job revision holds no recorded descriptor for its oracle", false, "reconcile the missing retained worker-job descriptor before retrying", nil)
 		}
 		views[index].AcceptanceOracle = oracle
 		if allowance, recorded := allowances[views[index].Binding]; recorded {
@@ -1112,7 +1112,7 @@ func dispatchCompletionJobForAttempt(ctx context.Context, q queryer, workID, att
 		return false, nil, nil
 	}
 	if err != nil {
-		return false, nil, wrapFailure(KindUnavailable, "fold_event", "cannot read the dispatch authorization's worker-job binding", true, "retry once the event log is readable", err)
+		return false, nil, wrapFailure(KindUnavailable, "fold_event", "cannot read the dispatch authorization's worker-job binding", true, "retry once the worker authorization is readable", err)
 	}
 	if raw == "" {
 		return true, nil, nil

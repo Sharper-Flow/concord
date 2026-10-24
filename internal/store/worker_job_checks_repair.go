@@ -307,7 +307,7 @@ func workerJobRecordedDescriptorTx(ctx context.Context, q queryer, workID, jobID
 		return wrapFailure(KindUnavailable, "worker_job", "cannot read a named revision's recorded descriptor", true, "retry once the worker-job descriptors are readable", err)
 	}
 	if err := json.Unmarshal([]byte(raw), payload); err != nil {
-		return newFailure(KindInvariantViolation, "worker_job", "a named revision's recorded payload is malformed", false, "rebuild the worker-job events from the authoritative log")
+		return newFailure(KindInvariantViolation, "worker_job", "a named revision's recorded payload is malformed", false, "reconcile the invalid retained worker-job descriptor before retrying")
 	}
 	return nil
 }
@@ -330,7 +330,7 @@ func readWorkerJobChecksRepairsTx(ctx context.Context, q queryer, workID string)
 		}
 		var metadata WorkerJobChecksRepair
 		if err := json.Unmarshal([]byte(raw), &metadata); err != nil {
-			return nil, newFailure(KindInvariantViolation, "worker_job", "a recorded checks repair payload is malformed", false, "rebuild the worker-job events from the authoritative log")
+			return nil, newFailure(KindInvariantViolation, "worker_job", "a recorded checks repair payload is malformed", false, "reconcile the invalid retained worker-job descriptor before retrying")
 		}
 		repairs[WorkerJobBinding{JobID: jobID, Revision: revision, Digest: digest}] = &metadata
 	}

@@ -895,7 +895,7 @@ func workerFailureObservedDeliverySubject(ctx context.Context, q queryer, workID
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
-		return nil, wrapFailure(KindUnavailable, "worker_failure_attribution", "cannot read the attempt's observed delivery subject", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "worker_failure_attribution", "cannot read the attempt's observed delivery subject", true, "retry once the worker terminal fact is readable", err)
 	}
 	var delivery WorkerObservedDelivery
 	if err := json.Unmarshal([]byte(raw.String), &delivery); err != nil {
@@ -925,7 +925,7 @@ WHERE work_id=? AND terminal_kind=? AND terminal_event_id=? AND attempt_id=? AND
 		return workerFailureBoundFailure("failure_attribution subject reference " + subject.Locator + " names no completed observed_delivery event of attempt " + attemptID)
 	}
 	if err != nil {
-		return wrapFailure(KindUnavailable, "worker_failure_attribution", "cannot read the referenced observed delivery subject", true, "retry once the event log is readable", err)
+		return wrapFailure(KindUnavailable, "worker_failure_attribution", "cannot read the referenced observed delivery subject", true, "retry once the worker terminal fact is readable", err)
 	}
 	if subject.Digest == "" {
 		return nil
@@ -1556,7 +1556,7 @@ func workerFailureAttributionTerminalRecord(ctx context.Context, q queryer, work
 		return nil, false, nil
 	}
 	if err != nil {
-		return nil, false, wrapFailure(KindUnavailable, "worker_failure_attribution", "cannot read the attempt's terminal attribution", true, "retry once the event log is readable", err)
+		return nil, false, wrapFailure(KindUnavailable, "worker_failure_attribution", "cannot read the attempt's terminal attribution", true, "retry once the worker attempt facts are readable", err)
 	}
 	record := &WorkerFailureAttributionRecord{EventID: eventID, SourceVersion: sourceVersion}
 	if !raw.Valid || raw.String == "" || raw.String == "null" {

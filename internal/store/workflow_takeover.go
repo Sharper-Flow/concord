@@ -97,13 +97,12 @@ func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowAction
 	if holder == "" || holder == callerActorRef {
 		return nil, nil
 	}
-	var vacated int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events e JOIN workflow_actors a ON a.actor_ref=?
-		WHERE e.subject_type=? AND e.subject_id=? AND e.kind='work.session_vacated' AND e.seq>?
-		AND json_extract(e.payload,'$.session_ref')=a.session_ref`, holder, string(SubjectWorkItem), workID, max(since, startSeq)).Scan(&vacated); err != nil {
+	var vacated bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM session_vacate_requests r JOIN workflow_actors a ON a.actor_ref=?
+		WHERE r.work_id=? AND r.request_seq>? AND r.session_ref=a.session_ref)`, holder, workID, max(since, startSeq)).Scan(&vacated); err != nil {
 		return nil, workflowProjectionError(err, "cannot inspect the holder's session vacates")
 	}
-	if vacated > 0 {
+	if vacated {
 		return nil, nil
 	}
 	return &WorkflowStartTakeover{HeldEpoch: start.AttemptEpoch, HolderActorRef: holder}, nil

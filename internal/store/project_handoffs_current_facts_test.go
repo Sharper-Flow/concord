@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -68,6 +70,54 @@ func TestProjectHandoffNewestSelectionsReadCurrentRows(t *testing.T) {
 	}
 }
 
+func TestProjectHandoffAdmissionAndConsumeReadCurrentRows(t *testing.T) {
+	for _, state := range []string{"pending-newer", "consumed-newer", "stale-newer"} {
+		t.Run(state, func(t *testing.T) {
+			t.Parallel()
+			f := setupProjectHandoffFixture(t)
+			older, newer := recordOrderedHandoffPair(t, f)
+			consumed := newer
+			if state != "consumed-newer" {
+				consumed = older
+			}
+			consumeHandoff(t, f, consumed)
+			if state == "stale-newer" {
+				seedReplacementProjectHandoffContract(t, f.store, f.workID, readWorkVersion(t, f.store, f.workID))
+			}
+			hideDomainEvents(t, f.store)
+			if err := inRelocationTx(t, f.store, func(_ *Transaction, tx *sql.Tx) error {
+				err := RefuseUnconsumedProjectHandoffTx(t.Context(), tx, f.workID, f.targetSession)
+				if state == "consumed-newer" {
+					if err != nil {
+						t.Errorf("current bind refused admission: %v", err)
+					}
+				} else if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), newer) {
+					t.Errorf("admission err=%v, want the newest handoff %s refusal", err, newer)
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if state == "pending-newer" {
+				// A fresh consume still writes through the event seam. Its
+				// addressed selection is tested without that seam by the
+				// current-bind replay and stale-contract refusal below.
+				return
+			}
+			out, err := runConsumeProjectHandoffTx(f, ConsumeProjectHandoffRequest{
+				WorkID: f.workID, ConsumerProjectID: f.targetProject, ConsumerSessionRef: f.targetSession,
+			})
+			if state == "consumed-newer" {
+				if err != nil || !out.AlreadyConsumed || out.HandoffID != newer {
+					t.Fatalf("addressed consume=%+v err=%v, want the newest standing bind %s", out, err, newer)
+				}
+			} else if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "active contract is version 2") {
+				t.Fatalf("addressed consume err=%v, want the newest stale-contract refusal", err)
+			}
+		})
+	}
+}
+
 func TestProjectHandoffRecordedSeqMigrationBackfillsRecordingOrder(t *testing.T) {
 	t.Parallel()
 	f := setupProjectHandoffFixture(t)
@@ -94,7 +144,7 @@ func repopulateSessionWindowCurrentFactsForTest(t *testing.T, s *Store) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DROP INDEX project_handoffs_recorded_seq; ALTER TABLE project_handoffs DROP COLUMN recorded_seq; ALTER TABLE worktree_ref_outcomes DROP COLUMN settlement_count`); err != nil {
+	if _, err := tx.Exec(`DROP TABLE session_relocation_counts; DROP INDEX project_handoffs_recorded_seq; ALTER TABLE project_handoffs DROP COLUMN recorded_seq; ALTER TABLE worktree_ref_outcomes DROP COLUMN settlement_count`); err != nil {
 		t.Fatal(err)
 	}
 	for _, m := range migrations {

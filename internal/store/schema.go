@@ -7053,6 +7053,23 @@ DELETE FROM fold_guard;
 		SQL: `
 ALTER TABLE project_handoffs ADD COLUMN recorded_seq INTEGER NOT NULL DEFAULT 0;
 INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
+CREATE TABLE session_relocation_counts (
+ work_id TEXT NOT NULL,
+ session_ref TEXT NOT NULL,
+ vacate_count INTEGER NOT NULL DEFAULT 0 CHECK(vacate_count>=0),
+ vacate_landing_count INTEGER NOT NULL DEFAULT 0 CHECK(vacate_landing_count>=0),
+ claim_landing_count INTEGER NOT NULL DEFAULT 0 CHECK(claim_landing_count>=0),
+ PRIMARY KEY(work_id,session_ref)
+);
+INSERT INTO session_relocation_counts(work_id,session_ref,vacate_count,vacate_landing_count,claim_landing_count)
+ SELECT subject_id,json_extract(payload,'$.session_ref'),
+  SUM(kind='work.session_vacated'),SUM(kind='work.session_vacate_landed'),SUM(kind='work.session_claim_landed')
+ FROM domain_events
+ WHERE kind IN ('work.session_vacated','work.session_vacate_landed','work.session_claim_landed') AND json_extract(payload,'$.session_ref') IS NOT NULL
+ GROUP BY subject_id,json_extract(payload,'$.session_ref');
+CREATE TRIGGER session_relocation_counts_guard_insert BEFORE INSERT ON session_relocation_counts BEGIN SELECT RAISE(ABORT, 'session_relocation_counts is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER session_relocation_counts_guard_update BEFORE UPDATE ON session_relocation_counts BEGIN SELECT RAISE(ABORT, 'session_relocation_counts is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER session_relocation_counts_guard_delete BEFORE DELETE ON session_relocation_counts BEGIN SELECT RAISE(ABORT, 'session_relocation_counts is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
 UPDATE project_handoffs AS h SET recorded_seq=COALESCE((SELECT MAX(l.seq) FROM domain_events l WHERE l.kind='work.project_handoff_recorded' AND l.subject_id=h.work_id AND json_extract(l.payload,'$.handoff_id')=h.handoff_id),0);
 ALTER TABLE worktree_ref_outcomes ADD COLUMN settlement_count INTEGER NOT NULL DEFAULT 0 CHECK(settlement_count>=0);
 WITH ref_prefixes AS (

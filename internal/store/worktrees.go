@@ -3335,13 +3335,11 @@ func sessionHoldsOccupancyTx(ctx context.Context, tx *sql.Tx, worktreeID, sessio
 	return held > 0, nil
 }
 
-// countSessionClaimLandingsTx returns how many landing events the log records
-// for one work item and session. It runs inside the caller's
-// transaction so the read observes the caller's own uncommitted events, and
-// the count is the ordinal of the next transfer event.
+// countSessionClaimLandingsTx reads the current count of accepted claim
+// landings for one work item and session: the next transfer identity's ordinal.
 func countSessionClaimLandingsTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) (int, error) {
 	var count int
-	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=? AND json_extract(payload,'$.session_ref')=?`, workID, sessionRef).Scan(&count)
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT claim_landing_count FROM session_relocation_counts WHERE work_id=? AND session_ref=?),0)`, workID, sessionRef).Scan(&count)
 	if err != nil {
 		return 0, wrapFailure(KindUnavailable, "claim-landing", "cannot count the recorded landing events", true, "retry once the database is readable", err)
 	}

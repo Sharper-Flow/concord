@@ -552,6 +552,7 @@ class AgentProjectionTests(unittest.TestCase):
         )
         self.assertIn("exactly three backticks and that info string on one line", normalized)
         self.assertIn("Return the entire frame as one final text part", normalized)
+        self.assertIn("Never return multiple report candidates", normalized)
         self.assertNotIn("historical packet", normalized)
 
     def test_projection_takes_the_frame_marker_from_the_packet_schema(self):

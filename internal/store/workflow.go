@@ -2678,7 +2678,7 @@ func workflowCheckpointDispatchHoldsStepAdvance(ctx context.Context, q queryer, 
 // dispatched at the step. The dispatch_worker completion names the attempt
 // and its step, and a positive dispatch coordinate proves a worker used the
 // window, so an unused authorization never appears here.
-func latestDispatchedAttemptAtStep(ctx context.Context, q queryer, workID, stepID string, beforeSeq int64) (string, string, bool, error) {
+func latestDispatchedAttemptAtStep(ctx context.Context, q queryer, workID, stepID string, _ int64) (string, string, bool, error) {
 	query := `SELECT a.attempt_id,a.lifecycle_state FROM worker_attempts a
  JOIN worker_authorizations c ON c.work_id=a.work_id AND c.attempt_id=a.attempt_id
  WHERE a.work_id=? AND a.dispatch_seq>0 AND json_extract(c.payload,'$.step_id')=?
@@ -2742,7 +2742,7 @@ func bindWorkerAttemptInFlightTx(ctx context.Context, tx *sql.Tx, event Event, p
 // longer resolves. The accepted attempt itself is excluded: its report is
 // complete, which is the only lifecycle accept_worker_result admits.
 // Admission reads the current bindings before writing the completing action.
-func rejectStepAdvancePastLiveAttemptTx(ctx context.Context, tx *sql.Tx, workID, stepID, acceptedAttemptID string, beforeSeq int64) error {
+func rejectStepAdvancePastLiveAttemptTx(ctx context.Context, tx *sql.Tx, workID, stepID, acceptedAttemptID string, _ int64) error {
 	var live int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worker_attempts a JOIN worker_authorizations c ON c.work_id=a.work_id AND c.attempt_id=a.attempt_id WHERE a.work_id=? AND a.attempt_id<>? AND a.lifecycle_state='in_flight' AND json_extract(c.payload,'$.step_id')=?`, workID, acceptedAttemptID, stepID).Scan(&live); err != nil {
 		return workflowProjectionError(err, "cannot inspect in-flight worker attempts for the current workflow attempt")
@@ -2955,7 +2955,7 @@ const workerAttemptDisposalActions = `'accept_worker_result','accept_worker_evid
 // of a live lane attempt from its dispatch, the actor that disposed of the
 // latest lane attempt from its disposal, or the executing actor from no
 // recorded sequence (zero).
-func workflowFencedWriter(ctx context.Context, q queryer, workID, executionActor string, beforeSeq int64) (writer string, live bool, since int64, err error) {
+func workflowFencedWriter(ctx context.Context, q queryer, workID, executionActor string, _ int64) (writer string, live bool, since int64, err error) {
 	var dispatchSeq int64
 	var attemptID string
 	err = q.QueryRowContext(ctx, `SELECT dispatch_seq,attempt_id FROM worker_attempts WHERE work_id=? AND dispatch_seq>0 ORDER BY dispatch_seq DESC LIMIT 1`, workID).Scan(&dispatchSeq, &attemptID)
@@ -3227,15 +3227,16 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if step != nil && step.Kind == WorkflowStepHumanCheckpoint || payload.ActionID == "record_worker_job" {
 		var raw []byte
 		err = tx.QueryRowContext(ctx, `SELECT start_seq,start_payload FROM worker_authorizations WHERE work_id=? AND attempt_id=? AND start_seq>0`, event.SubjectID, payload.WorkerAttemptID).Scan(&startSeq, &raw)
-		if err == sql.ErrNoRows {
+		switch err {
+		case sql.ErrNoRows:
 			err = nil
-		} else if err == nil {
+		case nil:
 			var started workflowActionStartedPayload
 			if decodeErr := json.Unmarshal(raw, &started); decodeErr != nil {
 				return workflowProjectionError(decodeErr, "cannot decode the worker authorization start")
 			}
 			startEpoch, found = started.AttemptEpoch, started.StepID == currentStep
-		} else {
+		default:
 			return workflowProjectionError(err, "cannot inspect the worker authorization start")
 		}
 	} else {

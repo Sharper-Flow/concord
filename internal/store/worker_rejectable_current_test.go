@@ -51,7 +51,8 @@ func rejectableEventForTest(t *testing.T, db *sql.DB, seq int64, kind string, pa
 	}
 }
 
-func rejectableAttemptForTest(t *testing.T, db *sql.DB, attempt, step, executor string, startSeq, epoch int64) workflowRejectableResult {
+func rejectableAttemptForTest(t *testing.T, db *sql.DB, attempt, executor string, startSeq, epoch int64) workflowRejectableResult {
+	const step = "produce"
 	t.Helper()
 	start := map[string]any{"action_id": "dispatch_worker", "step_id": step, "attempt_epoch": epoch}
 	auth := map[string]any{"action_id": "dispatch_worker", "step_id": step, "attempt_epoch": epoch, "worker_attempt_id": attempt}
@@ -113,8 +114,8 @@ func TestRejectableWorkerResultsCurrentWithoutLog(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := rejectableCurrentDB(t)
-			first := rejectableAttemptForTest(t, db, "first", "produce", "lane:first", 1, 1)
-			second := rejectableAttemptForTest(t, db, "second", "produce", "lane:second", 5, 2)
+			first := rejectableAttemptForTest(t, db, "first", "lane:first", 1, 1)
+			second := rejectableAttemptForTest(t, db, "second", "lane:second", 5, 2)
 			// A later dispatch start is unused; non-checkpoint rejection
 			// must retain both exact older authorization epochs.
 			start := map[string]any{"action_id": "dispatch_worker", "step_id": "produce", "attempt_epoch": 3}
@@ -143,7 +144,7 @@ func TestRejectableWorkerResultsBoundaryWithoutLog(t *testing.T) {
 	for _, boundary := range []string{"non-dispatch start", "supersession", "advance outside step", "request correction", "checkpoint start at another step"} {
 		t.Run(boundary, func(t *testing.T) {
 			db := rejectableCurrentDB(t)
-			rejectableAttemptForTest(t, db, "old", "produce", "lane:old", 1, 1)
+			rejectableAttemptForTest(t, db, "old", "lane:old", 1, 1)
 			checkpoint := boundary == "checkpoint start at another step"
 			switch boundary {
 			case "non-dispatch start", "checkpoint start at another step":
@@ -173,7 +174,7 @@ func TestRejectableWorkerResultsBoundaryWithoutLog(t *testing.T) {
 				}
 				rejectableEventForTest(t, db, 5, WorkflowActionCompleted, map[string]any{"action_id": action, "step_id": "elsewhere"})
 			}
-			fresh := rejectableAttemptForTest(t, db, "fresh", "produce", "lane:fresh", 6, 2)
+			fresh := rejectableAttemptForTest(t, db, "fresh", "lane:fresh", 6, 2)
 			disposalWithoutLog(t, db, func() {
 				got, err := workflowRejectableWorkerResults(t.Context(), db, "work", rejectableDefinitionForTest(checkpoint), "produce", "test", 100)
 				if err != nil || !reflect.DeepEqual(got, []workflowRejectableResult{fresh}) {
@@ -199,7 +200,7 @@ func TestRejectableWorkerResultsLegacyAndAuthorizationErrorsWithoutLog(t *testin
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := rejectableCurrentDB(t)
-			want := rejectableAttemptForTest(t, db, "first", "produce", tc.executor, 1, 1)
+			want := rejectableAttemptForTest(t, db, "first", tc.executor, 1, 1)
 			if _, err := db.Exec(tc.mutate); err != nil {
 				t.Fatal(err)
 			}
@@ -229,7 +230,7 @@ func TestRejectableWorkerResultsStaleAuthorityWithoutLog(t *testing.T) {
 			if scenario == "legacy result before current start" {
 				executor = ""
 			}
-			rejectableAttemptForTest(t, db, "first", "produce", executor, 1, 1)
+			rejectableAttemptForTest(t, db, "first", executor, 1, 1)
 			checkpoint := scenario == "checkpoint start at another step"
 			if scenario == "authorization before boundary" {
 				if _, err := db.Exec(`INSERT INTO workflow_contracts VALUES('work',5); UPDATE worker_attempts SET dispatch_seq=8; UPDATE domain_events SET seq=8 WHERE seq=3; UPDATE domain_events SET seq=9 WHERE seq=4`); err != nil {

@@ -434,9 +434,6 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scop
 		if err := validateRegisteredEvent(event); err != nil {
 			return output, attributeFailure(err, event, StageDecode)
 		}
-		if err := validateWorkflowSelfRepairEventAdmission(event); err != nil {
-			return output, err
-		}
 		ref := VersionRef(event.SubjectType, event.SubjectID)
 		if expected, hasExpected := operation.ExpectedVersions[ref]; hasExpected && !checked[ref] {
 			got, exists, err := projectionVersion(ctx, tx, event.SubjectType, event.SubjectID)

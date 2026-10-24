@@ -118,41 +118,6 @@ func validateWorkflowSelfRepairAuthorityForDefinitionTx(ctx context.Context, tx 
 	return nil
 }
 
-func validateWorkflowSelfRepairEventAdmission(event Event) error {
-	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return nil
-	}
-	var raw json.RawMessage
-	switch event.Kind {
-	case WorkflowContractApproved:
-		raw = payload["self_repair"]
-	case WorkflowContractSuperseded:
-		successorRaw := payload["successor_contract"]
-		if len(successorRaw) == 0 || string(successorRaw) == "null" {
-			return nil
-		}
-		var successor map[string]json.RawMessage
-		if err := json.Unmarshal(successorRaw, &successor); err != nil {
-			return nil
-		}
-		raw = successor["self_repair"]
-	default:
-		return nil
-	}
-	if len(raw) == 0 || string(raw) == "null" {
-		return nil
-	}
-	repair, err := parseWorkflowSelfRepair(raw)
-	if err == nil && repair != nil {
-		err = validateWorkflowSelfRepairShape(*repair)
-	}
-	if err != nil {
-		return newFailure(KindInvalidPayload, "workflow_self_repair_admission", "contract self_repair is invalid before append: "+err.Error(), false, "supply a typed self-repair classification with bounded references")
-	}
-	return nil
-}
-
 func readWorkflowSelfRepair(ctx context.Context, q queryer, workID string, contractVersion int64) (*WorkflowSelfRepair, error) {
 	var raw string
 	if err := q.QueryRowContext(ctx, `SELECT self_repair_json FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, contractVersion).Scan(&raw); err != nil {

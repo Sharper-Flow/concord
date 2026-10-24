@@ -3494,8 +3494,8 @@ func foldWorkflowStalenessObserved(ctx context.Context, tx *sql.Tx, event Event)
 	if err := validateWorkflowStalenessObservedPayload(event, payload); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_staleness_observations(work_id,rule_id,observation_seq,payload) VALUES(?,?,?,?) ON CONFLICT(work_id,rule_id) DO UPDATE SET observation_seq=excluded.observation_seq,payload=excluded.payload`, event.SubjectID, payload.RuleID, event.Seq, string(event.Payload))
-	return workflowProjectionError(err, "cannot record workflow staleness observation")
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_staleness_observations(event_id,work_id,rule_id,severity,drifted,accepted_inputs_digest,observed_at) VALUES(?,?,?,?,?,?,?)`, event.EventID, event.SubjectID, payload.RuleID, payload.Severity, payload.Drifted, payload.AcceptedInputsDigest, payload.ObservedAt)
+	return err
 }
 
 func foldWorkflowVerdictRecorded(ctx context.Context, tx *sql.Tx, event Event) error {

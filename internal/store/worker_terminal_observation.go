@@ -136,7 +136,7 @@ func sampleWorkerTerminalDeliveryInto(ctx context.Context, q queryer, workID, at
 func sampleWorkerTerminalDelivery(ctx context.Context, q queryer, workID, attemptID, eventID string) (workerTerminalSample, error) {
 	var sample workerTerminalSample
 	var existingVersion int
-	err := q.QueryRowContext(ctx, `SELECT payload_version FROM domain_events WHERE event_id=?`, eventID).Scan(&existingVersion)
+	err := q.QueryRowContext(ctx, `SELECT payload_version FROM effect_receipts WHERE event_id=?`, eventID).Scan(&existingVersion)
 	switch {
 	case err == nil:
 		sample.eventFound = true

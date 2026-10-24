@@ -26,11 +26,12 @@ type migration struct {
 	// nullable or defaulted column, leave an older binary unaffected: it never
 	// names what it does not know.
 	//
-	// One additive shape is not safe under a rolling upgrade. A column the
-	// fold advances moves as later events apply, and a fold generation from
-	// before the migration never advances it, so the column drifts behind the
-	// log with no convergence (CD-0111 D3; migration 108's last_activity_at
-	// drifted this way). FoldMaintained names that shape beside the SQL, and
+	// One additive shape is not safe under a rolling upgrade: state that later
+	// effects must keep true. A column the fold advances, or a new table the
+	// write path maintains per effect, needs a writer an older binary does not
+	// run, so the state drifts behind its effects with no convergence
+	// (CD-0111 D3; migration 108's last_activity_at drifted this way).
+	// FoldMaintained names that shape beside the SQL, and
 	// scripts/check-migration-compatibility.py binds an advance declaration
 	// to this bit.
 	//
@@ -41,20 +42,22 @@ type migration struct {
 	// the SQL and refuses a declaration its statements contradict, so the bit
 	// cannot drift from what the migration does.
 	Breaking bool
-	// FoldMaintained declares, for a step that adds a column to a
-	// pre-existing table, how the fold keeps that column true. The SQL shape
+	// FoldMaintained declares how the fold keeps an added column true or the
+	// write path maintains a newly created table per effect. The SQL shape
 	// cannot see the Go fold writer, so this declaration is the author's
 	// signed claim beside the SQL: the checker holds it to a closed
 	// vocabulary and to its consequences, and cannot derive it.
 	//
-	// "advance": the fold moves the column as later events apply, so an older
-	// binary's fold leaves it wrong with no convergence — the migration 108 /
+	// "advance": the fold moves the column as later events apply, or the
+	// write path maintains a new table per effect. An older binary leaves
+	// either state wrong with no convergence — the migration 108 /
 	// last_activity_at class. Such a step must declare Breaking: true.
 	//
-	// "origin": the fold sets the column once and first derivation wins —
+	// "origin": on a column added to a pre-existing table, the fold sets the
+	// column once and first derivation wins —
 	// the execution_started_at class (CD-0183 D2).
 	//
-	// Empty: the step adds no fold-maintained column.
+	// Empty: the step declares no fold-maintained state.
 	FoldMaintained string
 	// Applies decides whether this step's SQL runs against the database in
 	// front of it. A repair for a divergence only some histories carry answers
@@ -6920,27 +6923,12 @@ CREATE TABLE workflow_evidence_bindings (
 );
 INSERT INTO workflow_evidence_bindings SELECT subject_id,seq,event_id,actor,payload FROM domain_events e WHERE subject_type='work_item' AND kind='workflow.evidence_bound' AND EXISTS(SELECT 1 FROM work_items WHERE id=e.subject_id);
 CREATE INDEX workflow_evidence_bindings_subject ON workflow_evidence_bindings(work_id,json_extract(payload,'$.immutable_subject_ref'));
-CREATE TABLE workflow_staleness_observations (
- work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
- rule_id TEXT NOT NULL,
- observation_seq INTEGER NOT NULL,
- payload TEXT NOT NULL CHECK(json_valid(payload)),
- PRIMARY KEY(work_id,rule_id)
-);
-INSERT INTO workflow_staleness_observations
- SELECT e.subject_id,json_extract(e.payload,'$.rule_id'),e.seq,e.payload FROM domain_events e
- WHERE e.subject_type='work_item' AND e.kind='workflow.staleness_observed'
- AND EXISTS(SELECT 1 FROM work_items WHERE id=e.subject_id)
- AND e.seq=(SELECT MAX(d.seq) FROM domain_events d WHERE d.subject_type=e.subject_type AND d.subject_id=e.subject_id AND d.kind=e.kind AND json_extract(d.payload,'$.rule_id')=json_extract(e.payload,'$.rule_id'));
 CREATE TRIGGER compaction_publications_guard_insert BEFORE INSERT ON compaction_publications BEGIN SELECT RAISE(ABORT, 'compaction_publications is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER compaction_publications_guard_update BEFORE UPDATE ON compaction_publications BEGIN SELECT RAISE(ABORT, 'compaction_publications is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER compaction_publications_guard_delete BEFORE DELETE ON compaction_publications BEGIN SELECT RAISE(ABORT, 'compaction_publications is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER workflow_evidence_bindings_guard_insert BEFORE INSERT ON workflow_evidence_bindings BEGIN SELECT RAISE(ABORT, 'workflow_evidence_bindings is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER workflow_evidence_bindings_guard_update BEFORE UPDATE ON workflow_evidence_bindings BEGIN SELECT RAISE(ABORT, 'workflow_evidence_bindings is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER workflow_evidence_bindings_guard_delete BEFORE DELETE ON workflow_evidence_bindings BEGIN SELECT RAISE(ABORT, 'workflow_evidence_bindings is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER workflow_staleness_observations_guard_insert BEFORE INSERT ON workflow_staleness_observations BEGIN SELECT RAISE(ABORT, 'workflow_staleness_observations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER workflow_staleness_observations_guard_update BEFORE UPDATE ON workflow_staleness_observations BEGIN SELECT RAISE(ABORT, 'workflow_staleness_observations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER workflow_staleness_observations_guard_delete BEFORE DELETE ON workflow_staleness_observations BEGIN SELECT RAISE(ABORT, 'workflow_staleness_observations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
 	{
@@ -6995,6 +6983,44 @@ CREATE TRIGGER worker_attempt_dispositions_guard_delete BEFORE DELETE ON worker_
 ALTER TABLE workflow_instances ADD COLUMN latest_non_dispatch_start_seq INTEGER NOT NULL DEFAULT 0;
 UPDATE workflow_instances AS w SET latest_non_dispatch_start_seq=COALESCE((SELECT MAX(seq) FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=w.work_id AND e.kind='workflow.action_started' AND json_extract(e.payload,'$.action_id')<>'dispatch_worker'),0);
 DELETE FROM fold_guard;
+`,
+	},
+	{
+		Version:        145,
+		Name:           "effect_receipts",
+		Breaking:       true,
+		FoldMaintained: "advance",
+		SQL: `
+CREATE TABLE effect_receipts (
+ event_id TEXT PRIMARY KEY,
+ effect_seq INTEGER NOT NULL UNIQUE,
+ kind TEXT NOT NULL,
+ subject_type TEXT NOT NULL,
+ subject_id TEXT NOT NULL,
+ actor TEXT NOT NULL,
+ payload_version INTEGER NOT NULL,
+ payload_digest TEXT
+);
+CREATE INDEX effect_receipts_subject ON effect_receipts(subject_type,subject_id,effect_seq);
+INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version)
+ SELECT event_id,seq,kind,subject_type,subject_id,actor,payload_version FROM domain_events;
+CREATE TABLE workflow_staleness_observations (
+ event_id TEXT PRIMARY KEY REFERENCES effect_receipts(event_id) ON DELETE CASCADE,
+ work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+ rule_id TEXT NOT NULL,
+ severity TEXT NOT NULL CHECK(severity IN ('warning','block')),
+ drifted INTEGER NOT NULL CHECK(drifted IN (0,1)),
+ accepted_inputs_digest TEXT NOT NULL,
+ observed_at TEXT NOT NULL
+);
+CREATE INDEX workflow_staleness_observations_work ON workflow_staleness_observations(work_id);
+INSERT INTO workflow_staleness_observations
+ SELECT event_id,subject_id,json_extract(payload,'$.rule_id'),json_extract(payload,'$.severity'),json_extract(payload,'$.drifted'),json_extract(payload,'$.accepted_inputs_digest'),json_extract(payload,'$.observed_at')
+ FROM domain_events e WHERE kind='workflow.staleness_observed' AND subject_type='work_item'
+ AND EXISTS(SELECT 1 FROM work_items w WHERE w.id=e.subject_id);
+CREATE TRIGGER workflow_staleness_observations_guard_insert BEFORE INSERT ON workflow_staleness_observations BEGIN SELECT RAISE(ABORT, 'workflow_staleness_observations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_staleness_observations_guard_update BEFORE UPDATE ON workflow_staleness_observations BEGIN SELECT RAISE(ABORT, 'workflow_staleness_observations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_staleness_observations_guard_delete BEFORE DELETE ON workflow_staleness_observations BEGIN SELECT RAISE(ABORT, 'workflow_staleness_observations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
 }
@@ -7418,6 +7444,7 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 
 	var stopped *migration
 	remoteUpgrade := false
+	receiptUpgrade := false
 	for i := range migrations {
 		m := migrations[i]
 		if _, done := applied[m.Version]; done {
@@ -7441,12 +7468,18 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 			}
 		}
 		remoteUpgrade = remoteUpgrade || m.Name == remoteLocatorUpgradeName
+		receiptUpgrade = receiptUpgrade || m.Name == "effect_receipts"
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO schema_migrations (version, name, checksum, applied_at, breaking) VALUES (?, ?, ?, ?, ?)`,
 			m.Version, m.Name, m.checksum(), nowFromClock(firstClock(clock)).Format(time.RFC3339Nano), m.Breaking); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "migrate",
 				fmt.Sprintf("cannot record migration %d (%s)", m.Version, m.Name), true,
 				"retry once the database is writable", err))
+		}
+	}
+	if receiptUpgrade {
+		if err := backfillEffectReceiptDigests(ctx, tx); err != nil {
+			return rollback(err)
 		}
 	}
 	if remoteUpgrade {

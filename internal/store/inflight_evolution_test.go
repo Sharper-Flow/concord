@@ -272,28 +272,51 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	_, err = applyOperationTx(ctx, tx, Operation{
-		Events: []Event{
-			workCreatedEvent(workID, "create-"+workID),
-			operationEvent("membership-"+workID, "work_project.added", SubjectWorkItem, workID, map[string]any{
-				"work_id": workID, "project_id": "project", "role": "primary", "reason": "test",
-				"expected_version": 1, "resulting_version": 2,
-			}),
-		},
-		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0},
-	}, newFoldScope(tx), false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
-		t.Fatal(err)
-	}
-	// The older store already owns an initialized, in-progress workflow.
-	// Do not run a current-binary action-start writer on its older schema.
 	actorRef, err := WorkflowActorRef(actor)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Historical rows predate receipts. Seed the original effects and their
+	// projections without asking the current append seam to write old schema.
+	events := []Event{
+		workCreatedEvent(workID, "create-"+workID),
+		operationEvent("membership-"+workID, "work_project.added", SubjectWorkItem, workID, map[string]any{
+			"work_id": workID, "project_id": "project", "role": "primary", "reason": "test",
+			"expected_version": 1, "resulting_version": 2,
+		}),
+		workflowEventWithActor("workflow-init:"+workID+":actor:"+actorRef, WorkflowActorRecorded, workID, actorRef, map[string]any{
+			"work_id": workID, "expected_version": 2, "resulting_version": 3,
+			"actor_ref": actorRef, "principal_ref": actor.PrincipalRef, "client_ref": actor.ClientRef,
+			"agent_ref": actor.AgentRef, "session_ref": actor.SessionRef, "actor_class": actor.ActorClass,
+		}),
+		workflowEventWithActor("workflow-init:"+workID+":definition:"+definition.Definition.Ref, WorkflowDefinitionSelected, workID, actorRef, map[string]any{
+			"work_id": workID, "expected_version": 3, "resulting_version": 4,
+			"ref": definition.Definition.Ref, "version": definition.Definition.Version,
+			"digest": definition.Digest, "work_kind": definition.Definition.WorkKind,
+		}),
+	}
+	scope, err := beginFold(ctx, tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		result, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, event.EventID, event.Kind, event.SubjectType, event.SubjectID, event.Actor, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.PayloadVersion, string(event.Payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		event.Seq, err = result.LastInsertId()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := scope.close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The older store already owns an initialized, in-progress workflow.
+	// Do not run a current-binary action-start writer on its older schema.
 	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}

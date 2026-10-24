@@ -125,7 +125,9 @@ func seedPreCutoverDispatchWindow(t *testing.T, dbPath, workID, attemptID, packe
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_completed', 'work_item', ?, ?, '2026-08-22T00:00:00Z', 2, ?)`, "dispatch-completed-"+attemptID, workID, actorRef, []byte(completionPayload)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload) VALUES(?,?,last_insert_rowid(),?)`, workID, attemptID, completionPayload); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload)
+SELECT completion.subject_id,?,completion.seq,completion.payload,completion.event_id,start.seq,start.payload
+FROM domain_events completion JOIN domain_events start ON start.event_id=? WHERE completion.event_id=?`, attemptID, "dispatch-start-"+attemptID, "dispatch-completed-"+attemptID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
@@ -344,6 +346,13 @@ func TestWorkerRecoveryFinishesPreCutoverJobBoundDispatchedAttempt(t *testing.T)
 		t.Fatal(err)
 	}
 	_, recordErr := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES('pre-cutover-job','worker.job_recorded','work_item','work-1','operator','2026-09-30T00:00:00Z',1,?)`, mustJSON(t, recording))
+	if recordErr == nil {
+		_, recordErr = s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,digest,state,recorded_at,recorded_payload,recorded_seq,recorded_event_id)
+SELECT subject_id,json_extract(payload,'$.job_id'),json_extract(payload,'$.revision'),json_extract(payload,'$.contract_version'),json_extract(payload,'$.objective'),json_extract(payload,'$.stopping_condition'),json_extract(payload,'$.project_scope'),json_extract(payload,'$.path_scope'),json_extract(payload,'$.predicate_ids'),json_extract(payload,'$.checks'),json_extract(payload,'$.prerequisites'),json_extract(payload,'$.unresolved_refs'),json_extract(payload,'$.digest'),'recorded',occurred_at,payload,seq,event_id
+FROM domain_events WHERE event_id='pre-cutover-job';
+DELETE FROM fold_guard;`)
+	}
 	_ = s.Close()
 	if recordErr != nil {
 		t.Fatal(recordErr)

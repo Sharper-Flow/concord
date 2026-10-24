@@ -33,7 +33,15 @@ func writeWorkerAuthorizationTx(ctx context.Context, tx *sql.Tx, event Event, p 
 	switch p.ActionID {
 	case "accept_worker_result", "accept_worker_evidence", "reject_worker_result", "record_worker_failure", "record_worker_job":
 		if p.WorkerAttemptID != "" {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempt_dispositions(work_id,attempt_id,action_id,seq,event_id,payload) VALUES(?,?,?,?,?,?) ON CONFLICT(work_id,attempt_id,action_id) DO UPDATE SET seq=excluded.seq,event_id=excluded.event_id,payload=excluded.payload`, event.SubjectID, p.WorkerAttemptID, p.ActionID, event.Seq, event.EventID, string(event.Payload)); err != nil {
+			var firstSeq int64
+			firstPayload := "{}"
+			if p.ActionID == "accept_worker_result" || p.ActionID == "accept_worker_evidence" {
+				firstSeq, firstPayload = event.Seq, string(event.Payload)
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempt_dispositions(work_id,attempt_id,action_id,seq,event_id,payload,first_acceptance_seq,first_acceptance_payload) VALUES(?,?,?,?,?,?,?,?)
+ON CONFLICT(work_id,attempt_id,action_id) DO UPDATE SET seq=excluded.seq,event_id=excluded.event_id,payload=excluded.payload,
+first_acceptance_seq=CASE WHEN first_acceptance_seq=0 THEN excluded.first_acceptance_seq ELSE first_acceptance_seq END,
+first_acceptance_payload=CASE WHEN first_acceptance_seq=0 THEN excluded.first_acceptance_payload ELSE first_acceptance_payload END`, event.SubjectID, p.WorkerAttemptID, p.ActionID, event.Seq, event.EventID, string(event.Payload), firstSeq, firstPayload); err != nil {
 				return err
 			}
 		}
@@ -54,12 +62,6 @@ func writeWorkerDispatchFactsTx(ctx context.Context, tx *sql.Tx, event Event, at
 func writeWorkerTerminalFactsTx(ctx context.Context, tx *sql.Tx, event Event, attempt string) error {
 	_, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET terminal_payload=?,terminal_event_id=?,terminal_payload_version=?,terminal_kind=?,terminal_seq=?,terminal_occurred_at=? WHERE work_id=? AND attempt_id=?`, string(event.Payload), event.EventID, event.PayloadVersion, event.Kind, event.Seq, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID, attempt)
 	return err
-}
-
-func readWorkerAuthorizationStartTx(ctx context.Context, q queryer, work, attempt string) (Event, error) {
-	event := Event{SubjectType: SubjectWorkItem, SubjectID: work, Kind: WorkflowActionStarted, PayloadVersion: 1}
-	err := q.QueryRowContext(ctx, `SELECT start_seq,start_payload FROM worker_authorizations WHERE work_id=? AND attempt_id=? AND start_seq>0`, work, attempt).Scan(&event.Seq, &event.Payload)
-	return event, err
 }
 
 func workerAuthorizationActorTx(ctx context.Context, q queryer, work, attempt string) (string, error) {

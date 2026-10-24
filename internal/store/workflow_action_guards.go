@@ -361,12 +361,11 @@ func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID 
 		return true, nil
 	}
 	var dispatched int
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS (
-		SELECT 1 FROM domain_events
-		WHERE subject_type=? AND subject_id=? AND seq>=?
-		AND (kind=? OR (kind IN (?,?) AND json_extract(payload,'$.action_id')='dispatch_worker'))
-	)`, string(SubjectWorkItem), workID, boundary, WorkerDispatched, WorkflowActionStarted, WorkflowActionCompleted).Scan(&dispatched); err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot inspect worker dispatch authorization", true, "retry once the workflow event log is readable", err)
+	if err := q.QueryRowContext(ctx, `SELECT
+ EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND dispatch_seq>=?)
+ OR EXISTS(SELECT 1 FROM worker_authorizations WHERE work_id=? AND seq>=?)
+ OR EXISTS(SELECT 1 FROM workflow_step_epochs WHERE work_id=? AND latest_dispatch_start_seq>=?)`, workID, boundary, workID, boundary, workID, boundary).Scan(&dispatched); err != nil {
+		return false, wrapFailure(KindUnavailable, subject, "cannot inspect worker dispatch authorization", true, "retry once the workflow projection is readable", err)
 	}
 	if dispatched == 0 {
 		return true, nil

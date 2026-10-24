@@ -820,9 +820,16 @@ func seedWorkerDispatchedForAttempt(t *testing.T, s *Store, workID, attemptID st
 		"packet_schema_version": "1.0", "report_schema_version": "1.0",
 	}
 	raw, _ := json.Marshal(payload)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES(?,?,?,?,?,?,?,?)`,
-		"cd0059-consume-"+attemptID, "worker.dispatched", "work_item", workID,
-		"client:cd0059:principal/operator", "2026-08-22T00:00:00Z", 3, string(raw)); err != nil {
+	event := Event{EventID: "cd0059-consume-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "client:cd0059:principal/operator", PayloadVersion: 3, Payload: raw}
+	inserted, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES(?,?,?,?,?,?,?,?)`,
+		event.EventID, event.Kind, string(event.SubjectType), workID, event.Actor, "2026-08-22T00:00:00Z", event.PayloadVersion, string(raw))
+	if err == nil {
+		event.Seq, err = inserted.LastInsertId()
+	}
+	if err == nil {
+		err = writeWorkerDispatchFactsTx(ctx, tx, event, attemptID)
+	}
+	if err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -1047,7 +1054,15 @@ func TestValidateWorkerDispatchWindowRefusesPreCD0067Window(t *testing.T) {
 			"pre-cutover-completed", WorkflowActionCompleted, string(SubjectWorkItem), seed.workID, actorRef, time.Unix(0, 0).UTC(), 2, []byte(completionPayload)); err != nil {
 			return err
 		}
-		return nil
+		if err := enterFold(ctx, sqlTx); err != nil {
+			return err
+		}
+		if _, err := sqlTx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload)
+SELECT completion.subject_id,?,completion.seq,completion.payload,completion.event_id,start.seq,start.payload
+FROM domain_events completion JOIN domain_events start ON start.event_id=? WHERE completion.event_id=?`, "attempt-pre-cd0067", "pre-cutover-start", "pre-cutover-completed"); err != nil {
+			return err
+		}
+		return leaveFold(ctx, sqlTx)
 	}); err != nil {
 		t.Fatalf("seed pre-CD-0067 window: %v", err)
 	}

@@ -527,16 +527,6 @@ func (l *workerOracleFindingLineage) openFindingIDs() []string {
 	return ids
 }
 
-// oracleForBinding resolves one dispatched binding's recorded oracle from
-// the lineage's retained oracle map, nil when the revision predates the
-// oracle.
-func (l *workerOracleFindingLineage) oracleForBinding(binding WorkerJobBinding) *AcceptanceOracle {
-	if l.oracles == nil {
-		return nil
-	}
-	return l.oracles[binding]
-}
-
 // sameOracleTie reports whether a continuation retains the earlier finding's
 // owner, obligation binding, and failure family: same failure, same
 // canonical open identity. Neither prose matching nor a hash of changeable

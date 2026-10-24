@@ -907,9 +907,8 @@ def job_size_instructions(report_schema: dict, lane: dict) -> str:
         paragraphs = [lane_rule]
     paragraphs.append(
         paragraph(
-            "A packet without these members is historical or carries no "
-            "caller scope: report without the absent fields and never invent "
-            "them."
+            "Without caller scope, omit the caller-repair fields and never "
+            "invent them."
         )
     )
     return "## Caller boundary\n\n" + "\n\n".join(paragraphs) + "\n"
@@ -1118,14 +1117,13 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 {objective_binding_instructions()}
 {research_method_instructions(lane)}{review_method_instructions(lane)}{concord_context_boundary_instructions()}
 {command_duration_instructions(lane)}
-When `inputs.report_protocol` is present, return exactly one Markdown fence
-whose info string is `{packet_schema['properties']['inputs']['properties']['report_protocol']['const']}`.
+Return exactly one Markdown fence whose info string is
+`{packet_schema['properties']['inputs']['properties']['report_protocol']['const']}`.
 Open it with exactly three backticks and that info string on one line. Put one
 strict JSON report object inside it and close it with three backticks on their
 own line. Return the entire frame as one final text part. Do not repeat the frame,
 quote a frame example, use duplicate JSON keys, or put report content after it.
-For a historical packet without `inputs.report_protocol`, return one plain JSON
-report object as your final text part. Never return multiple report candidates.
+Never return multiple report candidates.
 The adapter supplies report identity from the dispatch packet and host readback.
 Set `status` to one of {report_statuses}.
 

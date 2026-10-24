@@ -292,7 +292,6 @@ func admissionCompleteStepCorrection(definition WorkflowDefinition, state admiss
 // rules to the model's dimensions.
 func admissionWorkflowState(definition WorkflowDefinition, state admissionModelState) WorkflowAdmissionState {
 	refinement := workflowRefinementStepID(definition) != ""
-	reviewStep := workflowPostRejectionReviewStep(definition, state.step)
 	instance, lifecycle := "running", "in_progress"
 	if state.done {
 		instance, lifecycle = "completed", "completed"
@@ -324,7 +323,6 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		Lifecycle:                   lifecycle,
 		InstanceState:               instance,
 		RefinementWorkflow:          refinement,
-		ReviewStep:                  reviewStep,
 		ActiveContracts:             state.contracts,
 		LateCriterionAssociation:    admissionLateCriterionAssociation(definition, state),
 		LawPinStale:                 staleErr != nil && workflowContractRecoveryStaleness(staleErr, admissionModelWorkID),
@@ -729,12 +727,12 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 					held.jobs = "satisfied"
 					held.jobsUnsatisfied = ""
 					held.jobDebt = false
-					if !workflowAcceptDeliveryAdmissionActive(definition, state.step) || workflowAdmitDelivery(admissionWorkflowState(definition, state), WorkflowAdmissionDecision{}).Failure == nil {
+					if !workflowAcceptDeliveryAdmissionActive(definition, state.step) || workflowAdmitDelivery(definition, admissionWorkflowState(definition, state), WorkflowAdmissionDecision{}).Failure == nil {
 						return []admissionModelState{heldStillRequired, held, advanced}
 					}
 					return []admissionModelState{heldStillRequired, held}
 				}
-				if !workflowAcceptDeliveryAdmissionActive(definition, state.step) || workflowAdmitDelivery(admissionWorkflowState(definition, state), WorkflowAdmissionDecision{}).Failure == nil {
+				if !workflowAcceptDeliveryAdmissionActive(definition, state.step) || workflowAdmitDelivery(definition, admissionWorkflowState(definition, state), WorkflowAdmissionDecision{}).Failure == nil {
 					successors := []admissionModelState{held}
 					// CD-0205 D5: when the delivery derivation admits the assertion
 					// the accept carries, the model's fold-equivalent must lift

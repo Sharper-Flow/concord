@@ -343,8 +343,8 @@ func splitKeyJoin(keys string) []string {
 	return strings.Split(keys, ",")
 }
 
-func workflowAdmitDelivery(state WorkflowAdmissionState, decision WorkflowAdmissionDecision) WorkflowAdmissionDecision {
-	return workflowAdmitDeliveryForAccept(state, decision, nil)
+func workflowAdmitDelivery(definition WorkflowDefinition, state WorkflowAdmissionState, decision WorkflowAdmissionDecision) WorkflowAdmissionDecision {
+	return workflowAdmitDeliveryForAccept(definition, state, decision, nil)
 }
 
 // workflowAdmitDeliveryForAccept is the one complete delivery admission
@@ -356,7 +356,13 @@ func workflowAdmitDelivery(state WorkflowAdmissionState, decision WorkflowAdmiss
 // disposition and the delivery assertion together. Its pending satisfaction
 // never supplies integration, so a combined acceptance behind missing
 // integration evidence refuses exactly as record_delivery does.
-func workflowAdmitDeliveryForAccept(state WorkflowAdmissionState, decision WorkflowAdmissionDecision, accepting *WorkerJobBinding) WorkflowAdmissionDecision {
+func workflowAdmitDeliveryForAccept(definition WorkflowDefinition, state WorkflowAdmissionState, decision WorkflowAdmissionDecision, accepting *WorkerJobBinding) WorkflowAdmissionDecision {
+	if state.Review != nil && workflowDefinitionProducesDelivery(definition) && (state.Review.Candidate != nil || state.RefinementWorkflow) {
+		if err := workflowAdmitReview(*state.Review, ""); err != nil {
+			decision.Failure = workflowFailureOf(err)
+			return decision
+		}
+	}
 	if state.Delivery.Failure != nil {
 		decision.Failure = state.Delivery.Failure
 		return decision
@@ -381,6 +387,51 @@ func workflowAdmitDeliveryForAccept(state WorkflowAdmissionState, decision Workf
 		return decision
 	}
 	return decision
+}
+
+// A group consumes continuation once. Its remaining members do not need an
+// intermediate Review, but a changed depended-on revision still invalidates it.
+// Delivery and completion use the same rule without an assignment group.
+func workflowAdmitReview(state WorkflowReviewState, group string) error {
+	if admitted, found := state.Groups[group]; found && admitted.CorrectionRef != "" && state.Accepted != nil && state.Accepted.ReportRef == admitted.ReviewRef && state.DependenciesCurrent {
+		return nil
+	}
+	if blocker := state.blocker(); blocker != "" {
+		return reviewFailure(KindMissingEvidence, "open in-scope blocking finding "+blocker+" blocks execution progression", "obtain an evidenced closure of "+blocker+" and have Main accept that Review report")
+	}
+	if admitted, found := state.Groups[group]; group != "" && found {
+		applicable := state.Accepted != nil && state.Candidate != nil && state.Accepted.Report.OutputCandidate == *state.Candidate
+		if !applicable || admitted.ReviewRef == state.Accepted.ReportRef {
+			if state.Accepted == nil || state.DependenciesCurrent {
+				return nil
+			}
+		}
+	}
+	// First entry relies on preceding stage exits and their binding guards.
+	// A missing Review is not evidence that execution has never run.
+	if group != "" && !state.ExecutionProgressed && state.Accepted == nil {
+		return nil
+	}
+	if group != "" && state.ContinueConsumed && state.GroupID == group && state.Accepted != nil && state.DependenciesCurrent {
+		return nil
+	}
+	if state.Accepted == nil || state.Candidate == nil || state.Accepted.Report.OutputCandidate != *state.Candidate || !state.DependenciesCurrent {
+		return reviewFailure(KindMissingEvidence, "execution progression requires an accepted Review on the current candidate and depended-on revisions", "obtain and accept a Review of the current integrated candidate; only valid preceding exits admit the first group")
+	}
+	disposition := state.Accepted.Report.Disposition
+	if group != "" {
+		if disposition != "continue" {
+			return reviewFailure(KindMissingEvidence, "opening an ordinary assignment group requires accepted continue, not "+disposition, "obtain and accept continue, or follow the report's declared corrective/upstream obligation")
+		}
+		if state.ContinueConsumed && state.GroupID != group {
+			return reviewFailure(KindOperationConflict, "this continue permission has already opened group "+state.GroupID, "finish that group, integrate its results, and obtain a new accepted continue")
+		}
+		return nil
+	}
+	if disposition != "ready_for_final_proof" {
+		return reviewFailure(KindMissingEvidence, "leaving execution requires accepted ready_for_final_proof, not "+disposition, "obtain and accept ready_for_final_proof on the current candidate")
+	}
+	return nil
 }
 
 // workflowIntegrationToolingFailure re-validates the integration derivation

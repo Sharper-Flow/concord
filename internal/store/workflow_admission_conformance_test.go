@@ -43,7 +43,7 @@ func admissionReviewViewOf(state *WorkflowReviewState) admissionReviewView {
 
 type admissionConformanceView struct {
 	Step, Lifecycle, InstanceState                                               string
-	RefinementWorkflow, ReviewStep                                               bool
+	RefinementWorkflow                                                           bool
 	ActiveContracts                                                              int64
 	LateCriterionAssociation, LawPinStale, DesignStale, ArtifactStale            bool
 	Review                                                                       admissionReviewView
@@ -67,8 +67,8 @@ type admissionConformanceView struct {
 func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConformanceView {
 	view := admissionConformanceView{
 		Step: state.Step, Lifecycle: state.Lifecycle, InstanceState: state.InstanceState,
-		RefinementWorkflow: state.RefinementWorkflow, ReviewStep: state.ReviewStep,
-		ActiveContracts: state.ActiveContracts, LawPinStale: state.LawPinStale, DesignStale: state.DesignStale,
+		RefinementWorkflow: state.RefinementWorkflow,
+		ActiveContracts:    state.ActiveContracts, LawPinStale: state.LawPinStale, DesignStale: state.DesignStale,
 		LateCriterionAssociation: state.LateCriterionAssociation, ArtifactStale: state.ArtifactStale,
 		Review:                admissionReviewViewOf(state.Review),
 		WorkerFailureRecovery: state.WorkerFailureRecovery,

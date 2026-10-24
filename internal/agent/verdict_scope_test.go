@@ -38,7 +38,7 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	events := append(agentFixtureProductEvents("verdict", "product-1", "project-1", "Verdict Scope", "Verdict Project", "verdict fixture"),
-		store.Event{EventID: "verdict-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"bug","title":"Verdict Scope Work","priority":1}`)},
+		store.Event{EventID: "verdict-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"bug","title":"Verdict Scope Work","priority":1,"defect_intake":{"failure_shape":"verdict-scope-read","reproduction":"Read the verdict from the executing and distinct sessions.","searched":"The fixture store contains no earlier defect of this shape.","related_defect_ids":[]}}`)},
 		store.Event{EventID: "verdict-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	)
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 0}}); err != nil {

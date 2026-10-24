@@ -623,11 +623,10 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		const workID = "approval-terminal-engineering-worker"
 		s, registry, _, _, actors := seedApprovalItemAtAcceptance(t, workID, []string{})
 		lane := BuiltinLaneDefinitions()[0]
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-			EventID: "approval-worker-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-			Actor: actors.coordinatorRef, OccurredAt: time.Unix(12, 45).UTC(), PayloadVersion: 2,
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt:" + workID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, LaneActorRef: actors.coordinatorRef}),
-		}}}); err != nil {
+		dispatch := workerDispatchEvent(workID, "approval-worker-dispatch-"+workID, lane, map[string]any{"attempt_id": "attempt:" + workID, "lane_actor_ref": actors.coordinatorRef})
+		dispatch.Actor = actors.coordinatorRef
+		dispatch.OccurredAt = time.Unix(12, 45).UTC()
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 			t.Fatalf("seed worker dispatch: %v", err)
 		}
 		baselineVersion := readWorkVersion(t, s, workID)

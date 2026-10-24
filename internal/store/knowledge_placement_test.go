@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 )
 
 // overrideManifestBytes encodes a schema-1.3 manifest whose records and head
@@ -255,39 +254,6 @@ func TestLegacyNoteEditChangesContentDigest(t *testing.T) {
 	}
 	if d1 == d2 {
 		t.Fatal("a legacy work-note edit is invisible to the content digest")
-	}
-}
-
-// TestLegacyCompactionEventRemainsFoldable proves replay of a recorded
-// compaction event that names a pre-move note path still folds.
-func TestLegacyCompactionEventRemainsFoldable(t *testing.T) {
-	ctx := context.Background()
-	s := openTemp(t)
-	repo := initKnowledgeRepo(t)
-	seedEventDerivedLocator(t, s, "p", "l", repo)
-	seedKnowledgeWork(t, s, "work-done", "Completed legacy work")
-	payload, err := json.Marshal(compactionLinkPayloadV2{compactionLinkPayload: compactionLinkPayload{
-		ID: "work-done", Type: "work_note", Title: "Completed legacy work", CompletedAt: "2026-08-07T00:00:00Z", OutcomeTag: "shipped",
-		LessonTags: []string{}, TerminalState: "completed", Summary: "Legacy durable summary", ProductIDs: []string{}, ProjectIDs: []string{},
-		DomainIDs: []string{}, TagIDs: []string{}, HomeProjectID: "p", HomeLocatorID: "l", NotePath: "docs/work/legacy.md",
-		CommitOID: strings.Repeat("a", 40), ContentHash: "sha256:" + strings.Repeat("b", 64), Reason: "Verified legacy compaction", ExpectedVersion: 3,
-	}, ResultingVersion: 4})
-	if err != nil {
-		t.Fatal(err)
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	scope, err := beginFold(ctx, tx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = scope.close(ctx) }()
-	event := Event{EventID: "legacy-compaction", Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: "work-done", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 2, Payload: payload}
-	if err := foldRecordedEvent(ctx, tx, event, scope); err != nil {
-		t.Fatalf("existing legacy compaction event cannot fold: %v", err)
 	}
 }
 

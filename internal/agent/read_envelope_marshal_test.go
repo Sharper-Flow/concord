@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/pm1fixture"
-	"github.com/sharper-flow/concord/internal/store"
 )
 
 // Every ok envelope is validated in MarshalJSON, and only there. The
@@ -141,48 +139,6 @@ func TestEveryReadOperationMarshalsAsARead(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Fatal("no declared read operation found")
-	}
-}
-
-// An initiative is a stored work kind that no agent may capture. The list
-// result once reused the capture input's enum, so a browse that included an
-// initiative refused its own answer. A result admits every stored kind.
-func TestWorkBrowseListAnswersWhenAnInitiativeIsInTheResult(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read"})
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	env := mutationEnvelope(grant, scopeVersion)
-	// CD-0213 retired Initiative capture; a historical Initiative still
-	// replays, so the store can hold one. The events land in the log
-	// directly and RebuildFromLog folds them, because the live append seam
-	// refuses a new initiative capture under CD-0213 D4.
-	initiativeID := "historical-initiative"
-	db := s.DatabaseForTesting()
-	for _, event := range []store.Event{
-		{EventID: "historical-initiative-created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: initiativeID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"initiative","title":"Initiative","priority":0}`)},
-		{EventID: "historical-initiative-member", Kind: "work_project.added", SubjectType: store.SubjectWorkItem, SubjectID: initiativeID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"work_id":"historical-initiative","project_id":"project-1","role":"primary","reason":"test","expected_version":1,"resulting_version":2}`)},
-	} {
-		if _, err := db.ExecContext(ctx, `INSERT INTO domain_events(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
-			event.EventID, event.Kind, string(event.SubjectType), event.SubjectID, event.Actor, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.PayloadVersion, string(event.Payload)); err != nil {
-			t.Fatalf("seed historical initiative event: %v", err)
-		}
-	}
-	if err := store.RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("replay historical initiative: %v", err)
-	}
-	listed := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_work_browse", Operation: "list", Input: json.RawMessage(`{"work_ids":["` + initiativeID + `"],"page":{"cursor":null,"limit":5}}`)}, env)
-	if listed.Outcome != OutcomeOK {
-		t.Fatalf("list including an initiative: %+v", listed.Error)
-	}
-	if _, err := json.Marshal(listed); err != nil {
-		t.Fatalf("list including an initiative does not marshal: %v", err)
-	}
-	if !strings.Contains(string(listed.Result), `"kind":"initiative"`) {
-		t.Fatalf("initiative not in result: %s", firstBytes(listed.Result, 300))
 	}
 }
 

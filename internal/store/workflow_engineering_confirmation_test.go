@@ -217,11 +217,10 @@ func TestEngineeringConfirmation(t *testing.T) {
 		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, `[]`)
 		coordinatorRef := ownerRefForTest(t, coordinator)
 		lane := BuiltinLaneDefinitions()[0]
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-			EventID: "engineering-confirm-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-			Actor: coordinatorRef, OccurredAt: time.Unix(9, 50).UTC(), PayloadVersion: 2,
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt:" + workID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, LaneActorRef: coordinatorRef}),
-		}}}); err != nil {
+		dispatch := workerDispatchEvent(workID, "engineering-confirm-dispatch-"+workID, lane, map[string]any{"attempt_id": "attempt:" + workID, "lane_actor_ref": coordinatorRef})
+		dispatch.Actor = coordinatorRef
+		dispatch.OccurredAt = time.Unix(9, 50).UTC()
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 			t.Fatalf("seed worker dispatch: %v", err)
 		}
 		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, coordinatorRef, nil, confirmationFields(true, ""))
@@ -426,7 +425,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 			"supersede_reason": "upgrade to decision-bearing work", "audit_evidence": []string{"evidence:upgrade-audit"},
 			"successor_contract": successor,
 		})
-		supersede.PayloadVersion = workflowContractSupersededDecisionDomainsPayloadVersion
+		supersede.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
 		currentVersion := readWorkVersion(t, s, workID)
 		supersede.Payload = mustJSONValue(map[string]any{"work_id": workID, "expected_version": currentVersion, "resulting_version": currentVersion + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "upgrade to decision-bearing work", "audit_evidence": []string{"evidence:upgrade-audit"}, "successor_contract": successor})
 		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): currentVersion}}); err != nil {

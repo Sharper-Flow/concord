@@ -13,19 +13,11 @@ type workflowDesignContent struct {
 }
 
 func validateWorkflowDesignContent(p workflowDesignContent) error {
-	return validateWorkflowDesignContentWithReference(p, ValidReference)
-}
-
-func validateWorkflowDesignContentForReplay(p workflowDesignContent) error {
-	return validateWorkflowDesignContentWithReference(p, replayValidReference)
-}
-
-func validateWorkflowDesignContentWithReference(p workflowDesignContent, validReference func(string) bool) error {
 	if len(p.Approach) < 2 || len(p.Approach) > 4096 || len(p.Decisions) < 1 || len(p.Decisions) > 16 || !workflowList(p.TouchedRefs, 64, 1) {
 		return newFailure(KindInvalidPayload, "fold_event", "design record is incomplete or outside its bounds", false, "supply the bounded design approach, decisions, and touched references")
 	}
 	for _, decision := range p.Decisions {
-		if !validReference(decision.ID) || len(decision.Question) < 1 || len(decision.Question) > 512 || len(decision.Choice) < 1 || len(decision.Choice) > 1024 || len(decision.Rationale) < 1 || len(decision.Rationale) > 1024 || len(decision.Rejected) > 8 {
+		if !ValidReference(decision.ID) || len(decision.Question) < 1 || len(decision.Question) > 512 || len(decision.Choice) < 1 || len(decision.Choice) > 1024 || len(decision.Rationale) < 1 || len(decision.Rationale) > 1024 || len(decision.Rejected) > 8 {
 			return newFailure(KindInvalidPayload, "fold_event", "design decision is incomplete or outside its bounds", false, "supply each bounded design decision with a non-empty choice")
 		}
 		for _, rejected := range decision.Rejected {
@@ -84,7 +76,7 @@ func readCurrentWorkflowDesign(ctx context.Context, q queryer, workID string) (*
 		return nil, workflowProjectionError(err, "cannot read workflow design")
 	}
 	if json.Unmarshal([]byte(decisions), &design.Decisions) != nil || json.Unmarshal([]byte(touched), &design.TouchedRefs) != nil {
-		return nil, newFailure(KindInvariantViolation, "workflow_design", "design projection contains malformed arrays", false, "rebuild projections from the event log")
+		return nil, newFailure(KindInvariantViolation, "workflow_design", "design projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return &design, nil
 }

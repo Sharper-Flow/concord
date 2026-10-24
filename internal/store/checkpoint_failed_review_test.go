@@ -35,7 +35,7 @@ func dispatchCheckpointReviewAttempt(t *testing.T, fixture workflowReturnRouteFi
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
-	laneDispatch := Event{EventID: "checkpoint-failed-dispatch-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest, WorkerJob: binding})}
+	laneDispatch := Event{EventID: "checkpoint-failed-dispatch-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest, WorkerJob: binding})}
 	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
 		prepared, err := PrepareLaneActorDispatch(context.Background(), transaction, laneDispatch, fixture.owner.PrincipalRef, fixture.owner.ClientRef)
 		if err != nil {
@@ -138,7 +138,7 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 		PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion,
 		PacketDigest: "sha256:" + strings.Repeat("f", 64), WorkerJob: job,
 	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(laneDispatchPayload)}}}); err != nil {
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(laneDispatchPayload)}}}); err != nil {
 		t.Fatal(err)
 	}
 	entry, err := activeWorktreeEntryForProject(ctx, s.DatabaseForTesting(), "verify_worktree", workID, "project")
@@ -170,7 +170,7 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 	if qualified, err := readCurrentOracleSubject(ctx, s.DatabaseForTesting(), workID); err != nil || qualified != subject {
 		t.Fatalf("qualified subject = %q err = %v, want the delivered commit %q", qualified, err, subject)
 	}
-	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: job,
 	})}
@@ -260,7 +260,7 @@ func completeCheckpointReviewAttempt(t *testing.T, s *Store, workID, attemptID, 
 			evidence = append(evidence, WorkerReportEvidence{Obligation: obligation, Detail: "Reviewed the checkpoint's current candidate."})
 		}
 	}
-	event := Event{EventID: attemptID + ":completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted),
+	event := Event{EventID: attemptID + ":completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted),
 		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID), Evidence: evidence, EvidenceOrigin: WorkerEvidenceReported, WorkerJob: job, Review: currentReviewBlockForTest(t, s, workID, attemptID, disposition)})}
 	prepared, err := PrepareWorkerTerminalDelivery(t.Context(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attemptID, EventID: event.EventID})
 	if err != nil {
@@ -448,7 +448,7 @@ func TestEffectStepStaleCompletedAttemptCannotAdvance(t *testing.T) {
 	// later dispatch and completion keep their recorded order.
 	recordWorkerFixtureDispatchAuthorization(t, s, workID, staleAttemptID, "repair", ownerRef)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		{EventID: "effect-stale-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: staleAttemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})},
+		{EventID: "effect-stale-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: staleAttemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("f", 64)})},
 	}}); err != nil {
 		t.Fatal(err)
 	}

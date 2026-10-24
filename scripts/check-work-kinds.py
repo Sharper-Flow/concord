@@ -15,7 +15,6 @@ ROOT = Path(__file__).resolve().parents[1]
 VOCABULARY = Path("contracts/work-kinds.v1.json")
 SURFACE_SCHEMA = Path("contracts/agent-tool-surface-payloads.schema.json")
 SCHEMA_SOURCE = Path("internal/store/schema.go")
-SCENARIO_SCHEMA = Path("contracts/workflow-engine-scenarios.schema.json")
 RUNTIME_SOURCE = Path("internal/store")
 
 
@@ -80,8 +79,7 @@ def check(root: Path) -> list[str]:
     generator_freshness(root, "generate-work-kinds.py", findings)
     vocabulary = load_json_finding(root, VOCABULARY, findings)
     surface = load_json_finding(root, SURFACE_SCHEMA, findings)
-    scenario = load_json_finding(root, SCENARIO_SCHEMA, findings)
-    if not isinstance(vocabulary, dict) or not isinstance(surface, dict) or not isinstance(scenario, dict):
+    if not isinstance(vocabulary, dict) or not isinstance(surface, dict):
         return findings
     kinds = vocabulary.get("kinds")
     if not isinstance(kinds, list):
@@ -96,52 +94,16 @@ def check(root: Path) -> list[str]:
     if sorted(actual) != capture:
         findings.append(f"agent-capture-closure: expected {capture}, got {sorted(actual)}")
     stored = sorted(item["kind"] for item in kinds if item.get("stored") is True)
-    scenario_kinds = enum_at(scenario, ["$defs", "operatorWorkKind", "enum"], findings)
-    if sorted(scenario_kinds) != stored:
-        findings.append(f"scenario-work-kind-closure: expected {stored}, got {sorted(scenario_kinds)}")
-    split_refs = {
-        ("workCreatedPayload", "kind"): "#/$defs/operatorWorkKind",
-        ("workCreatedPayload", "work_kind"): "#/$defs/operatorWorkKind",
-        ("workflowDefinitionSelectedPayload", "work_kind"): "#/$defs/workflowFamily",
-    }
-    def field_ref(node: object, field: str) -> str | None:
-        if isinstance(node, dict):
-            properties = node.get("properties")
-            if isinstance(properties, dict) and isinstance(properties.get(field), dict):
-                ref = properties[field].get("$ref")
-                if isinstance(ref, str):
-                    return ref
-            for child in node.values():
-                found = field_ref(child, field)
-                if found is not None:
-                    return found
-        elif isinstance(node, list):
-            for child in node:
-                found = field_ref(child, field)
-                if found is not None:
-                    return found
-        return None
-
-    for (definition, field), expected_ref in split_refs.items():
-        try:
-            actual_ref = field_ref(scenario["$defs"][definition], field)
-        except (KeyError, TypeError):
-            actual_ref = None
-        if actual_ref != expected_ref:
-            findings.append(f"scenario-payload-split: {definition}.{field} expected {expected_ref}, got {actual_ref}")
-    try:
-        create_shape = scenario["$defs"]["workCreatedPayload"]["allOf"][1]["oneOf"]
-        required_variants = {tuple(branch.get("required", [])) for branch in create_shape}
-    except (KeyError, IndexError, TypeError):
-        required_variants = set()
-    if required_variants != {("kind",), ("work_kind",)}:
-        findings.append("scenario-payload-split: workCreatedPayload must require exactly one legacy or current kind field")
-    try:
-        definition_required = scenario["$defs"]["workflowDefinitionSelectedPayload"]["allOf"][1]["required"]
-    except (KeyError, IndexError, TypeError):
-        definition_required = []
-    if definition_required != ["work_kind"]:
-        findings.append("scenario-payload-split: workflowDefinitionSelectedPayload must require work_kind")
+    actual_stored = enum_at(surface, ["$defs", "stored_work_kind", "enum"], findings)
+    if sorted(actual_stored) != stored:
+        findings.append(f"agent-stored-kind-closure: expected {stored}, got {sorted(actual_stored)}")
+    definitions = surface.get("$defs")
+    for definition in ("work_define_capture_input", "work_define_revise_input"):
+        node = definitions.get(definition) if isinstance(definitions, dict) else None
+        properties = node.get("properties", {}) if isinstance(node, dict) else {}
+        kind = properties.get("kind") if isinstance(properties, dict) else None
+        if not isinstance(kind, dict) or kind.get("$ref") != "#/$defs/work_kind":
+            findings.append(f"agent-work-kind-reference: {definition}.kind must reference #/$defs/work_kind")
     try:
         source = (root / SCHEMA_SOURCE).read_text(encoding="utf-8")
     except OSError as exc:

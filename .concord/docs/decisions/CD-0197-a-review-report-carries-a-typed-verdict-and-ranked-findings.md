@@ -165,7 +165,7 @@ Scenario: Severity has one source
 Scenario: A stored completion stays a recorded fact
   Given a stored review completion recorded before this requirement
   When the store reads it back
-  Then the recorded content is returned unchanged, with no replay or rebuild
+  Then the recorded content is returned unchanged
 
 Scenario: The adapter refuses at admission and the summary carries typed counts
   Given a completed review report without the block

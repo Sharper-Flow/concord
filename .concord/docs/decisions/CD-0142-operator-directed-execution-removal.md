@@ -86,8 +86,8 @@ health. A work item without verified active or waiting evidence reports
 
 ## Verification
 
-- `internal/store.TestWorkRemovalDeletesExecutionAndReplaysAbsence` verifies
-  projection removal, audit retention, replay absence, and idempotent retry.
+- `internal/store.TestWorkRemovalDeletesExecutionAndRetriesIdempotently` verifies
+  projection removal, audit retention, and idempotent retry.
 - `internal/store.TestWorkRemovalRefusesMissingSafetyEvidence` verifies a required
   removal gate.
 - `go test ./internal/store -run 'TestWorkRemoval|TestMigrateV80'`

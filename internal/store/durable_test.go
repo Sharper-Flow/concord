@@ -139,7 +139,7 @@ func (s *Store) appendSeedEvent(ctx context.Context) error {
 		SubjectID:      "probe-1",
 		Actor:          "probe",
 		OccurredAt:     time.Now().UTC(),
-		PayloadVersion: 2,
+		PayloadVersion: CurrentEventPayloadVersion("work.created"),
 		Payload:        []byte(`{"work_id":"probe-1","work_kind":"task","title":"probe","priority":1}`),
 	}
 	if _, err := AppendEvent(ctx, tx, e); err != nil {

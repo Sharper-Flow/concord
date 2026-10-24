@@ -614,7 +614,7 @@ func cutoverLawProjection(t *testing.T, s *Store) {
 	}
 }
 
-func TestWorkflowLawRevisionPinsFoldAndRebuildWithoutConsultingCurrentLaw(t *testing.T) {
+func TestWorkflowLawRevisionPinsFoldWithoutConsultingCurrentLaw(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	workID := "law-pinned-rebuild"
@@ -627,7 +627,6 @@ func TestWorkflowLawRevisionPinsFoldAndRebuildWithoutConsultingCurrentLaw(t *tes
 		workflowEventWithActor("law-pinned-definition", WorkflowDefinitionSelected, workID, actor, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 1, "digest": workflowFixtureDigest(t), "work_kind": workflowFixtureWorkKind}),
 	}
 	contract := workflowEventWithActor("law-pinned-contract", WorkflowContractApproved, workID, actor, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "contract_version": 1, "premise": "pin the accepted law", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:law-pin", "immutable_subject_ref": "commit:law-pin", "expected_result": "pass"}, "required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one"}, "law_revisions": []WorkflowLawRevision{{LawID: "spec:one", ContentHash: "sha256:" + strings.Repeat("a", 64)}}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"})
-	contract.PayloadVersion = 2
 	events = append(events, contract)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
@@ -635,12 +634,6 @@ func TestWorkflowLawRevisionPinsFoldAndRebuildWithoutConsultingCurrentLaw(t *tes
 	var hash string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=?`, workID).Scan(&hash); err != nil || hash != "sha256:"+strings.Repeat("a", 64) {
 		t.Fatalf("folded law pin = %q err=%v", hash, err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=?`, workID).Scan(&hash); err != nil || hash != "sha256:"+strings.Repeat("a", 64) {
-		t.Fatalf("rebuilt law pin = %q err=%v", hash, err)
 	}
 }
 

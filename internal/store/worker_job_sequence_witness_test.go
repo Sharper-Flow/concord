@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -71,7 +70,7 @@ func sequenceWitnessRecordJob(t *testing.T, s *Store, workID string, actor Workf
 // acceptance satisfies exactly its recorded revision and holds the step,
 // zero delivery and zero approval surface moves, and the rebuild folds back
 // to identical bindings, result references, and readiness.
-func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *testing.T) {
+func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptance(t *testing.T) {
 	t.Parallel()
 	const workID = "job-sequence-witness-prereq-chain"
 	fixture := oSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
@@ -205,33 +204,6 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *test
 		t.Fatalf("the acceptance chain moved the approval tables from (%d,%d) to (%d,%d), want zero approval delta", approvalsBefore, challengesBefore, approvalsAfter, challengesAfter)
 	}
 
-	// The rebuild folds the stored chain to identical revision bindings,
-	// accepted result references, and derived readiness.
-	viewsBefore, err := readWorkerJobRevisions(ctx, s.db, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	readyBefore, err := readyWorkerJobRevisions(ctx, s.db, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild from the log: %v", err)
-	}
-	viewsAfter, err := readWorkerJobRevisions(ctx, s.db, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	readyAfter, err := readyWorkerJobRevisions(ctx, s.db, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(viewsBefore, viewsAfter) {
-		t.Fatalf("rebuilt revision views differ:\nbefore: %#v\nafter:  %#v", viewsBefore, viewsAfter)
-	}
-	if !reflect.DeepEqual(readyBefore, readyAfter) {
-		t.Fatalf("rebuilt ready set differs:\nbefore: %#v\nafter:  %#v", readyBefore, readyAfter)
-	}
 }
 
 // TestCombinedRejectRetryWithUnreadyLatestJobRevisionRefusesWhole drives the

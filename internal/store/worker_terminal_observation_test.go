@@ -237,7 +237,7 @@ func implementDispatchEvidenceEvent(workID, attemptID string, lane LaneDefinitio
 		PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion,
 		PacketDigest: "sha256:" + strings.Repeat("f", 64), WorkerJob: &job,
 	}
-	return Event{EventID: attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(payload)}
+	return Event{EventID: attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(payload)}
 }
 
 func TestWorkerTerminalConsumedFrontier(t *testing.T) {
@@ -278,7 +278,7 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 			evidence = append(evidence, WorkerReportEvidence{Obligation: obligation, Detail: "discharged " + obligation})
 		}
 		boundJob := job
-		completion := Event{EventID: "complete-frontier-f", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+		completion := Event{EventID: "complete-frontier-f", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 			AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 			EvidenceOrigin: WorkerEvidenceReported, Evidence: evidence, WorkerJob: &boundJob,
 		})}
@@ -317,7 +317,7 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		completion := workerCompletedContextFindingsEvent(workID, "complete-frontier-zero", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, workID))
+		completion := workerCompletedContextFindingsEvent(workID, "complete-frontier-zero", attemptID, preferredModelForLane(lane), lane, nil, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, workID))
 		workerTerminalEventThroughSeamCtx(t, prepareWorkerTerminalDelivery(t, s, workID, attemptID, completion.EventID), s, completion)
 		consumed, consumedPresent := rawTerminalFrontier(t, s, "complete-frontier-zero")
 		if !consumedPresent {
@@ -358,7 +358,7 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(fixture.workID, attemptID, lane, job)}}); err != nil {
 			t.Fatal(err)
 		}
-		failure := workerFailedContextFindingsEvent(fixture.workID, "failed-frontier-f", attemptID, preferredModelForLane(lane), WorkerFailureWorkerError, nil, WorkerEvidenceEventPayloadVersion(WorkerFailed))
+		failure := workerFailedContextFindingsEvent(fixture.workID, "failed-frontier-f", attemptID, preferredModelForLane(lane), WorkerFailureWorkerError, nil, CurrentEventPayloadVersion(WorkerFailed))
 		workerTerminalEventThroughSeamCtx(t, prepareWorkerTerminalDelivery(t, s, fixture.workID, attemptID, failure.EventID), s, withWorkerFailureObservation(t, failure))
 		consumed, consumedPresent := rawTerminalFrontier(t, s, "failed-frontier-f")
 		if !consumedPresent {
@@ -380,7 +380,7 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(fixture.workID, attemptID, lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		completion := workerCompletedContextFindingsEvent(fixture.workID, "complete-frontier-historical", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, fixture.workID))
+		completion := workerCompletedContextFindingsEvent(fixture.workID, "complete-frontier-historical", attemptID, preferredModelForLane(lane), lane, nil, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, fixture.workID))
 		workerTerminalEventThroughSeam(t, s, completion)
 		if _, present := dispatchCompletionFrontier(t, s, fixture.workID, attemptID); present {
 			t.Fatal("a historical authorization carries a recorded frontier; raw history must stay absent")
@@ -412,7 +412,7 @@ func TestWorkerTerminalClaimStateDriftRefusesAppend(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	completion := workerCompletedContextFindingsEvent(workID, "complete-claim-state-drift", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, workID))
+	completion := workerCompletedContextFindingsEvent(workID, "complete-claim-state-drift", attemptID, preferredModelForLane(lane), lane, nil, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, workID))
 	prepareCtx := prepareWorkerTerminalDelivery(t, s, workID, attemptID, completion.EventID)
 	if _, err := s.DatabaseForTesting().Exec(`UPDATE worktree_entries SET state='reclaimed' WHERE set_id=? AND project_id='project-1'`, WorktreeSetID(workID)); err != nil {
 		t.Fatal(err)

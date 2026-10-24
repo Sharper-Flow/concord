@@ -334,7 +334,7 @@ func workerJobCorrectionPathsTx(ctx context.Context, q queryer, workID string) (
 		}
 		var scope []string
 		if err := json.Unmarshal([]byte(raw), &scope); err != nil {
-			return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "a recorded worker-job revision carries a path scope that is not one string list", false, "rebuild the worker-job projection from the event log")
+			return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "a recorded worker-job revision carries a path scope that is not one string list", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		paths[jobID] = scope
 	}
@@ -488,7 +488,7 @@ func workerJobPathScopeTx(ctx context.Context, tx *sql.Tx, workID string, bindin
 	}
 	var scope []string
 	if err := json.Unmarshal([]byte(raw), &scope); err != nil {
-		return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "a recorded worker-job revision carries a path scope that is not one string list", false, "rebuild the worker-job projection from the event log")
+		return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "a recorded worker-job revision carries a path scope that is not one string list", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return scope, nil
 }
@@ -506,7 +506,7 @@ func workerDispatchCallerExclusionsTx(ctx context.Context, tx *sql.Tx, workID, a
 	}
 	var exclusions []string
 	if err := json.Unmarshal([]byte(raw), &exclusions); err != nil {
-		return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "a dispatch authorization carries caller exclusions that are not one string list", false, "rebuild the workflow events from the authoritative log")
+		return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "a dispatch authorization carries caller exclusions that are not one string list", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return exclusions, nil
 }
@@ -678,7 +678,7 @@ func workerCallerPathForeignOwnerTx(ctx context.Context, tx *sql.Tx, workID, pro
 		}
 		var scope []string
 		if err := json.Unmarshal([]byte(raw), &scope); err != nil {
-			return "", newFailure(KindInvariantViolation, "worker_job_caller_scope", "a recorded worker-job revision carries a path scope that is not one string list", false, "rebuild the worker-job projection from the event log")
+			return "", newFailure(KindInvariantViolation, "worker_job_caller_scope", "a recorded worker-job revision carries a path scope that is not one string list", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		if workerJobPathsIntersect(scope, path) {
 			return "work item " + otherWork + "'s recorded job scope covers", nil

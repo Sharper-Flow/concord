@@ -11,10 +11,8 @@ import (
 // leaves every occupancy row standing (a refused host move must not leave a
 // live session in a worktree recorded as empty); the adapter-only
 // vacate-landing verb records the verified landing and releases the session's
-// rows in one transaction; and a recorded work.session_vacated of the prior
-// payload version still releases on fold, replayed unchanged.
-// TestSessionVacateReleasesEveryWorkItemRow in
-// worktree_occupancy_release_test.go carries the prior-version replay.
+// rows in one transaction. Migrated prior-version requests remain stored but
+// cannot supply a current relocation target.
 
 func vacateRequestEvent(eventID, source string) Event {
 	return Event{
@@ -144,13 +142,11 @@ func TestSessionVacateReplayResolvesAndHoldsACompletedRequest(t *testing.T) {
 	}
 	// A recorded version 1 request released on fold, so the replay refuses
 	// it at the payload version.
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
+	insertHistoricalEvent(t, s, Event{
 		EventID: "vacate-v1-completed", Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: "work-w",
 		Actor: "ses-old", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: 1,
 		Payload: jsonRaw(`{"work_id":"work-w","project_id":"project-w","session_ref":"ses-old","source_directory":"` + claimPath(s) + `","destination_directory":"/data/repo-main","landed_directory":"/data/repo-main"}`),
-	}}}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	if _, err := resolve("ses-old"); failureKind(err) != KindInvalidOperation {
 		t.Fatalf("err=%v, want invalid_operation for the version 1 request", err)
 	}

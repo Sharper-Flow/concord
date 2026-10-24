@@ -323,7 +323,7 @@ func seedResolutionInvestigation(t *testing.T, s *Store, workID string) {
 	seedIssue31DomainRegistry(t, s)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
 		EventID: "resolution-investigation-" + workID, Kind: WorkObservationRecorded, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "actor:test", OccurredAt: time.Unix(8, 0).UTC(), PayloadVersion: 1,
+		Actor: "actor:test", OccurredAt: time.Unix(8, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkObservationRecorded),
 		Payload: mustJSONValue(map[string]any{
 			"observation_id": "obs:" + strings.Repeat("a", 16), "statement": "technical investigation",
 			"refs": []string{"root", other}, "tags": []string{},

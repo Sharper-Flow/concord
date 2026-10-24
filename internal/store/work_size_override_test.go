@@ -72,12 +72,9 @@ func TestWorkSizeOverrideGovernsBesideTheModelResult(t *testing.T) {
 	if err := applyWorkEvent(t, s, workSizedEvent("override-sized-2", "override", WorkSizeModelVersion, WorkSizeLarger, larger), nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild: %v", err)
-	}
 	decision, _ = readEffectiveWorkSizeForTest(t, s, "override")
 	if decision.Effective != WorkSizeCrucial || decision.Model.Size != WorkSizeLarger || decision.Model.Sequence != 2 {
-		t.Fatalf("after a rerun and replay: %+v; want the operator's size to govern over the model's larger", decision)
+		t.Fatalf("after a rerun: %+v; want the operator's size to govern over the model's larger", decision)
 	}
 }
 

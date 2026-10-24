@@ -38,7 +38,7 @@ func TestHistoricalReadCarriesContractDecisionDomains(t *testing.T) {
 			"supersede_reason": "correct the declared decision domains", "audit_evidence": []string{"evidence:domain-audit"},
 			"successor_contract": successor,
 		})
-		supersede.PayloadVersion = workflowContractSupersededDecisionDomainsPayloadVersion
+		supersede.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
 		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "decision-historical-read"): version}}); err != nil {
 			t.Fatalf("successor correction refused: %v", err)
 		}

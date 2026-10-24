@@ -212,7 +212,7 @@
     },
     {
      "kind": "go_test",
-     "value": "internal/store.TestReplaceDomainAttachmentsFoldsSetsAndSurvivesLogRebuild"
+     "value": "internal/store.TestReplaceDomainAttachmentsFoldsSets"
     },
     {
      "kind": "validator",
@@ -220,7 +220,7 @@
     },
     {
      "kind": "go_test",
-     "value": "internal/store.TestProductKnowledgeHomeDesignationIsEventSourcedAndRebuildStable"
+     "value": "internal/store.TestProductKnowledgeHomeDesignationPersists"
     }
    ]
   },
@@ -278,9 +278,13 @@
    "state": "satisfied",
    "evidence": [
     {
-     "kind": "scenario",
-     "value": "WF19-completion-one-transaction"
-    },
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowCompletionGateAdjacentClausePrecedenceAndRollback"
+     },
+     {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses"
+     },
     {
      "kind": "scenario",
      "value": "WF47-evidence-commit-binding"
@@ -292,13 +296,8 @@
    "condition": "fc3",
    "title": "Research, implementation, and review lanes complete an end-to-end synthetic workflow",
    "requirement": "A synthetic scenario drives the registered lanes through one workflow producing typed worker evidence, and only a distinct owner accepts a completed attempt.",
-   "state": "satisfied",
-   "evidence": [
-    {
-     "kind": "scenario",
-     "value": "WF48-lane-pipeline-typed-evidence"
-    }
-   ]
+   "state": "unmeasured",
+   "reason": "The current corpus proves owner acceptance of a registered Implement lane's typed result only; no current control drives the Research lane through the same workflow."
   },
   {
    "id": "fc3-reviewer-model-distinctness",
@@ -384,8 +383,8 @@
      "value": "WF29-impact-notice-identity"
     },
     {
-     "kind": "scenario",
-     "value": "WF30-breaking-dependent-block"
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowCompletionPropagatesReverseDependentsAndBoundaryUsesEdgeClass"
     }
    ]
   },
@@ -410,12 +409,12 @@
    "state": "satisfied",
    "evidence": [
     {
-     "kind": "scenario",
-     "value": "WF40-staleness-block"
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowBlockingStalenessRefusesCompletionSemantics"
     },
     {
-     "kind": "scenario",
-     "value": "WF41-staleness-warning-recorded"
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowWarningStalenessIsRecordedForNextRead"
     }
    ]
   },

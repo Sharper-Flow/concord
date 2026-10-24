@@ -9,22 +9,14 @@ import (
 	"time"
 )
 
-func TestRecordedOccupancyMigration89ReleaseAgreesWithReplay(t *testing.T) {
+func TestRecordedOccupancyMigration89BackfillAndReleasedRow(t *testing.T) {
 	useStampedBuild(t)
 	ctx := context.Background()
-	template := recordedOccupancyFixture(t, "absent")
-	defer template.Close()
-	templateTx, err := template.db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer templateTx.Rollback()
-	events, err := readEvents(ctx, templateTx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := templateTx.Rollback(); err != nil {
-		t.Fatal(err)
+	events := []Event{
+		locatorProductEvent("product-w"), locatorProjectEvent("project-w"), locatorMembershipEvent("product-w", "project-w"),
+		workCreatedEvent("work-w", "migration-create-work"),
+		operationEvent("migration-work-project", "work_project.added", SubjectWorkItem, "work-w", map[string]any{"work_id": "work-w", "project_id": "project-w", "role": "primary", "reason": "migration fixture", "expected_version": 1, "resulting_version": 2}),
+		operationEvent("migration-worktree", "work.worktree_created", SubjectWorkItem, "work-w", map[string]any{"set_id": WorktreeSetID("work-w"), "project_id": "project-w", "claim_op_id": "wt-op-1", "branch": "work/work-w", "base_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "path": t.TempDir(), "repository_id": "repo-fixture", "git_facts": map[string]any{}, "expected_version": 2, "resulting_version": 3}),
 	}
 	path := filepath.Join(t.TempDir(), "migration-occupancy.db")
 	db := openMigratedTo(t, path, 88)
@@ -111,24 +103,18 @@ func TestRecordedOccupancyMigration89ReleaseAgreesWithReplay(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT occupant_session_ref FROM worktree_entries WHERE claim_op_id='wt-op-1'`).Scan(&backfilled); err != nil || backfilled != session {
 		t.Fatalf("migration 89 did not backfill the synthetic session: %q: %v", backfilled, err)
 	}
-	appendRecordedOccupancyRelease(t, s, "migration-scalar-release", session, true, false)
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); UPDATE worktree_entries SET occupant_session_ref='' WHERE claim_op_id='wt-op-1' AND occupant_session_ref=?; DELETE FROM fold_guard`, session); err != nil {
 		t.Fatal(err)
 	}
+	before := histEventRows(t, s)
 	if err := migrateRestoredStage(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	before := histEventRows(t, s)
-	for range 2 {
-		if err := RebuildFromLog(ctx, s); err != nil {
-			t.Fatal(err)
-		}
-		var count int
-		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy`).Scan(&count); err != nil || count != 0 {
-			t.Fatalf("replay disagrees with migrated scalar release: rows=%d: %v", count, err)
-		}
-		if !reflect.DeepEqual(before, histEventRows(t, s)) {
-			t.Fatal("migration or replay rewrote retained event bytes")
-		}
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("migration restored a released scalar occupant: rows=%d: %v", count, err)
+	}
+	if !reflect.DeepEqual(before, histEventRows(t, s)) {
+		t.Fatal("migration rewrote retained event bytes")
 	}
 }

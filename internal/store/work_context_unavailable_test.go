@@ -267,27 +267,14 @@ func TestWorkContextUnavailableTerminalCustody(t *testing.T) {
 	}
 }
 
-// Replay and reopen custody: the historical over-bound declaration survives a
-// full log rebuild and a close/reopen with identical event rows and the same
-// compound-read state. The live bounded-selection recovery is not repeated: a
-// rebuild removes the seeded registry fixture, and that recovery is already
-// exercised live in the terminal custody test.
-func TestWorkContextUnavailableReplayAndRecovery(t *testing.T) {
+// An over-bound declaration keeps its compound-read state across reopen.
+func TestWorkContextUnavailableSurvivesReopen(t *testing.T) {
 	t.Parallel()
 	fixture := seedWorkContextFixture(t, "ctx-unavailable-replay")
 	defer fixture.store.Close()
 	seedWorkContextOverflow(t, fixture)
 	before := histEventRows(t, fixture.store)
 	state := assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable)
-	if err := RebuildFromLog(context.Background(), fixture.store); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(before, histEventRows(t, fixture.store)) {
-		t.Fatal("rebuild changed retained event headers, order, or bytes")
-	}
-	if after := assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable); after != state {
-		t.Fatalf("rebuild changed the compound-read state:\nbefore %#v\nafter  %#v", state, after)
-	}
 	path := fixture.store.path
 	if err := fixture.store.Close(); err != nil {
 		t.Fatal(err)

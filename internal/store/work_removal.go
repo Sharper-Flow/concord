@@ -581,7 +581,7 @@ func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 		handoff, _ := json.Marshal(payload.Handoff)
 		linearJSON, _ := linearConfirmationJSON(payload.Linear)
 		if _, err := tx.ExecContext(ctx, `INSERT INTO work_removal_operations(operation_id,idempotency_key,work_id,expected_version,reason,actor,product_id,linear_confirmation_json,handoff_json,handoff_digest,state,event_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'committed',?,?,?)`, payload.OperationID, payload.IdempotencyKey, event.SubjectID, payload.ExpectedVersion, payload.Reason, payload.Actor, payload.ProductID, linearJSON, string(handoff), payload.HandoffDigest, event.EventID, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.OccurredAt.UTC().Format(time.RFC3339Nano)); err != nil {
-			return wrapFailure(KindUnavailable, "fold_event", "cannot preserve removal receipt", true, "repair the removal operation and rebuild", err)
+			return wrapFailure(KindUnavailable, "fold_event", "cannot preserve removal receipt", true, "restore a verified backup into a new path with concord restore, then swap", err)
 		}
 	}
 	return nil

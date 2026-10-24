@@ -13,24 +13,7 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
-type workflowReplayContextKey struct{}
-
 type workflowContractSupersessionContextKey struct{}
-
-// A replay folds events serially in one transaction. The running identity
-// count therefore matches the event-log order without a query for each edge.
-type workflowReplayState struct {
-	relationIdentity int64
-}
-
-func workflowReplayContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, workflowReplayContextKey{}, &workflowReplayState{})
-}
-
-func isWorkflowReplay(ctx context.Context) bool {
-	_, ok := ctx.Value(workflowReplayContextKey{}).(*workflowReplayState)
-	return ok
-}
 
 func workflowContractSupersessionContext(ctx context.Context) context.Context {
 	return context.WithValue(ctx, workflowContractSupersessionContextKey{}, true)
@@ -39,34 +22,6 @@ func workflowContractSupersessionContext(ctx context.Context) context.Context {
 func inWorkflowContractSupersessionContext(ctx context.Context) bool {
 	value, _ := ctx.Value(workflowContractSupersessionContextKey{}).(bool)
 	return value
-}
-
-func advanceWorkflowReplay(ctx context.Context, event Event) {
-	state, ok := ctx.Value(workflowReplayContextKey{}).(*workflowReplayState)
-	if !ok {
-		return
-	}
-	if event.Kind == "work.created" {
-		var payload workCreatedPayload
-		if json.Unmarshal(event.Payload, &payload) == nil && payload.RaisedFromWorkID != "" {
-			state.relationIdentity++
-		}
-		return
-	}
-	for _, kind := range relationIdentityEventKinds {
-		if event.Kind == kind {
-			state.relationIdentity++
-			return
-		}
-	}
-}
-
-func workflowReplayRelationIdentity(ctx context.Context) (int64, bool) {
-	state, ok := ctx.Value(workflowReplayContextKey{}).(*workflowReplayState)
-	if !ok {
-		return 0, false
-	}
-	return state.relationIdentity, true
 }
 
 // WorkflowLawRevision is the immutable law proof captured when a workflow
@@ -328,7 +283,7 @@ func validateClonedWorkflowContractLawRevisionsTx(ctx context.Context, tx *sql.T
 		}
 		var mandated []string
 		if err := json.Unmarshal([]byte(mandateJSON), &mandated); err != nil {
-			return newFailure(KindInvariantViolation, "validate_stale_workflow_recovery", "previous workflow contract law mandate is malformed", false, "rebuild projections from the event log")
+			return newFailure(KindInvariantViolation, "validate_stale_workflow_recovery", "previous workflow contract law mandate is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		var err error
 		mandated, err = currentWorkflowLawMandateFromProjection(ctx, tx, workID, predecessor, mandated)
@@ -512,7 +467,7 @@ func checkWorkflowLawRevisionStalenessAdmittingTx(ctx context.Context, tx querye
 	}
 	var mandated []string
 	if err := json.Unmarshal([]byte(mandateJSON), &mandated); err != nil {
-		return newFailure(KindInvariantViolation, "check_workflow_law_revision", "workflow contract law mandate is malformed", false, "rebuild projections from the event log")
+		return newFailure(KindInvariantViolation, "check_workflow_law_revision", "workflow contract law mandate is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	var mandateErr error
 	mandated, mandateErr = currentWorkflowLawMandateFromProjection(ctx, tx, workID, contractVersion, mandated)

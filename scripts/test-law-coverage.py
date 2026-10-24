@@ -377,7 +377,7 @@ def test_scenario_anchor_rejects_a_deferred_scenario() -> None:
 
 def test_scenario_anchor_accepts_a_bound_scenario() -> None:
     assert not anchor_findings("scenario", "AJ5-resolve-domain-overlap")
-    assert not anchor_findings("scenario", "WF04-weaker-delivery")
+    assert not anchor_findings("scenario", "WF01-capture-late-outcome")
 
 
 def test_scenario_anchor_rejects_an_unknown_id() -> None:

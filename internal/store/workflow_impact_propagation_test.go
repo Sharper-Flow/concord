@@ -7,49 +7,6 @@ import (
 	"testing"
 )
 
-func TestWorkflowCompletedV1UpcastsToNonBreakingImpactVerdict(t *testing.T) {
-	t.Parallel()
-	event := workflowEvent("legacy-completion", WorkflowCompleted, "legacy-work", map[string]any{
-		"work_id": "legacy-work", "expected_version": 2, "resulting_version": 3,
-		"terminal_state": "completed", "final_verdict_kind": "ok",
-		"verdict_actor_ref": "actor:" + strings.Repeat("a", 64), "premise_confirmed": true,
-		"evidence_count": 1, "changed_refs_digest": "sha256:" + strings.Repeat("b", 64),
-	})
-	upcasted, err := upcastEvent(event)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(upcasted.Payload, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if upcasted.PayloadVersion != 2 || payload["impact_verdict"] != "non-breaking" {
-		t.Fatalf("upcasted completion = version %d payload %#v", upcasted.PayloadVersion, payload)
-	}
-}
-
-func TestWorkflowImpactNoticeV1UpcastsEdgeOwnerToLegacySource(t *testing.T) {
-	t.Parallel()
-	event := workflowEvent("legacy-notice", WorkflowImpactNoticeRecorded, "legacy-source", map[string]any{
-		"work_id": "legacy-source", "expected_version": 2, "resulting_version": 3,
-		"notice_id":               WorkflowNoticeID("legacy-source", 1, "spec", "spec:one", "legacy-target", "breaking"),
-		"source_contract_version": 1, "entity_kind": "spec", "entity_ref": "spec:one",
-		"target_work_id": "legacy-target", "edge_id": "edge:legacy", "old_hash": nil,
-		"new_hash": nil, "severity": "breaking",
-	})
-	upcasted, err := upcastEvent(event)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(upcasted.Payload, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if upcasted.PayloadVersion != 2 || payload["edge_owner_work_id"] != "legacy-source" {
-		t.Fatalf("upcasted notice = version %d payload %#v", upcasted.PayloadVersion, payload)
-	}
-}
-
 func TestWorkflowCompletionPropagatesReverseDependentsAndBoundaryUsesEdgeClass(t *testing.T) {
 	t.Parallel()
 	for _, testCase := range []struct {
@@ -165,6 +122,5 @@ func withImpactVerdict(t *testing.T, event Event, verdict string) Event {
 	}
 	payload["impact_verdict"] = verdict
 	event.Payload, _ = json.Marshal(payload)
-	event.PayloadVersion = 2
 	return event
 }

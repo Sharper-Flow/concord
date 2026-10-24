@@ -212,7 +212,7 @@ func validateWorkerJobRecordedPayload(event Event, payload WorkerJobRecordedPayl
 	// The retired size members decode history but record nothing new
 	// (CD-0242 D6). A live recording is payload version 2; a replayed v1
 	// revision keeps the members it may carry.
-	if event.replaySourcePayloadVersion == 0 && (payload.ProductionSizeMax != nil || len(payload.MeasurementBasis) != 0) {
+	if payload.ProductionSizeMax != nil || len(payload.MeasurementBasis) != 0 {
 		return invalidWorkerPayload("worker.job_recorded production_size_max and measurement_basis are retired by CD-0242 D6: no production-line cap, size measurement, or mandatory split applies")
 	}
 	// The oracle graph is re-proved from the payload's own retained content:
@@ -855,7 +855,7 @@ FROM worker_job_revisions j WHERE j.work_id=? ORDER BY j.job_id,j.revision`, wor
 		}{{pathScope, &view.PathScope}, {predicates, &view.PredicateIDs}, {checks, &view.Checks}, {prerequisites, &view.Prerequisites}, {unresolved, &view.UnresolvedRefs}} {
 			if err := json.Unmarshal([]byte(column.raw), column.target); err != nil {
 				_ = rows.Close()
-				return nil, wrapFailure(KindInvariantViolation, "worker_job", "a worker-job revision column is not valid JSON", false, "rebuild the worker-job projection from the event log", err)
+				return nil, wrapFailure(KindInvariantViolation, "worker_job", "a worker-job revision column is not valid JSON", false, "restore a verified backup into a new path with concord restore, then swap", err)
 			}
 		}
 		views = append(views, view)

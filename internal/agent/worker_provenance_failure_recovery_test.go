@@ -45,7 +45,7 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 				}
 			}
 			lane := retryLane(t)
-			dispatch := store.Event{EventID: "refused-provenance-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 3, Payload: retryJSON(store.WorkerDispatchedPayload{
+			dispatch := store.Event{EventID: "refused-provenance-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched), Payload: retryJSON(store.WorkerDispatchedPayload{
 				AttemptID: failedID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
 				PacketDigest: digest, ReadbackModel: "model/synthetic", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, HostProvenance: provenance,
 			})}
@@ -77,7 +77,7 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 			for _, obligation := range lane.EvidenceObligations {
 				evidence = append(evidence, store.WorkerReportEvidence{Obligation: obligation, Detail: "synthetic worker report"})
 			}
-			completion := store.Event{EventID: "unaccepted-worker-completion", Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerCompletedPayload{AttemptID: failedID, ReadbackModel: "model/synthetic", ReportSchemaVersion: store.WorkerReportSchemaVersion, EvidenceOrigin: store.WorkerEvidenceReported, Evidence: evidence})}
+			completion := store.Event{EventID: "unaccepted-worker-completion", Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerCompleted), Payload: retryJSON(store.WorkerCompletedPayload{AttemptID: failedID, ReadbackModel: "model/synthetic", ReportSchemaVersion: store.WorkerReportSchemaVersion, EvidenceOrigin: store.WorkerEvidenceReported, Evidence: evidence})}
 			if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{completion}}); !strings.Contains(fmt.Sprint(err), "worker attempt lifecycle is not admissible for this terminal event") {
 				t.Fatalf("completion without admitted dispatch evidence=%v, want the lifecycle fence", err)
 			}

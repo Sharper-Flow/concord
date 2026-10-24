@@ -134,8 +134,8 @@ func TestReadWorkClosureDegradesToThePinAlone(t *testing.T) {
 	}
 }
 
-// The current implementation definition admits bounded out_of_scope prose and
-// preserves it on rebuild. Retired definitions are not executable pins.
+// The current implementation definition admits bounded out_of_scope prose.
+// Retired definitions are not executable pins.
 func TestRecordProposalOutOfScopeAcrossPinnedAndCurrentVersions(t *testing.T) {
 	t.Parallel()
 	current, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
@@ -194,16 +194,6 @@ func TestRecordProposalOutOfScopeAcrossPinnedAndCurrentVersions(t *testing.T) {
 	}
 	if len(closure.OutOfScope) != 2 || closure.OutOfScope[0] != "The launcher." || closure.OutOfScope[1] != "The release automation." {
 		t.Fatalf("persisted out_of_scope = %v", closure.OutOfScope)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	rebuilt, err := ReadWorkClosure(context.Background(), s, workID)
-	if err != nil {
-		t.Fatalf("rebuilt closure read refused: %v", err)
-	}
-	if len(rebuilt.OutOfScope) != 2 || rebuilt.OutOfScope[0] != closure.OutOfScope[0] {
-		t.Fatalf("out_of_scope changed after replay: %v vs %v", rebuilt.OutOfScope, closure.OutOfScope)
 	}
 }
 

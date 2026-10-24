@@ -45,13 +45,6 @@ func requireActionableWork(ctx context.Context, q queryer, workID, operation str
 	return requireActionableWorkKind(kind, operation)
 }
 
-// CD-0213 D8 retires the planning-mirror event kinds. domain_events is
-// append-only and replay refuses an unregistered kind, so each retired kind
-// stays registered: its payload still validates and its fold still advances
-// the subject version, so later historical events on the same subject fold at
-// the version they were written against. The fold writes no planning state,
-// and appendEvent refuses every new append of a retired kind.
-
 func planningRetiredEventAppendRefused(kind string) error {
 	return newFailure(KindInvalidOperation, "apply_operation",
 		"event kind "+kind+" is retired by CD-0213 D8: Linear is the only planning authority", false,
@@ -66,20 +59,18 @@ func retiredInitiativeWriteRefused(kind string) error {
 
 // refuseRetiredPlanningAppend owns the CD-0213 D4 control for the generic
 // work-event kinds whose retirement is a property of their payload or subject,
-// not of the event kind. A capture classifies by the prepared upcast payload,
-// so a work.created recorded at an older payload version cannot enter the log
-// as a new initiative either. Every other work-item event classifies by a
-// kind lookup through the caller's transaction, never through the store pool:
+// not of the event kind. A capture classifies by its validated payload.
+// Every other work-item event classifies by a kind lookup through the
+// caller's transaction, never through the store pool:
 // while this transaction holds the pooled connection, a nested s.db call
-// parks forever. RebuildFromLog never calls appendEvent, so the folds stay
-// free to replay historic initiative captures and version transitions.
-func refuseRetiredPlanningAppend(ctx context.Context, tx *sql.Tx, event Event, prepared preparedRegisteredEvent) error {
+// parks forever.
+func refuseRetiredPlanningAppend(ctx context.Context, tx *sql.Tx, event Event) error {
 	if event.SubjectType != SubjectWorkItem {
 		return nil
 	}
 	if event.Kind == "work.created" {
 		var payload workCreatedPayload
-		if err := decodePayload(prepared.current, &payload); err != nil {
+		if err := decodePayload(event, &payload); err != nil {
 			return err
 		}
 		if !actionableWorkKind(payload.WorkKind) {
@@ -100,77 +91,4 @@ func refuseRetiredPlanningAppend(ctx context.Context, tx *sql.Tx, event Event, p
 		return retiredInitiativeWriteRefused(event.Kind)
 	}
 	return nil
-}
-
-type productPlanningModeSetPayload struct {
-	ProductID        string `json:"product_id"`
-	PlanningMode     string `json:"planning_mode"`
-	Reason           string `json:"reason"`
-	ExpectedVersion  int64  `json:"expected_version"`
-	ResultingVersion int64  `json:"resulting_version"`
-}
-
-type initiativeEntryPayload struct {
-	ChildWorkID      string `json:"child_work_id"`
-	Position         int64  `json:"position"`
-	Required         bool   `json:"required"`
-	ExpectedVersion  int64  `json:"expected_version"`
-	ResultingVersion int64  `json:"resulting_version"`
-}
-
-type initiativeNarrativePayload struct {
-	Narrative        string `json:"narrative"`
-	Reason           string `json:"reason"`
-	ExpectedVersion  int64  `json:"expected_version"`
-	ResultingVersion int64  `json:"resulting_version"`
-}
-
-func retiredVersionEvidence(event Event, expected, resulting int64) error {
-	if expected < 1 || resulting != expected+1 {
-		return newFailure(KindInvalidPayload, "fold_event", event.Kind+" version evidence is not consecutive", false,
-			"repair the historical event payload")
-	}
-	return nil
-}
-
-func foldRetiredProductPlanningModeSet(ctx context.Context, tx *sql.Tx, event Event) error {
-	if err := checkSubject(event, SubjectProduct); err != nil {
-		return err
-	}
-	var p productPlanningModeSetPayload
-	if err := decodePayload(event, &p); err != nil {
-		return err
-	}
-	if err := retiredVersionEvidence(event, p.ExpectedVersion, p.ResultingVersion); err != nil {
-		return err
-	}
-	return bumpVersion(ctx, tx, "products", event, p.ExpectedVersion, p.ResultingVersion, "Product")
-}
-
-func foldRetiredInitiativeEntry(ctx context.Context, tx *sql.Tx, event Event) error {
-	if err := checkSubject(event, SubjectWorkItem); err != nil {
-		return err
-	}
-	var p initiativeEntryPayload
-	if err := decodePayload(event, &p); err != nil {
-		return err
-	}
-	if err := retiredVersionEvidence(event, p.ExpectedVersion, p.ResultingVersion); err != nil {
-		return err
-	}
-	return bumpVersion(ctx, tx, "work_items", event, p.ExpectedVersion, p.ResultingVersion, "work item")
-}
-
-func foldRetiredInitiativeNarrativeRevised(ctx context.Context, tx *sql.Tx, event Event) error {
-	if err := checkSubject(event, SubjectWorkItem); err != nil {
-		return err
-	}
-	var p initiativeNarrativePayload
-	if err := decodePayload(event, &p); err != nil {
-		return err
-	}
-	if err := retiredVersionEvidence(event, p.ExpectedVersion, p.ResultingVersion); err != nil {
-		return err
-	}
-	return bumpVersion(ctx, tx, "work_items", event, p.ExpectedVersion, p.ResultingVersion, "work item")
 }

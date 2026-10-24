@@ -203,7 +203,7 @@ func TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	// reached its failed terminal state, so neither a late completion report
 	// nor a late acceptance can land after the correction returned.
 	lateLane := reviewGateLane(t, "review")
-	lateCompletion := Event{EventID: "checkpoint-late-completion-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lateLane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+	lateCompletion := workerCompleteEventForLane(workID, "checkpoint-late-completion-"+workID, attemptID, lateLane, time.Unix(40, 0).UTC(), "")
 	lateErr := ApplyOperation(ctx, s, Operation{Events: []Event{lateCompletion}})
 	var lateFailure *Failure
 	if !errors.As(lateErr, &lateFailure) || lateFailure.Kind != KindProjectionConflict {

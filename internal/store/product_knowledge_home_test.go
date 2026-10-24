@@ -32,10 +32,7 @@ func countKnowledgeHomes(t *testing.T, s *Store) int {
 	return count
 }
 
-// The designation is event-sourced operator configuration (PM6 §2/§3), so a
-// log rebuild reconstructs it by replay, not by snapshot. This is the
-// production-path proof floor readiness cites for fc2-domain-authority.
-func TestProductKnowledgeHomeDesignationIsEventSourcedAndRebuildStable(t *testing.T) {
+func TestProductKnowledgeHomeDesignationPersists(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -51,18 +48,12 @@ func TestProductKnowledgeHomeDesignationIsEventSourcedAndRebuildStable(t *testin
 		t.Fatalf("knowledge homes = %d after designation, want 1", countKnowledgeHomes(t, s))
 	}
 
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	if countKnowledgeHomes(t, s) != 1 {
-		t.Fatalf("knowledge homes = %d after log rebuild, want 1 (replay must reconstruct the designation)", countKnowledgeHomes(t, s))
-	}
 	var project, locator string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT project_id, locator_id FROM product_knowledge_homes WHERE product_id='home-product'`).Scan(&project, &locator); err != nil {
 		t.Fatal(err)
 	}
 	if project != "home-project" || locator != "home-locator" {
-		t.Fatalf("rebuilt home = %s/%s, want home-project/home-locator", project, locator)
+		t.Fatalf("home = %s/%s, want home-project/home-locator", project, locator)
 	}
 }
 

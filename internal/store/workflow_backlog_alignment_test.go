@@ -212,15 +212,12 @@ func TestRecordAlignmentRefusesInconsistentOutcomeAndRelatedIds(t *testing.T) {
 	if events != 1 {
 		t.Fatalf("record_alignment appended %d typed events, want 1", events)
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild workflow event log: %v", err)
-	}
-	var rebuilt int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_backlog_alignment WHERE work_id=?`, workID).Scan(&rebuilt); err != nil {
+	var count int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_backlog_alignment WHERE work_id=?`, workID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if rebuilt != 3 {
-		t.Fatalf("rebuilt projection holds %d rows, want 3 (declaration plus two related ids)", rebuilt)
+	if count != 3 {
+		t.Fatalf("projection holds %d rows, want 3 (declaration plus two related ids)", count)
 	}
 }
 
@@ -255,15 +252,12 @@ func TestWorkRemovalClearsBacklogAlignmentAtBothEnds(t *testing.T) {
 			if rows != 0 {
 				t.Fatalf("removing %s left %d alignment rows naming it", testCase.removed, rows)
 			}
-			if err := RebuildFromLog(ctx, s); err != nil {
-				t.Fatalf("replay after removing %s: %v", testCase.removed, err)
-			}
 			var survivors int
 			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM work_items WHERE id=?`, testCase.survivor).Scan(&survivors); err != nil {
 				t.Fatal(err)
 			}
 			if survivors != 1 {
-				t.Fatalf("replay dropped the surviving item %s", testCase.survivor)
+				t.Fatalf("removal dropped the surviving item %s", testCase.survivor)
 			}
 		})
 	}

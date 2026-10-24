@@ -64,9 +64,8 @@ permitted only when recorded, and the emitter gate is the enforcement point.
   `internal/store.TestWorkerHostProvenanceValidation`
   (digest shape, closed kinds, bounded sources, unenumerated carries no
    hash and its path is its name, enumerated must carry a hash, no
-   duplicates); v3 dispatch with
-   provenance writes durable evidence in
-   `internal/store.TestWorkerDispatchV3CarriesProvenanceIntoDurableEvidence`.
+   duplicates); dispatch with provenance writes durable evidence in
+   `internal/store.TestWorkerDispatchCarriesProvenanceIntoDurableEvidence`.
 - `adapter/opencode/dispatch.test.ts`: provenance is deterministic for the
   same inputs and changes when an enumerated source's content changes
   (bun, local — CI validates the generated contracts, as the repo already

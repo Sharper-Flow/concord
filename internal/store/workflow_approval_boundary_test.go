@@ -21,7 +21,7 @@ func claimRetryWorktree(t *testing.T, s *Store, workID string) {
 		worktreeFacts{branch: "change/claim", headSHA: strings.Repeat("a", 40), repositoryID: "repo-1"}, "", 0, 0)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
 		EventID: "approval-boundary-worktree-" + workID, Kind: "work.worktree_created", SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: 1, Payload: payload,
+		Actor: "worker:test", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.worktree_created"), Payload: payload,
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("record the retry worktree claim: %v", err)
 	}
@@ -604,14 +604,9 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		}
 	})
 
-	// The duplicate-active state is real only when the fold created it: a
-	// recorded approval rides the historical log and RebuildFromLog replays
-	// it, exactly as the contract-authority recipe does. The boundary stays
-	// typed on both read forms — the supersede recovery reads the ordered
-	// plural set, an ordinary action keeps the singular refusal, and the
-	// work pin stays readable with the one recovery route — and every read
-	// leaves the item unchanged.
-	t.Run("duplicate-active historical replay keeps the boundary and the pin typed", func(t *testing.T) {
+	// Duplicate-active rows keep recovery readable and ordinary actions refused
+	// on both read forms without changing the item.
+	t.Run("duplicate-active state keeps the boundary and the pin typed", func(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
 		const workID = "approval-boundary-duplicate-active"
@@ -621,24 +616,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		version := readWorkVersion(t, s, workID)
-		legacyApproval, marshalErr := json.Marshal(map[string]any{
-			"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-			"contract_version": 2, "premise": "recorded duplicate approval", "outcome_kind": "check",
-			"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:duplicate", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-			"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
-			"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-		})
-		if marshalErr != nil {
-			t.Fatal(marshalErr)
-		}
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-			"approval-boundary-duplicate-approval", WorkflowContractApproved, SubjectWorkItem, workID, ownerRef, "2026-09-10T00:00:00Z", 2, legacyApproval); err != nil {
-			t.Fatal(err)
-		}
-		if err := RebuildFromLog(ctx, s); err != nil {
-			t.Fatalf("rebuild the duplicate-active history: %v", err)
-		}
+		seedDuplicateContractProjection(t, s, workID, ownerRef)
 		var activeVersions []int64
 		err = s.readSnapshot(ctx, func(q queryer) error {
 			var innerErr error
@@ -651,7 +629,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if !reflect.DeepEqual(activeVersions, []int64{1, 2}) {
 			t.Fatalf("active contract versions = %v, want [1 2] with highest 2", activeVersions)
 		}
-		replayedVersion := readWorkVersion(t, s, workID)
+		seededVersion := readWorkVersion(t, s, workID)
 		eventsBefore := approvalEventCount(t, s, workID)
 
 		request := WorkflowActionPreflightRequest{WorkID: workID, ActionID: "supersede_contract", Actor: owner}
@@ -727,7 +705,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if !reflect.DeepEqual(pin, parity) {
 			t.Fatalf("second mutation pin = %+v, want %+v", parity, pin)
 		}
-		if approvalEventCount(t, s, workID) != eventsBefore || readWorkVersion(t, s, workID) != replayedVersion {
+		if approvalEventCount(t, s, workID) != eventsBefore || readWorkVersion(t, s, workID) != seededVersion {
 			t.Fatal("the duplicate-active reads moved the unchanged item")
 		}
 	})

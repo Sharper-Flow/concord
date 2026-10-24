@@ -6,7 +6,6 @@ Usage:
   concord host-leases                  # print live release leases; prunes stale ones
   concord upgrade < JSON stdin      # apply pending migrations; {"plan":true} reports readiness
   concord repair < JSON stdin          # verify assets, back up the database, repair the installed release (#912)
-  concord recover-fold-guard < JSON stdin   # offline: clear a stranded fold guard and rebuild projections from the log
   concord ci-wait < JSON stdin         # one bounded slice of a GitHub CI wait (CD-0160)
 
 Required-field refusals exit 64 before dispatch.

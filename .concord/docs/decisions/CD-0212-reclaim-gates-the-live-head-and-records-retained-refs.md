@@ -487,14 +487,13 @@ and the native removal stays behind the commit.
   asserts that an unavailable pre-deletion observation leaves a durable
   recovery phase carrying the actual failed-observation reason, visible to
   a fresh audit after the safe directory removal.
-- `internal/store.TestReclaimRefOutcomeRowsSurviveLogRebuild` asserts that
-  every phase move of a second cycle is a freshly recorded settlement, so
-  the durable rows keep their exact phase, tip, and reason across
-  interruption and later claims.
-- `internal/store.TestReclaimInterruptedRestorationDebtSurvivesLogRebuild`
-  asserts that restoration debt left by an interrupted repeat cycle stays
-  recorded and audit-visible, and a healthy retry
-  afterwards still restores the ref a checkout names at the pinned tip.
+- `internal/store.TestReclaimRefOutcomeSettlesAfterRestoration` asserts that
+  a healthy retry of a restored ref's recorded removal plan removes the ref
+  and records a settled outcome with the pinned tip and a reason.
+- `internal/store.TestReclaimInterruptedRestorationDebtResolvesAtPinnedTip`
+  asserts that an interrupted repeat cycle leaves recorded restoration debt,
+  and a healthy retry afterwards restores the ref a checkout names at the
+  pinned tip.
 - `internal/store.TestReclaimObservesEveryListedHeadBeforeConcluding`
   asserts that the pre-deletion observation reads every listed worktree's
   symbolic `HEAD`, accumulating holders instead of returning at the first

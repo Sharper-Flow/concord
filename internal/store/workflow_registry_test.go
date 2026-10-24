@@ -120,25 +120,12 @@ func TestBuiltinWorkflowProductTruthClassification(t *testing.T) {
 	}
 }
 
-func TestWorkflowDefinitionVerificationReplaysLegacyInputReferences(t *testing.T) {
+func TestWorkflowDefinitionRejectsFormFeedInputReference(t *testing.T) {
 	t.Parallel()
 	definition := genericDefinitionFixture()
 	definition.StalenessRules = []WorkflowStalenessRule{{ID: "staleness.legacy", InputRef: "input:a\fb", Severity: "warning"}}
-	if err := validateWorkflowDefinitionWithReference(definition, replayValidReference); err != nil {
-		t.Fatalf("legacy pinned definition failed replay validation: %v", err)
-	}
 	if err := ValidateWorkflowDefinition(definition); err == nil {
 		t.Fatal("new definition admission accepted a form-feed reference")
-	}
-	digest, err := workflowDefinitionDigestWithReference(definition, replayValidReference)
-	if err != nil {
-		t.Fatalf("legacy pinned definition could not be digested for replay: %v", err)
-	}
-	registry := &workflowDefinitionRegistry{entries: map[string]RegisteredDefinition{
-		definition.Ref: {Definition: definition, Digest: digest},
-	}}
-	if err := registry.Verify(definition.Ref, definition.Version, digest); err != nil {
-		t.Fatalf("legacy pinned definition failed digest verification: %v", err)
 	}
 }
 

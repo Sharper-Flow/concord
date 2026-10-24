@@ -30,7 +30,7 @@ func seedLanelessResearchItem(t *testing.T, workID string) (*Store, WorkflowActo
 		workflowActionCompletedFixture("laneless-approval-"+workID, workID, ownerRef, 5, "frame", "approve_contract"),
 		workflowActionCompletedFixture("laneless-finding-"+workID, workID, ownerRef, 6, "investigate", "record_finding"),
 	}
-	setup[2].PayloadVersion = workflowContractDecisionDomainsPayloadVersion
+	setup[2].PayloadVersion = eventKindRegistry[WorkflowContractApproved].CurrentVersion
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
 	}

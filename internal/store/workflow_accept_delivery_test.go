@@ -221,7 +221,7 @@ func acceptDeliveryCompleteReview(t *testing.T, c acceptDeliveryCandidate, attem
 			evidence = append(evidence, WorkerReportEvidence{Obligation: obligation, Detail: "Reviewed the candidate and its captured command receipt."})
 		}
 	}
-	event := Event{EventID: attempt + ":completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+	event := Event{EventID: attempt + ":completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attempt, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: c.j.repo,
 		Evidence: evidence, EvidenceOrigin: WorkerEvidenceReported, WorkerJob: &job, Review: report,
 	})}
@@ -495,10 +495,9 @@ func TestRefineExitAdmitsOnlyADeliveryAssertion(t *testing.T) {
 	}
 }
 
-// TestCombinedDeliveryAssertionReadersAndRebuild proves the delivery readers
-// recognize the combined assertion and that a rebuild from the log lands on
-// the same state the live fold produced.
-func TestCombinedDeliveryAssertionReadersAndRebuild(t *testing.T) {
+// TestCombinedDeliveryAssertionReaders proves the delivery readers recognize
+// the combined assertion.
+func TestCombinedDeliveryAssertionReaders(t *testing.T) {
 	const workID = "combined-assertion-readers"
 	c := acceptDeliveryCandidateAt(t, workID, "workflow.implementation", "refine", true)
 	s := c.f.store
@@ -547,27 +546,12 @@ func TestCombinedDeliveryAssertionReadersAndRebuild(t *testing.T) {
 		t.Fatalf("parked delivery read = %+v", parked)
 	}
 
-	// A rebuild from the log lands on the same assertion.
-	stepBefore := currentStep(t, s, workID)
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild from log: %v", err)
-	}
-	if step := currentStep(t, s, workID); step != stepBefore {
-		t.Fatalf("rebuilt step = %q, want the live fold's %q", step, stepBefore)
-	}
-	rebuilt, err := workflowDeliveryAssertionRead(context.Background(), s.db, workID)
-	if err != nil || rebuilt == nil {
-		t.Fatalf("rebuilt assertion read = (%+v, %v)", rebuilt, err)
-	}
-	if rebuilt.EventID != assertion.EventID || rebuilt.Seq != assertion.Seq || rebuilt.Artifact != assertion.Artifact {
-		t.Fatalf("rebuilt assertion = %+v, want %+v", rebuilt, assertion)
-	}
-	var rebuiltCompletions int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.delivery_state')='asserted'`, workID, WorkflowActionCompleted).Scan(&rebuiltCompletions); err != nil {
+	var completions int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.delivery_state')='asserted'`, workID, WorkflowActionCompleted).Scan(&completions); err != nil {
 		t.Fatal(err)
 	}
-	if rebuiltCompletions != 1 {
-		t.Fatalf("rebuilt log carries %d asserted combined accepts, want 1", rebuiltCompletions)
+	if completions != 1 {
+		t.Fatalf("log carries %d asserted combined accepts, want 1", completions)
 	}
 
 	// CD-0198 D4: the combined accept advanced refine to the delivery gate.

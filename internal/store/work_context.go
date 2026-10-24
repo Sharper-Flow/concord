@@ -630,14 +630,14 @@ func foldWorkflowWorkContextRecorded(ctx context.Context, tx *sql.Tx, event Even
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_digest,definition_version FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep, &workflowRef, &workflowDigestValue, &workflowVersion); err != nil {
 		return workflowProjectionError(err, "cannot read workflow identity for the work context declaration")
 	}
-	if (currentStep != p.StepID || workflowRef != p.WorkflowRef || workflowDigestValue != p.WorkflowDefinitionDigest || workflowVersion != p.WorkflowDefinitionVersion) && !isWorkflowReplay(ctx) {
+	if currentStep != p.StepID || workflowRef != p.WorkflowRef || workflowDigestValue != p.WorkflowDefinitionDigest || workflowVersion != p.WorkflowDefinitionVersion {
 		return newFailure(KindStaleAttempt, "fold_event", "work context declaration does not bind the current workflow step and definition", false, "reread the current workflow context")
 	}
 	var activeAttempt int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch),1) FROM durable_operations WHERE work_id=?`, event.SubjectID).Scan(&activeAttempt); err != nil {
 		return workflowProjectionError(err, "cannot read workflow attempt epoch")
 	}
-	if activeAttempt != p.AttemptEpoch && !isWorkflowReplay(ctx) {
+	if activeAttempt != p.AttemptEpoch {
 		return newFailure(KindStaleAttempt, "fold_event", "work context declaration does not bind the current attempt epoch", false, "reread the current workflow attempt")
 	}
 	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)

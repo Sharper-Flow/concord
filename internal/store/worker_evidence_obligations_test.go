@@ -13,7 +13,7 @@ import (
 // evidence exactly as the adapter would after parsing agent-lane-report.v1.
 func workerCompleteEventV2(workID, eventID, attemptID, model string, origin string, evidence []WorkerReportEvidence, directory string) Event {
 	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: model, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: directory, Evidence: evidence, EvidenceOrigin: origin}
-	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(payload)}
+	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
 }
 
 // laneCoveringEvidence discharges every obligation the lane declares, once.
@@ -181,58 +181,6 @@ func TestWorkerCompletionEvidenceShapeIsClosedInBothDirections(t *testing.T) {
 				t.Fatalf("lifecycle_state = %q, want dispatched", state)
 			}
 		})
-	}
-}
-
-// CD-0056 D6: a stored v1 completion carries no evidence and none can be
-// invented, so it upcasts to a visibly legacy v2 payload, skips coverage, and
-// replays to the same projection.
-func TestWorkerCompletedV1UpcastsToLegacyUnavailableAndReplaysIdentically(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	lane := BuiltinLaneDefinitions()[0]
-	attemptID := "evidence-legacy-attempt"
-	authorizeWorkerFixtureDispatch(t, s, "evidence-legacy", attemptID)
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("evidence-legacy", attemptID, lane, nil)}}); err != nil {
-		t.Fatal(err)
-	}
-	legacy := workerCompleteEvent("evidence-legacy", "evidence-legacy-complete", attemptID, preferredModelForLane(lane), workerFixtureDirectory(t, s, "evidence-legacy"))
-	if legacy.PayloadVersion != 1 {
-		t.Fatalf("fixture payload version = %d, want 1", legacy.PayloadVersion)
-	}
-	upcast, err := upcastWorkerCompletedV1(legacy)
-	if err != nil {
-		t.Fatalf("upcastWorkerCompletedV1 error = %v", err)
-	}
-	if upcast.PayloadVersion != 2 {
-		t.Fatalf("upcast payload version = %d, want 2", upcast.PayloadVersion)
-	}
-	var upcastPayload WorkerCompletedPayload
-	if err := json.Unmarshal(upcast.Payload, &upcastPayload); err != nil {
-		t.Fatal(err)
-	}
-	if upcastPayload.EvidenceOrigin != WorkerEvidenceLegacyUnavailable || len(upcastPayload.Evidence) != 0 {
-		t.Fatalf("upcast evidence = %s/%d entries, want %s/0", upcastPayload.EvidenceOrigin, len(upcastPayload.Evidence), WorkerEvidenceLegacyUnavailable)
-	}
-	again, err := upcastWorkerCompletedV1(legacy)
-	if err != nil {
-		t.Fatalf("second upcast error = %v", err)
-	}
-	if string(again.Payload) != string(upcast.Payload) {
-		t.Fatalf("upcast is not deterministic:\n%s\n%s", again.Payload, upcast.Payload)
-	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{legacy}}); err != nil {
-		t.Fatalf("legacy completion was refused: %v", err)
-	}
-	before := workerProjectionSnapshot(t, s)
-	if !strings.Contains(before, "|completed|") {
-		t.Fatalf("legacy completion projection = %q, want a completed attempt", before)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	if after := workerProjectionSnapshot(t, s); after != before {
-		t.Fatalf("replay changed the worker projection:\n%s\nwant\n%s", after, before)
 	}
 }
 

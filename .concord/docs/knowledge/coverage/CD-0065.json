@@ -1,6 +1,22 @@
 {
   "evidence": [
     {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCorpusCurrentProofPreparationProfiles"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowScenarioCorpusMutationsRerunAgainstAuthoritativeState"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOverlapBlocksRemovesWorkFromReady"
+    },
+    {
       "kind": "validator",
       "value": "scripts/check-agent-contracts.py"
     },

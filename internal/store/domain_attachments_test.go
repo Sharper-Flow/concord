@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestReplaceDomainAttachmentsFoldsSetsAndSurvivesLogRebuild(t *testing.T) {
+func TestReplaceDomainAttachmentsFoldsSets(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
@@ -37,18 +37,6 @@ func TestReplaceDomainAttachmentsFoldsSetsAndSurvivesLogRebuild(t *testing.T) {
 	}
 	if projectLinks != 1 || resourceLinks != 1 || projectVersion != 1 || resourceVersion != 1 {
 		t.Fatalf("attachments project=%d resource=%d versions=%d/%d", projectLinks, resourceLinks, projectVersion, resourceVersion)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("RebuildFromLog() error = %v", err)
-	}
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_project_attachment_edges WHERE product_id='domain-product' AND domain_id='domain-a'`).Scan(&projectLinks); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_resource_attachment_edges WHERE product_id='domain-product' AND domain_id='domain-a'`).Scan(&resourceLinks); err != nil {
-		t.Fatal(err)
-	}
-	if projectLinks != 1 || resourceLinks != 1 {
-		t.Fatalf("attachments after rebuild project=%d resource=%d", projectLinks, resourceLinks)
 	}
 }
 

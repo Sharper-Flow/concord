@@ -536,14 +536,14 @@ func validateArchitectureBindingLawAdditionsTx(ctx context.Context, tx *sql.Tx, 
 }
 
 // validateArchitectureBindingRevisionsTx refuses governing law revisions
-// whose accepted hash differs from the pinned hash outside a replay.
+// whose accepted hash differs from the pinned hash.
 func validateArchitectureBindingRevisionsTx(ctx context.Context, tx *sql.Tx, productID, homeProjectID, homeLocatorID string, lawRevisions []WorkflowLawRevision) error {
 	for _, revision := range lawRevisions {
 		var currentHash string
 		if err := tx.QueryRowContext(ctx, `SELECT s.content_hash FROM law_subjects s JOIN law_domain_homes h ON h.home_project_id=s.home_project_id AND h.home_locator_id=s.home_locator_id AND h.law_id=s.law_id WHERE h.product_id=? AND h.home_project_id=? AND h.home_locator_id=? AND s.law_id=? AND s.status='accepted'`, productID, homeProjectID, homeLocatorID, revision.LawID).Scan(&currentHash); err != nil {
 			return newFailure(KindProjectionNotFound, "workflow_architecture_binding", "governing law revision is not current", false, "pin the current accepted Git law hash")
 		}
-		if currentHash != revision.ContentHash && !isWorkflowReplay(ctx) {
+		if currentHash != revision.ContentHash {
 			return newFailure(KindStaleRequiresReview, "workflow_architecture_binding", "governing law revision pin is stale", false, "reread and pin the current accepted Git law hash")
 		}
 	}
@@ -572,69 +572,6 @@ func validateArchitectureBindingObligationsTx(ctx context.Context, tx *sql.Tx, p
 		}
 		if !foundPin {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "verification obligation law is not pinned", false, "pin every verified current law")
-		}
-	}
-	return nil
-}
-
-func validateArchitectureBindingReplayShape(definition WorkflowDefinition, binding *WorkflowArchitectureBinding, specMandate, lawModifies []string, lawRevisions []WorkflowLawRevision) error {
-	if binding == nil {
-		return newFailure(KindInvalidPayload, "workflow_architecture_binding", "Product-changing replay is missing architecture_binding", false, "repair the historical contract payload")
-	}
-	if err := validateWorkflowArchitectureBindingShape(*binding); err != nil {
-		return err
-	}
-	affected := stringSet(binding.AffectedDomainIDs)
-	if _, ok := affected[binding.HomeDomainID]; !ok {
-		return newFailure(KindInvalidPayload, "workflow_architecture_binding", "historical binding home Domain is not affected", false, "repair the historical binding shape")
-	}
-	if err := validateLawModificationSubset(specMandate, lawModifies); err != nil {
-		return err
-	}
-	for _, domainID := range binding.DomainModifies {
-		if _, ok := affected[domainID]; !ok {
-			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "historical modified Domain is not affected", false, "repair the historical binding shape")
-		}
-	}
-	for _, relation := range binding.DomainRelationModifies {
-		if _, ok := affected[relation.SourceDomainID]; !ok {
-			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "historical relation source is not affected", false, "repair the historical binding shape")
-		}
-		if _, ok := affected[relation.TargetDomainID]; !ok {
-			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "historical relation target is not affected", false, "repair the historical binding shape")
-		}
-	}
-	remaining, err := architectureBindingRevisionMandate(specMandate, binding.LawAdditions)
-	if err != nil {
-		return err
-	}
-	if err := validateWorkflowLawRevisions(remaining, lawRevisions); err != nil {
-		return err
-	}
-	for _, addition := range binding.LawAdditions {
-		if !slices.Contains(specMandate, addition.LawID) {
-			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "historical law addition is outside the mandate", false, "repair the historical law mandate")
-		}
-		if slices.Contains(lawModifies, addition.LawID) {
-			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "historical law addition overlaps law_modifies", false, "repair the historical law fields")
-		}
-		for _, revision := range lawRevisions {
-			if revision.LawID == addition.LawID {
-				return newFailure(KindInvalidPayload, "workflow_architecture_binding", "historical law addition overlaps law revisions", false, "repair the historical law fields")
-			}
-		}
-	}
-	obligations := workflowDefinitionObligations(definition)
-	pinned := map[string]struct{}{}
-	for _, revision := range lawRevisions {
-		pinned[revision.LawID] = struct{}{}
-	}
-	for _, obligation := range binding.VerificationObligations {
-		if _, ok := obligations[obligation.ObligationID]; !ok {
-			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "historical verification obligation is not declared by the definition", false, "repair the obligation ID")
-		}
-		if _, ok := pinned[obligation.LawID]; !ok {
-			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "historical verification obligation law is not pinned", false, "repair the law revision pins")
 		}
 	}
 	return nil

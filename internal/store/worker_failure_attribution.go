@@ -814,22 +814,9 @@ func workerFailureAttributionContent(block *WorkerFailureAttribution) bool {
 	return block != nil && (block.Observation != nil || block.Identity != nil)
 }
 
-// validateWorkerFailureAttributionSource enforces the source-version marker
-// rules one fold owes the attribution member. The recorded source payload
-// version is the marker that separates the upcast-generated legacy absence
-// from a forged new-legacy claim: below the capable version only the pure
-// legacy_unavailable marker may ride the event, any recorded content there
-// is smuggled bytes no store ever recorded, and at or above the capable
-// version the marker itself is the forgery.
-func validateWorkerFailureAttributionSource(block *WorkerFailureAttribution, sourceVersion, capableVersion int) error {
+// validateCurrentWorkerFailureAttribution refuses historical absence markers.
+func validateCurrentWorkerFailureAttribution(block *WorkerFailureAttribution) error {
 	if block == nil {
-		return nil
-	}
-	belowBoundary := sourceVersion != 0 && sourceVersion < capableVersion
-	if belowBoundary {
-		if workerFailureAttributionContent(block) {
-			return workerFailureBoundFailure("failure_attribution content on a stored payload version below " + strconv.Itoa(capableVersion) + " is smuggled bytes no store ever recorded; the source version pins what the store could carry")
-		}
 		return nil
 	}
 	if block.Origin == WorkerFailureAttributionLegacyUnavailable {
@@ -979,10 +966,9 @@ func enrichWorkerFailureAttributionBlock(attemptID, laneID string, window Worker
 // the store derives the exact authorized attempt identity from the
 // attempt's own dispatch window, the attempt row, and the dispatched job
 // revision. A caller-authored identity or origin refuses with zero
-// effects; an event below the attribution version or without a block lands
-// unchanged.
+// effects; an event without a block lands unchanged.
 func enrichWorkerFailedAttributionTx(ctx context.Context, tx *sql.Tx, event Event) (Event, error) {
-	if event.Kind != WorkerFailed || event.PayloadVersion < workerFailedAttributionVersion {
+	if event.Kind != WorkerFailed {
 		return event, nil
 	}
 	var payload WorkerFailedPayload
@@ -1137,23 +1123,14 @@ func verifyWorkerFailureAttemptAttributionTx(ctx context.Context, q queryer, wor
 
 // verifyWorkflowActionCompletedAttributionMembersTx carries the fold's two
 // attribution members for one action_completed completion. The reference is
-// the derived record's alone: below the attribution version it is smuggled
-// bytes, a derived record born at the capable version names its terminal, and
-// a reference that names another terminal or an unreadable attribution
-// refuses. The block rides correction actions alone: below the attribution
-// version only the upcast's legacy marker may appear there, at or above it
-// the marker is a forged new-legacy claim, and recorded content verifies its
-// exact joins.
+// the derived record's alone and names its terminal. The block rides
+// correction actions alone and verifies its exact joins.
 func verifyWorkflowActionCompletedAttributionMembersTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload) error {
 	if p.FailureAttributionRef != "" {
-		if event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowActionCompletedAttributionVersion {
-			return newFailure(KindInvalidPayload, "fold_event", "action_completed failure_attribution_ref is reserved for payload version >= 5", false, "record the terminal attribution reference on the current derived record")
-		}
 		if err := verifyDerivedFailureAttributionReferenceTx(ctx, tx, event, p); err != nil {
 			return err
 		}
-	} else if p.ActionID == "record_worker_failure" && strings.HasSuffix(event.EventID, workflowDerivedWorkerFailureEventIDSuffix) &&
-		(event.replaySourcePayloadVersion == 0 || event.replaySourcePayloadVersion >= workflowActionCompletedAttributionVersion) {
+	} else if p.ActionID == "record_worker_failure" && strings.HasSuffix(event.EventID, workflowDerivedWorkerFailureEventIDSuffix) {
 		return newFailure(KindInvalidPayload, "fold_event", "a derived failure record on the attribution-capable payload names the terminal attribution reference it derives from", false, "derive the record from the terminal worker.failed event")
 	}
 	if p.FailureAttribution == nil {
@@ -1162,13 +1139,12 @@ func verifyWorkflowActionCompletedAttributionMembersTx(ctx context.Context, tx *
 	if !workflowFailureAttributionCorrectionActions[p.ActionID] {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed failure_attribution is reserved for reject_worker_result and request_correction", false, "record the coordinator attribution on the correction completion that observed it")
 	}
-	if err := validateWorkerFailureAttributionSource(p.FailureAttribution, event.replaySourcePayloadVersion, workflowActionCompletedAttributionVersion); err != nil {
+	if err := validateCurrentWorkerFailureAttribution(p.FailureAttribution); err != nil {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed failure_attribution: "+err.Error(), false, "record the coordinator attribution on the current correction completion")
 	}
 	if workerFailureAttributionContent(p.FailureAttribution) {
 		// The fold's own sequence is the citation bound: a stored source
-		// event recorded after the correction is a future citation the
-		// replay refuses exactly as the live derive refused it.
+		// event recorded after the correction is a future citation.
 		return verifyCoordinatorFailureAttributionTx(ctx, tx, event.SubjectID, p.ActionID, p.WorkerAttemptID, p.FailureAttribution, event.Seq)
 	}
 	return nil
@@ -1201,8 +1177,7 @@ WHERE subject_type=? AND subject_id=? AND kind=? AND event_id=? AND (?=0 OR seq<
 }
 
 // verifyWorkerFailureReviewResultSourceTx verifies one result_review source
-// against the reviewed attempt's own retained evidence, with the same SQL on
-// the live derive and on replay. The locator resolves either a
+// against the reviewed attempt's own retained evidence. The locator resolves either a
 // worker.completed event of the exact attempt — a supplied digest must match
 // its retained payload bytes — or an existing ranked finding whose minting
 // completion belongs to that attempt. A native_run source is the

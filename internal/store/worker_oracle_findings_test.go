@@ -653,7 +653,6 @@ func oracleDispatchAttempt(t *testing.T, f oracleRepairFixture, workID, attemptI
 		"worker_packet_predicate_ids": []string{},
 		"worker_lane_id":              lane.ID, "worker_lane_version": lane.Version, "worker_lane_digest": lane.Digest, "worker_capability_class": lane.CapabilityClass,
 	})
-	authorization.PayloadVersion = 4
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{authorization}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("authorize oracle attempt %s: %v", attemptID, err)
 	}
@@ -738,7 +737,7 @@ func oracleCompletionEvent(t *testing.T, s *Store, workID, attemptID, eventKey s
 			}
 		}
 	}
-	event := Event{EventID: eventKey + "-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
+	event := Event{EventID: eventKey + "-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
 	return event
 }
 
@@ -1532,11 +1531,9 @@ func TestOwnerOracleJobDebt(t *testing.T) {
 	}
 }
 
-// Replay boundaries: oracle report content below its payload-version
-// boundary refuses as fabricated, historical oracle-free payloads fold
-// unchanged at the current version, and two rebuilds of the log reach the
-// same lineage the live derivation produced.
-func TestOwnerOracleReplay(t *testing.T) {
+// Non-current completion payloads refuse, and current oracle-free completions
+// remain readable.
+func TestOwnerOracleCompletionPayloadBoundary(t *testing.T) {
 	t.Parallel()
 	const workID = "owner-oracle-replay"
 	f := seedOracleRepairFixture(t, workID)
@@ -1546,8 +1543,7 @@ func TestOwnerOracleReplay(t *testing.T) {
 	attempt := "attempt:" + workID
 	oracleDispatchAttempt(t, f, workID, attempt, twoPathOracleFields(t, s, workID, nil), job)
 
-	// A v5 completion carrying a receipt refuses: the members did not exist
-	// at that version, so the bytes are fabricated.
+	// Receipt content cannot make a non-current payload admissible.
 	stalePayload := oracleCompletionEvent(t, s, workID, attempt, "oracle-replay-stale", func(payload *WorkerCompletedPayload) {
 		withReceipt(payload, &WorkerOracleReceipt{
 			ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"},
@@ -1555,8 +1551,8 @@ func TestOwnerOracleReplay(t *testing.T) {
 			Result:       OracleReceiptResultNotRun, RunRef: "",
 		})
 	})
-	stalePayload.PayloadVersion = workerCompletedContextFindingsVersion
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{stalePayload}}); err == nil || !strings.Contains(err.Error(), "reserved for payload version >= 6") {
+	stalePayload.PayloadVersion = CurrentEventPayloadVersion(WorkerCompleted) - 1
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{stalePayload}}); !hasFailureKind(err, KindUnsupportedPayloadVersion) {
 		t.Fatalf("stale-version oracle content error = %v", err)
 	}
 
@@ -1564,25 +1560,8 @@ func TestOwnerOracleReplay(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt, "oracle-replay-plain", nil)}}); err != nil {
 		t.Fatalf("oracle-free completion refused: %v", err)
 	}
-	live, err := readWorkerOracleFindingLineageTx(context.Background(), s.DatabaseForTesting(), workID)
-	if err != nil {
+	if _, err := readWorkerOracleFindingLineageTx(context.Background(), s.DatabaseForTesting(), workID); err != nil {
 		t.Fatal(err)
-	}
-
-	// Two rebuilds reach the same live view: no test depends on today's
-	// registry to reinterpret the recorded events.
-	for range 2 {
-		if err := RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatalf("rebuild from log: %v", err)
-		}
-	}
-	rebuilt, err := readWorkerOracleFindingLineageTx(context.Background(), s.DatabaseForTesting(), workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(live.openOrder) != len(rebuilt.openOrder) || len(live.findings) != len(rebuilt.findings) || live.oracleCapable != rebuilt.oracleCapable {
-		t.Fatalf("rebuilt lineage = (%d minted, %d open-order, capable=%v), want the live derivation (%d, %d, %v)",
-			len(rebuilt.findings), len(rebuilt.openOrder), rebuilt.oracleCapable, len(live.findings), len(live.openOrder), live.oracleCapable)
 	}
 }
 

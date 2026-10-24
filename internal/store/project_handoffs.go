@@ -162,9 +162,9 @@ func foldProjectHandoffRecorded(ctx context.Context, tx *sql.Tx, event Event) er
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO project_handoffs
-		(handoff_id,work_id,contract_version,source_project_id,target_project_id,source_session_ref,bounded_job,changes,verification,artifact_refs,blockers,next_action,state,recorded_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'recorded',?)`,
-		p.HandoffID, event.SubjectID, p.ContractVersion, p.SourceProjectID, p.TargetProjectID, p.SourceSessionRef, p.BoundedJob, changes, verification, artifactRefs, blockers, p.NextAction, p.RecordedAt)
+		(handoff_id,work_id,contract_version,source_project_id,target_project_id,source_session_ref,bounded_job,changes,verification,artifact_refs,blockers,next_action,state,recorded_at,recorded_seq)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'recorded',?,?)`,
+		p.HandoffID, event.SubjectID, p.ContractVersion, p.SourceProjectID, p.TargetProjectID, p.SourceSessionRef, p.BoundedJob, changes, verification, artifactRefs, blockers, p.NextAction, p.RecordedAt, event.Seq)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "project handoff id is already recorded", false, "record the handoff with a new deterministic id")
@@ -238,13 +238,9 @@ type ProjectHandoffResult struct {
 // rendering sort a whole-second timestamp ahead of a later fractional one
 // ("...T00:00:40Z" sorts after "...T00:00:40.000000001Z"), so the boot
 // frontier, the admission gate, the consume resolution, the continuity read,
-// and the retirement facts all order on the event log's seq instead. Each
-// handoff row folds from exactly one recorded event, so the correlate always
-// resolves; the scalar reads NULL only for a row no event produced, and NULL
-// sorts last under DESC.
-const projectHandoffEventOrder = `(SELECT l.seq FROM domain_events l
-		WHERE l.kind='work.project_handoff_recorded' AND l.subject_id=project_handoffs.work_id
-		AND json_extract(l.payload,'$.handoff_id')=project_handoffs.handoff_id) DESC`
+// and the retirement facts all order on the recording event's seq instead,
+// which the recording fold stamps on the row.
+const projectHandoffEventOrder = `project_handoffs.recorded_seq DESC`
 
 // projectHandoffIdentity derives the deterministic handoff id from the
 // recorded content: a replay of the same addressed handoff resolves to the

@@ -6898,6 +6898,22 @@ CREATE TRIGGER workflow_staleness_observations_guard_update BEFORE UPDATE ON wor
 CREATE TRIGGER workflow_staleness_observations_guard_delete BEFORE DELETE ON workflow_staleness_observations BEGIN SELECT RAISE(ABORT, 'workflow_staleness_observations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version: 144,
+		Name:    "project_handoff_recorded_seq",
+		// The recording fold writes the column once per handoff INSERT. An
+		// older writer would leave a newer handoff at 0, ranking it oldest in
+		// every "newest handoff" selection, so older writers are fenced.
+		Breaking:       true,
+		FoldMaintained: "origin",
+		SQL: `
+ALTER TABLE project_handoffs ADD COLUMN recorded_seq INTEGER NOT NULL DEFAULT 0;
+INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
+UPDATE project_handoffs AS h SET recorded_seq=COALESCE((SELECT MAX(l.seq) FROM domain_events l WHERE l.kind='work.project_handoff_recorded' AND l.subject_id=h.work_id AND json_extract(l.payload,'$.handoff_id')=h.handoff_id),0);
+DELETE FROM fold_guard;
+CREATE INDEX project_handoffs_recorded_seq ON project_handoffs (work_id, recorded_seq);
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

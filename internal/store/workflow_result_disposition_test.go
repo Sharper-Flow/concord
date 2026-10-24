@@ -1374,11 +1374,10 @@ func TestCrossAttemptRejectionIntervalBoundaries(t *testing.T) {
 	stalenessEvent(t, w.s, witnessWorkID, string(WorkerDispatched), `{"attempt_id":"`+attemptE+`"}`)
 	stalenessEvent(t, w.s, witnessWorkID, string(WorkerCompleted), `{"attempt_id":"`+attemptE+`","readback_model":"model/witness"}`)
 	if _, err := w.s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at,dispatch_seq,dispatch_payload,terminal_seq,terminal_payload)
-VALUES(?,?,'lane:witness',1,?,'research','model/witness','1.0','1.0','completed','2026-01-02T00:00:00Z','2026-01-02T00:00:01Z',
-(SELECT seq FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?),'{}',
-(SELECT seq FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?),?);
-DELETE FROM fold_guard`, witnessWorkID, attemptE, "sha256:"+strings.Repeat("0", 64), witnessWorkID, WorkerDispatched, attemptE, witnessWorkID, WorkerCompleted, attemptE, string(mustJSONValue(map[string]any{"attempt_id": attemptE, "readback_model": "model/witness"}))); err != nil {
+UPDATE worker_attempts SET lane_id='lane:witness',capability_class='research',readback_model='model/witness',lifecycle_state='completed',completed_at='2026-01-02T00:00:01Z',dispatch_payload='{}',
+ terminal_seq=(SELECT seq FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?),terminal_payload=?
+ WHERE work_id=? AND attempt_id=?;
+DELETE FROM fold_guard`, witnessWorkID, WorkerCompleted, attemptE, string(mustJSONValue(map[string]any{"attempt_id": attemptE, "readback_model": "model/witness"})), witnessWorkID, attemptE); err != nil {
 		t.Fatal(err)
 	}
 	if results := w.rejectableResults(t, 0); !crossAttemptResultsContain(results, attemptE, heldEpoch) {

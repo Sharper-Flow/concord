@@ -128,16 +128,20 @@ def cd_id_counts(data: dict[str, object]) -> Counter[str]:
     return counts
 
 
-def superseded_successors(data: dict[str, object]) -> dict[str, str]:
-    """Map each superseded CD id to the successor id its record names."""
-    successors: dict[str, str] = {}
-    for record in data["records"]:  # type: ignore[union-attr]
-        if not isinstance(record, dict) or record.get("status") != "superseded":
-            continue
-        identifier, successor = record.get("id"), record.get("successor")
-        if isinstance(identifier, str) and CD_ID_RE.fullmatch(identifier) and isinstance(successor, str):
-            successors[identifier] = successor
-    return successors
+def historical_ids(root: Path, ref: str) -> set[str]:
+    """Return every CD id whose record shard ever existed on ``ref``.
+
+    A deleted record frees no id: an id is allocated once, so a later record
+    reusing a removed id would collide with every link and commit that named
+    the deleted decision.
+    """
+    output = git_text(root, "log", ref, "--format=", "--name-only", "--", f"{MANIFEST}/records")
+    identifiers: set[str] = set()
+    for line in (output or "").splitlines():
+        stem = Path(line.strip()).stem
+        if CD_ID_RE.fullmatch(stem):
+            identifiers.add(stem)
+    return identifiers
 
 
 def cd_record_paths(data: dict[str, object]) -> dict[str, str]:
@@ -302,7 +306,7 @@ def collision_findings(
 
 
 def highest_allocated(root: Path, against: str, namespace: str, tree_ids: set[str]) -> int:
-    identifiers = set(tree_ids) | set(peer_claims(root, against, namespace))
+    identifiers = set(tree_ids) | set(peer_claims(root, against, namespace)) | historical_ids(root, against)
     raw = git_show(root, against)
     if raw is not None:
         parsed = load_manifest(raw, against, [])
@@ -457,15 +461,12 @@ def check(
             findings.append(
                 f"duplicate-id: tree manifest: CD id {identifier} appears {count} times"
             )
-    # A superseded record may leave the tree once its successor carries the
-    # law; any other removal would free a durable id.
-    tree_ids = {record.get("id") for record in tree["records"] if isinstance(record, dict)}  # type: ignore[union-attr]
-    successors = superseded_successors(comparison)
+    # A record may be deleted outright; its id stays allocated.
+    history = historical_ids(root, against)
     findings.extend(
-        f"removed-records: comparison manifest: CD id {identifier} was removed from tree; "
-        "CDs are durable and removal needs an explicit superseding record that stays in the tree"
-        for identifier in sorted(against_ids - set(tree_counts))
-        if successors.get(identifier) not in tree_ids
+        f"reused-id: tree manifest: CD id {identifier} belonged to a deleted record; allocate a new id"
+        for identifier in new_ids
+        if identifier in history
     )
     claims = peer_claims(root, against, peer_namespace)
     findings.extend(collision_findings(root, new_ids, claims, cd_record_paths(tree)))

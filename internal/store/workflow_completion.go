@@ -887,20 +887,16 @@ func workflowRecordedStalenessWarnings(ctx context.Context, q queryer, workID st
 }
 
 func workflowStalenessObservationState(ctx context.Context, q queryer, workID string) (map[string]workflowStalenessObservedPayload, error) {
-	rows, err := q.QueryContext(ctx, `SELECT payload FROM workflow_staleness_observations WHERE work_id=?`, workID)
+	rows, err := q.QueryContext(ctx, `SELECT o.rule_id,o.severity,o.drifted,o.accepted_inputs_digest,o.observed_at FROM workflow_staleness_observations o JOIN effect_receipts r ON r.event_id=o.event_id WHERE o.work_id=? ORDER BY r.effect_seq DESC`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "workflow_staleness", "cannot read staleness observation events", true, "retry once the database is readable", err)
 	}
 	defer rows.Close()
 	observations := map[string]workflowStalenessObservedPayload{}
 	for rows.Next() {
-		var raw string
-		if err := rows.Scan(&raw); err != nil {
-			return nil, wrapFailure(KindUnavailable, "workflow_staleness", "cannot scan staleness observation event", true, "retry once the database is readable", err)
-		}
 		var observation workflowStalenessObservedPayload
-		if err := json.Unmarshal([]byte(raw), &observation); err != nil {
-			return nil, newFailure(KindInvariantViolation, "workflow_staleness", "staleness observation event is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
+		if err := rows.Scan(&observation.RuleID, &observation.Severity, &observation.Drifted, &observation.AcceptedInputsDigest, &observation.ObservedAt); err != nil {
+			return nil, wrapFailure(KindUnavailable, "workflow_staleness", "cannot scan staleness observation event", true, "retry once the database is readable", err)
 		}
 		if _, exists := observations[observation.RuleID]; !exists {
 			observations[observation.RuleID] = observation

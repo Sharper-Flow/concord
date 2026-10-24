@@ -13,7 +13,7 @@ func workflowRefineReviewEvidenceStep(definition WorkflowDefinition, step string
 		workflowActionDefinitionByID(definition, "accept_worker_evidence").ID != ""
 }
 
-func workflowRefineReviewEvidenceAttempt(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, step, subject string, beforeSeq int64) (string, error) {
+func workflowRefineReviewEvidenceAttempt(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, step, subject string, _ int64) (string, error) {
 	if !workflowRefineReviewEvidenceStep(definition, step) {
 		return "", nil
 	}

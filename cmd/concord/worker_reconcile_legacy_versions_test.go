@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -119,6 +121,20 @@ func seedLegacyWorkerEventRows(t *testing.T, dbPath string, events ...store.Even
 			event.EventID, event.Kind, string(event.SubjectType), event.SubjectID, event.Actor, event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"), event.PayloadVersion, string(event.Payload)); err != nil {
 			t.Fatalf("seed legacy event %s: %v", event.EventID, err)
 		}
+		decoder := json.NewDecoder(bytes.NewReader(event.Payload))
+		decoder.UseNumber()
+		var value any
+		if err := decoder.Decode(&value); err != nil {
+			t.Fatal(err)
+		}
+		canonical, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(canonical)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest) SELECT event_id,seq,kind,subject_type,subject_id,actor,payload_version,? FROM domain_events WHERE event_id=?`, "sha256:"+hex.EncodeToString(sum[:]), event.EventID); err != nil {
+			t.Fatal(err)
+		}
 		if event.Kind == store.WorkerDispatched {
 			var payload store.WorkerDispatchedPayload
 			if err := json.Unmarshal(event.Payload, &payload); err != nil {
@@ -127,6 +143,19 @@ func seedLegacyWorkerEventRows(t *testing.T, dbPath string, events ...store.Even
 			if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at) VALUES (?,?,?,?,?,?,?,?,?,'dispatched','','',?,NULL,NULL)`,
 				event.SubjectID, payload.AttemptID, payload.LaneID, payload.LaneVersion, payload.LaneDigest, payload.CapabilityClass, payload.ReadbackModel, payload.PacketSchemaVersion, payload.ReportSchemaVersion, event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")); err != nil {
 				t.Fatalf("seed legacy attempt row %s: %v", payload.AttemptID, err)
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET dispatch_event_id=?,dispatch_actor=?,dispatch_payload_version=?,dispatch_payload=?,dispatch_seq=(SELECT seq FROM domain_events WHERE event_id=?) WHERE work_id=? AND attempt_id=?`, event.EventID, event.Actor, event.PayloadVersion, string(event.Payload), event.EventID, event.SubjectID, payload.AttemptID); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			var payload struct {
+				AttemptID string `json:"attempt_id"`
+			}
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET terminal_event_id=?,terminal_kind=?,terminal_payload_version=?,terminal_payload=? WHERE work_id=? AND attempt_id=?`, event.EventID, event.Kind, event.PayloadVersion, string(event.Payload), event.SubjectID, payload.AttemptID); err != nil {
+				t.Fatal(err)
 			}
 		}
 	}

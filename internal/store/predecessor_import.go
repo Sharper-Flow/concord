@@ -45,7 +45,7 @@ func productMembership(ctx context.Context, q queryer, productID string) ([]stri
 	return membership, nil
 }
 
-// EventIDExists reports whether the durable log already carries an event with
+// EventIDExists reports whether a durable effect receipt carries an event with
 // the given stable event id. It is the read-side companion of the append-time
 // duplicate detection: an idempotent operator surfaces the existing row
 // without paying for a doomed INSERT. The query is a single row read against
@@ -55,7 +55,7 @@ func (s *Store) EventIDExists(ctx context.Context, eventID string) (bool, error)
 }
 
 // FirstWorkEventByOtherActor returns the first durable event on a work
-// subject whose actor differs from the excluded actor, ordered by the log
+// subject whose actor differs from the excluded actor, ordered by the effect
 // sequence. The predecessor import uses it as the CD-0097 D4 conflict probe:
 // any event another actor appended to an imported work item is a Concord-side
 // change to an item the predecessor still owns, and the migration must refuse
@@ -71,9 +71,9 @@ func (s *Store) FirstWorkEventByOtherActor(ctx context.Context, workID, excluded
 			"excluded actor is empty", false, "supply a non-empty excluded actor")
 	}
 	row := s.db.QueryRowContext(ctx,
-		`SELECT kind, actor FROM domain_events
+		`SELECT kind, actor FROM effect_receipts
 		 WHERE subject_type=? AND subject_id=? AND actor<>?
-		 ORDER BY seq LIMIT 1`, string(SubjectWorkItem), workID, excludedActor)
+		 ORDER BY effect_seq LIMIT 1`, string(SubjectWorkItem), workID, excludedActor)
 	var eventKind, eventActor string
 	if err := row.Scan(&eventKind, &eventActor); err != nil {
 		if err == sql.ErrNoRows {
@@ -92,7 +92,7 @@ func eventIDExists(ctx context.Context, q queryer, eventID string) (bool, error)
 			"event id is empty", false, "supply a non-empty event id")
 	}
 	var exists bool
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE event_id=?)`, eventID).Scan(&exists); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM effect_receipts WHERE event_id=?)`, eventID).Scan(&exists); err != nil {
 		if err == sql.ErrNoRows {
 			return false, nil
 		}

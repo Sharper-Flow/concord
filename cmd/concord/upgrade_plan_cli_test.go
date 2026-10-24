@@ -287,6 +287,10 @@ func rewindMigrationTail(db *sql.DB, from int, unpoison bool) error {
 }
 
 var migrationTailReversals = map[int][]string{
+	145: {
+		`DROP TABLE workflow_staleness_observations`,
+		`DROP TABLE effect_receipts`,
+	},
 	// Rebuild-only steps replace their own tables when reapplied.
 	111: nil,
 	119: nil,
@@ -301,6 +305,22 @@ var migrationTailReversals = map[int][]string{
 		`ALTER TABLE project_handoffs DROP COLUMN recorded_seq`,
 		`ALTER TABLE worktree_ref_outcomes DROP COLUMN settlement_count`,
 	},
+	143: {
+		`DROP TABLE worker_attempt_dispositions`,
+		`ALTER TABLE workflow_instances DROP COLUMN latest_non_dispatch_start_seq`,
+		`ALTER TABLE worker_job_revisions DROP COLUMN satisfied_seq`,
+		`ALTER TABLE worker_job_revisions DROP COLUMN recorded_event_id`,
+		`ALTER TABLE worker_job_revisions DROP COLUMN recorded_seq`,
+		`ALTER TABLE worker_attempts DROP COLUMN failure_recorded_seq`,
+		`ALTER TABLE worker_attempts DROP COLUMN terminal_occurred_at`,
+		`ALTER TABLE worker_attempts DROP COLUMN terminal_seq`,
+		`ALTER TABLE worker_authorizations DROP COLUMN contract_version`,
+		`ALTER TABLE worker_authorizations DROP COLUMN start_payload`,
+		`ALTER TABLE worker_authorizations DROP COLUMN start_seq`,
+		`ALTER TABLE worker_authorizations DROP COLUMN event_id`,
+		`ALTER TABLE work_items DROP COLUMN last_progress_at`,
+		`ALTER TABLE work_items DROP COLUMN effect_seq`,
+	},
 	142: {
 		`DROP TABLE workflow_phase_exits`,
 		`DROP TABLE workflow_action_obligations`,
@@ -311,8 +331,8 @@ var migrationTailReversals = map[int][]string{
 		`DROP TABLE workflow_delivery_state`,
 		`DROP TABLE compaction_publications`,
 		`DROP TABLE workflow_evidence_bindings`,
-		`DROP TABLE workflow_staleness_observations`,
 		`ALTER TABLE workflow_contracts DROP COLUMN supersession_seq`,
+		`ALTER TABLE workflow_contracts DROP COLUMN last_healthy_seq`,
 		`ALTER TABLE workflow_instances DROP COLUMN completion_payload`,
 		`ALTER TABLE workflow_instances DROP COLUMN completion_occurred_at`,
 		`ALTER TABLE workflow_instances DROP COLUMN unhealthy_verdict_seq`,

@@ -10,6 +10,9 @@ func TestMainAuthorityPreservesWorkerBoundaryWithoutExecutorExclusion(t *testing
 	t.Parallel()
 	db, _ := correctionHistoryFixture(t)
 	progressFixtureTables(t, db)
+	if _, err := db.Exec(`CREATE TABLE worker_attempts(work_id TEXT,dispatch_event_id TEXT,dispatch_payload BLOB)`); err != nil {
+		t.Fatal(err)
+	}
 	const workID = "main-authority"
 	const owner = "actor:main"
 	const worker = "actor:worker"
@@ -23,6 +26,14 @@ func TestMainAuthorityPreservesWorkerBoundaryWithoutExecutorExclusion(t *testing
 	} {
 		if _, err := db.Exec(`INSERT INTO domain_events VALUES(?,?,?,?,?,?,?)`, seq+1, string(SubjectWorkItem), workID, event.kind, mustJSONValue(event.payload), event.actor, event.kind); err != nil {
 			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO effect_receipts SELECT event_id,seq,kind,subject_type,subject_id FROM domain_events WHERE seq=?`, seq+1); err != nil {
+			t.Fatal(err)
+		}
+		if event.kind == WorkerDispatched {
+			if _, err := db.Exec(`INSERT INTO worker_attempts VALUES(?,?,?)`, workID, event.kind, mustJSONValue(event.payload)); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	// Mutable execution ownership cannot turn a dispatched worker into Main,

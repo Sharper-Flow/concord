@@ -172,6 +172,13 @@ func TestAppendEventRejectsDifferentPayloadVersion(t *testing.T) {
 
 	first := projectIdentityEvent("divergent-version-evt", 1)
 	insertHistoricalEvent(t, s, first)
+	digest, err := effectPayloadDigest(first.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest) SELECT event_id,seq,kind,subject_type,subject_id,actor,payload_version,? FROM domain_events WHERE event_id=?`, digest, first.EventID); err != nil {
+		t.Fatal(err)
+	}
 	original, err := readRawEventRow(t, ctx, s, first.EventID)
 	if err != nil {
 		t.Fatalf("read original event: %v", err)

@@ -88,7 +88,8 @@ func TestWorkflowEvidenceCurrentFactsMigrationBackfill(t *testing.T) {
 		`SELECT json_array(work_id,action_id,exit_seq) FROM workflow_phase_exits ORDER BY work_id,action_id`,
 		`SELECT json_array(work_id,contract_version,supersession_seq) FROM workflow_contracts ORDER BY work_id,contract_version`,
 		`SELECT json_array(work_id,binding_seq,binding_id,actor,payload) FROM workflow_evidence_bindings ORDER BY work_id,binding_seq`,
-		`SELECT json_array(work_id,rule_id,observation_seq,payload) FROM workflow_staleness_observations ORDER BY work_id,rule_id`,
+		`SELECT json_array(o.work_id,o.rule_id,r.effect_seq,o.severity,o.drifted,o.accepted_inputs_digest,o.observed_at) FROM workflow_staleness_observations o JOIN effect_receipts r ON r.event_id=o.event_id ORDER BY o.work_id,o.rule_id,r.effect_seq`,
+		`SELECT json_array(event_id,payload_digest) FROM effect_receipts WHERE subject_type='work_item' AND subject_id IN (SELECT id FROM work_items) ORDER BY effect_seq`,
 	}
 	want := workerFactsQueryRows(t, s, queries)
 	if _, err := s.db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES
@@ -100,6 +101,10 @@ func TestWorkflowEvidenceCurrentFactsMigrationBackfill(t *testing.T) {
 	repopulateWorkflowCurrentFactsForTest(t, s)
 	if _, err := s.db.Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
 		t.Fatal(err)
+	}
+	observations, err := workflowStalenessObservationState(ctx, s.db, work)
+	if err != nil || len(observations) != 1 || observations["staleness:current"].Drifted || observations["staleness:current"].ObservedAt != time.Unix(199, 0).UTC().Format(time.RFC3339Nano) {
+		t.Fatalf("latest observation must follow effect order, not wall clock: %+v, %v", observations, err)
 	}
 	if got := workerFactsQueryRows(t, s, queries); !reflect.DeepEqual(got, want) {
 		t.Fatalf("migration changed current facts:\ngot %v\nwant %v", got, want)
@@ -124,7 +129,9 @@ DROP TABLE workflow_delivery_state;
 DROP TABLE compaction_publications;
 DROP TABLE workflow_evidence_bindings;
 DROP TABLE workflow_staleness_observations;
+DROP TABLE effect_receipts;
 ALTER TABLE workflow_contracts DROP COLUMN supersession_seq;
+ALTER TABLE workflow_contracts DROP COLUMN last_healthy_seq;
 ALTER TABLE workflow_instances DROP COLUMN completion_payload;
 ALTER TABLE workflow_instances DROP COLUMN completion_occurred_at;
 ALTER TABLE workflow_instances DROP COLUMN unhealthy_verdict_seq;
@@ -139,11 +146,14 @@ ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_payload;
 		t.Fatal(err)
 	}
 	for _, m := range migrations {
-		if m.Version == 142 {
+		if m.Version == 142 || m.Version == 145 {
 			if err := applyMigration(t.Context(), tx, m); err != nil {
 				t.Fatal(err)
 			}
 		}
+	}
+	if err := backfillEffectReceiptDigests(t.Context(), tx); err != nil {
+		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)

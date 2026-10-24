@@ -1653,13 +1653,9 @@ func (s *Store) finalizeBootstrap(ctx context.Context, req BootstrapRequest, ope
 		hostPIDStart = start
 	}
 	payload := marshalWorktreeCreated(expected, WorktreeSetID(workID), req.ProjectID, operationID, location, facts, req.SessionRef, req.HostPID, hostPIDStart)
-	eventID := operationID + ":worktree-created"
-	var priorCreation bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE event_id=?)`, eventID).Scan(&priorCreation); err != nil {
+	eventID, err := bootstrapCreationEventID(ctx, tx.Tx, operationID, expected)
+	if err != nil {
 		return BootstrapResult{}, err
-	}
-	if priorCreation {
-		eventID = fmt.Sprintf("%s:%d", eventID, expected)
 	}
 	if _, err := applyOperationTx(ctx, tx.Tx, Operation{Events: []Event{{EventID: eventID, Kind: "work.worktree_created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}}, newFoldScope(tx.Tx), false); err != nil {
 		return BootstrapResult{}, err
@@ -1679,6 +1675,18 @@ func (s *Store) finalizeBootstrap(ctx context.Context, req BootstrapRequest, ope
 		return BootstrapResult{}, err
 	}
 	return BootstrapResult{OperationID: operationID, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: workID, WorkVersion: version, Entry: entry}, nil
+}
+
+func bootstrapCreationEventID(ctx context.Context, q queryer, operationID string, expected int64) (string, error) {
+	eventID := operationID + ":worktree-created"
+	var priorCreation bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM effect_receipts WHERE event_id=?)`, eventID).Scan(&priorCreation); err != nil {
+		return "", err
+	}
+	if priorCreation {
+		eventID = fmt.Sprintf("%s:%d", eventID, expected)
+	}
+	return eventID, nil
 }
 
 func bootstrapJSON(value any) string {

@@ -206,7 +206,7 @@ func reviewGateAcceptor(workID string) WorkflowActor {
 	return WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/review-gate-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
 }
 
-func TestPostRejectionReviewGateHoldsBreakFixDelivery(t *testing.T) {
+func TestDeliveryRequiresReviewOfCurrentCandidate(t *testing.T) {
 	for _, route := range deliveryEntryRoutes() {
 		t.Run(route.name, func(t *testing.T) {
 			j := reviewGateRefineFixture(t, "review-gate-break-fix", "workflow.break_fix")
@@ -254,7 +254,7 @@ func TestDeliveryGateDeclaresCorrectiveReturn(t *testing.T) {
 
 // An unaccepted Review of the earlier candidate cannot authorize a candidate
 // changed by a later accepted implementation, regardless of dispatch order.
-func TestPostRejectionReviewGateRefusesPreRejectionReviewAccept(t *testing.T) {
+func TestReviewOfReplacedCandidateCannotAuthorizeDelivery(t *testing.T) {
 	for _, route := range deliveryEntryRoutes() {
 		t.Run(route.name, func(t *testing.T) {
 			j := reviewGateRefineFixture(t, "review-gate-stale-review", "workflow.break_fix")
@@ -278,7 +278,7 @@ func TestPostRejectionReviewGateRefusesPreRejectionReviewAccept(t *testing.T) {
 
 // An accepted Review becomes inapplicable when its candidate changes. A later
 // completed Review with unchanged inputs does not invalidate it by chronology.
-func TestPostRejectionReviewGateRefusesReviewDispatchedBeforeRepair(t *testing.T) {
+func TestReviewApplicabilityFollowsCandidateNotDispatchOrder(t *testing.T) {
 	for _, route := range deliveryEntryRoutes() {
 		t.Run(route.name, func(t *testing.T) {
 			j := reviewGateRefineFixture(t, "review-gate-review-before-repair", "workflow.break_fix")

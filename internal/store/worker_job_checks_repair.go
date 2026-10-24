@@ -156,7 +156,7 @@ func workerChecksRepairAwaitingReviewTx(ctx context.Context, q queryer, workID s
 
 // openUnconfirmed reports whether the repair stands accepted but neither
 // confirmed nor voided: its named revisions hold their provisional
-// readiness, its review debt stands, and at most one confirming review may
+// readiness, its confirming Review remains pending, and at most one such Review may
 // still dispatch for it.
 func (s *workflowChecksRepairState) openUnconfirmed() bool {
 	return s.acceptanceSeq != 0 && !s.confirmed && !s.voided
@@ -188,7 +188,7 @@ func workerJobUnresolvedRevisions(history *workflowCorrectionHistory, jobID stri
 // comparison is over the typed full payload minus the approved exceptions, so
 // only the named exceptions ever leave it. One correction-history walk at the
 // deriving prefix answers the unresolved set, the open repair, and the
-// failed-review debt together: a second unconfirmed repair of the same job
+// failed confirming attempt's obligation together: a second unconfirmed repair of the same job
 // refuses while one stands, and while a voided repair's exact confirming
 // attempt failed or was rejected and its repairing revision still stands
 // unresolved, no checks repair may fold that own obligation into its named

@@ -721,16 +721,6 @@ func workflowAdmitDispatchRefused(state WorkflowAdmissionState, actionID string,
 
 // workflowAdmitDeliveryRefused answers delivery admission and the mandate.
 func workflowAdmitDeliveryRefused(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
-	// On a job-capable pin (CD-0205) the payload-blind accept is admissible
-	// as local acceptance of one worker job, which holds the step; the
-	// delivery-asserting accept applies workflowAdmitDelivery at its
-	// payload-bound guard instead.
-	if actionID == "accept_worker_result" && workflowAcceptDeliveryAdmissionActive(definition, state.Step) && !workflowWorkerJobsActive(definition) {
-		*decision = workflowAdmitDelivery(definition, state, *decision)
-		if decision.Failure != nil {
-			return true
-		}
-	}
 	if failure := workflowAdmitMandate(definition, state.Step, state.Mandate, actionID, "workflow_action"); failure != nil {
 		decision.Failure = failure
 		return true

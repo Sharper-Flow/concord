@@ -46,15 +46,14 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:814a6b4f417bdf3215a8486d4cdedc455b037bb6cecc98096c22e2a3de332adb",
+  "sha256": "sha256:9c476af239f8a2a4026c12f58b851b4e9dfdbeecdbbc4354efc736614f088baa",
   "status": "accepted",
   "summary": "One tx-scoped loader and pure workflowAdmit function own admission across all sites, derived from current rows; payload and identity checks stay at existing boundaries. Oracle work consumes one ranked-finding lineage, counts its open findings, and exposes canonical IDs and retained receipts through shared correction/context readers. Dispatch refuses above 32 blockers without truncation. Readiness, oracle defects, and uncovered cases retain declared preparation, correction, supersession, or stop recovery without erasing open blockers. The registered definitions keep the liveness law and conformance checks over modeled dimensions.",
   "tags": [
     "workflow",
     "workflow-engine",
     "admission",
-    "liveness",
-    "review-debt"
+    "liveness"
   ],
   "title": "Workflow action admission is derived once and every reachable state stays live"
 }

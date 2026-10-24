@@ -32,8 +32,7 @@
 
 CD-0201 D1 puts workflow action admission in one function over one current
 state. CD-0201 D2 binds the liveness law over every registered definition
-version. CD-0201 D3 settles the post-rejection review debt on a ship or
-absent verdict. CD-0204 merges the acceptance-deliverables refusal and the
+version. CD-0204 merges the acceptance-deliverables refusal and the
 late record_verdict route into the same admission owner.
 
 A fresh review of the recovery half of CD-0201 found that the contract was
@@ -106,7 +105,7 @@ pair; the target must reach the route step through forward edges alone
 not be terminal; the target must not declare `approve_contract`; the
 target must carry an artifact-producing mechanism (D4); the route must not
 duplicate for one (step, trigger) pair. Same-step attempt recovery —
-`failed_attempt`, `rejected_attempt`, review-debt, the late-record
+`failed_attempt`, `rejected_attempt`, the late-record
 evidence path — stays with its existing owner and declares no route, so
 the runtime cross-step reader does not see it and the gate does not
 delegate a same-step return through the table.
@@ -121,7 +120,7 @@ registration.
 
 The closed two-trigger set is the only pair the runtime cross-step reader
 recognizes. Same-step attempt recovery keeps its own owner (the
-attempt-failure chain and the review-debt chain). The gate delegates to
+attempt-failure chain). The gate delegates to
 the evaluator's declared unhealthy-verdict target; the gate does not walk
 the graph, does not order the step slice by a kind, and does not pick a
 nearest-effect step.

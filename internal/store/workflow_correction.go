@@ -333,13 +333,13 @@ func workflowCorrectionWalkWorkerSatisfaction(ctx context.Context, q queryer, wo
 		return nil, wrapFailure(KindUnavailable, subject, "cannot read the correction window history", true, "retry once the workflow event log is readable", err)
 	}
 	history := &workflowCorrectionHistory{
-		unresolved:    make(map[string]bool),
-		dispatchJob:   make(map[string]string),
-		materialized:  make(map[string]bool),
-		obligations:   make(map[string]workflowJobObligationState),
-		nonSettling:   make(map[string]bool),
-		reviewVerdict: make(map[string]string),
-		checksRepairs: make(map[string]*workflowChecksRepairState),
+		unresolved:        make(map[string]bool),
+		dispatchJob:       make(map[string]string),
+		materialized:      make(map[string]bool),
+		obligations:       make(map[string]workflowJobObligationState),
+		blockingReview:    make(map[string]bool),
+		reviewDisposition: make(map[string]string),
+		checksRepairs:     make(map[string]*workflowChecksRepairState),
 	}
 	for rows.Next() {
 		var row workflowCorrectionHistoryRow
@@ -363,21 +363,21 @@ func workflowCorrectionWalkWorkerSatisfaction(ctx context.Context, q queryer, wo
 }
 
 type workflowCorrectionHistory struct {
-	boundary     int64
-	unresolved   map[string]bool
-	dispatchJob  map[string]string
-	materialized map[string]bool
-	obligations  map[string]workflowJobObligationState
-	nonSettling  map[string]bool
-	// reviewVerdict keeps each attempt's recorded review verdict, and
+	boundary       int64
+	unresolved     map[string]bool
+	dispatchJob    map[string]string
+	materialized   map[string]bool
+	obligations    map[string]workflowJobObligationState
+	blockingReview map[string]bool
+	// reviewDisposition keeps each attempt's recorded Review disposition, and
 	// checksRepairs is the one walked owner of the checks repair state
 	// (CD-0205 D4): each recorded repair's binding, named obligations,
 	// parent contract, its own acceptance, the exact confirming dispatch
 	// its admission marker names, and the confirm or void that ended it.
-	reviewVerdict map[string]string
-	checksRepairs map[string]*workflowChecksRepairState
-	records       []workflowCorrectionRecordState
-	completions   []workflowCorrectionDispatchCompletion
+	reviewDisposition map[string]string
+	checksRepairs     map[string]*workflowChecksRepairState
+	records           []workflowCorrectionRecordState
+	completions       []workflowCorrectionDispatchCompletion
 }
 
 // workflowChecksRepairState is one recorded checks repair's state at the
@@ -405,10 +405,8 @@ func (h *workflowCorrectionHistory) confirmingAttemptOf(attempt string) *workflo
 	return nil
 }
 
-// voidConfirmingRepair ends the repair whose confirming review the attempt
-// was dispatched for, unless the repair is already confirmed. A failed or
-// abandoned confirming review, a rejected review result, and a completed
-// no_ship verdict each void; a completed ship report keeps waiting.
+// voidConfirmingRepair ends an unconfirmed repair whose confirming attempt
+// cannot validate it.
 func (h *workflowCorrectionHistory) voidConfirmingRepair(attempt string) {
 	repair := h.confirmingAttemptOf(attempt)
 	if repair == nil || repair.confirmed {
@@ -450,9 +448,9 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 			return newFailure(KindInvariantViolation, subject, "worker completion payload is malformed", false, "rebuild workflow projections from the event log")
 		}
 		if report.Review != nil {
-			h.reviewVerdict[row.dispatchAttempt] = report.Review.Disposition
+			h.reviewDisposition[row.dispatchAttempt] = report.Review.Disposition
 			if report.Review.Disposition == "correction_required" || report.Review.Disposition == "revision_required" {
-				h.nonSettling[row.dispatchAttempt] = true
+				h.blockingReview[row.dispatchAttempt] = true
 				h.fail(row.dispatchAttempt)
 			}
 		}
@@ -532,11 +530,11 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 			repair.acceptanceSeq = row.seq
 		}
 		confirming := h.confirmingAttemptOf(row.actionAttempt)
-		verdict := h.reviewVerdict[row.actionAttempt]
-		if confirming != nil && (verdict == "correction_required" || verdict == "revision_required") {
+		disposition := h.reviewDisposition[row.actionAttempt]
+		if confirming != nil && (disposition == "correction_required" || disposition == "revision_required") {
 			h.voidConfirmingRepair(row.actionAttempt)
 		}
-		if confirming != nil && (verdict == "continue" || verdict == "ready_for_final_proof") && !confirming.voided {
+		if confirming != nil && (disposition == "continue" || disposition == "ready_for_final_proof") && !confirming.voided {
 			confirming.confirmed = true
 			for _, key := range confirming.namedKeys {
 				delete(h.unresolved, key)
@@ -544,7 +542,7 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 			if len(h.unresolved) == 0 {
 				h.boundary = row.seq
 			}
-		} else if !h.nonSettling[row.actionAttempt] && h.discharge(row.jobID, row.jobRevision) {
+		} else if !h.blockingReview[row.actionAttempt] && h.discharge(row.jobID, row.jobRevision) {
 			h.boundary = row.seq
 		}
 	}

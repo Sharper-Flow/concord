@@ -1024,8 +1024,7 @@ class JobSizeProjectionTests(unittest.TestCase):
             with self.subTest(lane=lane["id"]):
                 text = self.normalized(lane)
                 self.assertIn("## Caller boundary", text)
-                self.assertIn("Without caller scope, omit the caller-repair fields", text)
-                self.assertIn("report without the absent fields and never invent them", text)
+                self.assertIn("Without caller scope, omit the caller-repair fields and never invent them", text)
                 self.assertNotIn("production_size", text)
                 self.assertNotIn("measurement_basis", text)
 

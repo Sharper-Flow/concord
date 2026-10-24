@@ -324,7 +324,7 @@ func workflowDeliveryJobsFailure(state workflowDeliveryAdmission, accepting *Wor
 	if repairDebt {
 		return newFailure(KindMissingEvidence, "workflow_action",
 			"the delivery assertion refuses while an unconfirmed checks repair's confirming review debt stands",
-			false, "let the funded confirming review end and accept its ship verdict before asserting whole-work delivery")
+			false, "accept the confirming Review's continue or ready_for_final_proof disposition before asserting whole-work delivery")
 	}
 	if state.JobsRecorded && !state.JobsIntegrated {
 		return newFailure(KindMissingEvidence, "workflow_action",

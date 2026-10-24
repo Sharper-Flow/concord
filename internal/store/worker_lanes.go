@@ -863,26 +863,24 @@ func validateWorkerBaseComparison(comparison *WorkerBaseComparison) error {
 	return nil
 }
 
-// workerReviewVerdictVocabulary, workerReviewSeverityVocabulary, and
+// workerReviewDispositionVocabulary, workerReviewSeverityVocabulary, and
 // workerReviewConfidenceVocabulary are the closed sets the review block's
 // fields draw from (CD-0197), mirroring the report schema's enums.
 var (
-	workerReviewVerdictVocabulary    = map[string]bool{"continue": true, "correction_required": true, "revision_required": true, "ready_for_final_proof": true}
-	workerReviewSeverityVocabulary   = map[string]bool{"P0": true, "P1": true, "P2": true, "P3": true}
-	workerReviewConfidenceVocabulary = map[string]bool{"low": true, "medium": true, "high": true}
+	workerReviewDispositionVocabulary = map[string]bool{"continue": true, "correction_required": true, "revision_required": true, "ready_for_final_proof": true}
+	workerReviewSeverityVocabulary    = map[string]bool{"P0": true, "P1": true, "P2": true, "P3": true}
+	workerReviewConfidenceVocabulary  = map[string]bool{"low": true, "medium": true, "high": true}
 )
 
 // validateWorkerReviewBlock mirrors the closed shape the report schema gives
-// the optional review object, including the two verdict couplings: a P0 is by
-// definition a ship blocker, and a no_ship with no finding is an unexplained
-// verdict. An absent block is legal here because whether the dispatching lane
+// the optional review object. An absent block is legal here because whether the dispatching lane
 // requires the block is per-lane, and the validator cannot reach the lane;
 // that requirement is enforced in the fold.
 func validateWorkerReviewBlock(review *WorkerReviewBlock) error {
 	if review == nil {
 		return nil
 	}
-	if !workerReviewVerdictVocabulary[review.Disposition] {
+	if !workerReviewDispositionVocabulary[review.Disposition] {
 		return invalidWorkerPayload("worker.completed review disposition must be continue, correction_required, revision_required, or ready_for_final_proof")
 	}
 	if review.Findings == nil {
@@ -967,14 +965,6 @@ func validateWorkerReviewFinding(finding WorkerReviewFinding) error {
 	}
 	return nil
 }
-
-// validateWorkerReviewOracleVerdict couples the verdict to oracle
-// classifications. Severity and classification are different dimensions, and
-// both couplings hold on any report whose findings carry oracle ties —
-// exactly the oracle-bound dispatches, where every finding must. A ship
-// never carries a classified blocker; a no_ship justified only by
-// sub-P0 follow-ups is an inconsistent verdict, while an out-of-scope
-// P0 follow-up stays a valid retained no_ship for the decision owner.
 
 // validateWorkerReportEvidence is the shape half of the CD-0056 evidence
 // contract. The validator receives the event but not the attempt, so it cannot

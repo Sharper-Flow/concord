@@ -14,7 +14,8 @@ import (
 // own checks no admitted lane can execute is repaired by a newer revision of
 // the same job whose only content change is the checks. The correction
 // history walk owns the repair state — recorded, accepted, confirmed through
-// the exact confirming review's accepted ship verdict, or voided — and every
+// the exact confirming Review's accepted continue or ready_for_final_proof
+// disposition, or voided — and every
 // read here derives from one walk at an explicit prefix, so live reads,
 // guards, and folds answer from the same walked truth. A failed or rejected
 // confirming review that leaves its repairing revision unresolved owes that

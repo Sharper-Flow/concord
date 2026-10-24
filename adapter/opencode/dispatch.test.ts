@@ -3274,8 +3274,8 @@ test("invalid-report and readback diagnostics never supply context_findings", as
 })
 
 // CD-0197: the review lane's completed report carries the typed review
-// block — an explicit ship or no_ship verdict and per-finding severity and
-// confidence — and the adapter refuses a review completion without it.
+// block — an explicit disposition and per-finding severity and confidence —
+// and the adapter refuses a review completion without it.
 const reviewLane = agentLanes.find((candidate) => candidate.id === "review")!
 const reviewPacket = (): AgentLanePacket => ({ ...packet(), lane_id: reviewLane.id, lane_version: reviewLane.version, lane_digest: reviewLane.digest })
 // Evidence beside the typed review block carries no severity entry: the block

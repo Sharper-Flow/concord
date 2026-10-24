@@ -1504,7 +1504,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if err := invalidateWorkflowOverlapForContractRevisionTx(ctx, tx, event, predecessors, p.NewContractVersion); err != nil {
 		return err
 	}
-	// A contract supersession before the ship verdict is accepted voids an
+	// A contract supersession before the confirming Review is accepted voids an
 	// unconfirmed checks repair (CD-0205 D4): the named revisions lose their
 	// provisional readiness at the strict prefix of this supersession, and a
 	// confirmed repair keeps its confirmation.

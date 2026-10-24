@@ -206,91 +206,14 @@ func workflowAcceptedWorkerDelivery(ctx context.Context, q queryer, workID strin
 	return dispatchSeq, accepted != 0, nil
 }
 
-// workflowLatestComparableHealthySequence returns the latest sequence before
-// beforeSeq at which every active predicate had a comparable healthy verdict.
-// A single ok verdict cannot reset a sequence when another predicate remains
-// unhealthy or has no verdict.
-func workflowLatestComparableHealthySequence(ctx context.Context, q queryer, workID string, contractVersion, beforeSeq int64) (int64, error) {
-	rows, err := q.QueryContext(ctx, `SELECT predicate_id FROM workflow_contract_predicates WHERE work_id=? AND contract_version=?`, workID, contractVersion)
-	if err != nil {
-		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot read active workflow predicates", true, "retry once the workflow contract is readable", err)
+// The current contract retains its last simultaneous comparable healthy set,
+// including after later verdicts make that set unhealthy.
+func workflowLatestComparableHealthySequence(ctx context.Context, q queryer, workID string, contractVersion int64) (int64, error) {
+	var seq int64
+	if err := q.QueryRowContext(ctx, `SELECT last_healthy_seq FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, contractVersion).Scan(&seq); err != nil && err != sql.ErrNoRows {
+		return 0, workflowProjectionError(err, "cannot read the healthy-verdict frontier")
 	}
-	predicates := make(map[string]bool)
-	for rows.Next() {
-		var predicateID string
-		if err := rows.Scan(&predicateID); err != nil {
-			rows.Close()
-			return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot scan active workflow predicate", true, "retry once the workflow contract is readable", err)
-		}
-		predicates[predicateID] = true
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot enumerate active workflow predicates", true, "retry once the workflow contract is readable", err)
-	}
-	if err := rows.Close(); err != nil {
-		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot close active workflow predicates", true, "retry once the workflow contract is readable", err)
-	}
-	if len(predicates) == 0 {
-		return 0, nil
-	}
-	history, err := workflowContractPredicateHistory(ctx, q, workID, contractVersion)
-	if err != nil {
-		return 0, err
-	}
-	pins, err := workflowContractDefinitionPins(ctx, q, workID, contractVersion)
-	if err != nil {
-		return 0, err
-	}
-	type verdictAtSequence struct {
-		seq     int64
-		verdict workflowVerdictRecordedPayload
-	}
-	latest := make(map[string]verdictAtSequence, len(predicates))
-	verdictRows, err := q.QueryContext(ctx, `SELECT seq,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq<? ORDER BY seq DESC`, workID, WorkflowVerdictRecorded, beforeSeq)
-	if err != nil {
-		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot read workflow verdict history", true, "retry once the workflow verdict projection is readable", err)
-	}
-	defer verdictRows.Close()
-	for verdictRows.Next() {
-		var seq int64
-		var raw []byte
-		if err := verdictRows.Scan(&seq, &raw); err != nil {
-			return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot scan workflow verdict history", true, "retry once the workflow verdict projection is readable", err)
-		}
-		var verdict workflowVerdictRecordedPayload
-		if err := json.Unmarshal(raw, &verdict); err != nil {
-			return 0, newFailure(KindInvariantViolation, "workflow_correction", "workflow verdict payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-		}
-		if !predicates[verdict.PredicateID] || verdict.ContractVersion <= 0 || verdict.ContractVersion > contractVersion {
-			continue
-		}
-		if verdict.ContractVersion < contractVersion && (!workflowPredicateHistoryCompatible(history, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) || !workflowContractDefinitionPinsCompatible(pins, verdict.ContractVersion, contractVersion)) {
-			continue
-		}
-		latest[verdict.PredicateID] = verdictAtSequence{seq: seq, verdict: verdict}
-		healthy := len(latest) == len(predicates)
-		if healthy {
-			var healthySeq int64
-			for predicateID := range predicates {
-				candidate := latest[predicateID]
-				if candidate.verdict.VerdictKind != "ok" || candidate.verdict.IncomparableWithApproved {
-					healthy = false
-					break
-				}
-				if candidate.seq > healthySeq {
-					healthySeq = candidate.seq
-				}
-			}
-			if healthy {
-				return healthySeq, nil
-			}
-		}
-	}
-	if err := verdictRows.Err(); err != nil {
-		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot scan workflow verdict history", true, "retry once the workflow verdict projection is readable", err)
-	}
-	return 0, nil
+	return seq, nil
 }
 
 // workflowCorrectionHealthyBaseline returns the sequence a correction request
@@ -301,8 +224,8 @@ func workflowLatestComparableHealthySequence(ctx context.Context, q queryer, wor
 // predicate's stale verdict, is not a comparable-healthy set and ends neither
 // health nor the counted window, so every counting surface derives its
 // baseline here.
-func workflowCorrectionHealthyBaseline(ctx context.Context, q queryer, workID string, contractVersion, beforeSeq int64) (int64, error) {
-	lastHealthySeq, err := workflowLatestComparableHealthySequence(ctx, q, workID, contractVersion, beforeSeq)
+func workflowCorrectionHealthyBaseline(ctx context.Context, q queryer, workID string, contractVersion int64) (int64, error) {
+	lastHealthySeq, err := workflowLatestComparableHealthySequence(ctx, q, workID, contractVersion)
 	if err != nil {
 		return 0, err
 	}
@@ -786,7 +709,7 @@ func workflowVerdictCorrectionFromState(ctx context.Context, q queryer, workID s
 	seq := state.verdictSeq
 	acceptedDispatchSeq := state.acceptedDispatchSeq
 	contractVersion := state.contractVersion
-	lastHealthySeq, healthyErr := workflowCorrectionHealthyBaseline(ctx, q, workID, contractVersion, seq)
+	lastHealthySeq, healthyErr := workflowCorrectionHealthyBaseline(ctx, q, workID, contractVersion)
 	if healthyErr != nil {
 		return nil, healthyErr
 	}

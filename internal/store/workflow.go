@@ -1193,6 +1193,9 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 			}
 		}
 	}
+	if !inWorkflowContractSupersessionContext(ctx) {
+		return refreshWorkflowHealthySequence(ctx, tx, event.SubjectID, p.ContractVersion, true)
+	}
 	return nil
 }
 
@@ -1394,6 +1397,9 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE workflow_contracts SET supersession_seq=? WHERE work_id=? AND contract_version=?`, event.Seq, event.SubjectID, p.NewContractVersion); err != nil {
 		return workflowProjectionError(err, "cannot record the workflow contract supersession boundary")
+	}
+	if err := refreshWorkflowHealthySequence(ctx, tx, event.SubjectID, p.NewContractVersion, true); err != nil {
+		return err
 	}
 	if err := advanceWorkflowCorrectionFactsTx(ctx, tx, event); err != nil {
 		return err
@@ -3543,6 +3549,15 @@ func foldWorkflowVerdictRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 	if p.VerdictKind != "ok" || p.IncomparableWithApproved {
 		if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET unhealthy_verdict_seq=? WHERE work_id=?`, event.Seq, event.SubjectID); err != nil {
 			return workflowProjectionError(err, "cannot record the artifact-staleness verdict frontier")
+		}
+	}
+	version, err := activeWorkflowContractVersion(ctx, tx, event.SubjectID, "fold_event")
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if err == nil {
+		if err := refreshWorkflowHealthySequence(ctx, tx, event.SubjectID, version, false); err != nil {
+			return err
 		}
 	}
 	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)

@@ -131,6 +131,7 @@ DROP TABLE workflow_evidence_bindings;
 DROP TABLE workflow_staleness_observations;
 DROP TABLE effect_receipts;
 ALTER TABLE workflow_contracts DROP COLUMN supersession_seq;
+ALTER TABLE workflow_contracts DROP COLUMN last_healthy_seq;
 ALTER TABLE workflow_instances DROP COLUMN completion_payload;
 ALTER TABLE workflow_instances DROP COLUMN completion_occurred_at;
 ALTER TABLE workflow_instances DROP COLUMN unhealthy_verdict_seq;

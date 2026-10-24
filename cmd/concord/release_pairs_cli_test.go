@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -68,6 +69,34 @@ func assertReleasePendingBreaking(t *testing.T, plan store.UpgradeReadiness, ver
 		if m.Version != versions[i] || !m.Breaking {
 			t.Fatalf("pending breaking migrations = %+v, want %v", plan.PendingBreaking, versions)
 		}
+	}
+}
+
+func assertAppliedMigrationTail(t *testing.T, applied []int, baseline int) {
+	t.Helper()
+	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "manifest.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	rows, err := s.DatabaseForTesting().Query(`SELECT version FROM schema_migrations WHERE version>? ORDER BY version`, baseline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var want []int
+	for rows.Next() {
+		var version int
+		if err := rows.Scan(&version); err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, version)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(applied, want) || len(want) == 0 {
+		t.Fatalf("applied migration tail = %v, want exact manifest tail %v", applied, want)
 	}
 }
 
@@ -439,14 +468,10 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 		if err := json.Unmarshal([]byte(out), &upgrade); err != nil {
 			t.Fatal(err)
 		}
-		if upgrade.SchemaVersion != store.CurrentSchemaVersion() || len(upgrade.Applied) != store.CurrentSchemaVersion()-compatiblePairSchema {
+		if upgrade.SchemaVersion != store.CurrentSchemaVersion() {
 			t.Fatalf("the candidate must commit the complete pending tail: %+v", upgrade)
 		}
-		for i, applied := range upgrade.Applied {
-			if applied != compatiblePairSchema+i+1 {
-				t.Fatalf("the candidate must apply every pending step in order: %+v", upgrade)
-			}
-		}
+		assertAppliedMigrationTail(t, upgrade.Applied, compatiblePairSchema)
 		readiness, err := store.PlanUpgradeReadiness(context.Background(), path)
 		if err != nil || readiness.CompatibilityFloor != floor || len(readiness.PendingBreaking) != 0 || readiness.ActivationBlocked {
 			t.Fatalf("the committed store must require floor %d: %+v %v", floor, readiness, err)
@@ -597,14 +622,10 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("the current upgrade report is not JSON: %v: %s", err, out)
 	}
-	if report.SchemaVersion != store.CurrentSchemaVersion() || len(report.Applied) != store.CurrentSchemaVersion()-releasedPairSchema {
+	if report.SchemaVersion != store.CurrentSchemaVersion() {
 		t.Fatalf("the confirmed upgrade must apply the complete pending tail: %+v", report)
 	}
-	for i, applied := range report.Applied {
-		if applied != releasedPairSchema+i+1 {
-			t.Fatalf("the confirmed upgrade must apply every pending step in order: %+v", report)
-		}
-	}
+	assertAppliedMigrationTail(t, report.Applied, releasedPairSchema)
 	floor := breaking[len(breaking)-1]
 	after, err := store.PlanUpgradeReadiness(context.Background(), path)
 	if err != nil || after.SchemaVersion != report.SchemaVersion || after.CompatibilityFloor != floor || len(after.PendingBreaking) != 0 {
@@ -1025,14 +1046,10 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("the confirmed upgrade report is not JSON: %v: %s", err, out)
 	}
-	if report.SchemaVersion != candidateSchema || len(report.Applied) != candidateSchema-cutoverBaselineSchema {
+	if report.SchemaVersion != candidateSchema {
 		t.Fatalf("the confirmed upgrade must apply the complete pending tail: %+v", report)
 	}
-	for i, applied := range report.Applied {
-		if applied != cutoverBaselineSchema+i+1 {
-			t.Fatalf("the confirmed upgrade must apply every pending step in order: %+v", report)
-		}
-	}
+	assertAppliedMigrationTail(t, report.Applied, cutoverBaselineSchema)
 	for _, pending := range breaking {
 		found := false
 		for _, applied := range report.Applied {

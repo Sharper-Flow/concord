@@ -7,6 +7,9 @@ import (
 
 func TestReviewDispositionMainMayAssociateProofAfterExecution(t *testing.T) {
 	db, appendEvent, _ := progressHistory(t)
+	if _, err := db.Exec(`CREATE TABLE worker_attempts(work_id TEXT,dispatch_event_id TEXT,dispatch_payload BLOB)`); err != nil {
+		t.Fatal(err)
+	}
 	main := progressActorRecord(t, db, "main", "agent")
 	appendEvent(WorkflowActionStarted, workflowActionStartedPayload{StepID: "execution", ActionID: "start_execution", ActorRef: main})
 	if err := workflowRequireMain(context.Background(), db, "work-history", main); err != nil {

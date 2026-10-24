@@ -1277,9 +1277,9 @@ func workflowCorrectionContextForDispatch(ctx context.Context, q queryer, workID
 		return nil, nil
 	}
 	fields := record.fields
-	var sourceEventID string
-	if err := q.QueryRowContext(ctx, `SELECT event_id FROM domain_events WHERE seq=?`, record.seq).Scan(&sourceEventID); err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot read the correction source event", true, "retry once the workflow event log is readable", err)
+	sourceEventID, err := workflowCorrectionSourceEventID(ctx, q, record.seq)
+	if err != nil {
+		return nil, err
 	}
 	if fields.ActionID == "request_correction" {
 		return &WorkflowCorrectionContext{
@@ -1319,6 +1319,14 @@ func workflowCorrectionContextForDispatch(ctx context.Context, q queryer, workID
 		FailedAttemptID: fields.AttemptID, FailedAttemptEpoch: fields.AttemptEpoch,
 		SourceEventID: sourceEventID, SourceEventSeq: record.seq,
 	}, nil
+}
+
+func workflowCorrectionSourceEventID(ctx context.Context, q queryer, seq int64) (string, error) {
+	var eventID string
+	if err := q.QueryRowContext(ctx, `SELECT event_id FROM effect_receipts WHERE effect_seq=?`, seq).Scan(&eventID); err != nil {
+		return "", wrapFailure(KindUnavailable, "workflow_correction", "cannot read the correction source event", true, "retry once the workflow event log is readable", err)
+	}
+	return eventID, nil
 }
 
 // workflowCorrectionOpenRecord includes acceptance at the current watermark.

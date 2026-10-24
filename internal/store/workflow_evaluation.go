@@ -24,13 +24,12 @@ func workflowEvaluationAuthority(ctx context.Context, q queryer, workID, actorRe
 	return WorkflowIndependentEvaluator, nil
 }
 
-// Historical satisfaction uses the same execution facts as live evaluation,
-// bounded to its event prefix. The mutable lease is a live guard only.
-func workflowRecordedEvaluationFacts(ctx context.Context, q queryer, workID, actorRef string, prefix int64) (worker bool, err error) {
-	var executed bool
+// Participation belongs to the dispatched lane actor, not the coordinator
+// who recorded the evidence. Receipt order preserves the evaluation prefix.
+func workflowRecordedEvaluationFacts(ctx context.Context, q queryer, _ string, actorRef string, prefix int64) (worker bool, err error) {
 	err = q.QueryRowContext(ctx, `SELECT
-		EXISTS(SELECT 1 FROM domain_events WHERE kind='worker.dispatched' AND seq<=? AND json_extract(payload,'$.lane_actor_ref')=?),
-		EXISTS(SELECT 1 FROM domain_events WHERE seq<=? AND subject_type='work_item' AND subject_id=? AND ((kind='workflow.action_started' AND json_extract(payload,'$.actor_ref')=?) OR (kind='workflow.action_completed' AND actor=? AND json_extract(payload,'$.action_id')='accept_worker_result')))`, prefix, actorRef, prefix, workID, actorRef, actorRef).Scan(&worker, &executed)
+		EXISTS(SELECT 1 FROM effect_receipts r JOIN worker_attempts a ON a.work_id=r.subject_id AND a.dispatch_event_id=r.event_id
+		WHERE r.kind='worker.dispatched' AND r.subject_type='work_item' AND r.effect_seq<=? AND json_extract(a.dispatch_payload,'$.lane_actor_ref')=?)`, prefix, actorRef).Scan(&worker)
 	if err != nil {
 		return false, wrapFailure(KindUnavailable, "workflow_evaluation", "cannot read workflow evaluation authority", true, "retry once workflow execution history is readable", err)
 	}

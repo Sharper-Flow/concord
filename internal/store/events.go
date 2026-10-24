@@ -79,7 +79,8 @@ func AppendEvent(ctx context.Context, tx *sql.Tx, e Event) (Sequence, error) {
 	return appendEvent(ctx, tx, e, false)
 }
 
-// EventByIDTx reads one durable event through the caller's transaction.
+// EventByIDTx reads a worker evidence receipt and its original current payload
+// through the caller's transaction. OccurredAt is not receipt identity.
 func EventByIDTx(ctx context.Context, transaction *Transaction, eventID string) (Event, bool, error) {
 	tx, err := transactionSQL(transaction, "event_by_id")
 	if err != nil {
@@ -88,21 +89,26 @@ func EventByIDTx(ctx context.Context, transaction *Transaction, eventID string) 
 	return eventByID(ctx, tx, eventID)
 }
 
-// eventByID is the shared raw-event core; q is the caller's read handle.
+// eventByID reconstructs worker evidence without interpreting its payload.
 func eventByID(ctx context.Context, q queryer, eventID string) (Event, bool, error) {
-	var event Event
-	var occurredAt string
-	err := q.QueryRowContext(ctx, `SELECT seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events WHERE event_id=?`, eventID).
-		Scan(&event.Seq, &event.EventID, &event.Kind, &event.SubjectType, &event.SubjectID, &event.Actor, &occurredAt, &event.PayloadVersion, &event.Payload)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Event{}, false, nil
-		}
-		return Event{}, false, err
+	receipt, found, err := readEffectReceipt(ctx, q, eventID)
+	if err != nil || !found {
+		return Event{}, found, err
 	}
-	event.OccurredAt, err = time.Parse(time.RFC3339Nano, occurredAt)
+	event := receipt.event
+	switch event.Kind {
+	case WorkerDispatched:
+		err = q.QueryRowContext(ctx, `SELECT dispatch_payload FROM worker_attempts WHERE work_id=? AND dispatch_event_id=?`, event.SubjectID, eventID).Scan(&event.Payload)
+	case WorkerCompleted, WorkerFailed:
+		err = q.QueryRowContext(ctx, `SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND terminal_event_id=? AND terminal_kind=?`, event.SubjectID, eventID, event.Kind).Scan(&event.Payload)
+	default:
+		return Event{}, false, newFailure(KindIdempotencyConflict, "event_by_id", "worker evidence event identity conflicts with an existing effect", false, "choose a new event_id")
+	}
 	if err != nil {
-		return Event{}, false, wrapFailure(KindUnavailable, "event_by_id", "cannot parse the stored event time", false, "repair the stored event", err)
+		return Event{}, false, wrapFailure(KindUnavailable, "event_by_id", "cannot read the stored worker evidence payload", false, "restore the current worker evidence from a verified backup", err)
+	}
+	if len(receipt.identityDifferences(event)) != 0 {
+		return Event{}, false, newFailure(KindInvariantViolation, "event_by_id", "stored worker evidence differs from its effect receipt", false, "restore the current worker evidence from a verified backup")
 	}
 	return event, true, nil
 }
@@ -151,6 +157,13 @@ func appendEvent(ctx context.Context, tx *sql.Tx, e Event, allowCompletion bool)
 	if err != nil {
 		return 0, wrapFailure(KindUnavailable, "append_event", "cannot read the assigned sequence", true,
 			"retry the operation", err)
+	}
+	digest, err := effectPayloadDigest(e.Payload)
+	if err != nil {
+		return 0, wrapFailure(KindInvalidPayload, "append_event", "cannot digest the event payload", false, "supply a valid JSON payload", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest) VALUES(?,?,?,?,?,?,?,?)`, e.EventID, seq, e.Kind, e.SubjectType, e.SubjectID, e.Actor, e.PayloadVersion, digest); err != nil {
+		return 0, wrapFailure(KindUnavailable, "append_event", "cannot record the effect receipt", true, "retry once the database is writable", err)
 	}
 	return seq, nil
 }
@@ -264,33 +277,28 @@ func isConstraintViolation(err error) bool {
 // retry carries a fresh clock reading and must not be misclassified as
 // divergent. A future reader must not "fix" that omission.
 func classifyEventIDConflict(ctx context.Context, tx *sql.Tx, attempted Event, insertErr error) error {
-	var existing Event
-	if err := tx.QueryRowContext(ctx,
-		`SELECT seq, kind, subject_type, subject_id, actor, payload_version, payload FROM domain_events WHERE event_id = ?`,
-		attempted.EventID,
-	).Scan(&existing.Seq, &existing.Kind, &existing.SubjectType, &existing.SubjectID, &existing.Actor, &existing.PayloadVersion, &existing.Payload); err != nil {
+	receipt, found, err := readEffectReceipt(ctx, tx, attempted.EventID)
+	if err == nil && !found {
+		err = sql.ErrNoRows
+	}
+	if err != nil {
 		return wrapFailure(KindUnavailable, "append_event",
 			"cannot read the conflicting event_id "+attempted.EventID, true,
 			"retry once the database is readable", err)
 	}
-	if diffs := eventIdentityDifferences(attempted, existing); len(diffs) > 0 {
+	if diffs := receipt.identityDifferences(attempted); len(diffs) > 0 {
 		return newFailure(KindIdempotencyConflict, "append_event",
 			fmt.Sprintf("event_id %q is already recorded with a different %s", attempted.EventID, strings.Join(diffs, ", ")),
 			false,
 			"choose a new event_id; the recorded event is a different operation")
 	}
 	return wrapFailure(KindDuplicateEvent, "append_event",
-		fmt.Sprintf("event %s is already recorded at sequence %d", attempted.EventID, existing.Seq),
+		fmt.Sprintf("event %s is already recorded at sequence %d", attempted.EventID, receipt.event.Seq),
 		true,
 		"treat the existing event as the durable effect", insertErr)
 }
 
-// eventIdentityDifferences returns the names of semantic-identity fields that
-// differ between attempted and existing, in a stable order. occurred_at is
-// deliberately omitted: a legitimate retry carries a fresh clock reading and
-// must not be misclassified as divergent. The canonical payload comparison
-// rules live on canonicalJSON.
-func eventIdentityDifferences(attempted, existing Event) []string {
+func eventHeaderDifferences(attempted, existing Event) []string {
 	var diffs []string
 	if attempted.Kind != existing.Kind {
 		diffs = append(diffs, "kind")
@@ -307,23 +315,5 @@ func eventIdentityDifferences(attempted, existing Event) []string {
 	if attempted.PayloadVersion != existing.PayloadVersion {
 		diffs = append(diffs, "payload_version")
 	}
-	if !payloadsCanonicallyEqual(attempted.Payload, existing.Payload) {
-		diffs = append(diffs, "payload")
-	}
 	return diffs
-}
-
-// payloadsCanonicallyEqual reports whether two JSON payloads are semantically
-// equal under canonicalJSON. A canonicalization failure on either side is
-// treated as divergent so a malformed payload never silently masks a conflict.
-func payloadsCanonicallyEqual(a, b []byte) bool {
-	aCanonical, errA := canonicalJSON(a)
-	if errA != nil {
-		return false
-	}
-	bCanonical, errB := canonicalJSON(b)
-	if errB != nil {
-		return false
-	}
-	return string(aCanonical) == string(bCanonical)
 }

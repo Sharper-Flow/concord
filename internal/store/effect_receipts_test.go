@@ -144,14 +144,23 @@ func TestEffectReceiptStalenessProbeLogBlind(t *testing.T) {
 	assertFailureKind(t, err, KindOperationConflict)
 }
 
-func TestEffectReceiptCorrectionSourceLogBlind(t *testing.T) {
+func TestCorrectionRecordSourceLogBlind(t *testing.T) {
 	s := effectReceiptReadFixture(t)
 	e := testEvent()
-	seedEffectReceiptRead(t, s, 7, e)
+	if _, err := s.db.Exec(`CREATE TABLE work_items(id TEXT PRIMARY KEY); INSERT INTO work_items VALUES('work');
+CREATE TABLE workflow_correction_state(work_id TEXT PRIMARY KEY,state TEXT);
+CREATE TABLE worker_authorizations(work_id TEXT,attempt_id TEXT,seq INTEGER,payload TEXT);`); err != nil {
+		t.Fatal(err)
+	}
+	h := newWorkflowCorrectionState()
+	h.records = []workflowCorrectionRecordState{{seq: 7, sourceID: e.EventID, fields: workflowCorrectionCompletionFields{ActionID: "request_correction"}}}
+	if err := writeWorkflowCorrectionFacts(t.Context(), s.db, "work", h); err != nil {
+		t.Fatal(err)
+	}
 	hideEffectLog(t, s)
-	got, err := workflowCorrectionSourceEventID(t.Context(), s.db, 7)
-	if err != nil || got != e.EventID {
-		t.Fatalf("source = %q, %v", got, err)
+	got, err := workflowCorrectionContextForDispatch(t.Context(), s.db, "work", "", "")
+	if err != nil || got == nil || got.SourceEventID != e.EventID || got.SourceEventSeq != 7 {
+		t.Fatalf("source = %+v, %v", got, err)
 	}
 }
 
@@ -162,6 +171,9 @@ func TestEffectReceiptEvaluationPrefixLogBlind(t *testing.T) {
 	e.Payload = []byte(`{"attempt_id":"attempt","lane_actor_ref":"worker"}`)
 	seedEffectReceiptRead(t, s, 7, e)
 	if _, err := s.db.Exec(`INSERT INTO worker_attempts(work_id,attempt_id,dispatch_event_id,dispatch_payload) VALUES('other-work','attempt',?,?)`, e.EventID, string(e.Payload)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`CREATE TABLE workflow_worker_actors(actor_ref TEXT PRIMARY KEY,first_dispatch_seq INTEGER); INSERT INTO workflow_worker_actors VALUES('worker',7)`); err != nil {
 		t.Fatal(err)
 	}
 	hideEffectLog(t, s)

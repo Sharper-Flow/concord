@@ -20,17 +20,15 @@ type WorkflowReadVerdict struct {
 	CompletedAt      string `json:"completed_at"`
 }
 
-// ReadWorkflowVerdict returns the verdict recorded by the most recent
-// workflow.completed event for a work item, or nil when none exists. The
-// verdict is immutable once recorded; a superseding completion event replaces
-// the view, matching rebuild semantics.
+// ReadWorkflowVerdict returns a work item's current recorded completion
+// verdict, or nil when none exists.
 func ReadWorkflowVerdict(ctx context.Context, s *Store, workID string) (*WorkflowReadVerdict, error) {
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "workflow_verdict", "store is not open", false, "open the authority database")
 	}
 	var payload []byte
 	var occurredAt string
-	err := s.db.QueryRowContext(ctx, `SELECT payload, occurred_at FROM domain_events WHERE kind='workflow.completed' AND subject_type=? AND subject_id=? ORDER BY seq DESC LIMIT 1`, SubjectWorkItem, workID).Scan(&payload, &occurredAt)
+	err := s.db.QueryRowContext(ctx, `SELECT completion_payload,completion_occurred_at FROM workflow_instances WHERE work_id=? AND completion_payload IS NOT NULL`, workID).Scan(&payload, &occurredAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

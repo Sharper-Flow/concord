@@ -141,6 +141,17 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptance(t *testing.T) {
 	// The dependency dispatches, completes, and its plain local acceptance
 	// satisfies exactly its recorded revision and holds the parent step.
 	attemptA := "attempt:" + workID + ":first"
+	acceptExit := func() int64 {
+		t.Helper()
+		var seq int64
+		if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND action_id='accept_worker_result'`, workID).Scan(&seq); err != nil {
+			t.Fatal(err)
+		}
+		return seq
+	}
+	// A held local job acceptance keeps the worker-result interval open, so
+	// the real fold must not record an accept_worker_result phase exit.
+	exitBefore := acceptExit()
 	dispatchJobBoundAttempt(t, s, workID, "repair", attemptA, nil, fixture.owner, 0, "sequence-a-"+workID, jobA)
 	completeAndAcceptAttempt(t, s, workID, attemptA, lane, acceptor)
 	views, err := readWorkerJobRevisions(ctx, s.db, workID)
@@ -184,6 +195,9 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptance(t *testing.T) {
 	}
 	if pin := issue1013Pin(t, s, workID); pin.Step != "repair" {
 		t.Fatalf("step after the second local accept = %q, want the effect step held", pin.Step)
+	}
+	if got := acceptExit(); got != exitBefore {
+		t.Fatalf("local job acceptances moved the accept_worker_result phase exit %d -> %d", exitBefore, got)
 	}
 	if seq, err := workflowLatestDeliveryAssertionSeq(ctx, s, workID); err != nil || seq != 0 {
 		t.Fatalf("delivery assertion after two local accepts = %d, %v; want none", seq, err)

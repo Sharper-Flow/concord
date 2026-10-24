@@ -570,6 +570,20 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 	if severity != "breaking" || entityKind != "workflow_contract" {
 		t.Fatalf("revision notice=%s/%s, want breaking/workflow_contract", severity, entityKind)
 	}
+	var frontier, latest int64
+	if err := source.DatabaseForTesting().QueryRow(`SELECT effect_seq,(SELECT MAX(effect_seq) FROM effect_receipts WHERE subject_type='work_item' AND subject_id='revision-source') FROM work_items WHERE id='revision-source'`).Scan(&frontier, &latest); err != nil {
+		t.Fatal(err)
+	}
+	if frontier != latest {
+		t.Fatalf("effect frontier = %d, want the nested impact notice's sequence %d", frontier, latest)
+	}
+	var receiptSeq int64
+	if err := source.DatabaseForTesting().QueryRow(`SELECT effect_seq FROM effect_receipts WHERE event_id=? AND kind=? AND subject_id='revision-source'`, result.EventIDs[1], WorkflowImpactNoticeRecorded).Scan(&receiptSeq); err != nil {
+		t.Fatal(err)
+	}
+	if receiptSeq != latest {
+		t.Fatalf("notice receipt sequence = %d, want %d", receiptSeq, latest)
+	}
 }
 
 func TestWorkflowContractRevisionEmitsAdvisoryNoticesForOtherDependents(t *testing.T) {
@@ -880,8 +894,8 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 	t.Parallel()
 	s := openTemp(t)
 	expectedColumns := map[string][]string{
-		"workflow_instances":             {"work_id", "definition_ref", "definition_version", "definition_digest", "current_step", "instance_state", "execution_actor_ref", "execution_model", "started_at", "completed_at", "last_checkpoint_at", "execution_started_at", "outside_repair_state", "result_disposition"},
-		"workflow_contracts":             {"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "definition_ref", "definition_version", "definition_digest", "decision_domains", "law_change"},
+		"workflow_instances":             {"work_id", "definition_ref", "definition_version", "definition_digest", "current_step", "instance_state", "execution_actor_ref", "execution_model", "started_at", "completed_at", "last_checkpoint_at", "execution_started_at", "outside_repair_state", "result_disposition", "completion_payload", "completion_occurred_at", "unhealthy_verdict_seq", "latest_non_dispatch_start_seq"},
+		"workflow_contracts":             {"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "definition_ref", "definition_version", "definition_digest", "decision_domains", "law_change", "supersession_seq", "last_healthy_seq"},
 		"workflow_contract_predicates":   {"work_id", "contract_version", "predicate_id", "ordinal", "outcome_kind", "outcome_payload"},
 		"workflow_candidate_sets":        {"work_id", "contract_version", "candidate_kind", "candidate_ref", "candidate_role", "candidate_scope", "recorded_at", "recorded_by"},
 		"workflow_actors":                {"actor_ref", "principal_ref", "client_ref", "agent_ref", "session_ref", "actor_class", "first_seen_at"},

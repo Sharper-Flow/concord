@@ -512,7 +512,6 @@ type workerOracleFindingLineage struct {
 	findings         map[string]*WorkerOpenOracleFinding
 	openOrder        []string
 	oracleCapable    bool
-	oracles          map[WorkerJobBinding]*AcceptanceOracle
 	retainedReceipts []WorkerOracleReceipt
 }
 
@@ -525,16 +524,6 @@ func (l *workerOracleFindingLineage) openFindingIDs() []string {
 		}
 	}
 	return ids
-}
-
-// oracleForBinding resolves one dispatched binding's recorded oracle from
-// the lineage's retained oracle map, nil when the revision predates the
-// oracle.
-func (l *workerOracleFindingLineage) oracleForBinding(binding WorkerJobBinding) *AcceptanceOracle {
-	if l.oracles == nil {
-		return nil
-	}
-	return l.oracles[binding]
 }
 
 // sameOracleTie reports whether a continuation retains the earlier finding's
@@ -598,7 +587,6 @@ func readWorkerOracleFindingLineageExcludingTx(ctx context.Context, q queryer, w
 	}
 	lineage := &workerOracleFindingLineage{
 		findings: map[string]*WorkerOpenOracleFinding{},
-		oracles:  oracles,
 	}
 	actors := map[string]string{}
 	query := `SELECT seq,event_id,kind,COALESCE(json_extract(payload,'$.worker_job.job_id'),''),COALESCE(json_extract(payload,'$.worker_job.revision'),0),COALESCE(json_extract(payload,'$.worker_job.digest'),''),payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind IN (?,?,?)`
@@ -1233,7 +1221,7 @@ func oracleControlProducerFreshTx(ctx context.Context, q queryer, workID, subjec
 
 func oracleClosureProducerBoundTx(ctx context.Context, q queryer, workID, ref, producer string) (bool, error) {
 	var bound int
-	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=? AND json_extract(payload,'$.producer_run_ref')=? AND json_extract(payload,'$.evidence_kind') IN ('verification','native_run'))`, workID, WorkflowEvidenceBound, ref, producer).Scan(&bound)
+	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=? AND json_extract(payload,'$.producer_run_ref')=? AND json_extract(payload,'$.evidence_kind') IN ('verification','native_run'))`, workID, ref, producer).Scan(&bound)
 	return bound != 0, err
 }
 

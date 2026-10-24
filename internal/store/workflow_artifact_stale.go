@@ -22,9 +22,8 @@ import (
 // declared evaluation judges an artifact through it. The historical bit
 // therefore survives the corrective return to the producer and every step
 // between producer and evaluator: moving never reproduces an artifact. The
-// read is total over any projection state: it reads event
-// history only, never the singular active contract, so a duplicated
-// projection folds the same answer the recovery that owns it reads.
+// read uses current verdict and production facts, never the singular active
+// contract, so a duplicated projection folds the same answer the recovery reads.
 func workflowArtifactStale(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (bool, error) {
 	staleSeq, err := workflowArtifactStaleFrontier(ctx, q, workID, subject)
 	if err != nil {
@@ -50,7 +49,7 @@ func workflowArtifactStale(ctx context.Context, q queryer, workID string, defini
 // not converted into a demand for repeated production (CD-0242 D7).
 func workflowArtifactStaleFrontier(ctx context.Context, q queryer, workID, subject string) (int64, error) {
 	var verdictSeq int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(v.seq),0) FROM domain_events v WHERE v.subject_type=? AND v.subject_id=? AND v.kind=? AND (COALESCE(json_extract(v.payload,'$.verdict_kind'),'')<>'ok' OR COALESCE(json_extract(v.payload,'$.incomparable_with_approved'),0)=1)`, string(SubjectWorkItem), workID, WorkflowVerdictRecorded).Scan(&verdictSeq); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(unhealthy_verdict_seq),0) FROM workflow_instances WHERE work_id=?`, workID).Scan(&verdictSeq); err != nil {
 		return 0, wrapFailure(KindUnavailable, subject, "cannot read the artifact-staleness verdict frontier", true, "retry once the workflow verdict projection is readable", err)
 	}
 	return verdictSeq, nil
@@ -80,59 +79,50 @@ var workflowProducingCapabilityClasses = []string{"implementation", "design", "r
 // without an accepted delivery, checkpoints, evidence bindings, verdicts,
 // and every completion at another step never reach this frontier, so a
 // stale artifact cannot become fresh without re-production.
+// A nonzero throughSeq names the latest verdict window, not an arbitrary
+// historical frontier; direct production is snapshotted only for that window.
 func workflowArtifactProductionFrontier(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, target string, staleSeq, throughSeq int64, subject string) (int64, error) {
 	actions := workflowStepArtifactActions(definition, target)
-	actionDisjunct := ""
-	args := []any{string(SubjectWorkItem), workID, WorkflowActionCompleted, staleSeq}
+	var directSeq int64
 	if len(actions) > 0 {
 		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(actions)), ",")
-		actionDisjunct = "(json_extract(e.payload,'$.step_id')=? AND json_extract(e.payload,'$.action_id') IN (" + placeholders + "))"
-		args = append(args, target)
+		field := "production_seq"
+		if throughSeq > 0 {
+			field = "verdict_production_seq"
+		}
+		query := `SELECT COALESCE(MAX(` + field + `),0) FROM workflow_artifact_actions WHERE work_id=? AND step_id=? AND ` + field + `>? AND action_id IN (` + placeholders + `)`
+		args := []any{workID, target, staleSeq}
 		for _, actionID := range actions {
 			args = append(args, actionID)
 		}
+		if throughSeq > 0 {
+			query += ` AND verdict_seq=?`
+			args = append(args, throughSeq)
+		}
+		if err := q.QueryRowContext(ctx, query, args...).Scan(&directSeq); err != nil {
+			return 0, wrapFailure(KindUnavailable, subject, "cannot read the direct artifact production frontier", true, "retry once the workflow projection is readable", err)
+		}
 	}
 	capabilityPlaceholders := strings.TrimSuffix(strings.Repeat("?,", len(workflowProducingCapabilityClasses)), ",")
-	args = append(args,
-		target,
-		WorkflowActionCompleted, target, staleSeq,
-		WorkerDispatched, staleSeq)
+	args := []any{workID, target, staleSeq, staleSeq, target, staleSeq}
 	for _, class := range workflowProducingCapabilityClasses {
 		args = append(args, class)
 	}
-	// acceptDelivery binds the accepted result to a producing dispatch
-	// origin at the target step. The dispatch_worker completion (dc) and
-	// the capability dispatch (wd) precede the acceptance (e.seq) and
-	// postdate the stale cause, so the origin — not the acceptance alone —
-	// decides freshness. An absent step, attempt, or capability path folds
-	// NULL out of every comparison and the conjunct fails closed.
-	acceptDelivery := `(json_extract(e.payload,'$.action_id')='accept_worker_result' AND json_extract(e.payload,'$.step_id')=?
-		AND EXISTS(
-			SELECT 1 FROM domain_events dc WHERE dc.subject_type=e.subject_type AND dc.subject_id=e.subject_id
-			AND dc.kind=? AND json_extract(dc.payload,'$.action_id')='dispatch_worker'
-			AND json_extract(dc.payload,'$.step_id')=?
-			AND json_extract(dc.payload,'$.worker_attempt_id')=json_extract(e.payload,'$.worker_attempt_id')
-			AND dc.seq>? AND dc.seq<e.seq)
-		AND EXISTS(
-			SELECT 1 FROM domain_events wd WHERE wd.subject_type=e.subject_type AND wd.subject_id=e.subject_id
-			AND wd.kind=? AND json_extract(wd.payload,'$.attempt_id')=json_extract(e.payload,'$.worker_attempt_id')
-			AND wd.seq>? AND wd.seq<e.seq
-			AND json_extract(wd.payload,'$.capability_class') IN (` + capabilityPlaceholders + `)))`
-	disjuncts := acceptDelivery
-	if actionDisjunct != "" {
-		disjuncts = actionDisjunct + " OR " + acceptDelivery
-	}
-	query := `SELECT COALESCE(MAX(e.seq),0) FROM domain_events e
-		WHERE e.subject_type=? AND e.subject_id=? AND e.kind=? AND e.seq>? AND (` + disjuncts + `)`
+	query := `SELECT COALESCE(MAX(e.first_acceptance_seq),0) FROM worker_attempt_dispositions e
+ JOIN worker_attempts a ON a.work_id=e.work_id AND a.attempt_id=e.attempt_id
+ JOIN worker_authorizations d ON d.work_id=e.work_id AND d.attempt_id=e.attempt_id
+ WHERE e.work_id=? AND e.action_id='accept_worker_result' AND json_extract(e.first_acceptance_payload,'$.step_id')=? AND e.first_acceptance_seq>?
+ AND d.seq>? AND d.seq<e.first_acceptance_seq AND json_extract(d.payload,'$.step_id')=?
+ AND a.dispatch_seq>? AND a.dispatch_seq<e.first_acceptance_seq AND json_extract(a.dispatch_payload,'$.capability_class') IN (` + capabilityPlaceholders + `)`
 	if throughSeq > 0 {
-		query += ` AND e.seq<=?`
+		query += ` AND e.first_acceptance_seq<=?`
 		args = append(args, throughSeq)
 	}
 	var seq int64
 	if err := q.QueryRowContext(ctx, query, args...).Scan(&seq); err != nil {
 		return 0, wrapFailure(KindUnavailable, subject, "cannot read the artifact production frontier", true, "retry once the workflow projection is readable", err)
 	}
-	return seq, nil
+	return max(seq, directSeq), nil
 }
 
 // workflowVerdictPayloadNamesOk reports whether one record_verdict payload

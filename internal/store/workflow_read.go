@@ -433,7 +433,7 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 	rows.Close()
 
 	var warnings string
-	if err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.warnings') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, request.WorkID, WorkflowCompleted).Scan(&warnings); err == nil && warnings != "" && warnings != "null" {
+	if err := q.QueryRowContext(ctx, `SELECT json_extract(completion_payload,'$.warnings') FROM workflow_instances WHERE work_id=? AND completion_payload IS NOT NULL`, request.WorkID).Scan(&warnings); err == nil && warnings != "" && warnings != "null" {
 		if json.Unmarshal([]byte(warnings), &out.CompletionWarnings) != nil {
 			return out, newFailure(KindInvariantViolation, "workflow_read", "completion warnings are malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}

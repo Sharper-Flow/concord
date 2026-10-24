@@ -278,6 +278,7 @@ func seedWorkerCompletionProjectClaims(t *testing.T, s *Store, withAuthorization
 			t.Fatal(err)
 		}
 	}
+	seedWork(t, s, "work-completion")
 	insertWorkerWorktreeEntry(t, s, "work-completion", own)
 	canonical, err := canonicalWorkerWorktreePath(own)
 	if err != nil {
@@ -314,6 +315,13 @@ SELECT set_id,'project-2','claim-2',branch,base_sha,?,'repo-2',state,verified_at
 			t.Fatal(err)
 		}
 		if _, err := tx.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,'work_item','work-completion','actor:test','2026-09-05T00:00:00Z',?,?)`, action.id, action.kind, eventKindRegistry[action.kind].CurrentVersion, raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if withAuthorization {
+		if _, err := tx.Exec(`INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload)
+SELECT completion.subject_id,'attempt-completion',completion.seq,completion.payload,completion.event_id,start.seq,start.payload
+FROM domain_events completion JOIN domain_events start ON start.event_id='completion-window-started' WHERE completion.event_id='completion-window-finished'`); err != nil {
 			t.Fatal(err)
 		}
 	}

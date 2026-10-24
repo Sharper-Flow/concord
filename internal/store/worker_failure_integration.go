@@ -47,35 +47,34 @@ AND (lease_id=? OR (result_json IS NOT NULL AND json_valid(result_json) AND json
 
 // workerFailureIntegrationAcceptQuery reads the accepted worker-job
 // completions of the work at or below the watermark, in event order. The
-// acceptance event's own identifier is the result reference, the same
-// satisfied_result_ref the worker_jobs owner records; no latest-job lookup
-// and no timestamp participates. A confirming review judges an already
+// first acceptance's own identifier is the result reference; the current
+// job satisfaction can advance independently. No latest-job lookup or
+// timestamp participates. A confirming review judges an already
 // accepted revision; its core-marked dispatch grants no second input result.
-const workerFailureIntegrationAcceptQuery = `SELECT e.event_id,
-	json_extract(e.payload,'$.worker_job.job_id'),
-	json_extract(e.payload,'$.worker_job.revision'),
-	json_extract(e.payload,'$.worker_job.digest')
-FROM domain_events e
-WHERE e.subject_type=? AND e.subject_id=? AND e.kind=? AND e.seq<=?
-AND json_extract(e.payload,'$.action_id')='accept_worker_result'
-AND json_extract(e.payload,'$.worker_job') IS NOT NULL
+const workerFailureIntegrationAcceptQuery = `SELECT receipt.event_id,
+	json_extract(e.first_acceptance_payload,'$.worker_job.job_id'),
+	json_extract(e.first_acceptance_payload,'$.worker_job.revision'),
+	json_extract(e.first_acceptance_payload,'$.worker_job.digest')
+FROM worker_attempt_dispositions e
+LEFT JOIN effect_receipts receipt ON receipt.effect_seq=e.first_acceptance_seq
+WHERE e.work_id=? AND e.first_acceptance_seq<=?
+AND e.action_id='accept_worker_result'
+AND json_extract(e.first_acceptance_payload,'$.worker_job') IS NOT NULL
 AND NOT EXISTS (
-	SELECT 1 FROM domain_events d
-	WHERE d.subject_type=e.subject_type AND d.subject_id=e.subject_id AND d.kind=e.kind AND d.seq<e.seq
-	AND json_extract(d.payload,'$.action_id')='dispatch_worker'
-	AND json_extract(d.payload,'$.worker_attempt_id')=json_extract(e.payload,'$.worker_attempt_id')
-	AND json_extract(d.payload,'$.checks_repair_review.worker_job.job_id')=json_extract(e.payload,'$.worker_job.job_id')
-	AND json_extract(d.payload,'$.checks_repair_review.worker_job.revision')=json_extract(e.payload,'$.worker_job.revision')
-	AND json_extract(d.payload,'$.checks_repair_review.worker_job.digest')=json_extract(e.payload,'$.worker_job.digest')
+	SELECT 1 FROM worker_authorizations d
+	WHERE d.work_id=e.work_id AND d.seq<e.first_acceptance_seq
+	AND d.attempt_id=e.attempt_id
+	AND json_extract(d.payload,'$.checks_repair_review.worker_job.job_id')=json_extract(e.first_acceptance_payload,'$.worker_job.job_id')
+	AND json_extract(d.payload,'$.checks_repair_review.worker_job.revision')=json_extract(e.first_acceptance_payload,'$.worker_job.revision')
+	AND json_extract(d.payload,'$.checks_repair_review.worker_job.digest')=json_extract(e.first_acceptance_payload,'$.worker_job.digest')
 )
-ORDER BY e.seq`
+ORDER BY e.first_acceptance_seq`
 
 // workerFailureIntegrationJobRecordedQuery joins one accepted revision to
-// its retained recording, by the exact job, revision, and digest the
+// its recorded revision row, by the exact job, revision, and digest the
 // acceptance names.
-const workerFailureIntegrationJobRecordedQuery = `SELECT EXISTS(SELECT 1 FROM domain_events
-WHERE subject_type=? AND subject_id=? AND kind=?
-AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=?)`
+const workerFailureIntegrationJobRecordedQuery = `SELECT EXISTS(SELECT 1 FROM worker_job_revisions
+WHERE work_id=? AND job_id=? AND revision=? AND digest=?)`
 
 // workerFailureIntegrationLease is one resolved lease row, scanned raw:
 // ambiguity is decided on row identity alone, and only the single resolved
@@ -256,14 +255,14 @@ func workerFailureIntegrationRunIdentity(lease *workerFailureIntegrationLease, w
 // at or below the lease's acquire watermark, ordered by event sequence,
 // with the acceptance event id as the result reference. A lease without its
 // watermark reports the population explicitly unavailable — never an empty
-// accepted list and never a timestamp reconstruction. A repeated revision
-// in the input acceptance history is structural corruption: the confirming
-// judgment is excluded, and no other satisfied revision can re-accept.
+// accepted list and never a timestamp reconstruction. Distinct attempts
+// accepting one revision are structural corruption: the confirming judgment
+// is excluded, and repeated acceptance of one attempt retains its first input.
 func workerFailureIntegrationInputs(ctx context.Context, q queryer, workID string, watermark sql.NullInt64) ([]WorkerFailureInputResult, bool, error) {
 	if !watermark.Valid {
 		return nil, true, nil
 	}
-	rows, err := q.QueryContext(ctx, workerFailureIntegrationAcceptQuery, string(SubjectWorkItem), workID, WorkflowActionCompleted, watermark.Int64)
+	rows, err := q.QueryContext(ctx, workerFailureIntegrationAcceptQuery, workID, watermark.Int64)
 	if err != nil {
 		return nil, false, wrapFailure(KindUnavailable, "worker_failure_integration", "cannot read the accepted input history", true, "retry once the event log is readable", err)
 	}
@@ -276,17 +275,21 @@ func workerFailureIntegrationInputs(ctx context.Context, q queryer, workID strin
 	accepted := []acceptance{}
 	for rows.Next() {
 		var entry acceptance
-		var jobID, digest sql.NullString
+		var eventID, jobID, digest sql.NullString
 		var revision sql.NullInt64
-		if err := rows.Scan(&entry.eventID, &jobID, &revision, &digest); err != nil {
+		if err := rows.Scan(&eventID, &jobID, &revision, &digest); err != nil {
 			_ = rows.Close()
 			return nil, false, wrapFailure(KindUnavailable, "worker_failure_integration", "cannot scan the accepted input history", true, "retry once the event log is readable", err)
+		}
+		if !eventID.Valid || eventID.String == "" {
+			_ = rows.Close()
+			return nil, false, newFailure(KindInvariantViolation, "worker_failure_integration", "the first accepted input of "+workID+" has no effect receipt", false, "reconcile_operation")
 		}
 		if !jobID.Valid || !revision.Valid || !digest.Valid {
 			_ = rows.Close()
 			return nil, false, newFailure(KindInvariantViolation, "worker_failure_integration", "an accepted worker-job completion of "+workID+" carries an incomplete worker_job binding", false, "reconcile_operation")
 		}
-		entry.jobID, entry.revision, entry.digest = jobID.String, revision.Int64, digest.String
+		entry.eventID, entry.jobID, entry.revision, entry.digest = eventID.String, jobID.String, revision.Int64, digest.String
 		accepted = append(accepted, entry)
 	}
 	if err := rows.Err(); err != nil {
@@ -308,7 +311,7 @@ func workerFailureIntegrationInputs(ctx context.Context, q queryer, workID strin
 			return nil, false, newFailure(KindInvariantViolation, "worker_failure_integration", "the accepted worker-job completion at "+key+" of "+workID+" carries a malformed binding", false, "reconcile_operation")
 		}
 		var recorded int
-		if err := q.QueryRowContext(ctx, workerFailureIntegrationJobRecordedQuery, string(SubjectWorkItem), workID, WorkerJobRecorded, entry.jobID, entry.revision, entry.digest).Scan(&recorded); err != nil {
+		if err := q.QueryRowContext(ctx, workerFailureIntegrationJobRecordedQuery, workID, entry.jobID, entry.revision, entry.digest).Scan(&recorded); err != nil {
 			return nil, false, wrapFailure(KindUnavailable, "worker_failure_integration", "cannot read the recorded job revision of "+key, true, "retry once the event log is readable", err)
 		}
 		if recorded != 1 {

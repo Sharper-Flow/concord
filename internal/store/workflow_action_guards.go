@@ -190,7 +190,7 @@ func workflowSpecMandate(ctx context.Context, q queryer, workID, subject string)
 // bindings at or before it do not count, and zero admits the whole history.
 func workflowEvidenceReferenceBound(ctx context.Context, q queryer, workID, reference, subject string, afterSeq int64) (bool, error) {
 	var count int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, afterSeq, reference).Scan(&count); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND binding_seq>? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, afterSeq, reference).Scan(&count); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect spec-mandate evidence", true, "retry once the workflow evidence projection is readable", err)
 	}
 	return count != 0, nil
@@ -285,14 +285,14 @@ func workflowFailedWorkerAttempt(ctx context.Context, q queryer, workID, current
 	if currentStep == "" {
 		return false, nil
 	}
-	var startSeq sql.NullInt64
-	if err := q.QueryRowContext(ctx, `SELECT MAX(seq) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=?`, string(SubjectWorkItem), workID, WorkflowActionStarted, currentStep).Scan(&startSeq); err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot inspect the current workflow action start", true, "retry once the workflow projection is readable", err)
-	}
-	if !startSeq.Valid {
+	start, err := readWorkflowActionStartTx(ctx, q, workID, currentStep, false)
+	if err == sql.ErrNoRows {
 		return false, nil
 	}
-	return workflowFailedWorkerAttemptSince(ctx, q, workID, startSeq.Int64, subject, excludeRecorded)
+	if err != nil {
+		return false, wrapFailure(KindUnavailable, subject, "cannot inspect the current workflow action start", true, "retry once the workflow projection is readable", err)
+	}
+	return workflowFailedWorkerAttemptSince(ctx, q, workID, start.Seq, subject, excludeRecorded)
 }
 
 // workflowFailedWorkerAttemptSince reports a failed worker attempt whose
@@ -301,11 +301,12 @@ func workflowFailedWorkerAttempt(ctx context.Context, q queryer, workID, current
 // failure recorded in a previous pass cannot open correction in the pass that
 // returned to the step (CD-0133 D1).
 func workflowFailedWorkerAttemptSince(ctx context.Context, q queryer, workID string, sinceSeq int64, subject string, excludeRecorded bool) (bool, error) {
-	query := `SELECT EXISTS(SELECT 1 FROM worker_attempts a JOIN domain_events d ON d.subject_type=? AND d.subject_id=a.work_id AND ((d.kind=? AND json_extract(d.payload,'$.attempt_id')=a.attempt_id) OR (d.kind=? AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=a.attempt_id)) WHERE a.work_id=? AND a.lifecycle_state='failed' AND d.seq>?`
-	args := []any{string(SubjectWorkItem), WorkerDispatched, WorkflowActionCompleted, workID, sinceSeq}
+	query := `SELECT EXISTS(SELECT 1 FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='failed'
+ AND ((a.dispatch_seq>0 AND a.dispatch_seq>?) OR EXISTS (
+  SELECT 1 FROM worker_authorizations d WHERE d.work_id=a.work_id AND d.attempt_id=a.attempt_id AND d.seq>?))`
+	args := []any{workID, sinceSeq, sinceSeq}
 	if excludeRecorded {
-		query += ` AND NOT EXISTS (SELECT 1 FROM domain_events f WHERE f.subject_type=? AND f.subject_id=a.work_id AND f.kind=? AND json_extract(f.payload,'$.action_id')='record_worker_failure' AND json_extract(f.payload,'$.worker_attempt_id')=a.attempt_id)`
-		args = append(args, string(SubjectWorkItem), WorkflowActionCompleted)
+		query += ` AND NOT EXISTS (SELECT 1 FROM worker_attempt_dispositions f WHERE f.work_id=a.work_id AND f.attempt_id=a.attempt_id AND f.action_id='record_worker_failure')`
 	}
 	query += `)`
 	var available int
@@ -360,12 +361,11 @@ func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID 
 		return true, nil
 	}
 	var dispatched int
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS (
-		SELECT 1 FROM domain_events
-		WHERE subject_type=? AND subject_id=? AND seq>=?
-		AND (kind=? OR (kind IN (?,?) AND json_extract(payload,'$.action_id')='dispatch_worker'))
-	)`, string(SubjectWorkItem), workID, boundary, WorkerDispatched, WorkflowActionStarted, WorkflowActionCompleted).Scan(&dispatched); err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot inspect worker dispatch authorization", true, "retry once the workflow event log is readable", err)
+	if err := q.QueryRowContext(ctx, `SELECT
+ EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND dispatch_seq>=?)
+ OR EXISTS(SELECT 1 FROM worker_authorizations WHERE work_id=? AND seq>=?)
+ OR EXISTS(SELECT 1 FROM workflow_step_epochs WHERE work_id=? AND latest_dispatch_start_seq>=?)`, workID, boundary, workID, boundary, workID, boundary).Scan(&dispatched); err != nil {
+		return false, wrapFailure(KindUnavailable, subject, "cannot inspect worker dispatch authorization", true, "retry once the workflow projection is readable", err)
 	}
 	if dispatched == 0 {
 		return true, nil
@@ -656,10 +656,10 @@ func workflowUnsettledWorkerAttempt(ctx context.Context, q queryer, workID, subj
 // the verified operator approval (CD-0172).
 func workflowContradictionObservationRecorded(ctx context.Context, q queryer, workID, subject string, beforeSeq int64) (bool, error) {
 	var recorded int
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events e
-		WHERE e.subject_type='work_item' AND e.subject_id=? AND e.kind=? AND (?=0 OR e.seq<?)
-		AND e.seq > COALESCE((SELECT MAX(v.seq) FROM domain_events v
-			WHERE v.subject_type='work_item' AND v.subject_id=? AND v.kind=? AND (?=0 OR v.seq<?)), 0))`, workID, WorkObservationRecorded, beforeSeq, beforeSeq, workID, WorkflowVerdictRecorded, beforeSeq, beforeSeq).Scan(&recorded); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_observations e
+		WHERE e.work_id=? AND (?=0 OR e.recorded_seq<?)
+		AND e.recorded_seq > COALESCE((SELECT MAX(v.verdict_seq) FROM workflow_predicate_verdicts v
+			WHERE v.work_id=? AND (?=0 OR v.verdict_seq<?)), 0))`, workID, beforeSeq, beforeSeq, workID, beforeSeq, beforeSeq).Scan(&recorded); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect work observations", true, "retry once the work observation projection is readable", err)
 	}
 	return recorded != 0, nil
@@ -1030,10 +1030,10 @@ func workflowRefineProofGateActive(definition WorkflowDefinition, currentStep st
 // verification evidence after afterSeq, the current refine epoch's start, in
 // binding order.
 func workflowVerificationBindingsAfter(ctx context.Context, q queryer, workID string, afterSeq int64, subject string) ([]string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.immutable_subject_ref') FROM domain_events
-		WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>?
+	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.immutable_subject_ref') FROM workflow_evidence_bindings
+		WHERE work_id=? AND binding_seq>?
 		AND json_extract(payload,'$.evidence_kind')='verification'
-		ORDER BY seq`, workID, WorkflowEvidenceBound, afterSeq)
+		ORDER BY binding_seq`, workID, afterSeq)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot read the refine epoch's evidence bindings", true, "retry once the workflow evidence projection is readable", err)
 	}
@@ -1252,7 +1252,7 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 			events = append(events, *derivedStart)
 			workflowActionEpoch = derivedEpoch
 		} else {
-			workflowActionEpoch, epochErr = workflowCheckpointAttemptEpoch(ctx, tx, in.entry.Definition, in.step, in.request.WorkID, in.currentStep, 0)
+			workflowActionEpoch, epochErr = workflowCheckpointAttemptEpoch(ctx, tx, in.entry.Definition, in.step, in.request.WorkID, in.currentStep)
 		}
 	} else {
 		workflowActionEpoch, epochErr = workflowActionStartEpochForDispatch(ctx, tx, in.request.WorkID, in.currentStep, executionMode == ActionFenced)
@@ -1721,6 +1721,9 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *foldS
 		event.Seq = seq
 		scope.eventIDs = append(scope.eventIDs, event.EventID)
 		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
+			return result, err
+		}
+		if err := advanceWorkEffectSeqTx(ctx, tx, event); err != nil {
 			return result, err
 		}
 	}

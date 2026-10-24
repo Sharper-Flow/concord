@@ -24,12 +24,10 @@ func workflowEvaluationAuthority(ctx context.Context, q queryer, workID, actorRe
 	return WorkflowIndependentEvaluator, nil
 }
 
-// Participation belongs to the dispatched lane actor, not the coordinator
-// who recorded the evidence. Receipt order preserves the evaluation prefix.
+// Worker classification belongs to the actor identity, not to the mutable
+// execution lease or the lifetime of an individual work item.
 func workflowRecordedEvaluationFacts(ctx context.Context, q queryer, _ string, actorRef string, prefix int64) (worker bool, err error) {
-	err = q.QueryRowContext(ctx, `SELECT
-		EXISTS(SELECT 1 FROM effect_receipts r JOIN worker_attempts a ON a.work_id=r.subject_id AND a.dispatch_event_id=r.event_id
-		WHERE r.kind='worker.dispatched' AND r.subject_type='work_item' AND r.effect_seq<=? AND json_extract(a.dispatch_payload,'$.lane_actor_ref')=?)`, prefix, actorRef).Scan(&worker)
+	err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_worker_actors WHERE actor_ref=? AND first_dispatch_seq<=?)`, actorRef, prefix).Scan(&worker)
 	if err != nil {
 		return false, wrapFailure(KindUnavailable, "workflow_evaluation", "cannot read workflow evaluation authority", true, "retry once workflow execution history is readable", err)
 	}

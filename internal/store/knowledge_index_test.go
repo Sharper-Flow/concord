@@ -409,6 +409,9 @@ func TestKnowledgeSchemaHasNoNoteBodyAndCompactionPersistsLink(t *testing.T) {
 	if after != 1 {
 		t.Fatalf("archived_work count=%d, want 1", after)
 	}
+	assertWorkerFactsLogBlind(t, s, map[string]func() (any, error){
+		"P01-publication-membership": func() (any, error) { return linkedCompactionWorkIDs(ctx, s.db) },
+	})
 }
 
 func seedKnowledgeWork(t *testing.T, s *Store, id, title string) {

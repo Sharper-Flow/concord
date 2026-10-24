@@ -130,6 +130,7 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 	t.Run("failed then completed", func(t *testing.T) {
 		s := openTemp(t)
 		lane := BuiltinLaneDefinitions()[0]
+		seedWork(t, s, "terminal-failed-first")
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-failed-first", "terminal-failed-first-attempt", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
@@ -245,6 +246,7 @@ func TestWorkerCompletedAndFailedEventsRetainD5Evidence(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEvent("worker-complete", "complete", dispatchID, preferredModelForLane(lane), workerFixtureDirectory(t, s, "worker-complete"), lane)}}); err != nil {
 		t.Fatal(err)
 	}
+	seedWork(t, s, "worker-failed")
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("worker-failed", "dispatch-failed", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -266,6 +268,7 @@ func TestWorkerModelReadbackFailureIsDurableWithoutModelValue(t *testing.T) {
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "model-readback-missing-attempt"
+	seedWork(t, s, "model-readback-missing")
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("model-readback-missing", attemptID, lane, map[string]any{"readback_model": ""})}}); err != nil {
 		t.Fatal(err)
 	}
@@ -740,8 +743,10 @@ func seedDispatchPredicateAuthorization(t *testing.T, s *Store, workID, attemptI
 		t.Fatal(err)
 	}
 	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
-INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload) SELECT subject_id,json_extract(payload,'$.worker_attempt_id'),seq,payload FROM domain_events WHERE event_id=?;
-DELETE FROM fold_guard;`, "dispatch-authorization-"+attemptID); err != nil {
+INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload)
+SELECT completion.subject_id,json_extract(completion.payload,'$.worker_attempt_id'),completion.seq,completion.payload,completion.event_id,start.seq,start.payload
+FROM domain_events completion JOIN domain_events start ON start.event_id=? WHERE completion.event_id=?;
+DELETE FROM fold_guard;`, "dispatch-authorization-start-"+attemptID, "dispatch-authorization-"+attemptID); err != nil {
 		t.Fatal(err)
 	}
 }

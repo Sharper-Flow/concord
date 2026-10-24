@@ -121,7 +121,7 @@ func nativeOraclePlanMatchesReceipt(p nativeOraclePlan, work, projectID string, 
 // authorization names.
 func readNativeOracleAuthorizingDispatchTx(ctx context.Context, q queryer, work string, p nativeOraclePlan) (workflowActionCompletedPayload, error) {
 	var dispatch []byte
-	if err := q.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE event_id=? AND seq=? AND subject_type='work_item' AND subject_id=? AND kind=?`, p.Authorization.EventID, p.Authorization.Seq, work, WorkflowActionCompleted).Scan(&dispatch); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT payload FROM worker_authorizations WHERE event_id=? AND seq=? AND work_id=? AND attempt_id=?`, p.Authorization.EventID, p.Authorization.Seq, work, p.Request.AttemptID).Scan(&dispatch); err != nil {
 		if err == sql.ErrNoRows {
 			return workflowActionCompletedPayload{}, errOracleReceiptRefused
 		}
@@ -266,23 +266,18 @@ func validateNativeOracleHistoryTx(ctx context.Context, q queryer, work string, 
 		return sql.ErrNoRows
 	}
 	var start []byte
-	if err := q.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq=? AND seq<?`, work, WorkflowActionStarted, p.Authorization.StartSeq, p.Authorization.Seq).Scan(&start); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT start_payload FROM worker_authorizations WHERE work_id=? AND attempt_id=? AND event_id=? AND seq=? AND start_seq=? AND start_seq>0 AND start_seq<seq`, work, o.AttemptID, p.Authorization.EventID, p.Authorization.Seq, p.Authorization.StartSeq).Scan(&start); err != nil {
 		return err
 	}
 	var s workflowActionStartedPayload
 	if json.Unmarshal(start, &s) != nil || s.ActionID != "dispatch_worker" || s.StepID != d.StepID || s.AttemptEpoch != o.AttemptEpoch {
 		return sql.ErrNoRows
 	}
-	var later int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>? AND seq<? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.step_id')=?`, work, WorkflowActionStarted, p.Authorization.StartSeq, p.Authorization.Seq, d.StepID).Scan(&later); err != nil {
-		return err
-	}
-	if later != 0 {
-		return sql.ErrNoRows
-	}
+	// The authorization writer captures the latest same-step dispatch start
+	// in its transaction. Its immutable snapshot is the pairing proof.
 	b := o.WorkerJobBinding
 	var jobRaw []byte
-	if err := q.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq<? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=? ORDER BY seq DESC LIMIT 1`, work, WorkerJobRecorded, p.Authorization.Seq, b.JobID, b.Revision, b.Digest).Scan(&jobRaw); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? AND recorded_seq>0 AND recorded_seq<? AND job_id=? AND revision=? AND digest=?`, work, p.Authorization.Seq, b.JobID, b.Revision, b.Digest).Scan(&jobRaw); err != nil {
 		return err
 	}
 	var job WorkerJobRecordedPayload

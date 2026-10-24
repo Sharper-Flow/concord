@@ -5628,12 +5628,12 @@ func acquireVerifyLeaseTx(ctx context.Context, tx *sql.Tx, req WorktreeVerifyReq
 			owner = currentProcessIdentity()
 		}
 		// The watermark is the event-order position at which the run
-		// starts: this work item's highest committed sequence, read by the
+		// starts: this work item's effect frontier (work_items.effect_seq), read by the
 		// INSERT's own subquery so no second read can split it from the
 		// lease. Leases predating the column carry NULL, and attribution
 		// reports their population as unavailable.
 		insertLease := func() error {
-			_, insertErr := tx.ExecContext(ctx, `INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome,owner_pid,owner_started,native_plan_json,native_plan_sha256,event_watermark) VALUES(?,?,?,?, 'held', ?,?,?,?,?,?, 'running', ?, ?,?,?,(SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=?))`,
+			_, insertErr := tx.ExecContext(ctx, `INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome,owner_pid,owner_started,native_plan_json,native_plan_sha256,event_watermark) VALUES(?,?,?,?, 'held', ?,?,?,?,?,?, 'running', ?, ?,?,?,(SELECT COALESCE((SELECT effect_seq FROM work_items WHERE id=?),0)))`,
 				req.LeaseID, req.WorkID, req.ProjectID, entry.Path, req.Owner.ClientRef, req.Owner.AgentRef, req.Owner.SessionRef, req.PrincipalRef, commandJSON, now.Format(time.RFC3339Nano), owner.pid, owner.started, nullableText(req.nativePlanJSON), nullableText(req.nativePlanSHA256), req.WorkID)
 			return insertErr
 		}

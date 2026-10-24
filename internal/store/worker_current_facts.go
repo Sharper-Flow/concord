@@ -3,18 +3,47 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"time"
 )
 
 // Authorization can precede an attempt row. Keep that current descriptor keyed
 // by its attempt, rather than treating native dispatch as authorization.
 func writeWorkerAuthorizationTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload) error {
 	if p.ActionID == "dispatch_worker" && p.WorkerAttemptID != "" {
-		_, err := tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload) VALUES(?,?,?,?) ON CONFLICT(work_id,attempt_id) DO UPDATE SET seq=excluded.seq,payload=excluded.payload`, event.SubjectID, p.WorkerAttemptID, event.Seq, string(event.Payload))
+		start, err := readWorkflowActionStartTx(ctx, tx, event.SubjectID, p.StepID, true)
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+		if err == sql.ErrNoRows {
+			start.Payload = json.RawMessage(`{}`)
+		}
+		version, err := activeWorkflowContractVersion(ctx, tx, event.SubjectID, "worker_authorization")
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload,contract_version) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(work_id,attempt_id) DO UPDATE SET seq=excluded.seq,payload=excluded.payload,event_id=excluded.event_id,start_seq=excluded.start_seq,start_payload=excluded.start_payload,contract_version=excluded.contract_version`, event.SubjectID, p.WorkerAttemptID, event.Seq, string(event.Payload), event.EventID, start.Seq, string(start.Payload), version)
 		return err
 	}
 	if p.ActionID == "record_worker_failure" {
-		if _, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET failure_recorded=failure_recorded+1 WHERE work_id=? AND attempt_id=?`, event.SubjectID, p.WorkerAttemptID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET failure_recorded=failure_recorded+1,failure_recorded_seq=CASE WHEN failure_recorded_seq=0 THEN ? ELSE failure_recorded_seq END WHERE work_id=? AND attempt_id=?`, event.Seq, event.SubjectID, p.WorkerAttemptID); err != nil {
 			return err
+		}
+	}
+	switch p.ActionID {
+	case "accept_worker_result", "accept_worker_evidence", "reject_worker_result", "record_worker_failure", "record_worker_job":
+		if p.WorkerAttemptID != "" {
+			var firstSeq int64
+			firstPayload := "{}"
+			if p.ActionID == "accept_worker_result" || p.ActionID == "accept_worker_evidence" {
+				firstSeq, firstPayload = event.Seq, string(event.Payload)
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempt_dispositions(work_id,attempt_id,action_id,seq,event_id,payload,first_acceptance_seq,first_acceptance_payload) VALUES(?,?,?,?,?,?,?,?)
+ON CONFLICT(work_id,attempt_id,action_id) DO UPDATE SET seq=excluded.seq,event_id=excluded.event_id,payload=excluded.payload,
+first_acceptance_seq=CASE WHEN first_acceptance_seq=0 THEN excluded.first_acceptance_seq ELSE first_acceptance_seq END,
+first_acceptance_payload=CASE WHEN first_acceptance_seq=0 THEN excluded.first_acceptance_payload ELSE first_acceptance_payload END`, event.SubjectID, p.WorkerAttemptID, p.ActionID, event.Seq, event.EventID, string(event.Payload), firstSeq, firstPayload); err != nil {
+				return err
+			}
 		}
 	}
 	switch p.ActionID {
@@ -31,7 +60,7 @@ func writeWorkerDispatchFactsTx(ctx context.Context, tx *sql.Tx, event Event, at
 }
 
 func writeWorkerTerminalFactsTx(ctx context.Context, tx *sql.Tx, event Event, attempt string) error {
-	_, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET terminal_payload=?,terminal_event_id=?,terminal_payload_version=?,terminal_kind=? WHERE work_id=? AND attempt_id=?`, string(event.Payload), event.EventID, event.PayloadVersion, event.Kind, event.SubjectID, attempt)
+	_, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET terminal_payload=?,terminal_event_id=?,terminal_payload_version=?,terminal_kind=?,terminal_seq=?,terminal_occurred_at=? WHERE work_id=? AND attempt_id=?`, string(event.Payload), event.EventID, event.PayloadVersion, event.Kind, event.Seq, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID, attempt)
 	return err
 }
 

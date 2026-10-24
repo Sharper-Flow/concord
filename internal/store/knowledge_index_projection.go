@@ -208,6 +208,9 @@ func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) e
 	if payload.TerminalState != "completed" && payload.TerminalState != "cancelled" && payload.TerminalState != "superseded" {
 		return newFailure(KindInvalidPayload, "fold_event", "compaction link has an invalid terminal state", false, "use a PM4 terminal state")
 	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO compaction_publications(work_id) VALUES(?) ON CONFLICT(work_id) DO NOTHING`, event.SubjectID); err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot record compaction publication", true, "retry once the database is writable", err)
+	}
 	var existing struct {
 		HomeProjectID string
 		HomeLocatorID string
@@ -818,7 +821,7 @@ func insertLawSubject(ctx context.Context, tx *sql.Tx, home KnowledgeHome, recor
 }
 
 func linkedCompactionWorkIDs(ctx context.Context, db *sql.DB) (map[string]bool, error) {
-	rows, err := db.QueryContext(ctx, `SELECT subject_id FROM domain_events WHERE kind = 'compaction_link.published'`)
+	rows, err := db.QueryContext(ctx, `SELECT work_id FROM compaction_publications`)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot read compaction links", true, "retry once the database is readable", err)
 	}

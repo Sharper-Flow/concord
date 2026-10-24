@@ -414,6 +414,7 @@ routeDeclaration("host-started session receives real core context without out-of
           subject_type: event.subject_type, subject_id: event.subject_id,
           actor: event.actor, payload_version: event.payload_version,
           payload_digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+          delivery_assertion: 0,
           relation_seq: null,
         })
         before.effect_receipts.push(receipts[0])

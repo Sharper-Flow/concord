@@ -1082,7 +1082,7 @@ func readAuthorizedDispatchWindowBefore(ctx context.Context, q queryer, workID, 
 	var completionEpoch, startEpoch int64
 	window.WorkID = workID
 	window.AttemptID = attemptID
-	if err := q.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),COALESCE(json_extract(payload,'$.attempt_epoch'),0),COALESCE(json_extract(payload,'$.worker_packet_digest'),''),COALESCE(json_extract(payload,'$.worker_worktree_identity'),''),COALESCE(json_extract(payload,'$.worker_subject_commit'),''),json_extract(payload,'$.worker_context_frontier') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.worker_attempt_id')=? AND (?=0 OR seq<?) ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", attemptID, beforeSeq, beforeSeq).Scan(&window.StartSeq, &window.StepID, &completionEpoch, &window.PacketDigest, &window.WorktreeIdentity, &window.SubjectCommit, &frontier); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),COALESCE(json_extract(payload,'$.attempt_epoch'),0),COALESCE(json_extract(payload,'$.worker_packet_digest'),''),COALESCE(json_extract(payload,'$.worker_worktree_identity'),''),COALESCE(json_extract(payload,'$.worker_subject_commit'),''),json_extract(payload,'$.worker_context_frontier') FROM worker_authorizations WHERE work_id=? AND attempt_id=? AND (?=0 OR seq<?)`, workID, attemptID, beforeSeq, beforeSeq).Scan(&window.StartSeq, &window.StepID, &completionEpoch, &window.PacketDigest, &window.WorktreeIdentity, &window.SubjectCommit, &frontier); err != nil {
 		if err == sql.ErrNoRows {
 			return window, 0, newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "no authorized dispatch window exists for this work item bound to this attempt", false, "open a dispatch_worker authorization for this attempt before recording worker evidence")
 		}
@@ -1091,7 +1091,7 @@ func readAuthorizedDispatchWindowBefore(ctx context.Context, q queryer, workID, 
 	window.ContextFrontier, window.ContextFrontierPresent = frontier.Int64, frontier.Valid
 	// The start anchors the single-use consumption read and carries the step
 	// epoch the completion authorized against.
-	if err := q.QueryRowContext(ctx, `SELECT seq,COALESCE(json_extract(payload,'$.attempt_epoch'),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? AND seq<? AND (?=0 OR seq<?) ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionStarted, "dispatch_worker", window.StepID, window.StartSeq, beforeSeq, beforeSeq).Scan(&window.StartSeq, &startEpoch); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT start_seq,COALESCE(json_extract(start_payload,'$.attempt_epoch'),0) FROM worker_authorizations WHERE work_id=? AND attempt_id=? AND start_seq>0 AND start_seq<seq AND json_extract(start_payload,'$.action_id')='dispatch_worker' AND json_extract(start_payload,'$.step_id')=?`, workID, attemptID, window.StepID).Scan(&window.StartSeq, &startEpoch); err != nil {
 		if err == sql.ErrNoRows {
 			return window, 0, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker completed without a starting authorization event", false, "reopen the workflow action against a fresh step epoch")
 		}
@@ -1127,7 +1127,7 @@ func findAuthorizedDispatchWindowCore(ctx context.Context, q queryer, workID, at
 // The check is single-use: one authorization admits exactly one attempt.
 func WorkerDispatchWindowIsOpenTx(ctx context.Context, tx *sql.Tx, window WorkerDispatchWindow) (bool, error) {
 	var consumed int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? AND seq > ?`, string(SubjectWorkItem), window.WorkID, WorkerDispatched, window.AttemptID, window.StartSeq).Scan(&consumed); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id=? AND dispatch_seq>?`, window.WorkID, window.AttemptID, window.StartSeq).Scan(&consumed); err != nil {
 		return false, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot inspect the dispatch window consumption", true, "retry once the database is readable", err)
 	}
 	return consumed == 0, nil
@@ -1463,6 +1463,9 @@ func pinWorkerDispatchedLaneActor(ctx context.Context, tx *sql.Tx, event Event, 
 	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET execution_actor_ref=? WHERE work_id=?`, payload.LaneActorRef, event.SubjectID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot pin lane executing actor", true, "retry once the database is writable", err)
 	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO workflow_worker_actors(actor_ref,first_dispatch_seq) VALUES(?,?)`, payload.LaneActorRef, event.Seq); err != nil {
+		return workflowProjectionError(err, "cannot retain the actor's worker classification")
+	}
 	return nil
 }
 
@@ -1639,7 +1642,10 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := verifyWorkerTerminalUpdate(result, "cannot verify worker completion projection", "record worker.dispatched before worker.completed"); err != nil {
 		return err
 	}
-	return writeWorkerTerminalFactsTx(ctx, tx, event, payload.AttemptID)
+	if err := writeWorkerTerminalFactsTx(ctx, tx, event, payload.AttemptID); err != nil {
+		return err
+	}
+	return advanceWorkflowCorrectionFactsTx(ctx, tx, event)
 }
 
 // validateWorkerCompletedOracleJob requires a job binding for oracle content.
@@ -1829,7 +1835,10 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := voidWorkerJobRepairByAttemptTx(ctx, tx, event.SubjectID, payload.AttemptID, event.Seq-1); err != nil {
 		return err
 	}
-	return writeWorkerTerminalFactsTx(ctx, tx, event, payload.AttemptID)
+	if err := writeWorkerTerminalFactsTx(ctx, tx, event, payload.AttemptID); err != nil {
+		return err
+	}
+	return advanceWorkflowCorrectionFactsTx(ctx, tx, event)
 }
 
 // validateNoLiveWorkerSession is the live-admission host-observation gate for
@@ -2105,7 +2114,7 @@ func verifyWorkerPredicateTies(declared []string, evidence []WorkerReportEvidenc
 // silently widen the predicates a report may tie.
 func workerJobRevisionPredicateIDsTx(ctx context.Context, tx *sql.Tx, workID string, job WorkerJobBinding) ([]string, error) {
 	var raw *string
-	if err := tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.predicate_ids') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerJobRecorded, job.JobID, job.Revision, job.Digest).Scan(&raw); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT predicate_ids FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=? AND digest=?`, workID, job.JobID, job.Revision, job.Digest).Scan(&raw); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, newFailure(KindInvariantViolation, "worker_predicate_discharge", "the dispatched job revision "+job.JobID+":"+strconv.FormatInt(job.Revision, 10)+" names no retained worker.job_recorded recording under its digest", false, "reconcile_operation")
 		}

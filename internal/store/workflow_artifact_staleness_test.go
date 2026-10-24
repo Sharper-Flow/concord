@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The artifact-staleness fold and its admission halves (CD-0201 D5/D6),
-// exercised over real folded history: the staleness causes, the production
+// exercised over current facts: the staleness causes, the production
 // frontier at the declared route target, the healthy-association refusal, and
 // the premise refusal.
 
@@ -49,8 +50,8 @@ func stalenessSeedContract(t *testing.T, s *Store, workID string) {
 	}
 }
 
-// stalenessEvent appends one domain event row the fold reads, in insertion
-// order, so the causal frontiers the tests build are real event sequences.
+// stalenessEvent supplies trusted current descriptors without authorizing an
+// action. The live-writer tests separately exercise admission and persistence.
 func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) {
 	t.Helper()
 	var nextSeq int64
@@ -63,6 +64,81 @@ func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) {
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,1,?)`,
 		workID+":"+kind+":"+fmt.Sprint(nextSeq), kind, string(SubjectWorkItem), workID, actorRef, "2026-01-02T00:00:00Z", payload); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	event := Event{Seq: nextSeq, EventID: workID + ":" + kind + ":" + fmt.Sprint(nextSeq), Kind: kind, SubjectID: workID, Actor: actorRef, PayloadVersion: 1, Payload: json.RawMessage(payload)}
+	switch kind {
+	case WorkflowActionStarted:
+		var start workflowActionStartedPayload
+		if err := json.Unmarshal(event.Payload, &start); err != nil {
+			t.Fatal(err)
+		}
+		if start.AttemptEpoch > 0 {
+			if _, err := tx.Exec(`INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload) VALUES(?,?,?,?,?,?) ON CONFLICT(work_id,step_id) DO UPDATE SET attempt_epoch=excluded.attempt_epoch,latest_start_seq=excluded.latest_start_seq,latest_start_event_id=excluded.latest_start_event_id,latest_start_payload=excluded.latest_start_payload`, workID, start.StepID, start.AttemptEpoch, nextSeq, event.EventID, payload); err != nil {
+				t.Fatal(err)
+			}
+		}
+	case WorkflowActionCheckpointed:
+		var checkpoint workflowActionCheckpointedPayload
+		if err := json.Unmarshal(event.Payload, &checkpoint); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(`INSERT INTO workflow_checkpoints(work_id,checkpoint_id,step_id,step_kind,attempt_epoch,accepted_inputs_digest,result_evidence_refs,resume_cursor,idempotency_identity,actor_ref,request_id,recorded_at) VALUES(?,?,?,'internal_sqlite',?,'checkpoint-inputs','[]','',?,?,?,'2026-01-02T00:00:00Z')`, workID, event.EventID, checkpoint.StepID, checkpoint.AttemptEpoch, event.EventID, actorRef, event.EventID); err != nil {
+			t.Fatal(err)
+		}
+	case WorkflowVerdictRecorded:
+		var verdict workflowVerdictRecordedPayload
+		if err := json.Unmarshal(event.Payload, &verdict); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(`INSERT INTO workflow_predicate_verdicts(work_id,contract_version,predicate_id,verdict_seq,actor,payload) VALUES(?,?,?,?,?,?) ON CONFLICT(work_id,contract_version,predicate_id) DO UPDATE SET verdict_seq=excluded.verdict_seq,actor=excluded.actor,payload=excluded.payload`, workID, verdict.ContractVersion, verdict.PredicateID, nextSeq, actorRef, payload); err != nil {
+			t.Fatal(err)
+		}
+		if verdict.VerdictKind != "ok" || verdict.IncomparableWithApproved {
+			if _, err := tx.Exec(`UPDATE workflow_instances SET unhealthy_verdict_seq=? WHERE work_id=?`, nextSeq, workID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := tx.Exec(`UPDATE workflow_artifact_actions SET verdict_seq=?,verdict_production_seq=production_seq WHERE work_id=?`, nextSeq, workID); err != nil {
+			t.Fatal(err)
+		}
+	case WorkflowActionCompleted:
+		var action workflowActionCompletedPayload
+		if err := json.Unmarshal(event.Payload, &action); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeWorkerAuthorizationTx(t.Context(), tx, event, action); err != nil {
+			t.Fatal(err)
+		}
+		if workflowActionProducesArtifact(action.ActionID) {
+			if _, err := tx.Exec(`INSERT INTO workflow_artifact_actions(work_id,step_id,action_id,production_seq) VALUES(?,?,?,?) ON CONFLICT(work_id,step_id,action_id) DO UPDATE SET production_seq=excluded.production_seq`, workID, action.StepID, action.ActionID, nextSeq); err != nil {
+				t.Fatal(err)
+			}
+		}
+	case WorkerDispatched:
+		var dispatch WorkerDispatchedPayload
+		if err := json.Unmarshal(event.Payload, &dispatch); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?,?,'lane:test',1,'sha256:0000000000000000000000000000000000000000000000000000000000000000','implementation','model:test','1.0','1.0','dispatched','2026-01-02T00:00:00Z') ON CONFLICT(attempt_id) DO NOTHING`, workID, dispatch.AttemptID); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeWorkerDispatchFactsTx(t.Context(), tx, event, dispatch.AttemptID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -104,41 +180,39 @@ func TestUnfencedCheckpointEpochUsesCausalPrefix(t *testing.T) {
 	const workID = "unfenced-checkpoint-prefix"
 	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
 	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "")
+	if err := ApplyOperation(t.Context(), s, Operation{Events: []Event{
+		{EventID: "another-work-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "another-work", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Other checkpoint work","priority":1}`)},
+		{EventID: "another-work-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "another-work", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-s","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "another-work"): 0}}); err != nil {
+		t.Fatal(err)
+	}
 	step := workflowStep(definition, "acceptance")
-	assertEpoch := func(beforeSeq, want int64) {
+	assertEpoch := func(want int64) {
 		t.Helper()
-		got, err := workflowCheckpointAttemptEpoch(context.Background(), s.db, definition, step, workID, step.ID, beforeSeq)
+		got, err := workflowCheckpointAttemptEpoch(context.Background(), s.db, definition, step, workID, step.ID)
 		if err != nil || got != want {
-			t.Fatalf("checkpoint epoch before %d = %d, %v; want %d", beforeSeq, got, err, want)
+			t.Fatalf("current checkpoint epoch = %d, %v; want %d", got, err, want)
 		}
 	}
-	assertEpoch(0, 1)
+	assertEpoch(1)
 	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"acceptance","attempt_epoch":1}`)
-	var firstSeq int64
-	if err := s.db.QueryRow(`SELECT MAX(seq) FROM domain_events`).Scan(&firstSeq); err != nil {
-		t.Fatal(err)
-	}
-	assertEpoch(firstSeq, 1)
-	assertEpoch(0, 2)
+	assertEpoch(2)
 	stalenessEvent(t, s, workID, WorkflowActionStarted, `{"step_id":"acceptance","action_id":"dispatch_worker","attempt_epoch":1}`)
-	assertEpoch(0, 2)
+	assertEpoch(2)
 	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"review","attempt_epoch":41}`)
 	stalenessEvent(t, s, "another-work", WorkflowActionCheckpointed, `{"step_id":"acceptance","attempt_epoch":51}`)
-	assertEpoch(0, 2)
+	assertEpoch(2)
 	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"acceptance","attempt_epoch":2}`)
-	var secondSeq int64
-	if err := s.db.QueryRow(`SELECT MAX(seq) FROM domain_events`).Scan(&secondSeq); err != nil {
+	assertEpoch(3)
+	stalenessEvent(t, s, workID, WorkflowActionStarted, `{"step_id":"acceptance","action_id":"dispatch_worker","attempt_epoch":61}`)
+	assertEpoch(61)
+	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"acceptance","attempt_epoch":61}`)
+	assertEpoch(62)
+	if _, err := s.db.Exec(`ALTER TABLE domain_events RENAME TO retired_domain_events`); err != nil {
 		t.Fatal(err)
 	}
-	assertEpoch(firstSeq, 1)
-	assertEpoch(secondSeq, 2)
-	assertEpoch(0, 3)
-	stalenessEvent(t, s, workID, WorkflowActionStarted, `{"step_id":"acceptance","action_id":"dispatch_worker","attempt_epoch":61}`)
-	assertEpoch(secondSeq, 2)
-	assertEpoch(0, 61)
-	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"acceptance","attempt_epoch":61}`)
-	assertEpoch(0, 62)
-	if _, err := workflowCheckpointAttemptEpoch(context.Background(), s.db, definition, workflowStep(definition, "execution"), workID, "execution", 0); !hasFailureKind(err, KindIllegalLifecycleTransition) {
+	assertEpoch(62)
+	if _, err := workflowCheckpointAttemptEpoch(context.Background(), s.db, definition, workflowStep(definition, "execution"), workID, "execution"); !hasFailureKind(err, KindIllegalLifecycleTransition) {
 		t.Fatalf("fenced checkpoint without a start = %v, want invalid_transition", err)
 	}
 }

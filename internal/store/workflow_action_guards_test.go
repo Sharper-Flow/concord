@@ -450,7 +450,7 @@ func TestBindEvidenceObligationRefusedOnceSatisfied(t *testing.T) {
 	if _, err := seedTx.Exec(`INSERT INTO workflow_contract_verification_obligations(work_id,contract_version,law_id,obligation_id) VALUES(?,?,'spec:one','review')`, workID, contractVersion); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := seedTx.Exec(`INSERT INTO domain_events(event_id,subject_type,subject_id,kind,actor,occurred_at,payload_version,payload) VALUES('ob-satisfied-ev','work_item',?,'workflow.evidence_bound','operator','2026-09-07T00:00:00Z',1,?)`, workID, `{"evidence_kind":"review","immutable_subject_ref":"spec:one"}`); err != nil {
+	if _, err := seedTx.Exec(`INSERT INTO workflow_evidence_bindings(work_id,binding_seq,binding_id,actor,payload) VALUES(?,1,'ob-satisfied-ev','operator',?)`, workID, `{"evidence_kind":"review","immutable_subject_ref":"spec:one"}`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := seedTx.Exec(`DELETE FROM fold_guard`); err != nil {

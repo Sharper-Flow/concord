@@ -464,6 +464,9 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scop
 		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
 			return output, err
 		}
+		if err := advanceWorkEffectSeqTx(ctx, tx, event); err != nil {
+			return output, err
+		}
 	}
 	output.EventIDs = append([]string{}, scope.eventIDs[startReceipt:]...)
 	var err error
@@ -569,6 +572,9 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 		event.Seq = seq
 		scope.eventIDs = append(scope.eventIDs, event.EventID)
 		if err := foldRegisteredEvent(ctx, tx.Tx, event, scope); err != nil {
+			return output, rollback(err)
+		}
+		if err := advanceWorkEffectSeqTx(ctx, tx.Tx, event); err != nil {
 			return output, rollback(err)
 		}
 	}

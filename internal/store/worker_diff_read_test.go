@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -105,28 +104,19 @@ func workerDiffDispatchJob(t *testing.T, j *candidateJourney, attempt string, jo
 }
 
 func TestReadWorkerDiffMissingFirstHistoryRefusesRatherThanUsingLaterSubject(t *testing.T) {
-	version, digest := registeredLaneIdentity(t, "implement")
 	for _, missing := range []string{"worker_subject_commit", "worker_worktree_identity"} {
 		t.Run(missing, func(t *testing.T) {
-			db, err := sql.Open("sqlite", ":memory:")
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer db.Close()
-			if _, err := db.Exec(`CREATE TABLE domain_events(seq INTEGER PRIMARY KEY,subject_type TEXT,subject_id TEXT,kind TEXT,payload TEXT); CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,lane_id TEXT,lane_version INTEGER,lane_digest TEXT)`); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := db.Exec(`INSERT INTO domain_events VALUES(1,'work_item','work',?,?)`, WorkflowContractApproved, `{"contract_version":1}`); err != nil {
-				t.Fatal(err)
-			}
+			db := workerFoundationCurrentDB(t)
 			for seq := 2; seq <= 3; seq++ {
-				payload := map[string]any{"action_id": "dispatch_worker", "worker_lane_id": "implement", "worker_lane_version": version, "worker_lane_digest": digest, "worker_worktree_identity": "claim", "worker_subject_commit": strings.Repeat("a", 40)}
+				subject, tree := strings.Repeat("a", 40), "claim"
 				if seq == 2 {
-					delete(payload, missing)
+					if missing == "worker_subject_commit" {
+						subject = ""
+					} else {
+						tree = ""
+					}
 				}
-				if _, err := db.Exec(`INSERT INTO domain_events VALUES(?,'work_item','work',?,?)`, seq, WorkflowActionCompleted, string(mustJSONValue(payload))); err != nil {
-					t.Fatal(err)
-				}
+				foundationAuthorizationForTest(t, db, int64(seq), 1, fmt.Sprintf("attempt:%d", seq), "implement", subject, tree)
 			}
 			base, err := firstWorkerEditingSubject(context.Background(), db, "work", "claim", 4)
 			if !hasFailureKind(err, KindUnauthorizedDispatch) || base != "" {

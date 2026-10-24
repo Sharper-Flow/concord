@@ -295,6 +295,7 @@ func TestWorkerFailedFindingsReservedForWorkerError(t *testing.T) {
 	for _, kind := range []string{WorkerFailureInvalidReport, WorkerFailureFallbackBlocked, WorkerFailureModelIdentity, WorkerFailureModelReadbackMissing, WorkerFailureModelReadbackAmbiguous} {
 		s := openTemp(t)
 		lane := BuiltinLaneDefinitions()[0]
+		seedWork(t, s, "work-fail-kind")
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-fail-kind", "attempt-fail-kind", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}

@@ -337,6 +337,11 @@
       "authority": "check"
     },
     {
+      "table": "workflow_action_obligations",
+      "column": "state",
+      "authority": "check"
+    },
+    {
       "table": "workflow_actors",
       "column": "actor_class",
       "authority": "check"
@@ -381,6 +386,12 @@
       "column": "rigor_class",
       "authority": "registry_trigger",
       "validator": "scripts/check-rigor-class.py"
+    },
+    {
+      "table": "workflow_correction_state",
+      "column": "state",
+      "authority": "check",
+      "rationale": "This column stores correction-state JSON, not an enum; its CHECK requires valid JSON."
     },
     {
       "table": "workflow_external_conditions",

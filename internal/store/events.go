@@ -184,7 +184,11 @@ func appendPreparedEvent(ctx context.Context, tx *sql.Tx, e Event) (Sequence, er
 	if err != nil {
 		return 0, wrapFailure(KindInvalidPayload, "append_event", "cannot digest the event payload", false, "supply a valid JSON payload", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest,relation_seq) VALUES(?,?,?,?,?,?,?,?,?)`, e.EventID, seq, e.Kind, e.SubjectType, e.SubjectID, e.Actor, e.PayloadVersion, digest, relationSeq); err != nil {
+	_, asserted, err := workflowEventDeliveryAssertion(e)
+	if err != nil {
+		return 0, wrapFailure(KindInvalidPayload, "append_event", "cannot classify the delivery assertion", false, "supply a valid completed-action payload", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest,delivery_assertion,relation_seq) VALUES(?,?,?,?,?,?,?,?,?,?)`, e.EventID, seq, e.Kind, e.SubjectType, e.SubjectID, e.Actor, e.PayloadVersion, digest, asserted, relationSeq); err != nil {
 		return 0, wrapFailure(KindUnavailable, "append_event", "cannot record the effect receipt", true, "retry once the database is writable", err)
 	}
 	return seq, nil

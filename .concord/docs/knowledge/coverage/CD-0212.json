@@ -90,10 +90,6 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestReclaimWorktreeConvergesOnUnfoldedReclaimEvent"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/store.TestReclaimWorktreeHoldsNoWriteLockDuringNativeRemove"
     },
     {

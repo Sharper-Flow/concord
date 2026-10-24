@@ -26,7 +26,7 @@ func workflowEvaluationAuthority(ctx context.Context, q queryer, workID, actorRe
 
 // Participation belongs to the dispatched lane actor, not the coordinator
 // who recorded the evidence. Receipt order preserves the evaluation prefix.
-func workflowRecordedEvaluationFacts(ctx context.Context, q queryer, workID, actorRef string, prefix int64) (worker bool, err error) {
+func workflowRecordedEvaluationFacts(ctx context.Context, q queryer, _ string, actorRef string, prefix int64) (worker bool, err error) {
 	err = q.QueryRowContext(ctx, `SELECT
 		EXISTS(SELECT 1 FROM effect_receipts r JOIN worker_attempts a ON a.work_id=r.subject_id AND a.dispatch_event_id=r.event_id
 		WHERE r.kind='worker.dispatched' AND r.subject_type='work_item' AND r.effect_seq<=? AND json_extract(a.dispatch_payload,'$.lane_actor_ref')=?)`, prefix, actorRef).Scan(&worker)

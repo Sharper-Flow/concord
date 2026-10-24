@@ -25,8 +25,8 @@ var allowedByteColumns = map[string]string{
 }
 
 // forbiddenReceiptShapes names what a separate process-exhaust store, an
-// audit-receipt object, or a deletion attestation would be called. PM9 holds
-// that the existing durable sequence is the only receipt.
+// audit-receipt object, or a deletion attestation would be called. Current
+// idempotency identities have a separate, payload-free schema check below.
 var forbiddenReceiptShapes = []string{"receipt", "attestation", "salvage"}
 
 // TestPM8AndPM9DeclareNoEvidenceOrReceiptStore proves two negative contracts
@@ -64,8 +64,13 @@ func TestPM8AndPM9DeclareNoEvidenceOrReceiptStore(t *testing.T) {
 		t.Fatal("no byte-typed columns found at all; the allow-list probe would pass vacuously")
 	}
 
-	// PM9: no table or event kind is shaped like a receipt.
+	// CD-0242 D2 retains current idempotency records, not process-exhaust
+	// receipts. Their closed shape cannot acquire a stored payload or log.
 	for _, table := range tables {
+		if table == "effect_receipts" {
+			assertEffectReceiptIdentityColumns(t, s)
+			continue
+		}
 		for _, shape := range forbiddenReceiptShapes {
 			if strings.Contains(strings.ToLower(table), shape) {
 				t.Errorf("table %q matches the PM9 receipt shape %q; PM9 declares no separate process-exhaust store, audit-receipt object, or deletion attestation in v1", table, shape)
@@ -81,6 +86,30 @@ func TestPM8AndPM9DeclareNoEvidenceOrReceiptStore(t *testing.T) {
 				t.Errorf("event kind %q matches the PM9 receipt shape %q; PM9 declares no deletion-attestation event", kind, shape)
 			}
 		}
+	}
+}
+
+func assertEffectReceiptIdentityColumns(t *testing.T, s *Store) {
+	t.Helper()
+	rows, err := s.db.Query(`SELECT name FROM pragma_table_info('effect_receipts') ORDER BY name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var columns []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		columns = append(columns, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := "actor,effect_seq,event_id,kind,payload_digest,payload_version,subject_id,subject_type"
+	if got := strings.Join(columns, ","); got != want {
+		t.Fatalf("effect receipt must contain only idempotency identity: got %s, want %s", got, want)
 	}
 }
 

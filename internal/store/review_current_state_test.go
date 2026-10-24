@@ -246,7 +246,7 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	db, appendEvent, _ := progressHistory(t)
 	for _, statement := range []string{
 		`CREATE TABLE worker_authorizations(work_id TEXT,attempt_id TEXT,seq INTEGER,payload BLOB)`,
-		`CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,terminal_kind TEXT,terminal_payload BLOB,terminal_event_id TEXT)`,
+		`CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,terminal_kind TEXT,terminal_payload BLOB,terminal_event_id TEXT,dispatch_event_id TEXT,dispatch_payload BLOB)`,
 		`CREATE TABLE worker_job_revisions(work_id TEXT,job_id TEXT,revision INTEGER,group_permission TEXT,group_review_ref TEXT,correction_ref TEXT)`,
 		`CREATE TABLE workflow_contracts(work_id TEXT,contract_version INTEGER,superseded_by INTEGER)`,
 		`CREATE TABLE workflow_contract_predicates(work_id TEXT,contract_version INTEGER,predicate_id TEXT,outcome_kind TEXT,outcome_payload BLOB)`,
@@ -274,7 +274,7 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 		if _, err := db.Exec(`INSERT INTO worker_authorizations VALUES('work-history',?,?,?)`, attempt, seq, mustJSONValue(auth)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec(`INSERT INTO worker_attempts SELECT 'work-history',?,?,?,event_id FROM domain_events WHERE seq=?`, attempt, WorkerCompleted, mustJSONValue(result), terminalSeq); err != nil {
+		if _, err := db.Exec(`INSERT INTO worker_attempts(work_id,attempt_id,terminal_kind,terminal_payload,terminal_event_id) SELECT 'work-history',?,?,?,event_id FROM domain_events WHERE seq=?`, attempt, WorkerCompleted, mustJSONValue(result), terminalSeq); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -41,20 +41,22 @@ type migration struct {
 	// the SQL and refuses a declaration its statements contradict, so the bit
 	// cannot drift from what the migration does.
 	Breaking bool
-	// FoldMaintained declares, for a step that adds a column to a
-	// pre-existing table, how the fold keeps that column true. The SQL shape
+	// FoldMaintained declares how the fold keeps an added column true or the
+	// write path maintains a newly created table per effect. The SQL shape
 	// cannot see the Go fold writer, so this declaration is the author's
 	// signed claim beside the SQL: the checker holds it to a closed
 	// vocabulary and to its consequences, and cannot derive it.
 	//
-	// "advance": the fold moves the column as later events apply, so an older
-	// binary's fold leaves it wrong with no convergence — the migration 108 /
+	// "advance": the fold moves the column as later events apply, or the
+	// write path maintains a new table per effect. An older binary leaves
+	// either state wrong with no convergence — the migration 108 /
 	// last_activity_at class. Such a step must declare Breaking: true.
 	//
-	// "origin": the fold sets the column once and first derivation wins —
+	// "origin": on a column added to a pre-existing table, the fold sets the
+	// column once and first derivation wins —
 	// the execution_started_at class (CD-0183 D2).
 	//
-	// Empty: the step adds no fold-maintained column.
+	// Empty: the step declares no fold-maintained state.
 	FoldMaintained string
 	// Applies decides whether this step's SQL runs against the database in
 	// front of it. A repair for a divergence only some histories carry answers
@@ -6772,9 +6774,10 @@ DROP TABLE law_subjects_v140;
 `,
 	},
 	{
-		Version:  145,
-		Name:     "effect_receipts",
-		Breaking: true,
+		Version:        145,
+		Name:           "effect_receipts",
+		Breaking:       true,
+		FoldMaintained: "advance",
 		SQL: `
 CREATE TABLE effect_receipts (
  event_id TEXT PRIMARY KEY,

@@ -17,7 +17,8 @@ counts as breaking. Being wrong toward breaking costs a refusal that a newer
 binary resolves. Being wrong toward additive lets an old binary write against
 a shape it does not know, which is silent corruption.
 
-Fold-maintained columns are the additive shape this comparison cannot see.
+Fold-maintained columns and per-effect tables are additive shapes this
+comparison cannot see.
 One deliberate boundary: the legacy statement rules treat a conditional
 CREATE (IF NOT EXISTS) as ownership, the repair-migration convention
 (migration 60 builds on it), while the FoldMaintained duty holds such a
@@ -33,7 +34,11 @@ did. The migration struct therefore carries a FoldMaintained declaration, and
 for every migration above RULE_FLOOR this validator holds that declaration to
 its closed vocabulary and to its consequences. The declaration is the
 author's signed claim beside the SQL: this checker cannot derive it, only
-refuse one that contradicts the SQL's shape or its own terms.
+refuse one that contradicts the SQL's shape or its own terms. "advance" also
+covers a newly created table the write path maintains per effect: an older
+binary never writes its rows, leaving gaps with no convergence. It requires
+either a column added to a pre-existing table or a CREATE TABLE statement,
+and Breaking: true. "origin" keeps its column-only rule.
 
 Widening a CHECK constraint has one SQLite shape: rename the table away,
 recreate it under its old name, copy the rows losslessly, drop the scratch
@@ -2182,6 +2187,7 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
         reasons = classify(sql, world)
         if version > RULE_FLOOR:
             adds_column = adds_preexisting_column(sql, world)
+            creates_table = any(CREATE_TABLE.match(statement) for statement in statements(sql))
             if adds_column and not fold:
                 failures.append(
                     f"migration {version} adds a column to a pre-existing table "
@@ -2189,10 +2195,15 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
                     'with Breaking: true, declare "origin", or qualify the '
                     "reference with its schema so the migration owns it"
                 )
-            if fold and not adds_column:
+            if fold and not adds_column and not (fold == "advance" and creates_table):
+                missing_shape = (
+                    "adds no column to a pre-existing table and creates no table"
+                    if fold == "advance"
+                    else "adds no column to a pre-existing table"
+                )
                 failures.append(
                     f'migration {version} declares FoldMaintained "{fold}", but '
-                    "adds no column to a pre-existing table; remove the declaration"
+                    f"{missing_shape}; remove the declaration"
                 )
             if fold and fold not in FOLD_VOCABULARY:
                 failures.append(
@@ -2201,7 +2212,7 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
                 )
             if fold == "advance":
                 reasons.append(
-                    "advances a fold-maintained column, which a rolling upgrade "
+                    "advances fold-maintained state, which a rolling upgrade "
                     "leaves unconverged (CD-0111 D3)"
                 )
         if reasons and not declared:

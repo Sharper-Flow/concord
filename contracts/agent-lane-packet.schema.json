@@ -3379,8 +3379,7 @@
         "status": {
           "type": "string",
           "enum": [
-            "accepted",
-            "superseded"
+            "accepted"
           ]
         },
         "title": {

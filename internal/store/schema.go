@@ -6610,6 +6610,167 @@ CREATE TRIGGER workflow_step_epochs_guard_delete BEFORE DELETE ON workflow_step_
 DELETE FROM fold_guard;
 `,
 	},
+	{
+		Version:  140,
+		Name:     "current_knowledge_vocabulary",
+		Breaking: true,
+		SQL: `
+-- Git-derived knowledge is current-only. Copy surviving rows before clearing
+-- the child tables: their RESTRICT keys must stay enforced during the rebuild.
+CREATE TEMP TABLE law_subjects_v140 AS SELECT * FROM law_subjects WHERE status='accepted';
+CREATE TEMP TABLE law_relations_v140 AS
+SELECT r.* FROM law_relations r
+JOIN law_subjects_v140 s ON s.home_project_id=r.home_project_id AND s.home_locator_id=r.home_locator_id AND s.law_id=r.source_law_id
+JOIN law_subjects_v140 t ON t.home_project_id=r.home_project_id AND t.home_locator_id=r.home_locator_id AND t.law_id=r.target_law_id
+WHERE r.kind <> 'supersedes';
+CREATE TEMP TABLE law_cross_source_relations_v140 AS
+SELECT r.* FROM law_cross_source_relations r
+JOIN law_subjects_v140 s ON s.home_project_id=r.home_project_id AND s.home_locator_id=r.home_locator_id AND s.law_id=r.source_law_id
+WHERE r.kind <> 'supersedes';
+CREATE TEMP TABLE law_bodies_v140 AS
+SELECT b.* FROM law_bodies b
+JOIN law_subjects_v140 s ON s.home_project_id=b.home_project_id AND s.home_locator_id=b.home_locator_id AND s.law_id=b.law_id;
+CREATE TEMP TABLE law_domain_homes_v140 AS
+SELECT h.* FROM law_domain_homes h
+JOIN law_subjects_v140 s ON s.home_project_id=h.home_project_id AND s.home_locator_id=h.home_locator_id AND s.law_id=h.law_id;
+CREATE TEMP TABLE law_domain_applicability_v140 AS
+SELECT a.* FROM law_domain_applicability a
+JOIN law_subjects_v140 s ON s.home_project_id=a.home_project_id AND s.home_locator_id=a.home_locator_id AND s.law_id=a.law_id;
+CREATE TEMP TABLE domain_relation_governing_laws_v140 AS
+SELECT g.* FROM domain_relation_governing_laws g
+JOIN law_subjects_v140 s ON s.home_project_id=g.home_project_id AND s.home_locator_id=g.home_locator_id AND s.law_id=g.law_id;
+
+INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
+DELETE FROM domain_relation_governing_laws;
+DELETE FROM law_domain_applicability;
+DELETE FROM law_domain_homes;
+DELETE FROM law_bodies;
+DELETE FROM law_cross_source_relations;
+DELETE FROM law_relations;
+DELETE FROM law_subjects;
+DROP TABLE law_cross_source_relations;
+DROP TABLE law_relations;
+DROP TABLE law_subjects;
+
+CREATE TABLE law_subjects (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    law_id             TEXT NOT NULL,
+    kind               TEXT NOT NULL CHECK(kind IN ('constitution','decision','spec')),
+    status             TEXT NOT NULL CHECK(status='accepted'),
+    path               TEXT NOT NULL,
+    title              TEXT NOT NULL,
+    content_hash       TEXT NOT NULL CHECK(length(content_hash)=71 AND substr(content_hash,1,7)='sha256:'),
+    scanned_commit_oid TEXT NOT NULL,
+    authority_tier     TEXT NOT NULL DEFAULT 'derived' CHECK(authority_tier IN ('legislated','derived')),
+    criterion_bindings TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(criterion_bindings) AND json_type(criterion_bindings)='array'),
+    PRIMARY KEY(home_project_id, home_locator_id, law_id)
+);
+CREATE INDEX law_subjects_lookup ON law_subjects(home_project_id, home_locator_id, status, law_id);
+CREATE UNIQUE INDEX law_subjects_identity_hash ON law_subjects(home_project_id, home_locator_id, law_id, content_hash);
+CREATE TRIGGER law_subjects_guard_insert BEFORE INSERT ON law_subjects FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_subjects is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_subjects_guard_update BEFORE UPDATE ON law_subjects FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_subjects is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_subjects_guard_delete BEFORE DELETE ON law_subjects FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_subjects is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_subjects_home_pair_bound_insert
+BEFORE INSERT ON law_subjects FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_subjects home pair does not reference a Project locator');
+END;
+CREATE TRIGGER law_subjects_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON law_subjects FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_subjects home pair does not reference a Project locator');
+END;
+
+CREATE TABLE law_relations (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    source_law_id      TEXT NOT NULL,
+    kind               TEXT NOT NULL CHECK(kind IN ('refines','subordinate_to','conflicts_with')),
+    target_law_id      TEXT NOT NULL,
+    scanned_commit_oid TEXT NOT NULL,
+    declarer_law_id    TEXT CHECK(declarer_law_id IS NULL OR declarer_law_id IN (source_law_id, target_law_id)),
+    PRIMARY KEY(home_project_id, home_locator_id, source_law_id, kind, target_law_id),
+    CHECK(source_law_id <> target_law_id),
+    FOREIGN KEY(home_project_id, home_locator_id, source_law_id) REFERENCES law_subjects(home_project_id, home_locator_id, law_id) ON DELETE RESTRICT,
+    FOREIGN KEY(home_project_id, home_locator_id, target_law_id) REFERENCES law_subjects(home_project_id, home_locator_id, law_id) ON DELETE RESTRICT
+);
+CREATE INDEX law_relations_target ON law_relations(home_project_id, home_locator_id, kind, target_law_id);
+CREATE UNIQUE INDEX law_relations_conflict_pair ON law_relations(
+    home_project_id, home_locator_id, kind,
+    CASE WHEN kind='conflicts_with' THEN min(source_law_id,target_law_id) ELSE source_law_id END,
+    CASE WHEN kind='conflicts_with' THEN max(source_law_id,target_law_id) ELSE target_law_id END
+);
+CREATE TRIGGER law_relations_guard_insert BEFORE INSERT ON law_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_relations_guard_update BEFORE UPDATE ON law_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_relations_guard_delete BEFORE DELETE ON law_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_relations_home_pair_bound_insert
+BEFORE INSERT ON law_relations FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_relations home pair does not reference a Project locator');
+END;
+CREATE TRIGGER law_relations_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON law_relations FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_relations home pair does not reference a Project locator');
+END;
+
+CREATE TABLE law_cross_source_relations (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    source_law_id      TEXT NOT NULL,
+    kind               TEXT NOT NULL CHECK(kind IN ('refines','subordinate_to','conflicts_with')),
+    target_project_id  TEXT NOT NULL,
+    target_law_id      TEXT NOT NULL,
+    scanned_commit_oid TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, source_law_id, kind, target_project_id, target_law_id),
+    CHECK(source_law_id <> target_law_id OR target_project_id <> home_project_id),
+    FOREIGN KEY(home_project_id, home_locator_id, source_law_id) REFERENCES law_subjects(home_project_id, home_locator_id, law_id) ON DELETE RESTRICT
+);
+CREATE INDEX law_cross_source_relations_target ON law_cross_source_relations(home_project_id, home_locator_id, kind, target_project_id, target_law_id);
+CREATE TRIGGER law_cross_source_relations_guard_insert BEFORE INSERT ON law_cross_source_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_cross_source_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_cross_source_relations_guard_update BEFORE UPDATE ON law_cross_source_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_cross_source_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_cross_source_relations_guard_delete BEFORE DELETE ON law_cross_source_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_cross_source_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+
+INSERT INTO law_subjects SELECT * FROM law_subjects_v140;
+INSERT INTO law_relations SELECT * FROM law_relations_v140;
+INSERT INTO law_cross_source_relations SELECT * FROM law_cross_source_relations_v140;
+INSERT INTO law_bodies SELECT * FROM law_bodies_v140;
+INSERT INTO law_domain_homes SELECT * FROM law_domain_homes_v140;
+INSERT INTO law_domain_applicability SELECT * FROM law_domain_applicability_v140;
+INSERT INTO domain_relation_governing_laws SELECT * FROM domain_relation_governing_laws_v140;
+
+CREATE TEMP TABLE retired_knowledge_v140 AS
+SELECT home_project_id,home_locator_id,id FROM archived_work
+WHERE type <> 'work_note' AND terminal_state='superseded';
+DELETE FROM archived_work_products WHERE (home_project_id,home_locator_id,work_id) IN (SELECT * FROM retired_knowledge_v140);
+DELETE FROM archived_work_projects WHERE (home_project_id,home_locator_id,work_id) IN (SELECT * FROM retired_knowledge_v140);
+DELETE FROM archived_work_components WHERE (home_project_id,home_locator_id,work_id) IN (SELECT * FROM retired_knowledge_v140);
+DELETE FROM archived_work_domains WHERE (home_project_id,home_locator_id,work_id) IN (SELECT * FROM retired_knowledge_v140);
+DELETE FROM archived_work_tags WHERE (home_project_id,home_locator_id,work_id) IN (SELECT * FROM retired_knowledge_v140);
+DELETE FROM archived_work WHERE (home_project_id,home_locator_id,id) IN (SELECT * FROM retired_knowledge_v140);
+
+-- A Git commit hash alone cannot identify the changed projection semantics.
+DELETE FROM knowledge_index_watermark;
+DELETE FROM fold_guard WHERE active=1;
+DROP TABLE retired_knowledge_v140;
+DROP TABLE domain_relation_governing_laws_v140;
+DROP TABLE law_domain_applicability_v140;
+DROP TABLE law_domain_homes_v140;
+DROP TABLE law_bodies_v140;
+DROP TABLE law_cross_source_relations_v140;
+DROP TABLE law_relations_v140;
+DROP TABLE law_subjects_v140;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -904,7 +904,7 @@ func failureEnvelope(base Envelope, err error) Envelope {
 			out.ChangedRefs = committedChangedRefs(sf.CommittedRefs)
 		}
 		if sf.StaleLawRevision != nil {
-			out.Error.StaleLawRevision = &StaleLawRevision{OldLawID: sf.StaleLawRevision.OldLawID, OldContentHash: sf.StaleLawRevision.OldContentHash, AcceptedSuccessorLawID: sf.StaleLawRevision.AcceptedSuccessorLawID, AcceptedSuccessorContentHash: sf.StaleLawRevision.AcceptedSuccessorContentHash, RecoveryActions: append([]string(nil), sf.StaleLawRevision.RecoveryActions...)}
+			out.Error.StaleLawRevision = &StaleLawRevision{OldLawID: sf.StaleLawRevision.OldLawID, OldContentHash: sf.StaleLawRevision.OldContentHash, RecoveryActions: append([]string(nil), sf.StaleLawRevision.RecoveryActions...)}
 		}
 		if sf.DomainOverlap != nil {
 			out.Error.DomainOverlap = &DomainOverlap{TotalOverlaps: sf.DomainOverlap.TotalOverlaps, ReturnedOverlaps: sf.DomainOverlap.ReturnedOverlaps, Truncated: sf.DomainOverlap.Truncated}
@@ -2258,8 +2258,8 @@ func (r runtime) q10(base Envelope, q store.Q10Result) (Envelope, error) {
 		locator = &v
 	}
 	payload := map[string]any{"state": state, "locator": locator, "candidates": []string{}}
-	// Law status and successor ride beside, and never replace, the PM1 Q10
-	// locator state: state stays canonical/not_compacted/missing/ambiguous.
+	// Law status or a work-note successor never replaces the PM1 Q10 locator
+	// state: canonical/not_compacted/missing/ambiguous.
 	if lawStatus != "" {
 		payload["status"] = lawStatus
 	}

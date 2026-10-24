@@ -4607,8 +4607,9 @@ finally:
     connection.close()
 
 
+# The current knowledge vocabulary (140) sets the live compatibility floor.
 # The worker current-facts columns (139), which the store advances as later
-# writes apply, set the live compatibility floor. The work-size retirement
+# writes apply, also constrain older binaries. The work-size retirement
 # (136) and the overlap routine-resolution CHECK rebuild (134) also
 # constrain older binaries. Remote locator identity v2
 # (128), the worker-attempt CHECK rebuild (126), and native lease plan-pair
@@ -4623,7 +4624,7 @@ with open(check.SCHEMA, encoding="utf-8", newline="") as handle:
 live_failures, live_breaking = check.evaluate(check.migrations(live_source))
 if live_failures:
     FAILURES.append(f"live manifest drew refusals: {live_failures}")
-required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134, 136, 137, 139}
+required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134, 136, 137, 139, 140}
 if max(live_breaking, default=0) != max(required_breaking):
     FAILURES.append(
         f"live compatibility floor moved: {max(live_breaking, default=0)}")

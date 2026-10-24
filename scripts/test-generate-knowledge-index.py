@@ -94,6 +94,23 @@ def test_clean_composition_and_id_order() -> None:
         assert run("--check", "--root", str(root)).returncode == 0
 
 
+def test_removed_knowledge_status_is_not_admitted() -> None:
+    value = record("lesson-1")
+    value["status"] = "superseded"
+    value["successor"] = "lesson-2"
+    findings: list[str] = []
+    generator.validate_record(value, "1.2", set(), "shard", findings)
+    assert any("invalid status/kind combination" in item for item in findings), findings
+
+
+def test_removed_successor_is_not_an_authored_field() -> None:
+    value = record("lesson-1")
+    value["successor"] = "lesson-2"
+    findings: list[str] = []
+    generator.validate_record(value, "1.2", set(), "shard", findings)
+    assert any("unknown fields: ['successor']" in item for item in findings), findings
+
+
 def test_unformatted_shard_has_bounded_finding() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = build_root(directory)

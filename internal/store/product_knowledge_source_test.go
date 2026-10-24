@@ -292,7 +292,7 @@ func TestSourceRebuildRefusesRegistryPrecedenceAndConflict(t *testing.T) {
 		}
 	}
 	// Non-home precedence toward shared-home law refuses at rebuild.
-	writeSourceRelations(t, source.RepoPath, []KnowledgeRelation{{Kind: "supersedes", TargetID: "HOME-LAW", SourceProjectID: "xsrc-home"}})
+	writeSourceRelations(t, source.RepoPath, []KnowledgeRelation{{Kind: "refines", TargetID: "HOME-LAW", SourceProjectID: "xsrc-home"}})
 	commitKnowledgeRepo(t, source.RepoPath, "precedence declaration")
 	assertDetail("precedence", s.RebuildKnowledgeIndex(ctx, source), KindRelationConflict)
 	// Cross-source conflicts_with refuses at rebuild.

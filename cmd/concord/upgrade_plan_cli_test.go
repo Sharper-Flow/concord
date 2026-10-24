@@ -294,6 +294,8 @@ var migrationTailReversals = map[int][]string{
 	// Migration 134's overlap-resolution rebuild also drops and recreates
 	// its own table, backup TEMP table included.
 	134: nil,
+	// Migration 140 replaces its own knowledge tables and removes its TEMP copies.
+	140: nil,
 	129: {
 		`ALTER TABLE law_relations DROP COLUMN declarer_law_id`,
 	},

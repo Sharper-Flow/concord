@@ -1511,9 +1511,8 @@ func completeStepPinnedDefinition(t *testing.T, s *Store, workID string) (Regist
 	return BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
 }
 
-// staleLawSuccessorPayload mandates the accepted successor law: the composed
-// successor derives its law revision pins from the mandate's current state, so
-// the stale-law recovery finds the accepted successor pinned (CD-0222 D5).
+// staleLawSuccessorPayload mandates a current accepted law. The composed
+// successor derives current pins without a relation to the deleted law.
 func staleLawSuccessorPayload(workID string) json.RawMessage {
 	binding := `{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
 	return json.RawMessage(`{"contract_version":2,"premise":"the delivered subject under the successor law","outcome_predicates":[{"predicate_id":"predicate:return-route","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:return-route","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification","review","artifact"],"route_conventions":["complete_step_correction"],"spec_mandate":["spec:two"],"law_modifies":[],"rigor_class":"prototype_internal","decision_domains":[],"architecture_binding":` + binding + `,"supersede_reason":"the approved premise moved to the successor law","audit_evidence":["evidence:complete-correction-` + workID + `"]}`)
@@ -1521,7 +1520,7 @@ func staleLawSuccessorPayload(workID string) json.RawMessage {
 
 // TestCompleteStepCorrectionStaleLawStaysBehindTheGate proves the stale-law
 // recovery route does not bypass the complete-step admission. With the active
-// contract's mandated law superseded but no durable contradiction record,
+// contract's pinned law deleted but no durable contradiction record,
 // discovery and preflight refuse; the route opens only when the contradiction
 // observation postdates the verdict (CD-0172 D1).
 func TestCompleteStepCorrectionStaleLawStaysBehindTheGate(t *testing.T) {
@@ -1529,11 +1528,12 @@ func TestCompleteStepCorrectionStaleLawStaysBehindTheGate(t *testing.T) {
 	const workID = "complete-correction-stale-law-gate"
 	fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
 	s := fixture.store
+	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
 		UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
-		UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
+		DELETE FROM law_domain_homes WHERE law_id='spec:one';
+		DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
 		INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test');
-		INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test');
 		INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','');
 		DELETE FROM fold_guard`, workID); err != nil {
 		t.Fatal(err)
@@ -1750,17 +1750,18 @@ func TestCompleteStepCorrectionKeepsSuccessorVerdictsFresh(t *testing.T) {
 
 // seedOffShapeCompletedInstance parks a completed workflow instance on a
 // verified break-fix step whose pinned shape does not carry the complete-step
-// correction route, and supersedes the active contract's mandated law so the
+// correction route, and deletes the active contract's pinned law so the
 // stale-law recovery is the admission under test.
 func seedOffShapeCompletedInstance(t *testing.T, workID string) workflowReturnRouteFixture {
 	t.Helper()
 	fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
+	attachWorkflowLawPin(t, fixture.store, workID, "sha256:"+strings.Repeat("a", 64))
 	if _, err := fixture.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
 		UPDATE workflow_instances SET current_step='verify', instance_state='completed' WHERE work_id=?;
 		UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
-		UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
+		DELETE FROM law_domain_homes WHERE law_id='spec:one';
+		DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
 		INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test');
-		INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test');
 		INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','');
 		DELETE FROM fold_guard`, workID, workID); err != nil {
 		t.Fatal(err)

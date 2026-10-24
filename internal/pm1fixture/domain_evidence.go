@@ -36,10 +36,7 @@ const (
 	// DomainEvidenceLawBody is the committed blob behind DomainEvidenceLawPath.
 	DomainEvidenceLawBody = "Domains are the only architecture authority.\n"
 
-	domainEvidenceProductKey     = "concord"
-	domainEvidenceSupersededID   = "CD-0002"
-	domainEvidenceSupersededPath = ".concord/docs/decisions/CD-0002.md"
-	domainEvidenceSupersededBody = "Components were the prior architecture authority.\n"
+	domainEvidenceProductKey = "concord"
 )
 
 // DomainEvidenceTime is the occurrence time every seeded event carries, so
@@ -173,7 +170,7 @@ func SeedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidence
 
 // DomainEvidenceRepo commits a knowledge manifest declaring exactly one root
 // Domain with an empty architecture relation set, plus an accepted decision
-// homed to that Domain and the superseded decision it replaced.
+// homed to that Domain.
 func DomainEvidenceRepo(dir string) (string, error) {
 	repo, err := initKnowledgeRepo(dir)
 	if err != nil {
@@ -181,9 +178,6 @@ func DomainEvidenceRepo(dir string) (string, error) {
 	}
 	if err := writeKnowledgeFile(repo, DomainEvidenceLawPath, DomainEvidenceLawBody); err != nil {
 		return "", fmt.Errorf("pm1fixture: write accepted decision: %w", err)
-	}
-	if err := writeKnowledgeFile(repo, domainEvidenceSupersededPath, domainEvidenceSupersededBody); err != nil {
-		return "", fmt.Errorf("pm1fixture: write superseded decision: %w", err)
 	}
 	manifest := store.KnowledgeManifest{
 		SchemaVersion:  "1.2",
@@ -202,16 +196,8 @@ func DomainEvidenceRepo(dir string) (string, error) {
 				ID: DomainEvidenceLawID, Kind: "decision", Path: DomainEvidenceLawPath, Status: "accepted", Date: "2026-08-18T00:00:00Z",
 				Title: DomainEvidenceLawTitle, Summary: "Domains carry architecture authority", Tags: []string{},
 				Authority:    store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
-				LawRelations: []store.KnowledgeRelation{{Kind: "supersedes", TargetID: domainEvidenceSupersededID}},
 				Scopes:       store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{SingleDomainRootID}, TagIDs: []string{}},
 				HomeDomainID: SingleDomainRootID, ProductWideRationale: SingleDomainRootRationale, SHA256: ContentDigest(DomainEvidenceLawBody),
-			},
-			{
-				ID: domainEvidenceSupersededID, Kind: "decision", Path: domainEvidenceSupersededPath, Status: "superseded", Date: "2026-08-17T00:00:00Z",
-				Title: "Component authority", Summary: "Retired architecture authority", Tags: []string{},
-				Authority: store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1}, Successor: DomainEvidenceLawID,
-				Scopes:       store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{SingleDomainRootID}, TagIDs: []string{}},
-				HomeDomainID: SingleDomainRootID, ProductWideRationale: SingleDomainRootRationale, SHA256: ContentDigest(domainEvidenceSupersededBody),
 			},
 		},
 	}

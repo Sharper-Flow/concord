@@ -520,15 +520,6 @@ func TestLawChangeEnactmentRequiresDerivedTierAndOneDomain(t *testing.T) {
 		}
 	})
 
-	t.Run("a superseded revision also carries derived", func(t *testing.T) {
-		t.Parallel()
-		workID := "law-change-enact-superseded"
-		s := seedLawChangeFixture(t, workID)
-		seedLawChangeLaw(t, s, "law-agent", "legislated", "agent-surface")
-		lawChangeFold(t, s, `UPDATE law_subjects SET status='superseded' WHERE law_id='law-agent'`)
-		requireFailureKind(t, enactLawChange(t, s, workID, nonSerious(), []string{"law-agent"}, nil), KindMissingEvidence, "superseded revision without derived tier")
-	})
-
 }
 
 // TestLawChangeEnactmentMatchesApprovedText holds the completion half for a

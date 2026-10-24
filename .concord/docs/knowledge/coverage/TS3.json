@@ -14,11 +14,11 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestKnowledgeSearchProjectsLawStatusAndSuccessor"
+      "value": "internal/agent.TestKnowledgeSearchProjectsAcceptedLawStatus"
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestKnowledgeResolveNoteProjectsLawStatusAndSuccessor"
+      "value": "internal/agent.TestKnowledgeResolveNoteProjectsAcceptedLawStatus"
     },
     {
       "kind": "go_test",

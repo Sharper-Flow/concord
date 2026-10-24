@@ -1319,9 +1319,6 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 				return err
 			}
 		}
-		if err := validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, event.SubjectID, predecessors, p.SuccessorContract.LawRevisions); err != nil {
-			return err
-		}
 		p.SuccessorContract.WorkflowVersionFields = p.WorkflowVersionFields
 		successorPayload, err := json.Marshal(p.SuccessorContract)
 		if err != nil {
@@ -1356,7 +1353,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		if len(predecessors) != 1 {
 			return newFailure(KindInvariantViolation, "fold_event", "duplicate active contracts require a fully supplied successor contract", false, "supply the typed successor contract")
 		}
-		if err := validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, event.SubjectID, predecessors, nil); err != nil {
+		if err := validateClonedWorkflowContractLawRevisionsTx(ctx, tx, event.SubjectID, predecessors); err != nil {
 			return err
 		}
 		cloned, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_version,definition_digest,decision_domains) SELECT work_id,?,premise,consequence_class,required_evidence,route_conventions,?,?,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_version,definition_digest,decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=? AND NOT EXISTS (SELECT 1 FROM workflow_contracts WHERE work_id=? AND contract_version=?)`, p.NewContractVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, event.SubjectID, p.PreviousContractVersion, event.SubjectID, p.NewContractVersion)

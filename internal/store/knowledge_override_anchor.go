@@ -15,7 +15,7 @@ import (
 // carries the closed concord-operator-override instruction block for the
 // override's exact Product and path with the approve decision. Composition
 // proves shape; this gate proves the anchor on every committed manifest read,
-// so a fabricated, unrelated, superseded, or denied anchor refuses before the
+// so a fabricated, unrelated, or denied anchor refuses before the
 // manifest is used.
 
 // operatorInstructionOpen is the exact line that opens one closed

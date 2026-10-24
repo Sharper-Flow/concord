@@ -131,11 +131,9 @@ type SessionPlacement struct {
 }
 
 type StaleLawRevision struct {
-	OldLawID                     string   `json:"old_law_id"`
-	OldContentHash               string   `json:"old_content_hash"`
-	AcceptedSuccessorLawID       string   `json:"accepted_successor_law_id"`
-	AcceptedSuccessorContentHash string   `json:"accepted_successor_content_hash"`
-	RecoveryActions              []string `json:"recovery_actions"`
+	OldLawID        string   `json:"old_law_id"`
+	OldContentHash  string   `json:"old_content_hash"`
+	RecoveryActions []string `json:"recovery_actions"`
 }
 
 type DomainOverlapRelationTuple struct {
@@ -867,10 +865,10 @@ func validateError(err TypedError) error {
 }
 
 // validateStaleLawRevisionCoupling validates the stale-law-revision payload
-// the kind requires: two bounded law IDs with proof hashes and one to four
+// the kind requires: the deleted law's bounded ID and pinned hash, and one to four
 // bounded recovery actions.
 func validateStaleLawRevisionCoupling(revision *StaleLawRevision) error {
-	if revision == nil || !bounded(revision.OldLawID, 2, 256) || !validSHA256Proof(revision.OldContentHash) || !bounded(revision.AcceptedSuccessorLawID, 2, 256) || !validSHA256Proof(revision.AcceptedSuccessorContentHash) || len(revision.RecoveryActions) == 0 || len(revision.RecoveryActions) > 4 || !boundedStrings(revision.RecoveryActions, 128) {
+	if revision == nil || !bounded(revision.OldLawID, 2, 256) || !validSHA256Proof(revision.OldContentHash) || len(revision.RecoveryActions) == 0 || len(revision.RecoveryActions) > 4 || !boundedStrings(revision.RecoveryActions, 128) {
 		return errors.New("stale law revision coupling violated")
 	}
 	return nil

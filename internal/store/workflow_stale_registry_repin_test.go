@@ -316,13 +316,13 @@ func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 	if err != nil || view == nil || len(view.ResearchFindings) != 1 {
 		t.Fatalf("selected research receipt: %+v err=%v", view, err)
 	}
-	// The rescan: the contract's mandated law is superseded by an accepted
-	// successor, so the pinned revision reads stale.
+	// The rescan deletes the pinned law, so the contract reads stale.
+	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 	execStaleRegistryInFold(t, s,
 		`UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id='`+workID+`' AND contract_version=1`,
-		`UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`,
+		`DELETE FROM law_domain_homes WHERE law_id='spec:one'`,
+		`DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`,
 		`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test')`,
-		`INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test')`,
 		`INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','')`,
 	)
 
@@ -338,8 +338,8 @@ func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 
 	err = runVerdictActionAs(t, s, workID, "record_verdict", lateVerdict(1, view.ResearchFindings[0].ViewID), 0, reviewer)
 	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision || failure.Detail != "workflow contract consumes a superseded law revision" {
-		t.Fatalf("late record_verdict under a stale pin error=%v, want the stale-law refusal naming the superseded revision", err)
+	if !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision || failure.Detail != "workflow contract pins a deleted law" {
+		t.Fatalf("late record_verdict under a stale pin error=%v, want the stale-law refusal naming the deleted revision", err)
 	}
 	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ActionID: "record_verdict", Payload: lateVerdict(1, view.ResearchFindings[0].ViewID), Actor: owner}); !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision {
 		t.Fatalf("admission inspection error=%v, want the stale-law refusal", err)
@@ -365,7 +365,7 @@ func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 		"required_evidence": []string{"verification"}, "route_conventions": []string{},
 		"spec_mandate": []string{"spec:two"}, "law_modifies": []string{},
 		"rigor_class":      "prototype_internal",
-		"supersede_reason": "the approved contract consumes a superseded law revision",
+		"supersede_reason": "the approved contract pins a deleted law",
 		"audit_evidence":   []string{"evidence:law-rescan"},
 	})
 	if err := runVerdictActionAs(t, s, workID, "supersede_contract", successor, 0, owner); err != nil {

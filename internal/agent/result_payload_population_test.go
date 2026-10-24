@@ -390,7 +390,6 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 		CompletionWarnings:       []string{"a warning"},
 		StaleLawRevision: &store.StaleLawRevision{
 			OldLawID: "spec-1", OldContentHash: "sha256:" + repeatHex(),
-			AcceptedSuccessorLawID: "spec-2", AcceptedSuccessorContentHash: "sha256:" + repeatHex(),
 			RecoveryActions: []string{"supersede_contract"},
 		},
 		ChangesProductTruth: true,

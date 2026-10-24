@@ -261,23 +261,19 @@ func TestRoutineRecovery(t *testing.T) {
 		}
 	})
 
-	t.Run("the stale-law recovery wall demands the accepted successor law", func(t *testing.T) {
+	t.Run("the clone recovery wall refuses a deleted mandated law", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-recovery-stale-law"
 		ctx := context.Background()
 		fixture := routineRecoveryAtCompleteStep(t, workID)
 		s := fixture.store
-		// The shared stale-law fixture: contract 1 mandates spec:one, and the
-		// Git-derived law projection supersedes it with accepted spec:two.
-		// The route-level legacy execution of this exact shape stays covered
-		// unchanged by TestCompleteStepCorrectionStaleLawStaysBehindTheGate;
-		// this witness pins the wall owner both policies share.
+		attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
+		// A clone keeps the deleted mandate; complete successors may drop it
+		// or bind any current accepted law (CD-0036 D3).
 		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
 			UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
-			UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
-			INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test');
-			INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test');
-			INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','');
+			DELETE FROM law_domain_homes WHERE law_id='spec:one';
+			DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
 			DELETE FROM fold_guard`, workID); err != nil {
 			t.Fatal(err)
 		}
@@ -286,12 +282,10 @@ func TestRoutineRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
-		err = validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, workID, []int64{1}, nil)
-		if err == nil || !strings.Contains(err.Error(), "must pin every accepted successor law revision") {
-			t.Fatalf("stale-law recovery without the successor pin returned %v, want the wall refusal", err)
-		}
-		if err := validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, workID, []int64{1}, []WorkflowLawRevision{{LawID: "spec:two", ContentHash: "sha256:" + strings.Repeat("b", 64)}}); err != nil {
-			t.Fatalf("stale-law recovery pinning the accepted successor law refused: %v", err)
+		err = validateClonedWorkflowContractLawRevisionsTx(ctx, tx, workID, []int64{1})
+		var failure *Failure
+		if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "retain a deleted mandated law") {
+			t.Fatalf("clone recovery retaining deleted law returned %v, want the wall refusal", err)
 		}
 	})
 

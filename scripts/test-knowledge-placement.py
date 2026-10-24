@@ -309,20 +309,6 @@ class OperatorOverrideTest(unittest.TestCase):
             out,
         )
 
-    def test_a_superseded_anchor_refuses(self) -> None:
-        # A superseded decision carries no authority, so its instruction
-        # block never admits a placement.
-        root = build_sandbox()
-        (root / "external/knowledge").mkdir(parents=True)
-        self.write_anchor(root, self.instruction_block())
-        document = manifest_document(knowledge_roots=["external/knowledge/"])
-        document["records"][0]["status"] = "superseded"
-        document["operator_overrides"] = [self.override()]
-        code, out, _ = run_with_sandbox(root, document)
-        self.assertEqual(code, 1)
-        self.assertIn("has status 'superseded'", out)
-        self.assertIn("only an accepted decision carries operator override authority", out)
-
     def test_a_non_decision_anchor_refuses(self) -> None:
         root = build_sandbox()
         (root / "external/knowledge").mkdir(parents=True)

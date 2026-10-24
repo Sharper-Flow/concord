@@ -690,7 +690,7 @@ func writeProductAndProjects(ctx context.Context, s *store.Store, request *impor
 				SubjectID:      primary.ProjectID,
 				Actor:          importOperatorActor,
 				OccurredAt:     now,
-				PayloadVersion: 1,
+				PayloadVersion: 2,
 				Payload:        projectPayload,
 			},
 			{
@@ -771,7 +771,7 @@ func writeSecondaryProjects(ctx context.Context, s *store.Store, request *import
 					SubjectID:      project.ProjectID,
 					Actor:          importOperatorActor,
 					OccurredAt:     now,
-					PayloadVersion: 1,
+					PayloadVersion: 2,
 					Payload:        projectPayload,
 				},
 				{
@@ -855,7 +855,7 @@ func writeSelectedWork(ctx context.Context, s *store.Store, request *importReque
 					SubjectID:      workID,
 					Actor:          importOperatorActor,
 					OccurredAt:     now,
-					PayloadVersion: 2,
+					PayloadVersion: 4,
 					Payload:        workPayload,
 				},
 				{

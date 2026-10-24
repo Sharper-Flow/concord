@@ -60,7 +60,7 @@ func TestKnowledgeManifestRelationsRequireCurrentSchema(t *testing.T) {
 	}
 }
 
-func TestKnowledgeManifestRelationsRejectInvalidGraphsAndSupersessionMismatch(t *testing.T) {
+func TestKnowledgeManifestRelationsRejectInvalidGraphs(t *testing.T) {
 	t.Parallel()
 	base := func(relations ...KnowledgeRelation) KnowledgeManifest {
 		return lawTestManifest(
@@ -83,10 +83,6 @@ func TestKnowledgeManifestRelationsRejectInvalidGraphsAndSupersessionMismatch(t 
 		"mixed directed cycle": lawTestManifest(
 			lawTestRecord("a", "decision", "accepted", ".concord/docs/decisions/CD-0001-a.md", KnowledgeRelation{Kind: "refines", TargetID: "b"}),
 			lawTestRecord("b", "decision", "accepted", ".concord/docs/decisions/CD-0002-b.md", KnowledgeRelation{Kind: "subordinate_to", TargetID: "a"}),
-		),
-		"supersession mismatch": lawTestManifest(
-			lawTestRecord("old", "decision", "superseded", ".concord/docs/decisions/CD-0001-old.md", KnowledgeRelation{Kind: "supersedes", TargetID: "new"}),
-			lawTestRecord("new", "decision", "accepted", ".concord/docs/decisions/CD-0002-new.md"),
 		),
 		"lesson endpoint": lawTestManifest(
 			lawTestRecord("lesson", "lesson", "published", ".concord/docs/lesson.md", KnowledgeRelation{Kind: "refines", TargetID: "a"}),

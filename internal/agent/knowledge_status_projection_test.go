@@ -8,13 +8,12 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// A superseded law must not read as binding: the agent search projection
-// carries the record's law status and successor the store already holds.
-func TestKnowledgeSearchProjectsLawStatusAndSuccessor(t *testing.T) {
+// Law search exposes accepted law, without a replacement relationship.
+func TestKnowledgeSearchProjectsAcceptedLawStatus(t *testing.T) {
 	t.Parallel()
 	meta := store.ResultMeta{QueryID: "PM1.Q9", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	result := store.Q9Result{ResultMeta: meta, IndexWatermark: "commit", Items: []store.KnowledgeItem{
-		{ID: "CD-0001", Kind: "decision", OutcomeTag: "superseded", SuccessorID: "CD-0002", NotePath: ".concord/docs/decisions/CD-0001.md"},
+		{ID: "CD-0001", Kind: "decision", OutcomeTag: "accepted", NotePath: ".concord/docs/decisions/CD-0001.md"},
 	}}
 	response, err := (runtime{Tool: "concord_knowledge", Operation: "search"}).q9(NewBase("q9-status", "concord_knowledge", "search"), result)
 	if err != nil {
@@ -30,11 +29,11 @@ func TestKnowledgeSearchProjectsLawStatusAndSuccessor(t *testing.T) {
 	if err := json.Unmarshal(raw, &page); err != nil || len(page.Items) != 1 {
 		t.Fatalf("search page = %s err=%v", raw, err)
 	}
-	if got := page.Items[0]["status"]; got != "superseded" {
-		t.Fatalf("search item status = %v, want superseded; item=%s", got, raw)
+	if got := page.Items[0]["status"]; got != "accepted" {
+		t.Fatalf("search item status = %v, want accepted; item=%s", got, raw)
 	}
-	if got := page.Items[0]["successor_id"]; got != "CD-0002" {
-		t.Fatalf("search item successor_id = %v, want CD-0002; item=%s", got, raw)
+	if _, present := page.Items[0]["successor_id"]; present {
+		t.Fatalf("law search item projected a successor: %s", raw)
 	}
 }
 
@@ -98,13 +97,13 @@ func TestKnowledgeSearchOmitsWorkNoteTagsThatNameLawStatuses(t *testing.T) {
 	}
 }
 
-// A canonical resolve_note result carries the record's law status and
-// successor beside the locator, and state keeps its PM1 Q10 meaning.
-func TestKnowledgeResolveNoteProjectsLawStatusAndSuccessor(t *testing.T) {
+// A canonical law result carries accepted status beside its locator, while
+// state keeps its PM1 Q10 meaning.
+func TestKnowledgeResolveNoteProjectsAcceptedLawStatus(t *testing.T) {
 	t.Parallel()
 	meta := store.ResultMeta{QueryID: "PM1.Q10", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	note := &store.CanonicalNote{HomeProjectID: "home", HomeLocatorID: "locator", NotePath: ".concord/docs/decisions/CD-0001.md", Commit: "c0ffee", ContentHash: "sha256:deadbeef"}
-	result := store.Q10Result{ResultMeta: meta, Status: "canonical", Note: note, Result: &store.Q10Payload{Status: "canonical", Note: note, LawStatus: "superseded", SuccessorID: "CD-0002"}}
+	result := store.Q10Result{ResultMeta: meta, Status: "canonical", Note: note, Result: &store.Q10Payload{Status: "canonical", Note: note, LawStatus: "accepted"}}
 	response, err := (runtime{Tool: "concord_knowledge", Operation: "resolve_note"}).q10(NewBase("q10-status", "concord_knowledge", "resolve_note"), result)
 	if err != nil {
 		t.Fatal(err)
@@ -114,10 +113,9 @@ func TestKnowledgeResolveNoteProjectsLawStatusAndSuccessor(t *testing.T) {
 		t.Fatal(err)
 	}
 	var payload struct {
-		State       string  `json:"state"`
-		Status      *string `json:"status"`
-		SuccessorID string  `json:"successor_id"`
-		Locator     *string `json:"locator"`
+		State   string  `json:"state"`
+		Status  *string `json:"status"`
+		Locator *string `json:"locator"`
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		t.Fatal(err)
@@ -125,11 +123,15 @@ func TestKnowledgeResolveNoteProjectsLawStatusAndSuccessor(t *testing.T) {
 	if payload.State != "canonical" || payload.Locator == nil {
 		t.Fatalf("resolve_note = %s, want canonical state with locator", raw)
 	}
-	if payload.Status == nil || *payload.Status != "superseded" {
-		t.Fatalf("resolve_note status = %s, want superseded", raw)
+	if payload.Status == nil || *payload.Status != "accepted" {
+		t.Fatalf("resolve_note status = %s, want accepted", raw)
 	}
-	if payload.SuccessorID != "CD-0002" {
-		t.Fatalf("resolve_note successor_id = %q, want CD-0002", raw)
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := fields["successor_id"]; present {
+		t.Fatalf("law resolve_note projected a successor: %s", raw)
 	}
 }
 
@@ -156,5 +158,39 @@ func TestKnowledgeResolveNoteWithoutLawStatusOmitsTheField(t *testing.T) {
 	}
 	if _, present := payload["status"]; present {
 		t.Fatalf("resolve_note projected a law status without one: %s", raw)
+	}
+}
+
+func TestKnowledgeWireRejectsRetiredLawStatusAndSuccessor(t *testing.T) {
+	t.Parallel()
+	for _, status := range []string{"accepted", "superseded", "published"} {
+		for _, successor := range []bool{false, true} {
+			item := map[string]any{"knowledge_id": "CD-0001", "kind": "decision", "locator": "law.md", "status": status}
+			note := map[string]any{"state": "canonical", "status": status}
+			if successor {
+				item["successor_id"], note["successor_id"] = "CD-0002", "CD-0002"
+			}
+			for name, payload := range map[string]any{"knowledge_page": map[string]any{"items": []any{item}}, "canonical_note_result": note} {
+				raw, err := json.Marshal(payload)
+				if err != nil {
+					t.Fatal(err)
+				}
+				valid := !successor && (status == "accepted" || (name == "canonical_note_result" && status == "published"))
+				if err := ValidatePayloadSchema(name, raw); (err == nil) != valid {
+					t.Fatalf("%s status=%q successor=%v: err=%v, want valid=%v", name, status, successor, err, valid)
+				}
+			}
+		}
+	}
+	for name, payload := range map[string]string{
+		"knowledge_page":        `{"items":[{"knowledge_id":"work-1","kind":"note","locator":"note.md","successor_id":"work-2"}]}`,
+		"canonical_note_result": `{"state":"canonical","successor_id":"work-2"}`,
+	} {
+		if err := ValidatePayloadSchema(name, json.RawMessage(payload)); err != nil {
+			t.Fatalf("%s rejected work-note successor: %v", name, err)
+		}
+	}
+	if err := ValidatePayloadSchema("knowledge_page", json.RawMessage(`{"items":[{"knowledge_id":"lesson-1","kind":"lesson","locator":"lesson.md","status":"published"}]}`)); err != nil {
+		t.Fatalf("knowledge page rejected published non-law record: %v", err)
 	}
 }

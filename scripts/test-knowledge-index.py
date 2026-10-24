@@ -334,43 +334,17 @@ def test_schema_1_3_record_requires_an_authority_object() -> None:
     assert any("authority" in finding for finding in findings), findings
 
 
-def test_v12_rejects_historical_law_applicability_without_home() -> None:
+def test_v12_rejects_law_applicability_without_home() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
         (root / ".concord/docs").mkdir(parents=True)
         (root / ".concord/docs/spec.md").write_text("spec\n", encoding="utf-8")
         value = v12_fixture()
-        value["records"][0]["status"] = "superseded"
-        value["records"][0]["successor"] = "spec-2"
         value["records"][0]["applies_to_domain_ids"] = ["product-root:concord"]
-        value["records"].append({
-            "id": "spec-2", "kind": "spec", "path": ".concord/docs/spec-2.md", "status": "accepted",
-            "date": "2026-08-10T00:00:00Z", "title": "Successor", "summary": "Summary", "tags": [],
-            "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
-            "home_domain_id": "product-root:concord", "product_wide_rationale": "Successor law binds every child Domain.",
-            "law_relations": [{"kind": "supersedes", "target_id": "spec-1"}],
-            "sha256": "sha256:" + "b" * 64,
-        })
-        (root / ".concord/docs/spec-2.md").write_text("successor\n", encoding="utf-8")
         del value["records"][0]["home_domain_id"]
         del value["records"][0]["product_wide_rationale"]
         with mock.patch.object(checker, "ROOT", root):
             assert checker.validate(value, check_hashes=False)
-
-
-def test_qualified_successor_is_refused_fail_closed() -> None:
-    """The cross-source supersedes edge a qualified successor implies has no
-    admitted declaration, so the successor must live in this manifest."""
-    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
-        root = Path(directory)
-        (root / ".concord/docs").mkdir(parents=True)
-        (root / ".concord/docs/spec.md").write_text("spec\n", encoding="utf-8")
-        value = v12_fixture()
-        value["records"][0]["status"] = "superseded"
-        value["records"][0]["successor"] = "project-external/NEXT-LAW"
-        with mock.patch.object(checker, "ROOT", root):
-            findings = checker.validate(value, check_hashes=False)
-        assert any("supersede within the declaring source or amend through the shared home" in finding for finding in findings), findings
 
 
 def test_qualified_relation_between_distinct_sources_sharing_a_bare_id_is_not_a_self_edge() -> None:

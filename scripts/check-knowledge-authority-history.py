@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Assert the committed cohort asset equals the application snapshot's census.
+"""Assert the cohort asset contains the surviving application census members.
 
 CD-0159 D5: the frozen legislated-by-default cohort in
 internal/store/knowledge_authority_defaults.v1.json must equal, member for
-member, the (record_id, kind) pairs of the records in the named application
-tree whose authority names the asset's vehicle contract at the asset's
-version. The census reads Git objects at the historical docs/knowledge/
+member, the surviving (record_id, kind) pairs from the named application tree
+whose authority names the asset's vehicle contract at the asset's version.
+Deleted records have no current authority membership (CD-0242 D10).
+The census reads Git objects at the historical docs/knowledge/
 records/ path, so it needs full history: assign it only to the
 fetch-depth-0 verify-contracts job. Every production surface stays
 history-independent; this script is the one history-dependent assertion.
@@ -23,6 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import knowledge_authority_defaults  # noqa: E402
+import knowledge_index  # noqa: E402
 
 # The application snapshot predates the .concord/ move, so the records live
 # at the historical path inside that tree.
@@ -37,7 +39,7 @@ def git(root: Path, *args: str) -> str:
 
 
 def census(root: Path, defaults: knowledge_authority_defaults.AuthorityDefaults) -> list[str]:
-    """Compare the asset with the application tree; return human findings."""
+    """Compare the asset with surviving application records; return findings."""
     findings: list[str] = []
     try:
         git(root, "cat-file", "-t", defaults.application_sha)
@@ -69,11 +71,16 @@ def census(root: Path, defaults: knowledge_authority_defaults.AuthorityDefaults)
             and authority.get("contract_version") == defaults.vehicle_contract_version
         ):
             historical.add((record["id"], record["kind"]))
+    try:
+        current = {(record["id"], record["kind"]) for record in knowledge_index.raw_manifest(root)["records"]}
+    except (knowledge_index.ComposeError, KeyError, TypeError) as exc:
+        return findings + [f"current knowledge records are unreadable: {exc}"]
+    surviving = historical & current
     asset = set(defaults.members)
-    for record_id, kind in sorted(historical - asset):
+    for record_id, kind in sorted(surviving - asset):
         findings.append(f"missing cohort member: {(record_id, kind)} is vehicle-claimed in the application tree but absent from the asset")
-    for record_id, kind in sorted(asset - historical):
-        findings.append(f"expanded cohort member: {(record_id, kind)} is in the asset but not vehicle-claimed in the application tree")
+    for record_id, kind in sorted(asset - surviving):
+        findings.append(f"expanded cohort member: {(record_id, kind)} is in the asset but not a surviving vehicle-claimed application record")
     if not findings:
         print(f"census matched: {len(asset)} members across {shards} application shards at {defaults.application_sha}")
     return findings

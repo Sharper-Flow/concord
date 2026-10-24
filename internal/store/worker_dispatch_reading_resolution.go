@@ -266,7 +266,7 @@ func sampleDispatchReadingIdentities(ctx context.Context, q queryer, workID stri
 			} else if watermarkErr != sql.ErrNoRows {
 				return nil, readingResolutionFailure(ordinal, witness.identity, wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the knowledge source watermark", true, "retry once the knowledge projection is readable", watermarkErr))
 			}
-			record, role, recordErr := knowledgeProjectedRecordTx(ctx, q, reading.Source.LawID, row.recordType, row.outcomeTag, row.completedAt, row.title, row.summary, "", row.contentHash, row.scopeMode, row.lessonTags, home.HomeProjectID, home.HomeLocatorID, row.notePath)
+			record, role, recordErr := knowledgeProjectedRecordTx(ctx, q, reading.Source.LawID, row.recordType, row.outcomeTag, row.completedAt, row.title, row.summary, row.contentHash, row.scopeMode, row.lessonTags, home.HomeProjectID, home.HomeLocatorID, row.notePath)
 			if recordErr != nil {
 				return nil, readingResolutionFailure(ordinal, witness.identity, recordErr)
 			}

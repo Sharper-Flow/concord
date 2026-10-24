@@ -422,17 +422,17 @@ func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out 
 			return revisionErr
 		}
 		contract.LawRevisions = revisions
-		// Resolve the contract's binding law and Domains inside the same
-		// read transaction, so the pinned projection carries readable law
-		// references rather than bare IDs. A contract with no bound law
-		// leaves the field absent.
-		lawContext, lawErr := readWorkflowLawContext(ctx, tx, work, &contract)
-		if lawErr != nil {
-			return lawErr
-		}
-		out.LawContext = lawContext
 		if err := continuityResolveLawMandateTx(ctx, tx, work, out, &contract); err != nil {
 			return err
+		}
+		// A stale contract remains inspectable, but cannot supply readable
+		// current-law context for a law that no longer exists (CD-0036 D3/D6).
+		if out.StaleLawRevision == nil {
+			lawContext, lawErr := readWorkflowLawContext(ctx, tx, work, &contract)
+			if lawErr != nil {
+				return lawErr
+			}
+			out.LawContext = lawContext
 		}
 		out.SpecMandate = nonNilStrings(append([]string(nil), contract.SpecMandate...))
 		registered, verifyErr := verifyReadWorkflowDefinitionForRegistry(definition, registry)

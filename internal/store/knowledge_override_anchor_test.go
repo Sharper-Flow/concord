@@ -64,7 +64,7 @@ func wantAnchorRefusal(t *testing.T, err error, detail string) {
 }
 
 // TestValidateOverrideAnchorsRefusalClasses walks every boundary the anchor
-// gate owns: a missing record, a non-decision, a superseded decision, an
+// gate owns: a missing record, a non-decision, an
 // unreadable document, a hash mismatch, an absent block, a malformed block, a
 // denial, and an instruction for another Product all refuse; the complete
 // anchor admits.
@@ -89,10 +89,6 @@ func TestValidateOverrideAnchorsRefusalClasses(t *testing.T) {
 	nonDecision.HomeDomainID = ""
 	nonDecision.ProductWideRationale = ""
 	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(nonDecision, []KnowledgeOperatorOverride{override}), read), "only a decision carries operator override authority")
-
-	superseded := anchorRecord(document)
-	superseded.Status = "superseded"
-	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(superseded, []KnowledgeOperatorOverride{override}), read), "only an accepted decision carries operator override authority")
 
 	unreadable := func(string) ([]byte, error) { return nil, errors.New("unreadable") }
 	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(anchorRecord(document), []KnowledgeOperatorOverride{override}), unreadable), "cannot be read")

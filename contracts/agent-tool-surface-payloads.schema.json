@@ -2175,8 +2175,6 @@
           "required": [
             "old_law_id",
             "old_content_hash",
-            "accepted_successor_law_id",
-            "accepted_successor_content_hash",
             "recovery_actions"
           ],
           "properties": {
@@ -2184,12 +2182,6 @@
               "$ref": "#/$defs/law_id"
             },
             "old_content_hash": {
-              "$ref": "#/$defs/digest"
-            },
-            "accepted_successor_law_id": {
-              "$ref": "#/$defs/law_id"
-            },
-            "accepted_successor_content_hash": {
               "$ref": "#/$defs/digest"
             },
             "recovery_actions": {
@@ -3274,8 +3266,7 @@
         "status": {
           "type": "string",
           "enum": [
-            "accepted",
-            "superseded"
+            "accepted"
           ]
         },
         "title": {
@@ -5506,11 +5497,11 @@
                 "type": "string",
                 "enum": [
                   "accepted",
-                  "superseded",
                   "published"
                 ]
               },
               "successor_id": {
+                "description": "A work-note successor, never a law replacement.",
                 "$ref": "#/$defs/id"
               },
               "home_project_id": {
@@ -5519,7 +5510,20 @@
               "home_locator_id": {
                 "$ref": "#/$defs/id"
               }
-            }
+            },
+            "allOf": [
+              {
+                "if": {"required": ["successor_id"]},
+                "then": {
+                  "properties": {"kind": {"const": "note"}},
+                  "not": {"required": ["status"]}
+                }
+              },
+              {
+                "if": {"properties": {"kind": {"type": "string", "enum": ["constitution", "decision", "specification"]}}},
+                "then": {"properties": {"status": {"const": "accepted"}}}
+              }
+            ]
           }
         },
         "next_cursor": {
@@ -5598,13 +5602,19 @@
           "type": "string",
           "enum": [
             "accepted",
-            "superseded",
             "published"
           ]
         },
         "successor_id": {
+          "description": "A work-note successor, never a law replacement.",
           "$ref": "#/$defs/id"
         }
+      },
+      "not": {
+        "required": [
+          "status",
+          "successor_id"
+        ]
       }
     },
     "work_size_inputs": {
@@ -28583,8 +28593,7 @@
         "status": {
           "type": "string",
           "enum": [
-            "accepted",
-            "superseded"
+            "accepted"
           ]
         },
         "title": {

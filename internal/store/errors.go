@@ -250,7 +250,7 @@ type Failure struct {
 	// failures that refuse a relation because of a structural violation
 	// (cycle, supersession target already taken, etc.).
 	Violations []string `json:"violations,omitempty"`
-	// StaleLawRevision carries the old and accepted successor law proofs without
+	// StaleLawRevision carries the deleted law ID and its pinned digest without
 	// requiring callers to parse Detail.
 	StaleLawRevision *StaleLawRevision `json:"stale_law_revision,omitempty"`
 	// DomainOverlap carries both active contract identities and every derived

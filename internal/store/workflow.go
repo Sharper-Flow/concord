@@ -1421,9 +1421,6 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 					return err
 				}
 			}
-			if err := validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, event.SubjectID, predecessors, p.SuccessorContract.LawRevisions); err != nil {
-				return err
-			}
 		}
 		p.SuccessorContract.WorkflowVersionFields = p.WorkflowVersionFields
 		successorPayload, err := json.Marshal(p.SuccessorContract)
@@ -1474,7 +1471,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 			return newFailure(KindInvariantViolation, "fold_event", "duplicate active contracts require a fully supplied successor contract", false, "supply the typed successor contract")
 		}
 		if !isWorkflowReplay(ctx) {
-			if err := validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, event.SubjectID, predecessors, nil); err != nil {
+			if err := validateClonedWorkflowContractLawRevisionsTx(ctx, tx, event.SubjectID, predecessors); err != nil {
 				return err
 			}
 		}

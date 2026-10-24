@@ -66,7 +66,7 @@ func TestMigrateV51ToV52BindsKnowledgeHomePairsToProjectLocators(t *testing.T) {
 
 	unanchored := map[string]string{
 		"law_subjects":            `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('nope','l','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:` + strings.Repeat("a", 64) + `','commit')`,
-		"law_relations":           `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('nope','l','a','supersedes','b','commit')`,
+		"law_relations":           `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('nope','l','a','refines','b','commit')`,
 		"archived_work":           `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES('w','lesson','T','2026-08-27T00:00:00Z','published','[]','completed',0,'S','nope','l','.concord/docs/lessons/t.md','` + strings.Repeat("a", 40) + `','sha256:` + strings.Repeat("b", 64) + `')`,
 		"knowledge_kind_coverage": `INSERT INTO knowledge_kind_coverage(home_project_id,home_locator_id,head_ref,kind,coverage,reason,scanned_commit_oid) VALUES('nope','l','HEAD','lesson','indexed','test','` + strings.Repeat("a", 40) + `')`,
 		"domains":                 `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('nope','l','prod','d','D','purpose','current','sha256:` + strings.Repeat("c", 64) + `','commit')`,

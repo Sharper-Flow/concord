@@ -306,8 +306,7 @@
         "status": {
           "enum": [
             "accepted",
-            "published",
-            "superseded"
+            "published"
           ]
         },
         "date": {
@@ -329,9 +328,6 @@
         },
         "scopes": {
           "$ref": "#/$defs/scopeV12"
-        },
-        "successor": {
-          "$ref": "#/$defs/id"
         },
         "sha256": {
           "type": "string",
@@ -420,8 +416,7 @@
             "properties": {
               "status": {
                 "enum": [
-                  "published",
-                  "superseded"
+                  "published"
                 ]
               }
             }
@@ -446,8 +441,7 @@
             "properties": {
               "status": {
                 "enum": [
-                  "accepted",
-                  "superseded"
+                  "accepted"
                 ]
               }
             }
@@ -469,45 +463,6 @@
               "path": {
                 "pattern": "^.concord/docs/decisions/CD-[0-9]{4}(-.*)?\\.md$"
               }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "status": {
-                "const": "superseded"
-              }
-            },
-            "required": [
-              "status"
-            ]
-          },
-          "then": {
-            "required": [
-              "successor"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "status": {
-                "enum": [
-                  "accepted",
-                  "published"
-                ]
-              }
-            },
-            "required": [
-              "status"
-            ]
-          },
-          "then": {
-            "not": {
-              "required": [
-                "successor"
-              ]
             }
           }
         },
@@ -959,7 +914,6 @@
       "properties": {
         "kind": {
           "enum": [
-            "supersedes",
             "refines",
             "subordinate_to",
             "conflicts_with"
@@ -1317,7 +1271,6 @@
         "CD-0006",
         "CD-0007",
         "CD-0008",
-        "CD-0009",
         "CD-0010",
         "CD-0011",
         "CD-0012",
@@ -1333,7 +1286,6 @@
         "CD-0022",
         "CD-0023",
         "CD-0024",
-        "CD-0025",
         "CD-0026",
         "CD-0027",
         "CD-0028",
@@ -1348,7 +1300,6 @@
         "CD-0038",
         "CD-0039",
         "CD-0040",
-        "CD-0041",
         "CD-0042",
         "CD-0043",
         "CD-0044",
@@ -1373,9 +1324,7 @@
         "CD-0063",
         "CD-0064",
         "CD-0065",
-        "CD-0066",
         "CD-0067",
-        "CD-0068",
         "CD-0069",
         "CD-0070",
         "CD-0071",
@@ -1393,7 +1342,6 @@
         "CD-0083",
         "CD-0084",
         "CD-0085",
-        "CD-0086",
         "CD-0087",
         "CD-0088",
         "CD-0089",
@@ -1418,13 +1366,11 @@
         "CD-0112",
         "CD-0113",
         "CD-0114",
-        "CD-0115",
         "CD-0116",
         "CD-0117",
         "CD-0118",
         "CD-0119",
         "CD-0120",
-        "CD-0121",
         "CD-0122",
         "CD-0124",
         "CD-0128",
@@ -1443,30 +1389,24 @@
         "CD-0145",
         "CD-0146",
         "CD-0147",
-        "CD-0148",
         "CD-0149",
         "CD-0150",
         "CD-0151",
         "CD-0152",
         "CD-0153",
         "CD-0154",
-        "CD-0155",
         "CD-0156",
         "CD-0157",
-        "CD-0158",
         "CD-0159",
         "CD-0160",
         "CD-0161",
         "CD-0162",
         "CD-0163",
-        "CD-0164",
         "CD-0165",
         "CD-0166",
-        "CD-0167",
         "CD-0168",
         "CD-0169",
         "CD-0170",
-        "CD-0171",
         "CD-0172",
         "CD-0173",
         "CD-0174"
@@ -1475,7 +1415,6 @@
     "legacySpecProfileId": {
       "description": "CD-0175 mirrored for the spec kind: the closed historical boundary of the spec outline. The spec record identifiers registered before the spec outline amendment; the set never grows. Membership makes the legacy profile available to author, never asserted: an unprofiled spec record authors the current profile, and a spec id outside the set cannot claim the legacy outline.",
       "enum": [
-        "C14",
         "C15",
         "C17",
         "PM1",
@@ -1485,7 +1424,6 @@
         "PM4",
         "PM5",
         "PM6",
-        "PM7",
         "PM8",
         "PM9",
         "TS1",
@@ -1497,7 +1435,6 @@
         "TS7",
         "TS8",
         "TS9",
-        "development-authority",
         "workflow-engine-contract"
       ]
     },

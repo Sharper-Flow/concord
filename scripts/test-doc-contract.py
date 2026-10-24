@@ -2345,7 +2345,7 @@ def test_identifiers_and_references_count_as_one_word_each() -> None:
 
 ## Context
 
-This record is superseded in part by {refs} and nothing else.
+This record defines the behavior in {refs} and nothing else.
 
 ## Contract
 
@@ -2885,13 +2885,6 @@ def test_current_citation_selects_all_accepted_law_kinds_without_outline_exempti
         code, output, error = run_checker(root, manifest)
         assert code == 1, (kind, code, output, error)
         assert "law-reference-path:" in output, output
-
-
-def test_current_citation_skips_superseded_records() -> None:
-    root, manifest = citation_fixture("The owner is `retired/owner.go`.")
-    manifest["records"][0]["status"] = "superseded"
-    code, output, error = run_checker(root, manifest)
-    assert code == 0, (code, output, error)
 
 
 def test_published_knowledge_citations_resolve_current_targets() -> None:

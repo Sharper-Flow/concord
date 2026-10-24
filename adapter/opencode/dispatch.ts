@@ -103,7 +103,7 @@ export interface AgentLanePacketLawContext {
     law_id: string
     obligation_ids?: string[]
     kind?: "constitution" | "decision" | "spec"
-    status?: "accepted" | "superseded"
+    status?: "accepted"
     title?: string
     path?: string
     criteria?: { criterion: number; predicate_id: string }[]

@@ -354,6 +354,12 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "canonical_note_result": {
       "additionalProperties": false,
+      "not": {
+        "required": [
+          "status",
+          "successor_id"
+        ]
+      },
       "properties": {
         "candidates": {
           "items": {
@@ -381,13 +387,13 @@ const GeneratedPayloadSchemaDocument = `{
         "status": {
           "enum": [
             "accepted",
-            "superseded",
             "published"
           ],
           "type": "string"
         },
         "successor_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/id",
+          "description": "A work-note successor, never a law replacement."
         }
       },
       "required": [
@@ -2735,6 +2741,48 @@ const GeneratedPayloadSchemaDocument = `{
         "items": {
           "items": {
             "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "required": [
+                    "successor_id"
+                  ]
+                },
+                "then": {
+                  "not": {
+                    "required": [
+                      "status"
+                    ]
+                  },
+                  "properties": {
+                    "kind": {
+                      "const": "note"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "constitution",
+                        "decision",
+                        "specification"
+                      ],
+                      "type": "string"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "status": {
+                      "const": "accepted"
+                    }
+                  }
+                }
+              }
+            ],
             "properties": {
               "commit_oid": {
                 "$ref": "#/$defs/id"
@@ -2770,13 +2818,13 @@ const GeneratedPayloadSchemaDocument = `{
               "status": {
                 "enum": [
                   "accepted",
-                  "superseded",
                   "published"
                 ],
                 "type": "string"
               },
               "successor_id": {
-                "$ref": "#/$defs/id"
+                "$ref": "#/$defs/id",
+                "description": "A work-note successor, never a law replacement."
               }
             },
             "required": [
@@ -10664,8 +10712,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "status": {
           "enum": [
-            "accepted",
-            "superseded"
+            "accepted"
           ],
           "type": "string"
         },
@@ -28423,8 +28470,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "status": {
           "enum": [
-            "accepted",
-            "superseded"
+            "accepted"
           ],
           "type": "string"
         },
@@ -28864,12 +28910,6 @@ const GeneratedPayloadSchemaDocument = `{
         "stale_law_revision": {
           "additionalProperties": false,
           "properties": {
-            "accepted_successor_content_hash": {
-              "$ref": "#/$defs/digest"
-            },
-            "accepted_successor_law_id": {
-              "$ref": "#/$defs/law_id"
-            },
             "old_content_hash": {
               "$ref": "#/$defs/digest"
             },
@@ -28887,8 +28927,6 @@ const GeneratedPayloadSchemaDocument = `{
           "required": [
             "old_law_id",
             "old_content_hash",
-            "accepted_successor_law_id",
-            "accepted_successor_content_hash",
             "recovery_actions"
           ],
           "type": [

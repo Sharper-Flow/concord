@@ -977,14 +977,10 @@ func indexedNoteConstraintFailure(home KnowledgeHome, note VerifiedNote, err err
 }
 
 func manifestRecordNote(record KnowledgeRecord, commit, schemaVersion string) VerifiedNote {
-	terminal := "completed"
-	if record.Status == "superseded" {
-		terminal = "superseded"
-	}
 	return VerifiedNote{
 		ID: record.ID, Kind: record.Kind, Title: record.Title, CompletedAt: record.Date,
 		OutcomeTag: record.Status, LessonTags: append([]string(nil), record.Tags...),
-		TerminalState: terminal, Summary: record.Summary, SuccessorID: record.Successor,
+		TerminalState: "completed", Summary: record.Summary,
 		ProductIDs: append([]string(nil), record.Scopes.ProductIDs...), ProjectIDs: append([]string(nil), record.Scopes.ProjectIDs...),
 		DomainIDs: append([]string(nil), record.Scopes.DomainIDs...), HasDomainIDs: true, TagIDs: append([]string(nil), record.Scopes.TagIDs...),
 		ScopeMode: record.Scopes.Mode, ManifestSchemaVersion: schemaVersion, NotePath: record.Path, CommitOID: commit, ContentHash: record.SHA256,

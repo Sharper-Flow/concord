@@ -1045,8 +1045,8 @@ func latestWorkflowVerdictsBefore(ctx context.Context, q queryer, workID string,
 	// pooled connection is single, and a query inside this scan would park on
 	// the rows the scan still holds.
 	type collectedVerdict struct {
-		seq            int64
-		raw            []byte
+		seq int64
+		raw []byte
 	}
 	collected := make([]collectedVerdict, 0, 8)
 	for rows.Next() {

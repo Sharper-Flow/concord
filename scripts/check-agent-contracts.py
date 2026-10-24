@@ -227,18 +227,6 @@ def _scenario_error_check(corpus: dict) -> list[str]:
         findings.append(f"undeclared scenario error kind(s): {sorted(undeclared)}")
     return findings
 
-def _derive_notice_id(fields: list[tuple[str, str]]) -> str:
-    body = "".join(f"{name}={len(value.encode('utf-8'))}:{value}|" for name, value in fields)
-    return "notice:" + hashlib.sha256(("notice-v1\0" + body).encode("utf-8")).hexdigest()
-
-def _notice_oracle_check(corpus: dict) -> list[str]:
-    scenario = next(item for item in corpus["scenarios"] if item["id"] == "WF29-impact-notice-identity")
-    state = scenario["initial_state"]
-    expected = next(assertion["value"] for assertion in scenario["expected"]["assertions"] if assertion["path"] == "impact_notices.0.notice_id")
-    fields = [("source_work_id", state["work"]), ("source_contract_version", str(state["source_contract_version"])), ("entity_kind", state["entity_kind"]), ("entity_ref", state["entity_ref"]), ("target_work_id", state["target_work_id"]), ("severity", state["severity"])]
-    derived = _derive_notice_id(fields)
-    return [] if expected == derived else [f"notice-ID derivation mismatch: expected {derived}, corpus has {expected}"]
-
 def _derive_actor_ref(fields: list[tuple[str, str]], separator: str = "\0") -> str:
     body = "".join(f"{name}={len(value.encode('utf-8'))}:{value}|" for name, value in fields)
     return "actor:" + hashlib.sha256(("actor-v1" + separator + body).encode("utf-8")).hexdigest()
@@ -252,20 +240,8 @@ def _actor_oracle_check(corpus: dict, fixtures: dict) -> list[str]:
         derived[fields] = expected
         if actor["actor_ref"] != expected:
             findings.append(f"actor-ID derivation mismatch: expected {expected}, corpus has {actor['actor_ref']}")
-    executor = ("principal:operator", "client:concord-1", "agent-engineer", "session-executor")
     reviewer = ("principal:operator", "client:concord-1", "agent-reviewer", "session-reviewer")
-    expected_executor = derived[executor]
     expected_reviewer = derived[reviewer]
-    for scenario_id in ("WF12-self-authored-check", "WF13-verdict-actor-distinctness"):
-        scenario = next(item for item in corpus["scenarios"] if item["id"] == scenario_id)
-        if scenario["initial_state"].get("executor") != expected_executor:
-            findings.append(f"actor-ID derivation mismatch: {scenario_id}.executor")
-        if scenario_id == "WF12-self-authored-check" and scenario["initial_state"].get("requested_check_author") != expected_executor:
-            findings.append(f"actor-ID derivation mismatch: {scenario_id}.requested_check_author")
-        if scenario_id == "WF13-verdict-actor-distinctness":
-            same_actor = next(case for case in scenario["cases"] if case["id"] == "WF13-same-actor")
-            if same_actor["initial_state"].get("verdict_actor") != expected_executor:
-                findings.append(f"actor-ID derivation mismatch: {same_actor['id']}.verdict_actor")
     outcome = next(case for case in fixtures["cases"] if case["id"] == "outcome-spike-record-valid")
     if outcome["instance"]["decision_record"]["reviewer_actor_ref"] != expected_reviewer:
         findings.append(f"actor-ID derivation mismatch: expected {expected_reviewer}, outcome reviewer differs")
@@ -282,66 +258,56 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
     relation_ids = {item["id"] for item in fixture["relations"]}
     required = {
         "capture": {"payload", "title", "value_statement", "project_ids"},
-        "approve_contract": {"payload", "contract_version", "premise", "outcome_predicates", "route_conventions"},
-        "revise_candidates": {"payload", "contract_version", "candidate_kind", "candidate_refs", "added", "removed"},
-        "supersede_contract": {"payload", "new_contract_version", "supersede_reason", "audit_evidence"},
-        "link_successor": {"payload", "successor_work_id", "relation", "relation_data"},
-        "complete_external_step": {"payload", "operation_id", "attempt_epoch", "current_claim"},
-        "rebuild_after_interrupt": {"payload", "operation_id", "event_stream"},
-        "retry_same_action": {"payload", "operation_id"},
-        "takeover_attempt": {"payload", "operation_id", "current_claim"},
-        "start_downstream": {"payload", "successor_work_id", "relation"},
-        "link_and_complete": {"payload", "successor_work_id", "relation"},
-        "rebuild": {"payload", "event_stream"},
-        "start_execution": {"payload"}, "workflow_action": {"payload"}, "record_delivery": {"payload"},
-        "concurrent_reads_and_writes": {"payload"}, "repair_and_rebuild": {"payload", "event_stream"},
-        "replay": {"payload", "event_stream"},
+        "add_condition": {"payload"},
+        "resolve_condition": {"payload"},
+        "cancel_condition": {"payload"},
     }
     def walk(item: dict) -> None:
         action = item.get("action")
         request = item.get("request") or {}
         setup = item.get("setup") or {}
         fields = request.get("fields") or {}
+        if action not in required or request.get("action_id") != action:
+            findings.append(f"{item.get('id')}: unsupported current action or request action mismatch")
         missing = required.get(action, {"payload"}) - set(fields)
         if missing:
             findings.append(f"{item.get('id')}: mandatory structured request field(s) missing: {sorted(missing)}")
         if request.get("actor_ref") not in actor_refs:
             findings.append(f"{item.get('id')}: dangling fixture reference actor {request.get('actor_ref')}")
-        definition_ref = request.get("definition_ref") or (request.get("definition_pin") or {}).get("ref")
+        definition_ref = request.get("definition_ref")
         if definition_ref not in definition_refs:
-            findings.append(f"{item.get('id')}: dangling fixture reference definition pin")
+            findings.append(f"{item.get('id')}: dangling fixture reference definition")
         if "current_state" in setup and "definition_ref" not in request:
             findings.append(f"{item.get('id')}: current setup requires a current family selector")
         if "definition_ref" in request and "current_state" not in setup:
             findings.append(f"{item.get('id')}: current family selector requires current-state setup")
-        approval_evidence = set((request.get("approval") or {}).get("evidence_refs", []))
-        operation_evidence = set((request.get("operation") or {}).get("evidence_refs", []))
-        if not approval_evidence <= evidence_ids or not operation_evidence <= evidence_ids:
-            findings.append(f"{item.get('id')}: dangling fixture reference request evidence")
         refs = setup.get("fixture_refs") or {}
+        if not set(refs.get("actors", [])) <= actor_refs or request.get("actor_ref") not in refs.get("actors", []):
+            findings.append(f"{item.get('id')}: dangling fixture reference setup actor")
+        grant = request.get("grant") or {}
+        actor = _derive_actor_ref([(key, grant.get(key, "")) for key in ("principal_ref", "client_ref", "agent_ref", "session_ref")])
+        if actor != request.get("actor_ref"):
+            findings.append(f"{item.get('id')}: actor-ID derivation mismatch: request grant")
+        if grant.get("scope") not in fields.get("project_ids", ["project"]):
+            findings.append(f"{item.get('id')}: request scope mismatch")
         if refs.get("work_item") not in work_ids:
             findings.append(f"{item.get('id')}: dangling fixture reference work {refs.get('work_item')}")
         if not set(refs.get("definitions", [])) <= definition_refs:
             findings.append(f"{item.get('id')}: dangling fixture reference definition")
+        if definition_ref not in refs.get("definitions", []):
+            findings.append(f"{item.get('id')}: dangling fixture reference definition selector")
         if not set(refs.get("evidence", [])) <= evidence_ids:
             findings.append(f"{item.get('id')}: dangling fixture reference evidence")
         if not set(refs.get("relations", [])) <= relation_ids:
             findings.append(f"{item.get('id')}: dangling fixture reference relation")
         findings.extend(
-            f"{item.get('id')}: dangling fixture reference event identity"
-            for event in setup.get("event_history", [])
-            if event.get("actor_ref") not in actor_refs or event.get("work_id") not in work_ids
-        )
-        fault_kinds = {"none", "commit_after_verdict_fails", "unreadable_authority", "removed_authority", "projection_corruption", "event_poison", "newer_event_version", "missing_registry", "stale_attempt", "mismatched_commit"}
-        findings.extend(
             f"{item.get('id')}: unknown structured fault kind {fault.get('kind')}"
             for fault in setup.get("faults", [])
-            if fault.get("kind") not in fault_kinds
         )
         findings.extend(
             f"{item.get('id')}: unknown structured observation op {observation.get('op')}"
             for observation in (item.get("observations") or {}).get("expected_reads", [])
-            if observation.get("op") not in {"eq", "not_eq", "contains", "absent", "nonempty"}
+            if observation.get("op") not in {"eq", "absent", "nonempty"}
         )
         for case in item.get("cases", []):
             walk(case)
@@ -462,11 +428,9 @@ def _current_scenario_carrier_check(corpus: dict) -> list[str]:
                 "occurred_at": "2026-08-09T00:00:00Z", "payload_version": 2,
                 "payload": {"work_kind": "task", "title": "Forbidden history input", "priority": 1},
             }
-            schema_validate(event, schema["$defs"]["initialEvent"], schema, "history-control")
             item["setup"]["event_history"] = [event]
         elif mutation == "pin":
             pin = {"ref": item["request"]["definition_ref"], "version": 1, "digest": "sha256:" + "0" * 64}
-            schema_validate(pin, schema["$defs"]["definitionPinInput"], schema, "pin-control")
             item["request"]["definition_pin"] = pin
         elif mutation == "missing_step":
             del item["setup"]["current_state"]["step"]
@@ -504,6 +468,14 @@ def check_workflow_contracts() -> list[str]:
             findings.append(f".concord/scenarios/workflow-engine.v1.json: schema validation failed: {corpus_error}")
         findings.extend(_structured_scenario_check(corpus))
         findings.extend(_current_scenario_carrier_check(corpus))
+        expected_ids = ["WF01-capture-late-outcome", "WF26-condition-actions-refused"]
+        if [item.get("id") for item in corpus["scenarios"]] != expected_ids:
+            findings.append(f".concord/scenarios/workflow-engine.v1.json: expected scenarios {expected_ids}, got {[item.get('id') for item in corpus['scenarios']]}")
+            return findings
+        expected_cases = ["WF26-add-condition-refused", "WF26-resolve-condition-refused", "WF26-cancel-condition-refused"]
+        if [case.get("id") for case in corpus["scenarios"][1].get("cases", [])] != expected_cases:
+            findings.append(f".concord/scenarios/workflow-engine.v1.json: expected current refusal cases {expected_cases}")
+            return findings
         fixtures = _load_json(fixture_path)
         fixture_by_id = {case["id"]: case for case in fixtures["cases"]}
         for case in fixtures["cases"]:
@@ -553,7 +525,6 @@ def check_workflow_contracts() -> list[str]:
             findings.append(f"scenario-negative-number: wrong validation reason: {negative_error}")
         error_findings = _scenario_error_check(corpus)
         findings.extend(error_findings)
-        findings.extend(_notice_oracle_check(corpus))
         findings.extend(_actor_oracle_check(corpus, fixtures))
         for case in fixtures.get("scenario_negative_cases", []):
             mutated = copy.deepcopy(corpus)
@@ -562,15 +533,10 @@ def check_workflow_contracts() -> list[str]:
             elif case["mutation"] == "invalid_float":
                 mutated["scenarios"][0]["initial_state"]["invalid_float"] = 1.5
             elif case["mutation"] == "unknown_error_kind":
-                mutated["scenarios"][1]["expected"]["assertions"][1]["value"] = "not_a_real_error_kind"
+                mutated["scenarios"][1]["cases"][0]["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"
             elif case["mutation"] == "removed_surface_version_rejection":
                 # Rejection test: removed agent-surface metadata must remain unknown.
                 mutated["surface_version"] = "5.0.0"
-            elif case["mutation"] == "wrong_notice_id":
-                notice_scenario = next(item for item in mutated["scenarios"] if item["id"] == "WF29-impact-notice-identity")
-                for assertion in notice_scenario["expected"]["assertions"]:
-                    if assertion.get("path") == "impact_notices.0.notice_id":
-                        assertion["value"] = "notice:0000000000000000000000000000000000000000000000000000000000000000"
             elif case["mutation"] == "literal_backslash_zero_actor":
                 actor = mutated["fixtures"]["actors"][0]
                 fields = [(key, actor[key]) for key in ("principal_ref", "client_ref", "agent_ref", "session_ref")]
@@ -582,7 +548,7 @@ def check_workflow_contracts() -> list[str]:
             elif scenario_error is not None:
                 findings.append(f"{case['id']}: mutation should reach semantic checks, got schema error: {scenario_error}")
             else:
-                semantic_findings = _scenario_error_check(mutated) + _notice_oracle_check(mutated) + _actor_oracle_check(mutated, fixtures)
+                semantic_findings = _scenario_error_check(mutated) + _actor_oracle_check(mutated, fixtures)
                 if not any(case["expected_error"] in finding for finding in semantic_findings):
                     findings.append(f"{case['id']}: wrong validation reason: {semantic_findings}")
         for case in fixtures.get("structured_scenario_negative_cases", []):
@@ -598,6 +564,14 @@ def check_workflow_contracts() -> list[str]:
                 scenario["setup"]["faults"] = [{"kind": "not-a-fault", "input": {}}]
             elif case["mutation"] == "unknown_observation_op":
                 scenario["observations"]["expected_reads"][0]["op"] = "not-an-observation-op"
+            elif case["mutation"] == "grant_actor":
+                scenario["request"]["grant"]["agent_ref"] = "agent:other"
+            elif case["mutation"] == "setup_actor":
+                scenario["setup"]["fixture_refs"]["actors"] = [mutated["fixtures"]["actors"][1]["actor_ref"]]
+            elif case["mutation"] == "request_action":
+                scenario["request"]["action_id"] = "resolve_condition"
+            elif case["mutation"] == "request_scope":
+                scenario["request"]["grant"]["scope"] = "project:other"
             schema_error = _validate_instance(scenario_schema, mutated)
             semantic_findings = _structured_scenario_check(mutated)
             if case["mutation"] in {"missing_payload", "unknown_request_field", "unknown_fault_kind", "unknown_observation_op"}:
@@ -609,18 +583,12 @@ def check_workflow_contracts() -> list[str]:
         scenarios = corpus["scenarios"]
         if corpus.get("contract") != "CD-0013" or corpus.get("contract_status") != "accepted":
             findings.append(".concord/scenarios/workflow-engine.v1.json: contract metadata is not accepted CD-0013")
-        # Numbers run 1..57; a retired number is never reused. 3 and 52 were
-        # retired with CD-0236, 36 with CD-0238.
-        retired_numbers = {3, 36, 52}
-        expected_numbers = [number for number in range(1, 58) if number not in retired_numbers]
-        if len(scenarios) != len(expected_numbers):
-            findings.append(f".concord/scenarios/workflow-engine.v1.json: expected {len(expected_numbers)} scenarios, got {len(scenarios)}")
+        # CD-0242 D2/D14 removes replay and historical-definition carriers.
+        expected_numbers = [1, 26]
         ids = [item.get("id") for item in scenarios]
         numbers = [item.get("scenario_number") for item in scenarios]
-        if len(set(ids)) != len(ids) or any(not isinstance(item, str) or not item for item in ids):
-            findings.append(".concord/scenarios/workflow-engine.v1.json: scenario IDs must be unique and nonempty")
         if numbers != expected_numbers:
-            findings.append(f".concord/scenarios/workflow-engine.v1.json: scenario numbers must be ordered 1..57 without the retired {sorted(retired_numbers)}")
+            findings.append(f".concord/scenarios/workflow-engine.v1.json: scenario numbers must be {expected_numbers}")
         for item in scenarios:
             number = item.get("scenario_number")
             if not isinstance(number, int) or not str(item.get("id", "")).startswith(f"WF{number:02d}-"):
@@ -636,8 +604,8 @@ def check_workflow_contracts() -> list[str]:
             for assertions in assertion_groups:
                 if not assertions:
                     continue
-                durable = any(assertion.get("target") in {"effects", "authority"} or (assertion.get("target") == "state" and any(token in assertion.get("path", "") for token in ("projection", "event", "row"))) for assertion in assertions)
-                if len(assertions) < 2 or len({assertion.get("target") for assertion in assertions}) < 2 or not {assertion.get("target") for assertion in assertions} & {"state", "effects", "authority"} or not durable:
+                durable = any(assertion.get("target") == "effects" or (assertion.get("target") == "state" and any(token in assertion.get("path", "") for token in ("projection", "event", "row"))) for assertion in assertions)
+                if len(assertions) < 2 or len({assertion.get("target") for assertion in assertions}) < 2 or not {assertion.get("target") for assertion in assertions} & {"state", "effects"} or not durable:
                     findings.append(f".concord/scenarios/workflow-engine.v1.json: stub-weak assertion set in {item.get('id')}")
                 for assertion in assertions:
                     if assertion.get("target") not in targets or assertion.get("op") not in ops:

@@ -1692,24 +1692,55 @@ func TestCompleteStepCorrectionAdmissionUsesOnlyPriorHistory(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			// Keep projections at the correction boundary while the intact log
-			// already contains the later record, as it does during replay.
-			payload := mustJSONValue(map[string]any{"action_id": test.action, "worker_attempt_id": "attempt:history"})
-			if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, "later-history", test.laterKind, SubjectWorkItem, workID, fixture.owner.PrincipalRef, "2026-10-13T00:00:01Z", 1, payload); err != nil {
-				t.Fatal(err)
-			}
-			var beforeSeq int64
-			if err := db.QueryRow(`SELECT seq FROM domain_events WHERE event_id='later-history'`).Scan(&beforeSeq); err != nil {
-				t.Fatal(err)
-			}
 			definition, ok := completeStepPinnedDefinition(t, s, workID)
 			if !ok {
 				t.Fatal("missing pinned definition")
 			}
+			if available, err := workflowCompleteStepCorrectionAvailable(ctx, db, workID, definition.Definition, "complete", "test", 0); err != nil || available != test.wantBefore {
+				t.Fatalf("admission before current update = %t,%v; want %t", available, err, test.wantBefore)
+			}
+			payload := mustJSONValue(map[string]any{"action_id": test.action, "worker_attempt_id": "attempt:history"})
+			var beforeSeq int64
+			if test.laterKind == WorkObservationRecorded {
+				recordCompleteStepContradictionObservation(t, s, workID, fixture.owner)
+				if err := db.QueryRow(`SELECT MAX(recorded_seq) FROM work_observations WHERE work_id=?`, workID).Scan(&beforeSeq); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, "later-history", test.laterKind, SubjectWorkItem, workID, fixture.owner.PrincipalRef, "2026-10-13T00:00:01Z", 1, payload); err != nil {
+					t.Fatal(err)
+				}
+				if err := db.QueryRow(`SELECT seq FROM domain_events WHERE event_id='later-history'`).Scan(&beforeSeq); err != nil {
+					t.Fatal(err)
+				}
+				if test.laterKind == WorkflowVerdictRecorded {
+					if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_predicate_verdicts SET verdict_seq=? WHERE work_id=?; DELETE FROM fold_guard`, beforeSeq, workID); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					tx, err := db.BeginTx(ctx, nil)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer tx.Rollback()
+					if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+						t.Fatal(err)
+					}
+					if err := writeWorkerAuthorizationTx(ctx, tx, Event{Seq: beforeSeq, EventID: "later-history", SubjectID: workID, Payload: payload}, workflowActionCompletedPayload{ActionID: test.action, WorkerAttemptID: "attempt:history"}); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+						t.Fatal(err)
+					}
+					if err := tx.Commit(); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
 			for _, boundary := range []struct {
 				seq  int64
 				want bool
-			}{{beforeSeq, test.wantBefore}, {beforeSeq + 1, test.wantLive}, {0, test.wantLive}} {
+			}{{beforeSeq + 1, test.wantLive}, {0, test.wantLive}} {
 				available, err := workflowCompleteStepCorrectionAvailable(ctx, db, workID, definition.Definition, "complete", "test", boundary.seq)
 				if err != nil || available != boundary.want {
 					t.Errorf("admission before sequence %d = %t, error = %v; want %t", boundary.seq, available, err, boundary.want)

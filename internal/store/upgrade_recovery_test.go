@@ -113,6 +113,7 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	}
 	if _, err := db.ExecContext(context.Background(), `
 DROP TABLE workflow_phase_exits;
+DROP TABLE workflow_artifact_actions;
 DROP TABLE workflow_action_obligations;
 DROP TABLE workflow_worker_actors;
 DROP TABLE workflow_step_completions;

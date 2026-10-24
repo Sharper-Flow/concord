@@ -86,6 +86,7 @@ func TestWorkflowEvidenceCurrentFactsMigrationBackfill(t *testing.T) {
 	queries := []string{
 		`SELECT json_array(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload,latest_dispatch_start_seq,latest_dispatch_start_event_id,latest_dispatch_start_payload) FROM workflow_step_epochs ORDER BY work_id,step_id`,
 		`SELECT json_array(work_id,action_id,exit_seq) FROM workflow_phase_exits ORDER BY work_id,action_id`,
+		`SELECT json_array(work_id,step_id,action_id,production_seq,verdict_seq,verdict_production_seq) FROM workflow_artifact_actions ORDER BY work_id,step_id,action_id`,
 		`SELECT json_array(work_id,contract_version,supersession_seq) FROM workflow_contracts ORDER BY work_id,contract_version`,
 		`SELECT json_array(work_id,binding_seq,binding_id,actor,payload) FROM workflow_evidence_bindings ORDER BY work_id,binding_seq`,
 		`SELECT json_array(o.work_id,o.rule_id,r.effect_seq,o.severity,o.drifted,o.accepted_inputs_digest,o.observed_at) FROM workflow_staleness_observations o JOIN effect_receipts r ON r.event_id=o.event_id ORDER BY o.work_id,o.rule_id,r.effect_seq`,
@@ -120,6 +121,7 @@ func repopulateWorkflowCurrentFactsForTest(t *testing.T, s *Store) {
 	defer tx.Rollback()
 	if _, err := tx.Exec(`
 DROP TABLE workflow_phase_exits;
+DROP TABLE workflow_artifact_actions;
 DROP TABLE workflow_action_obligations;
 DROP TABLE workflow_worker_actors;
 DROP TABLE workflow_step_completions;

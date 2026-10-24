@@ -2613,6 +2613,11 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 			return workflowProjectionError(err, "cannot record the workflow phase exit")
 		}
 	}
+	if workflowActionProducesArtifact(p.ActionID) {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_artifact_actions(work_id,step_id,action_id,production_seq) VALUES(?,?,?,?) ON CONFLICT(work_id,step_id,action_id) DO UPDATE SET production_seq=excluded.production_seq`, event.SubjectID, p.StepID, p.ActionID, event.Seq); err != nil {
+			return workflowProjectionError(err, "cannot record the current artifact production")
+		}
+	}
 	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',last_checkpoint_at=? WHERE work_id=?`, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
 	if err != nil || p.ActionID == "" || (!advancesStep && p.ActionID != "request_correction") {
 		return err
@@ -3546,8 +3551,11 @@ func foldWorkflowVerdictRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 			return newFailure(KindInvalidPayload, "fold_event", "verdict predicate_id is not approved for the contract version", false, "name an approved contract predicate")
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_predicate_verdicts(work_id,contract_version,predicate_id,verdict_seq,actor,payload) VALUES(?,?,?,?,?,?) ON CONFLICT(work_id,contract_version,predicate_id) DO UPDATE SET verdict_seq=excluded.verdict_seq,actor=excluded.actor,payload=excluded.payload`, event.SubjectID, p.ContractVersion, p.PredicateID, event.Seq, event.Actor, string(event.Payload)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_predicate_verdicts(work_id,contract_version,predicate_id,verdict_seq,actor,payload,prior_correction_seq) VALUES(?,?,?,?,?,?,COALESCE((SELECT exit_seq FROM workflow_phase_exits WHERE work_id=? AND action_id='request_correction'),0)) ON CONFLICT(work_id,contract_version,predicate_id) DO UPDATE SET verdict_seq=excluded.verdict_seq,actor=excluded.actor,payload=excluded.payload,prior_correction_seq=excluded.prior_correction_seq`, event.SubjectID, p.ContractVersion, p.PredicateID, event.Seq, event.Actor, string(event.Payload), event.SubjectID); err != nil {
 		return workflowProjectionError(err, "cannot record the current predicate verdict")
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE workflow_artifact_actions SET verdict_seq=?,verdict_production_seq=production_seq WHERE work_id=?`, event.Seq, event.SubjectID); err != nil {
+		return workflowProjectionError(err, "cannot snapshot production for the current verdict window")
 	}
 	if p.VerdictKind != "ok" || p.IncomparableWithApproved {
 		if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET unhealthy_verdict_seq=? WHERE work_id=?`, event.Seq, event.SubjectID); err != nil {

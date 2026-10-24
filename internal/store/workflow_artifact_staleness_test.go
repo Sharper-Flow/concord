@@ -9,7 +9,7 @@ import (
 )
 
 // The artifact-staleness fold and its admission halves (CD-0201 D5/D6),
-// exercised over real folded history: the staleness causes, the production
+// exercised over current facts: the staleness causes, the production
 // frontier at the declared route target, the healthy-association refusal, and
 // the premise refusal.
 
@@ -49,8 +49,8 @@ func stalenessSeedContract(t *testing.T, s *Store, workID string) {
 	}
 }
 
-// stalenessEvent appends one domain event row the fold reads, in insertion
-// order, so the causal frontiers the tests build are real event sequences.
+// stalenessEvent supplies trusted current descriptors without authorizing an
+// action. The live-writer tests separately exercise admission and persistence.
 func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) {
 	t.Helper()
 	var nextSeq int64
@@ -63,6 +63,63 @@ func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) {
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,1,?)`,
 		workID+":"+kind+":"+fmt.Sprint(nextSeq), kind, string(SubjectWorkItem), workID, actorRef, "2026-01-02T00:00:00Z", payload); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	event := Event{Seq: nextSeq, EventID: workID + ":" + kind + ":" + fmt.Sprint(nextSeq), Kind: kind, SubjectID: workID, Actor: actorRef, PayloadVersion: 1, Payload: json.RawMessage(payload)}
+	switch kind {
+	case WorkflowVerdictRecorded:
+		var verdict workflowVerdictRecordedPayload
+		if err := json.Unmarshal(event.Payload, &verdict); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(`INSERT INTO workflow_predicate_verdicts(work_id,contract_version,predicate_id,verdict_seq,actor,payload) VALUES(?,?,?,?,?,?) ON CONFLICT(work_id,contract_version,predicate_id) DO UPDATE SET verdict_seq=excluded.verdict_seq,actor=excluded.actor,payload=excluded.payload`, workID, verdict.ContractVersion, verdict.PredicateID, nextSeq, actorRef, payload); err != nil {
+			t.Fatal(err)
+		}
+		if verdict.VerdictKind != "ok" || verdict.IncomparableWithApproved {
+			if _, err := tx.Exec(`UPDATE workflow_instances SET unhealthy_verdict_seq=? WHERE work_id=?`, nextSeq, workID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := tx.Exec(`UPDATE workflow_artifact_actions SET verdict_seq=?,verdict_production_seq=production_seq WHERE work_id=?`, nextSeq, workID); err != nil {
+			t.Fatal(err)
+		}
+	case WorkflowActionCompleted:
+		var action workflowActionCompletedPayload
+		if err := json.Unmarshal(event.Payload, &action); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeWorkerAuthorizationTx(t.Context(), tx, event, action); err != nil {
+			t.Fatal(err)
+		}
+		if workflowActionProducesArtifact(action.ActionID) {
+			if _, err := tx.Exec(`INSERT INTO workflow_artifact_actions(work_id,step_id,action_id,production_seq) VALUES(?,?,?,?) ON CONFLICT(work_id,step_id,action_id) DO UPDATE SET production_seq=excluded.production_seq`, workID, action.StepID, action.ActionID, nextSeq); err != nil {
+				t.Fatal(err)
+			}
+		}
+	case WorkerDispatched:
+		var dispatch WorkerDispatchedPayload
+		if err := json.Unmarshal(event.Payload, &dispatch); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?,?,'lane:test',1,'sha256:0000000000000000000000000000000000000000000000000000000000000000','implementation','model:test','1.0','1.0','dispatched','2026-01-02T00:00:00Z') ON CONFLICT(attempt_id) DO NOTHING`, workID, dispatch.AttemptID); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeWorkerDispatchFactsTx(t.Context(), tx, event, dispatch.AttemptID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 }

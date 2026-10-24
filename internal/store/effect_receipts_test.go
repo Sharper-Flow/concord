@@ -147,7 +147,8 @@ func TestEffectReceiptStalenessProbeLogBlind(t *testing.T) {
 func TestCorrectionRecordSourceLogBlind(t *testing.T) {
 	s := effectReceiptReadFixture(t)
 	e := testEvent()
-	if _, err := s.db.Exec(`CREATE TABLE workflow_correction_state(work_id TEXT PRIMARY KEY,state TEXT);
+	if _, err := s.db.Exec(`CREATE TABLE work_items(id TEXT PRIMARY KEY); INSERT INTO work_items VALUES('work');
+CREATE TABLE workflow_correction_state(work_id TEXT PRIMARY KEY,state TEXT);
 CREATE TABLE worker_authorizations(work_id TEXT,attempt_id TEXT,seq INTEGER,payload TEXT);`); err != nil {
 		t.Fatal(err)
 	}

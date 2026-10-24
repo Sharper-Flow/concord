@@ -3,13 +3,14 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"testing"
 )
 
-// These fixtures exercise the history queries without workflow admission.
-// The existing worker-job witnesses cover the authorized event producers.
-func correctionHistoryFixture(t *testing.T) (*sql.DB, func(string, any) int64) {
+// These fixtures exercise correction transitions without workflow admission.
+// The worker-job witnesses cover the authorized producers.
+func correctionHistoryDatabase(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open(driverName, ":memory:")
 	if err != nil {
@@ -20,13 +21,79 @@ func correctionHistoryFixture(t *testing.T) (*sql.DB, func(string, any) int64) {
 	if _, err := db.Exec(`CREATE TABLE domain_events(seq INTEGER PRIMARY KEY,subject_type TEXT,subject_id TEXT,kind TEXT,payload BLOB,event_id TEXT)`); err != nil {
 		t.Fatal(err)
 	}
+	return db
+}
+
+func correctionFixtureTables(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec(`
+CREATE TABLE work_items(id TEXT PRIMARY KEY);
+INSERT INTO work_items VALUES('work-history');
+CREATE TABLE workflow_correction_state(work_id TEXT PRIMARY KEY,state TEXT);
+CREATE TABLE worker_job_revisions(work_id TEXT,job_id TEXT,revision INTEGER,recorded_payload TEXT,PRIMARY KEY(work_id,job_id,revision));
+CREATE TABLE worker_authorizations(work_id TEXT,attempt_id TEXT,seq INTEGER,payload TEXT,PRIMARY KEY(work_id,attempt_id));
+CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,dispatch_payload TEXT,terminal_payload TEXT,PRIMARY KEY(work_id,attempt_id));
+`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func applyCorrectionFixture(t *testing.T, db *sql.DB, seq int64, kind string, payload any) {
+	t.Helper()
+	tx, err := db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	raw := mustJSONValue(payload)
+	var fields workflowActionCompletedPayload
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	switch kind {
+	case WorkerJobRecorded:
+		var job WorkerJobRecordedPayload
+		if err := json.Unmarshal(raw, &job); err != nil {
+			t.Fatal(err)
+		}
+		_, err = tx.Exec(`INSERT INTO worker_job_revisions VALUES('work-history',?,?,?) ON CONFLICT(work_id,job_id,revision) DO UPDATE SET recorded_payload=excluded.recorded_payload`, job.JobID, job.Revision, string(raw))
+	case WorkflowActionCompleted:
+		if fields.ActionID == "dispatch_worker" {
+			_, err = tx.Exec(`INSERT INTO worker_authorizations VALUES('work-history',?,?,?) ON CONFLICT(work_id,attempt_id) DO UPDATE SET seq=excluded.seq,payload=excluded.payload`, fields.WorkerAttemptID, seq, string(raw))
+		}
+	case WorkerDispatched, WorkerCompleted, WorkerFailed:
+		var attempt struct {
+			AttemptID string `json:"attempt_id"`
+		}
+		if err := json.Unmarshal(raw, &attempt); err != nil {
+			t.Fatal(err)
+		}
+		column := "terminal_payload"
+		if kind == WorkerDispatched {
+			column = "dispatch_payload"
+		}
+		_, err = tx.Exec(`INSERT INTO worker_attempts(work_id,attempt_id,`+column+`) VALUES('work-history',?,?) ON CONFLICT(work_id,attempt_id) DO UPDATE SET `+column+`=excluded.`+column, attempt.AttemptID, string(raw))
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := advanceWorkflowCorrectionFactsTx(t.Context(), tx, Event{Seq: seq, EventID: fmt.Sprintf("history-e%d", seq), SubjectID: "work-history", Kind: kind, Payload: raw}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func correctionHistoryFixture(t *testing.T) (*sql.DB, func(string, any) int64) {
+	t.Helper()
+	db := correctionHistoryDatabase(t)
+	correctionFixtureTables(t, db)
 	var seq int64
 	return db, func(kind string, payload any) int64 {
 		t.Helper()
 		seq++
-		if _, err := db.Exec(`INSERT INTO domain_events VALUES(?,?,?,?,?,?)`, seq, string(SubjectWorkItem), "work-history", kind, mustJSONValue(payload), fmt.Sprintf("history-e%d", seq)); err != nil {
-			t.Fatal(err)
-		}
+		applyCorrectionFixture(t, db, seq, kind, payload)
 		return seq
 	}
 }
@@ -74,20 +141,11 @@ func TestCorrectionHistoryAcceptanceCutoffs(t *testing.T) {
 	correctionHistoryRecord(t, db, "", failureSeq)
 	job.Revision = 2
 	appendEvent(WorkerJobRecorded, job)
+	correctionHistoryRecord(t, db, "", failureSeq)
+	correctionHistoryBoundary(t, db, 0, 0)
 	acceptedSeq := appendEvent(WorkflowActionCompleted, correctionHistoryAction("accept_worker_result", "attempt:accepted", job.JobID, 2))
-	correctionHistoryBoundary(t, db, acceptedSeq, 0)
 	correctionHistoryBoundary(t, db, acceptedSeq+1, acceptedSeq)
 	correctionHistoryRecord(t, db, "", 0)
-
-	// A later acceptance must not alter the historical prefix's open record.
-	history, err := workflowCorrectionWalkWorkerSatisfaction(context.Background(), db, "work-history", acceptedSeq-1, "history_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	record := history.openRecord("")
-	if record == nil || record.seq != failureSeq || history.boundary != 0 {
-		t.Fatalf("historical record = %#v, boundary %d; want the unresolved failure", record, history.boundary)
-	}
 }
 
 func TestCorrectionHistoryLatestUnresolvedRecord(t *testing.T) {
@@ -155,8 +213,8 @@ func TestCorrectionHistoryLegacyMaterializedConsumption(t *testing.T) {
 	appendEvent(WorkerDispatched, map[string]any{"attempt_id": "attempt:half"})
 	correctionHistoryRecord(t, db, "", 0)
 	correctionHistoryRecord(t, db, "attempt:half", requestSeq)
+	correctionHistoryBoundary(t, db, 0, 0)
 	acceptedSeq := appendEvent(WorkflowActionCompleted, correctionHistoryAction("accept_worker_result", "attempt:half", "", 0))
-	correctionHistoryBoundary(t, db, acceptedSeq, 0)
 	correctionHistoryBoundary(t, db, acceptedSeq+1, acceptedSeq)
 
 	// Late evidence cannot consume a record newer than its authorization.

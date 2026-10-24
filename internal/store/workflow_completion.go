@@ -623,7 +623,7 @@ func unboundWorkflowEvidenceRequirements(ctx context.Context, q queryer, workID 
 	outstanding := make([]workflowEvidenceRequirement, 0, len(requirements))
 	for _, requirement := range requirements {
 		var found int
-		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=? AND e.kind=? AND e.seq>? AND (?=0 OR e.seq<?) AND (?='' OR json_extract(e.payload,'$.evidence_kind')=?) AND (?='' OR json_extract(e.payload,'$.immutable_subject_ref')=?) AND (?<>'' OR (SELECT count(*) FROM durable_operations d WHERE d.op_id=json_extract(e.payload,'$.producer_run_ref') AND d.work_id=e.subject_id AND d.principal_ref=json_extract(e.payload,'$.producer_id') AND d.request_id=json_extract(e.payload,'$.producer_watermark') AND d.result_kind='completed' AND EXISTS(SELECT 1 FROM json_each(d.evidence_refs) WHERE value=json_extract(e.payload,'$.immutable_subject_ref')))=1))`, workID, WorkflowEvidenceBound, cutoff, beforeSeq, beforeSeq, requirement.Kind, requirement.Kind, requirement.Reference, requirement.Reference, requirement.Reference).Scan(&found); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_evidence_bindings e WHERE e.work_id=? AND e.binding_seq>? AND (?=0 OR e.binding_seq<?) AND (?='' OR json_extract(e.payload,'$.evidence_kind')=?) AND (?='' OR json_extract(e.payload,'$.immutable_subject_ref')=?) AND (?<>'' OR (SELECT count(*) FROM durable_operations d WHERE d.op_id=json_extract(e.payload,'$.producer_run_ref') AND d.work_id=e.work_id AND d.principal_ref=json_extract(e.payload,'$.producer_id') AND d.request_id=json_extract(e.payload,'$.producer_watermark') AND d.result_kind='completed' AND EXISTS(SELECT 1 FROM json_each(d.evidence_refs) WHERE value=json_extract(e.payload,'$.immutable_subject_ref')))=1))`, workID, cutoff, beforeSeq, beforeSeq, requirement.Kind, requirement.Kind, requirement.Reference, requirement.Reference, requirement.Reference).Scan(&found); err != nil {
 			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow evidence requirement", true, "retry once the database is readable", err)
 		}
 		if found == 0 {
@@ -655,7 +655,7 @@ func workflowEvidenceRequirementDefinitions(required, mandates []string, definit
 
 func workflowEvidenceTupleBound(ctx context.Context, q queryer, workID, kind, reference string, afterSeq int64) (bool, error) {
 	var count int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, afterSeq, kind, reference).Scan(&count); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND binding_seq>? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, afterSeq, kind, reference).Scan(&count); err != nil {
 		return false, wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect workflow evidence requirement", true, "retry once the database is readable", err)
 	}
 	return count != 0, nil
@@ -753,7 +753,7 @@ func verifyCompletionEvidence(ctx context.Context, tx *sql.Tx, workID string, re
 func verifyCompletionScopeAndMandates(ctx context.Context, tx *sql.Tx, workID string, contract workflowCompletionContractData, cutoff int64) error {
 	for _, mandate := range contract.SpecMandate {
 		var count int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, cutoff, mandate).Scan(&count); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND binding_seq>? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, cutoff, mandate).Scan(&count); err != nil {
 			return wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect spec-mandate evidence", true, "retry once the database is readable", err)
 		}
 		if count == 0 {
@@ -762,7 +762,7 @@ func verifyCompletionScopeAndMandates(ctx context.Context, tx *sql.Tx, workID st
 	}
 	for _, obligation := range contract.VerificationObligations {
 		var count int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, cutoff, obligation.ObligationID, obligation.LawID).Scan(&count); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND binding_seq>? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, cutoff, obligation.ObligationID, obligation.LawID).Scan(&count); err != nil {
 			return wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect verification-obligation evidence", true, "retry once the database is readable", err)
 		}
 		if count == 0 {
@@ -833,7 +833,7 @@ func verifyBlockingStaleness(ctx context.Context, tx *sql.Tx, workID string, def
 			continue
 		}
 		var count int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, rule.InputRef).Scan(&count); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, rule.InputRef).Scan(&count); err != nil {
 			return wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect staleness evidence", true, "retry once the database is readable", err)
 		}
 		if count == 0 && !slices.Contains(required, rule.InputRef) {
@@ -860,7 +860,7 @@ func workflowStalenessWarnings(ctx context.Context, tx *sql.Tx, workID string, d
 			continue
 		}
 		var count int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, rule.InputRef).Scan(&count); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, rule.InputRef).Scan(&count); err != nil {
 			return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect warning staleness evidence", true, "retry once the database is readable", err)
 		}
 		if count == 0 && !slices.Contains(required, rule.InputRef) {
@@ -887,7 +887,7 @@ func workflowRecordedStalenessWarnings(ctx context.Context, q queryer, workID st
 }
 
 func workflowStalenessObservationState(ctx context.Context, q queryer, workID string) (map[string]workflowStalenessObservedPayload, error) {
-	rows, err := q.QueryContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC`, workID, WorkflowStalenessObserved)
+	rows, err := q.QueryContext(ctx, `SELECT payload FROM workflow_staleness_observations WHERE work_id=?`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "workflow_staleness", "cannot read staleness observation events", true, "retry once the database is readable", err)
 	}
@@ -964,7 +964,7 @@ func completionNoticeEvents(ctx context.Context, tx *sql.Tx, workID string, cont
 // inside the accepted history. afterSeq bounds that history: bindings at or
 // before it do not count, and zero admits the whole history.
 func workflowEvidenceKindBound(ctx context.Context, q queryer, workID, kind string, afterSeq int64) (bool, error) {
-	rows, err := q.QueryContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>? ORDER BY seq`, workID, WorkflowEvidenceBound, afterSeq)
+	rows, err := q.QueryContext(ctx, `SELECT payload FROM workflow_evidence_bindings WHERE work_id=? AND binding_seq>? ORDER BY binding_seq`, workID, afterSeq)
 	if err != nil {
 		return false, wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect workflow evidence bindings", true, "retry once the database is readable", err)
 	}

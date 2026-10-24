@@ -1233,7 +1233,7 @@ func oracleControlProducerFreshTx(ctx context.Context, q queryer, workID, subjec
 
 func oracleClosureProducerBoundTx(ctx context.Context, q queryer, workID, ref, producer string) (bool, error) {
 	var bound int
-	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=? AND json_extract(payload,'$.producer_run_ref')=? AND json_extract(payload,'$.evidence_kind') IN ('verification','native_run'))`, workID, WorkflowEvidenceBound, ref, producer).Scan(&bound)
+	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=? AND json_extract(payload,'$.producer_run_ref')=? AND json_extract(payload,'$.evidence_kind') IN ('verification','native_run'))`, workID, ref, producer).Scan(&bound)
 	return bound != 0, err
 }
 

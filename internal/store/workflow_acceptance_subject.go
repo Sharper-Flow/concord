@@ -38,8 +38,8 @@ func workflowAcceptanceSubjectCurrent(ctx context.Context, q queryer, workID str
 		}
 		// Resolve the bound producer, not a commit claimed by the caller or a
 		// locator that merely looks like a native operation reference.
-		rows, err := q.QueryContext(ctx, `SELECT DISTINCT json_extract(payload,'$.producer_run_ref') FROM domain_events
- WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, ref)
+		rows, err := q.QueryContext(ctx, `SELECT DISTINCT json_extract(payload,'$.producer_run_ref') FROM workflow_evidence_bindings
+ WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, ref)
 		if err != nil {
 			return wrapFailure(KindUnavailable, "workflow_action", "cannot read the bound verdict producers", true, "retry once the database is readable", err)
 		}

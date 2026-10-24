@@ -94,7 +94,7 @@ func workflowCompleteStepCorrectionEvidenceCutoff(ctx context.Context, q queryer
 		return 0, nil
 	}
 	var seq int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.new_contract_version')=?`, string(SubjectWorkItem), workID, WorkflowContractSuperseded, routeVersion).Scan(&seq); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT supersession_seq FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, routeVersion).Scan(&seq); err != nil {
 		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot read the complete-step correction cutoff", true, "retry once the workflow projection is readable", err)
 	}
 	if seq == 0 {

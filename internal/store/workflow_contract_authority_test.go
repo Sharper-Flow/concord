@@ -187,6 +187,7 @@ DELETE FROM fold_guard`, dependentID, dependentID); err != nil {
 		if err := db.QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 			t.Fatal(err)
 		}
+		frontierWriteOnlyLog(t, s)
 		tx, err := db.BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -197,14 +198,28 @@ DELETE FROM fold_guard`, dependentID, dependentID); err != nil {
 		}
 		payload := workflowContractSupersededPayload{PreviousContractVersion: 1, NewContractVersion: 3, PredecessorContractVersions: predecessors}
 		event := Event{EventID: "impact-predecessor-order-parent", Kind: WorkflowContractSuperseded, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: completion.Actor, OccurredAt: completion.OccurredAt}
-		err = appendWorkflowContractImpactNoticesTx(context.Background(), tx, event, payload, version)
+		scope := newFoldScope(tx)
+		err = appendWorkflowContractImpactNoticesTx(context.Background(), tx, event, payload, version, scope)
 		_ = leaveFold(context.Background(), tx)
 		if err != nil {
 			_ = tx.Rollback()
 			t.Fatal(err)
 		}
+		if len(scope.eventIDs) != len(predecessors) {
+			t.Fatalf("derived operation IDs = %v; want %d", scope.eventIDs, len(predecessors))
+		}
+		for index, id := range scope.eventIDs {
+			var position int64
+			if err := tx.QueryRow(`SELECT effect_seq-(SELECT min(effect_seq) FROM effect_receipts WHERE kind=? AND subject_id=?) FROM effect_receipts WHERE event_id=?`, WorkflowImpactNoticeRecorded, workID, id).Scan(&position); err != nil || position != int64(index) {
+				t.Fatalf("derived receipt order at %d = %d, %v", index, position, err)
+			}
+		}
 		if err := tx.Commit(); err != nil {
 			t.Fatal(err)
+		}
+		var receipts int
+		if err := db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=? AND subject_id=?`, WorkflowImpactNoticeRecorded, workID).Scan(&receipts); err != nil || receipts != len(predecessors) {
+			t.Fatalf("derived notice receipts = %d, %v; want %d", receipts, err, len(predecessors))
 		}
 		rows, err := db.Query(`SELECT entity_ref,severity FROM workflow_impact_notices WHERE source_work_id=? ORDER BY entity_ref`, workID)
 		if err != nil {

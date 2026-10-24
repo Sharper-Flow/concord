@@ -128,6 +128,7 @@ func seedPreCutoverDispatchWindow(t *testing.T, dbPath, workID, attemptID, packe
 	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload) VALUES(?,?,last_insert_rowid(),?)`, workID, attemptID, completionPayload); err != nil {
 		t.Fatal(err)
 	}
+	seedMigratedEffectFrontier(t, tx)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
@@ -190,6 +191,7 @@ func seedPreCutoverDispatchedAttempt(t *testing.T, dbPath, workID, eventID, atte
 	if _, err := tx.ExecContext(context.Background(), `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest) SELECT event_id,seq,kind,subject_type,subject_id,actor,payload_version,? FROM domain_events WHERE event_id=?`, "sha256:"+hex.EncodeToString(sum[:]), eventID); err != nil {
 		t.Fatalf("seed migrated dispatch identity: %v", err)
 	}
+	seedMigratedEffectFrontier(t, tx)
 	if _, err := tx.ExecContext(context.Background(), `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}

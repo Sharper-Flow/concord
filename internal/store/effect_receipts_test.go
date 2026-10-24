@@ -244,6 +244,9 @@ func TestEffectReceiptAppendAndBackfillParity(t *testing.T) {
 		}
 	}
 	assertParity()
+	if _, err := s.db.Exec(reverseFrontiersMigration); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.db.Exec(`DROP TABLE workflow_staleness_observations; DROP TABLE effect_receipts; DELETE FROM schema_migrations WHERE version=145`); err != nil {
 		t.Fatal(err)
 	}

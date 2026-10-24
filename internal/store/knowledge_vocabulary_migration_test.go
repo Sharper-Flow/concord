@@ -147,14 +147,20 @@ func knowledge140AssertFK(t *testing.T, db *sql.DB) {
 func TestKnowledgeVocabularyMigration140PreservesCurrentState(t *testing.T) {
 	t.Parallel()
 	db, preserved := knowledge140Seed(t)
-	beforeSchema := knowledge140Schema(t, db)
 	if err := Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	if got := knowledge140Snapshot(t, db, knowledge140Tables); !reflect.DeepEqual(got, preserved) {
 		t.Fatalf("current projection changed:\ngot %v\nwant %v", got, preserved)
 	}
-	afterSchema := knowledge140Schema(t, db)
+	// Compare this step's schema changes in isolation; later migrations may
+	// independently extend otherwise unrelated tables.
+	schemaDB, _ := knowledge140Seed(t)
+	beforeSchema := knowledge140Schema(t, schemaDB)
+	if err := applyMigration(context.Background(), schemaDB, migrations[139]); err != nil {
+		t.Fatal(err)
+	}
+	afterSchema := knowledge140Schema(t, schemaDB)
 	for _, entry := range beforeSchema {
 		// Only these three table CHECK declarations change. All indexes,
 		// triggers and unrelated work/contract schema must remain identical.

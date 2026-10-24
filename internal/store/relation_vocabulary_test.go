@@ -60,6 +60,11 @@ func TestRelationIdentityIncludesWorkflowRelationEvents(t *testing.T) {
 		('collision-successor-event','workflow.successor_linked','work_item','collision-from','operator','2026-01-01T00:00:01Z',1,'{}')`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := tx.Exec(`INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,relation_seq)
+	 SELECT event_id,seq,kind,subject_type,subject_id,actor,payload_version,row_number() OVER(ORDER BY seq) FROM domain_events;
+	 UPDATE store_sequences SET last=2;`); err != nil {
+		t.Fatal(err)
+	}
 	overlap := Event{EventID: "collision-overlap", Kind: WorkflowOverlapResolved, SubjectID: "collision-from", OccurredAt: relationTestTime("2026-01-01T00:00:00Z")}
 	if err := insertRelation(context.Background(), tx, overlap, relationPayload{From: "collision-from", To: "collision-to", Kind: "compatible_with"}); err != nil {
 		t.Fatalf("insert overlap relation: %v", err)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -1254,10 +1255,22 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload) VALUES(?,?,last_insert_rowid(),?)`, workID, attemptID, completionPayload); err != nil {
 		t.Fatalf("seed current authorization: %v", err)
 	}
+	seedMigratedEffectFrontier(t, tx)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatalf("seed dispatch window: %v", err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("seed dispatch window commit: %v", err)
+	}
+}
+
+// Raw legacy fixtures on current schema also carry the sequence state the
+// migration derives, rather than asking the current writer to allocate twice.
+func seedMigratedEffectFrontier(t *testing.T, tx *sql.Tx) {
+	t.Helper()
+	if _, err := tx.ExecContext(context.Background(), `UPDATE store_sequences SET last=max(
+	 (SELECT coalesce(max(seq),0) FROM domain_events),
+	 (SELECT coalesce(max(seq),0) FROM sqlite_sequence WHERE name='domain_events'),0) WHERE name='effect'`); err != nil {
+		t.Fatalf("seed migrated effect frontier: %v", err)
 	}
 }

@@ -822,7 +822,7 @@ func seedWorkerDispatchedForAttempt(t *testing.T, s *Store, workID, attemptID st
 	raw, _ := json.Marshal(payload)
 	event := Event{EventID: "cd0059-consume-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "client:cd0059:principal/operator", PayloadVersion: 3, Payload: raw}
 	inserted, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES(?,?,?,?,?,?,?,?)`,
-		event.EventID, string(event.Kind), string(event.SubjectType), workID, event.Actor, "2026-08-22T00:00:00Z", event.PayloadVersion, string(raw))
+		event.EventID, event.Kind, string(event.SubjectType), workID, event.Actor, "2026-08-22T00:00:00Z", event.PayloadVersion, string(raw))
 	if err == nil {
 		event.Seq, err = inserted.LastInsertId()
 	}

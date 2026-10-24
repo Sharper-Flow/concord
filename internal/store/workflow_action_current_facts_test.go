@@ -44,6 +44,13 @@ func TestWorkflowActionStartCurrentFactsWithoutLog(t *testing.T) {
 		t.Fatalf("non-dispatch start erased dispatch pairing: %+v, %v", retained, err)
 	}
 	assertWorkerFactsLogBlind(t, f.s, map[string]func() (any, error){
+		"G22-prewrite-start": func() (any, error) {
+			seq, epoch, found, err := latestWorkflowActionStartAt(ctx, f.s.db, f.workID, f.step, int64(1)<<62)
+			return struct {
+				Seq, Epoch int64
+				Found      bool
+			}{seq, epoch, found}, err
+		},
 		"G22-dispatch-start": func() (any, error) { return readWorkflowActionStartTx(ctx, f.s.db, f.workID, f.step, true) },
 		"G22-pass-boundary": func() (any, error) {
 			seq, active, err := workflowStepPassBoundary(ctx, f.s.db, entry.Definition, f.workID, f.step, "workflow_action")

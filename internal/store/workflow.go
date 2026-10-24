@@ -3099,27 +3099,21 @@ func workflowDerivedCheckpointStartTx(ctx context.Context, tx *sql.Tx, definitio
 	return epoch, &event, nil
 }
 
-func latestWorkflowActionStartAt(ctx context.Context, q queryer, workID, stepID string, beforeSeq int64) (int64, int64, bool, error) {
-	query := `SELECT seq,payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=?`
-	args := []any{string(SubjectWorkItem), workID, WorkflowActionStarted, stepID}
-	if beforeSeq > 0 {
-		query += ` AND seq<?`
-		args = append(args, beforeSeq)
-	}
-	query += ` ORDER BY seq DESC LIMIT 1`
-	var seq int64
-	var raw string
-	if err := q.QueryRowContext(ctx, query, args...).Scan(&seq, &raw); err != nil {
+// Admission reads the current descriptor before its own start is written.
+// Authorized worker completions use their immutable authorization snapshot.
+func latestWorkflowActionStartAt(ctx context.Context, q queryer, workID, stepID string, _ int64) (int64, int64, bool, error) {
+	start, err := readWorkflowActionStartTx(ctx, q, workID, stepID, false)
+	if err != nil {
 		if err == sql.ErrNoRows {
 			return 0, 0, false, nil
 		}
 		return 0, 0, false, workflowProjectionError(err, "cannot inspect the latest workflow action start")
 	}
 	var payload workflowActionStartedPayload
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+	if err := json.Unmarshal(start.Payload, &payload); err != nil {
 		return 0, 0, false, newFailure(KindInvariantViolation, "fold_event", "workflow action start payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
-	return seq, payload.AttemptEpoch, true, nil
+	return start.Seq, payload.AttemptEpoch, true, nil
 }
 
 // readWorkflowActionStartTx reads the current start descriptor. A dispatch

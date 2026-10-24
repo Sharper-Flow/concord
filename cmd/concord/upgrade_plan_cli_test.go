@@ -391,6 +391,10 @@ var migrationTailReversals = map[int][]string{
 		`ALTER TABLE worker_attempts DROP COLUMN failure_recorded`,
 		`ALTER TABLE workflow_instances DROP COLUMN result_disposition`,
 	},
+	141: {
+		`DROP TABLE session_vacate_requests`,
+		`DROP TABLE session_claim_landings`,
+	},
 	128: {
 		`ALTER TABLE project_locators DROP COLUMN normalization_version`,
 	},

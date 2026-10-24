@@ -697,11 +697,9 @@ func verifiedSessionPlacementTx(ctx context.Context, q queryer, workID, sessionR
 		JOIN worktree_entries e ON e.set_id || ':' || e.project_id || ':' || e.claim_op_id = o.worktree_id AND e.state='active'
 		JOIN worktree_claims c ON c.op_id=e.claim_op_id
 		WHERE o.session_ref=? AND c.work_id=?
-		  AND EXISTS (SELECT 1 FROM domain_events l
-		              WHERE l.kind='work.session_claim_landed' AND l.subject_id=c.work_id
-		                AND json_extract(l.payload,'$.session_ref')=o.session_ref
-		                AND json_extract(l.payload,'$.project_id')=c.project_id
-		                AND json_extract(l.payload,'$.claim_op_id')=e.claim_op_id)`,
+		  AND EXISTS (SELECT 1 FROM session_claim_landings l
+		              WHERE l.work_id=c.work_id AND l.session_ref=o.session_ref
+		                AND l.project_id=c.project_id AND l.claim_op_id=e.claim_op_id)`,
 		sessionRef, workID).Scan(&projectID)
 	if err == sql.ErrNoRows {
 		return "", nil
@@ -1181,10 +1179,10 @@ func workExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef s
 // AND the session holds no occupancy rows on this work now. A recorded
 // landing released the rows its request's claim held, so rows that stand
 // after it belong to a later claim, and the old landing proves nothing about
-// this retirement. A pending request, a version 1 release, no request at
-// all, or renewed occupancy reports the blocker text instead.
+// this retirement. A pending request, no request at all, or renewed
+// occupancy reports the blocker text instead.
 func sessionVacateLandingStateTx(ctx context.Context, q queryer, workID, sessionRef string) (bool, string, error) {
-	_, seq, version, err := latestSessionVacateRequestTx(ctx, q, workID, sessionRef)
+	latest, err := latestSessionVacateRequestTx(ctx, q, workID, sessionRef)
 	if err != nil {
 		var failure *Failure
 		if failureAs(err, &failure) && failure.Kind == KindProjectionNotFound {
@@ -1192,14 +1190,7 @@ func sessionVacateLandingStateTx(ctx context.Context, q queryer, workID, session
 		}
 		return false, "", err
 	}
-	if version != 2 {
-		return false, "the recorded session vacate predates the landing-verified release and cannot prove this session's landing", nil
-	}
-	landed, err := sessionVacateLandedAfterTx(ctx, q, workID, sessionRef, seq)
-	if err != nil {
-		return false, "", err
-	}
-	if !landed {
+	if !latest.Landed {
 		return false, "the committed session vacate still waits for its verified landing", nil
 	}
 	var occupied int

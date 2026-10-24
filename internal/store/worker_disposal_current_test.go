@@ -18,7 +18,9 @@ func workerDisposalCurrentDB(t *testing.T) *sql.DB {
 CREATE TABLE domain_events(seq INTEGER PRIMARY KEY, subject_type TEXT, subject_id TEXT, kind TEXT, payload TEXT);
 CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,capability_class TEXT,lifecycle_state TEXT,readback_model TEXT,dispatch_seq INTEGER,dispatch_payload TEXT,terminal_seq INTEGER);
 CREATE TABLE worker_authorizations(work_id TEXT,attempt_id TEXT,seq INTEGER,payload TEXT);
-CREATE TABLE worker_attempt_dispositions(work_id TEXT,attempt_id TEXT,seq INTEGER,event_id TEXT,action_id TEXT,payload TEXT,PRIMARY KEY(work_id,attempt_id));
+CREATE TABLE worker_attempt_dispositions(work_id TEXT,attempt_id TEXT,seq INTEGER,event_id TEXT,action_id TEXT,payload TEXT,PRIMARY KEY(work_id,attempt_id,action_id));
+CREATE TABLE workflow_step_epochs(work_id TEXT,step_id TEXT,latest_start_seq INTEGER,latest_start_event_id TEXT,latest_start_payload TEXT);
+CREATE TABLE workflow_phase_exits(work_id TEXT,action_id TEXT,exit_seq INTEGER,PRIMARY KEY(work_id,action_id));
 INSERT INTO worker_attempts VALUES('work','first','implementation','completed','model',2,'{"attempt_id":"first","lane_actor_ref":"lane:first"}',3);
 INSERT INTO worker_authorizations VALUES('work','first',1,'{"action_id":"dispatch_worker","step_id":"refine","worker_attempt_id":"first"}');
 INSERT INTO domain_events VALUES(1,'work_item','work','workflow.action_completed','{"action_id":"dispatch_worker","step_id":"refine","worker_attempt_id":"first"}');
@@ -98,6 +100,262 @@ INSERT INTO domain_events VALUES(6,'work_item','work','worker.dispatched','{"att
 	})
 }
 
+func disposalMarkerForTest(t *testing.T, db *sql.DB, attempt, action string, seq int64) {
+	t.Helper()
+	raw := string(mustJSONValue(map[string]any{"action_id": action, "worker_attempt_id": attempt, "actor_ref": action, "step_id": "refine"}))
+	if _, err := db.Exec(`INSERT INTO worker_attempt_dispositions VALUES('work',?,?,?, ?,?)`, attempt, seq, action, action, raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO domain_events VALUES(?,'work_item','work',?,?)`, seq, WorkflowActionCompleted, raw); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func disposalStartForTest(t *testing.T, db *sql.DB) {
+	t.Helper()
+	const raw = `{"step_id":"refine","attempt_epoch":7}`
+	if _, err := db.Exec(`INSERT INTO workflow_step_epochs VALUES('work','refine',10,'start',?)`, raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO domain_events VALUES(10,'work_item','work',?,?)`, WorkflowActionStarted, raw); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkerFencedWriterLatestDispositionWithoutLog(t *testing.T) {
+	db := workerDisposalCurrentDB(t)
+	disposalMarkerForTest(t, db, "first", "accept_worker_evidence", 4)
+	disposalMarkerForTest(t, db, "first", "record_worker_job", 5)
+	disposalWithoutLog(t, db, func() {
+		writer, live, since, err := workflowFencedWriter(t.Context(), db, "work", "lane:first", 100)
+		if err != nil || writer != "record_worker_job" || live || since != 5 {
+			t.Fatalf("writer=%q live=%v since=%d err=%v", writer, live, since, err)
+		}
+	})
+}
+
+func TestWorkerDispatchStepHoldWithoutLog(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		state   string
+		markers []string
+		start   bool
+		want    bool
+	}{
+		{name: "no start", state: "in_flight"},
+		{name: "older dispatch", start: true},
+		{name: "running", start: true, state: "in_flight", want: true},
+		{name: "failed", start: true, state: "failed", want: true},
+		{name: "completed without acceptance", start: true, state: "completed", want: true},
+		{name: "result acceptance", start: true, state: "completed", markers: []string{"accept_worker_result"}},
+		{name: "evidence acceptance then job", start: true, state: "completed", markers: []string{"accept_worker_evidence", "record_worker_job"}},
+		{name: "rejection still holds", start: true, state: "completed", markers: []string{"reject_worker_result"}, want: true},
+		{name: "failure record still holds effect step", start: true, state: "failed", markers: []string{"record_worker_failure"}, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := workerDisposalCurrentDB(t)
+			if tc.start {
+				disposalStartForTest(t, db)
+			}
+			if tc.state != "" {
+				if _, err := db.Exec(`UPDATE worker_attempts SET dispatch_seq=12,lifecycle_state=?; UPDATE domain_events SET seq=12 WHERE seq=2`, tc.state); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for i, action := range tc.markers {
+				disposalMarkerForTest(t, db, "first", action, int64(14+i))
+			}
+			disposalWithoutLog(t, db, func() {
+				got, err := workflowDispatchHoldsStepAdvance(t.Context(), db, WorkflowDefinition{}, "work", "refine", 100)
+				if err != nil || got != tc.want {
+					t.Fatalf("held=%v err=%v, want %v", got, err, tc.want)
+				}
+			})
+		})
+	}
+}
+
+func TestWorkerCheckpointDispatchHoldWithoutLog(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		state   string
+		markers []string
+		want    bool
+	}{
+		{name: "unaccepted", state: "completed", want: true},
+		{name: "live", state: "in_flight", want: true},
+		{name: "failed", state: "failed", want: true},
+		{name: "accepted then job", state: "completed", markers: []string{"accept_worker_result", "record_worker_job"}},
+		{name: "evidence accepted", state: "completed", markers: []string{"accept_worker_evidence"}},
+		{name: "failure disposition", state: "failed", markers: []string{"record_worker_failure"}},
+		{name: "rejection", state: "completed", markers: []string{"reject_worker_result"}, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := workerDisposalCurrentDB(t)
+			if _, err := db.Exec(`UPDATE worker_attempts SET lifecycle_state=?;
+INSERT INTO worker_authorizations VALUES('work','unused',8,'{"action_id":"dispatch_worker","step_id":"refine","worker_attempt_id":"unused"}');
+INSERT INTO domain_events VALUES(8,'work_item','work','workflow.action_completed','{"action_id":"dispatch_worker","step_id":"refine","worker_attempt_id":"unused"}');`, tc.state); err != nil {
+				t.Fatal(err)
+			}
+			for i, action := range tc.markers {
+				disposalMarkerForTest(t, db, "first", action, int64(4+i))
+			}
+			disposalWithoutLog(t, db, func() {
+				attempt, state, found, err := latestDispatchedAttemptAtStep(t.Context(), db, "work", "refine", 100)
+				if err != nil || !found || attempt != "first" || state != tc.state {
+					t.Fatalf("attempt=%q state=%q found=%v err=%v", attempt, state, found, err)
+				}
+				got, err := workflowCheckpointDispatchHoldsStepAdvance(t.Context(), db, "work", "refine", 100)
+				if err != nil || got != tc.want {
+					t.Fatalf("held=%v err=%v, want %v", got, err, tc.want)
+				}
+				definition := WorkflowDefinition{StepGraph: WorkflowStepGraph{Steps: []WorkflowStep{{ID: "refine", Kind: WorkflowStepHumanCheckpoint}}}}
+				got, err = workflowDispatchHoldsStepAdvance(t.Context(), db, definition, "work", "refine", 100)
+				if err != nil || got != tc.want {
+					t.Fatalf("checkpoint branch: held=%v err=%v, want %v", got, err, tc.want)
+				}
+			})
+		})
+	}
+}
+
+func TestWorkerFailureWindowWithoutLog(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		authSeq  int64
+		dispatch int64
+		marker   string
+		exclude  bool
+		want     bool
+	}{
+		{name: "authorization only", authSeq: 11, want: true},
+		{name: "dispatch only", authSeq: 1, dispatch: 12, want: true},
+		{name: "at boundary", authSeq: 10, dispatch: 10},
+		{name: "old failure", authSeq: 1, dispatch: 2},
+		{name: "recorded failure excluded", authSeq: 11, marker: "record_worker_failure", exclude: true},
+		{name: "recorded failure included", authSeq: 11, marker: "record_worker_failure", want: true},
+		{name: "job is not failure disposition", authSeq: 11, marker: "record_worker_job", exclude: true, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := workerDisposalCurrentDB(t)
+			disposalStartForTest(t, db)
+			if _, err := db.Exec(`DELETE FROM domain_events WHERE seq IN (1,2); UPDATE worker_attempts SET lifecycle_state='failed',dispatch_seq=?`, tc.dispatch); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`UPDATE worker_authorizations SET seq=?`, tc.authSeq); err != nil {
+				t.Fatal(err)
+			}
+			// Equal boundary coordinates need not coexist in a real log;
+			// use no duplicate event for that current-row boundary test.
+			if tc.authSeq != 10 {
+				if _, err := db.Exec(`INSERT INTO domain_events VALUES(?,'work_item','work','workflow.action_completed','{"action_id":"dispatch_worker","worker_attempt_id":"first"}')`, tc.authSeq); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.dispatch > 0 && tc.dispatch != 10 {
+				if _, err := db.Exec(`INSERT INTO domain_events VALUES(?,'work_item','work','worker.dispatched','{"attempt_id":"first"}')`, tc.dispatch); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.marker != "" {
+				disposalMarkerForTest(t, db, "first", tc.marker, 14)
+			}
+			disposalWithoutLog(t, db, func() {
+				got, err := workflowFailedWorkerAttemptSince(t.Context(), db, "work", 10, "test", tc.exclude)
+				if err != nil || got != tc.want {
+					t.Fatalf("since: failed=%v err=%v, want %v", got, err, tc.want)
+				}
+				got, err = workflowFailedWorkerAttempt(t.Context(), db, "work", "refine", "test", tc.exclude)
+				if err != nil || got != tc.want {
+					t.Fatalf("step: failed=%v err=%v, want %v", got, err, tc.want)
+				}
+			})
+		})
+	}
+}
+
+func TestReviewCorrectionConsumptionWithoutLog(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		action  string
+		seq     int64
+		exclude int64
+		want    bool
+	}{
+		{name: "no correction"},
+		{name: "before review", action: "request_correction", seq: 2},
+		{name: "at review", action: "request_correction", seq: 3},
+		{name: "after review", action: "request_correction", seq: 4, want: true},
+		{name: "own effect excluded", action: "request_correction", seq: 4, exclude: 4},
+		{name: "another exclusion", action: "request_correction", seq: 4, exclude: 5, want: true},
+		{name: "another action", action: "confirm_premise", seq: 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := workerDisposalCurrentDB(t)
+			if tc.action != "" {
+				if _, err := db.Exec(`INSERT INTO workflow_phase_exits VALUES('work',?,?)`, tc.action, tc.seq); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.Exec(`DELETE FROM domain_events WHERE seq=?`, tc.seq); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.Exec(`INSERT INTO domain_events VALUES(?,'work_item','work',?,?)`, tc.seq, WorkflowActionCompleted, string(mustJSONValue(map[string]string{"action_id": tc.action}))); err != nil {
+					t.Fatal(err)
+				}
+			}
+			disposalWithoutLog(t, db, func() {
+				got, err := workflowReviewCorrectionConsumed(t.Context(), db, "work", 3, tc.exclude)
+				if err != nil || got != tc.want {
+					t.Fatalf("consumed=%v err=%v, want %v", got, err, tc.want)
+				}
+			})
+		})
+	}
+}
+
+func TestLatestMaterializedAttemptAtStepWithoutLog(t *testing.T) {
+	db := workerDisposalCurrentDB(t)
+	if _, err := db.Exec(`
+INSERT INTO worker_authorizations VALUES('work','second',5,'{"action_id":"dispatch_worker","step_id":"refine","worker_attempt_id":"second"}');
+INSERT INTO worker_attempts VALUES('work','second','review','failed','',6,'{}',0);
+INSERT INTO domain_events VALUES(5,'work_item','work','workflow.action_completed','{"action_id":"dispatch_worker","step_id":"refine","worker_attempt_id":"second"}');
+INSERT INTO domain_events VALUES(6,'work_item','work','worker.dispatched','{"attempt_id":"second"}');
+INSERT INTO worker_authorizations VALUES('work','other-step',7,'{"action_id":"dispatch_worker","step_id":"execution","worker_attempt_id":"other-step"}');
+INSERT INTO worker_attempts VALUES('work','other-step','review','completed','model',9,'{}',0);
+INSERT INTO domain_events VALUES(7,'work_item','work','workflow.action_completed','{"action_id":"dispatch_worker","step_id":"execution","worker_attempt_id":"other-step"}');
+INSERT INTO domain_events VALUES(9,'work_item','work','worker.dispatched','{"attempt_id":"other-step"}');
+INSERT INTO worker_authorizations VALUES('work','unused',8,'{"action_id":"dispatch_worker","step_id":"refine","worker_attempt_id":"unused"}');
+INSERT INTO worker_attempts VALUES('work','unused','review','in_flight','',0,NULL,0);
+INSERT INTO domain_events VALUES(8,'work_item','work','workflow.action_completed','{"action_id":"dispatch_worker","step_id":"refine","worker_attempt_id":"unused"}');`); err != nil {
+		t.Fatal(err)
+	}
+	disposalWithoutLog(t, db, func() {
+		attempt, state, found, err := latestDispatchedAttemptAtStep(t.Context(), db, "work", "refine", 100)
+		if err != nil || !found || attempt != "second" || state != "failed" {
+			t.Fatalf("attempt=%q state=%q found=%v err=%v", attempt, state, found, err)
+		}
+		_, _, found, err = latestDispatchedAttemptAtStep(t.Context(), db, "work", "missing-step", 100)
+		if err != nil || found {
+			t.Fatalf("missing step: found=%v err=%v", found, err)
+		}
+	})
+}
+
+func TestWorkerFailureWithoutCurrentStartWithoutLog(t *testing.T) {
+	db := workerDisposalCurrentDB(t)
+	if _, err := db.Exec(`UPDATE worker_attempts SET lifecycle_state='failed'`); err != nil {
+		t.Fatal(err)
+	}
+	disposalWithoutLog(t, db, func() {
+		for _, step := range []string{"", "refine"} {
+			got, err := workflowFailedWorkerAttempt(t.Context(), db, "work", step, "test", false)
+			if err != nil || got {
+				t.Fatalf("step=%q failed=%v err=%v", step, got, err)
+			}
+		}
+	})
+}
+
 func TestWorkerLiveStepHoldWithoutLog(t *testing.T) {
 	for _, state := range []string{"in_flight", "completed", "failed"} {
 		t.Run(state, func(t *testing.T) {
@@ -133,6 +391,7 @@ func TestRefineReviewCorrectionWithoutLog(t *testing.T) {
 		want     workflowRefineReviewCorrectionState
 	}{
 		{name: "accepted and settled", want: workflowRefineReviewCorrectionOpen},
+		{name: "acceptance survives later job disposition", extra: `INSERT INTO worker_attempt_dispositions VALUES('work','first',5,'job','record_worker_job','{"step_id":"refine"}'); INSERT INTO domain_events VALUES(5,'work_item','work','workflow.action_completed','{"action_id":"record_worker_job","step_id":"refine","worker_attempt_id":"first"}')`, want: workflowRefineReviewCorrectionOpen},
 		{name: "authorization without materialization holds", extra: `INSERT INTO worker_authorizations VALUES('work','other',5,'{"step_id":"refine"}'); INSERT INTO domain_events VALUES(5,'work_item','work','workflow.action_completed','{"action_id":"dispatch_worker","step_id":"refine","worker_attempt_id":"other"}')`, want: workflowRefineReviewCorrectionClosed},
 		{name: "another step does not hold", extra: `INSERT INTO worker_authorizations VALUES('work','other',5,'{"step_id":"execution"}'); INSERT INTO domain_events VALUES(5,'work_item','work','workflow.action_completed','{"action_id":"dispatch_worker","step_id":"execution","worker_attempt_id":"other"}')`, want: workflowRefineReviewCorrectionOpen},
 		{name: "earlier pass does not hold", boundary: 2, extra: `INSERT INTO worker_authorizations VALUES('work','old',1,'{"step_id":"refine"}'); INSERT INTO domain_events VALUES(0,'work_item','work','workflow.action_completed','{"action_id":"dispatch_worker","step_id":"refine","worker_attempt_id":"old"}')`, want: workflowRefineReviewCorrectionOpen},
@@ -152,6 +411,56 @@ func TestRefineReviewCorrectionWithoutLog(t *testing.T) {
 				got, err := workflowRefineReviewCorrectionDecision(t.Context(), db, "work", definition, "refine", "test", tc.boundary)
 				if err != nil || got != tc.want {
 					t.Fatalf("decision=%v err=%v, want %v", got, err, tc.want)
+				}
+			})
+		})
+	}
+}
+
+func TestRefineReviewEvidenceSelectionWithoutLog(t *testing.T) {
+	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
+	for _, tc := range []struct {
+		name   string
+		extra  string
+		marker string
+		want   string
+	}{
+		{name: "completed current review", want: "first"},
+		{name: "old pass", extra: `UPDATE worker_attempts SET dispatch_seq=2`},
+		{name: "wrong authorization step", extra: `UPDATE worker_authorizations SET payload='{"step_id":"execution"}'`},
+		{name: "not completed", extra: `UPDATE worker_attempts SET lifecycle_state='failed'`},
+		{name: "empty readback", extra: `UPDATE worker_attempts SET readback_model=''`},
+		{name: "not review", extra: `UPDATE worker_attempts SET capability_class='implementation'`},
+		{name: "already accepted", marker: "accept_worker_evidence"},
+		{name: "already rejected", marker: "reject_worker_result"},
+		{name: "job disposition does not mask acceptance", marker: "accept_worker_evidence", extra: `INSERT INTO worker_attempt_dispositions VALUES('work','first',16,'job','record_worker_job','{"step_id":"refine"}')`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := workerDisposalCurrentDB(t)
+			disposalStartForTest(t, db)
+			if _, err := db.Exec(`CREATE TABLE workflow_contracts(work_id TEXT,supersession_seq INTEGER);
+UPDATE worker_attempts SET capability_class='review',dispatch_seq=12,terminal_seq=13;
+UPDATE worker_authorizations SET seq=11;`); err != nil {
+				t.Fatal(err)
+			}
+			if tc.extra != "" {
+				if _, err := db.Exec(tc.extra); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.marker != "" {
+				disposalMarkerForTest(t, db, "first", tc.marker, 15)
+			}
+			disposalWithoutLog(t, db, func() {
+				got, err := workflowRefineReviewEvidenceAttempt(t.Context(), db, "work", definition, "refine", "test", 100)
+				if err != nil || got != tc.want {
+					t.Fatalf("attempt=%q err=%v, want %q", got, err, tc.want)
+				}
+				if tc.want != "" {
+					err := validateRefineReviewEvidenceAttempt(t.Context(), db, "work", definition, "refine", tc.want, 8, "test", 100)
+					if !hasFailureKind(err, KindIllegalLifecycleTransition) || !strings.Contains(err.Error(), "attempt epoch") {
+						t.Fatalf("wrong epoch error=%v", err)
+					}
 				}
 			})
 		})

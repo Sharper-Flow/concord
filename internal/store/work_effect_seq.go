@@ -3,13 +3,14 @@ package store
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 // advanceWorkEffectSeqTx moves work_items.effect_seq to the effect sequence of
 // a work-item event that was just appended and folded in tx. The column is the
 // work item's effect frontier: the highest effect sequence written against the
-// work item. Readers that need "has anything about this work item changed"
-// read it instead of scanning the event log.
+// work item. last_progress_at separately retains the lexical maximum stored
+// timestamp of non-message, non-overlap effects; it is not an ordering clock.
 //
 // A work.removed fold deletes the row, so the update then touches nothing.
 func advanceWorkEffectSeqTx(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -21,7 +22,13 @@ func advanceWorkEffectSeqTx(ctx context.Context, tx *sql.Tx, event Event) error 
 			"work event "+event.EventID+" reached the effect frontier without its effect sequence", false,
 			"pass the appended sequence to the effect frontier")
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE work_items SET effect_seq=? WHERE id=? AND effect_seq<?`, event.Seq, event.SubjectID, event.Seq); err != nil {
+	progress := ""
+	switch event.Kind {
+	case "work.message_sent", "work.message_withdrawn", "workflow.overlap_resolved":
+	default:
+		progress = event.OccurredAt.UTC().Format(time.RFC3339Nano)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE work_items SET effect_seq=MAX(effect_seq,?),last_progress_at=MAX(last_progress_at,?) WHERE id=?`, event.Seq, progress, event.SubjectID); err != nil {
 		return wrapFailure(KindUnavailable, "apply_operation", "cannot advance the work effect frontier", true,
 			"retry once the database is writable", err)
 	}

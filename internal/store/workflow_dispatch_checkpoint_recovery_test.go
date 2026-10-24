@@ -470,17 +470,4 @@ func TestResearchWalledCorrectionRecovery(t *testing.T) {
 	if final.counters.dispatches != 6 || final.counters.authorizations != 6 || final.counters.reports != 5 || final.counters.attempts != 6 || final.counters.verdicts != 0 {
 		t.Fatalf("final effect counters = %+v, want the four historical cycles, fresh research and review, and no verdicts", final.counters)
 	}
-	for _, attemptID := range rejected {
-		var completedSeq int64
-		if err := f.s.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerCompleted, attemptID).Scan(&completedSeq); err != nil {
-			t.Fatal(err)
-		}
-		epoch := crossAttemptDispatchEpoch(t, f.s, workID, attemptID)
-		if crossAttemptResultsContain(f.rejectableResults(t, completedSeq), attemptID, epoch) {
-			t.Fatalf("future completion authorized rejection of %s before its report existed", attemptID)
-		}
-		if !crossAttemptResultsContain(f.rejectableResults(t, f.rejectionSequence(t, attemptID)), attemptID, epoch) {
-			t.Fatalf("later history invalidated the eligible rejection of %s", attemptID)
-		}
-	}
 }

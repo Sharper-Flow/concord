@@ -1252,8 +1252,8 @@ func verifyWorkerFailureIntegrationResultSourceTx(ctx context.Context, q queryer
 		return workerFailureBoundFailure("integration result source " + source.Locator + " is not an accepted input reference of the cited run's population")
 	}
 	var payload string
-	err := q.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND event_id=? AND (?=0 OR seq<?)`,
-		string(SubjectWorkItem), workID, WorkflowActionCompleted, source.Locator, beforeSeq, beforeSeq).Scan(&payload)
+	err := q.QueryRowContext(ctx, `SELECT payload FROM worker_attempt_dispositions WHERE work_id=? AND action_id='accept_worker_result' AND event_id=? AND (?=0 OR seq<?)`,
+		workID, source.Locator, beforeSeq, beforeSeq).Scan(&payload)
 	if err == sql.ErrNoRows {
 		return workerFailureBoundFailure("integration result source " + source.Locator + " names no acceptance event at or before the correction")
 	}

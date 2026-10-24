@@ -285,14 +285,14 @@ func workflowFailedWorkerAttempt(ctx context.Context, q queryer, workID, current
 	if currentStep == "" {
 		return false, nil
 	}
-	var startSeq sql.NullInt64
-	if err := q.QueryRowContext(ctx, `SELECT MAX(seq) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=?`, string(SubjectWorkItem), workID, WorkflowActionStarted, currentStep).Scan(&startSeq); err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot inspect the current workflow action start", true, "retry once the workflow projection is readable", err)
-	}
-	if !startSeq.Valid {
+	start, err := readWorkflowActionStartTx(ctx, q, workID, currentStep, false)
+	if err == sql.ErrNoRows {
 		return false, nil
 	}
-	return workflowFailedWorkerAttemptSince(ctx, q, workID, startSeq.Int64, subject, excludeRecorded)
+	if err != nil {
+		return false, wrapFailure(KindUnavailable, subject, "cannot inspect the current workflow action start", true, "retry once the workflow projection is readable", err)
+	}
+	return workflowFailedWorkerAttemptSince(ctx, q, workID, start.Seq, subject, excludeRecorded)
 }
 
 // workflowFailedWorkerAttemptSince reports a failed worker attempt whose
@@ -301,11 +301,12 @@ func workflowFailedWorkerAttempt(ctx context.Context, q queryer, workID, current
 // failure recorded in a previous pass cannot open correction in the pass that
 // returned to the step (CD-0133 D1).
 func workflowFailedWorkerAttemptSince(ctx context.Context, q queryer, workID string, sinceSeq int64, subject string, excludeRecorded bool) (bool, error) {
-	query := `SELECT EXISTS(SELECT 1 FROM worker_attempts a JOIN domain_events d ON d.subject_type=? AND d.subject_id=a.work_id AND ((d.kind=? AND json_extract(d.payload,'$.attempt_id')=a.attempt_id) OR (d.kind=? AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=a.attempt_id)) WHERE a.work_id=? AND a.lifecycle_state='failed' AND d.seq>?`
-	args := []any{string(SubjectWorkItem), WorkerDispatched, WorkflowActionCompleted, workID, sinceSeq}
+	query := `SELECT EXISTS(SELECT 1 FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='failed'
+ AND ((a.dispatch_seq>0 AND a.dispatch_seq>?) OR EXISTS (
+  SELECT 1 FROM worker_authorizations d WHERE d.work_id=a.work_id AND d.attempt_id=a.attempt_id AND d.seq>?))`
+	args := []any{workID, sinceSeq, sinceSeq}
 	if excludeRecorded {
-		query += ` AND NOT EXISTS (SELECT 1 FROM domain_events f WHERE f.subject_type=? AND f.subject_id=a.work_id AND f.kind=? AND json_extract(f.payload,'$.action_id')='record_worker_failure' AND json_extract(f.payload,'$.worker_attempt_id')=a.attempt_id)`
-		args = append(args, string(SubjectWorkItem), WorkflowActionCompleted)
+		query += ` AND NOT EXISTS (SELECT 1 FROM worker_attempt_dispositions f WHERE f.work_id=a.work_id AND f.attempt_id=a.attempt_id AND f.action_id='record_worker_failure')`
 	}
 	query += `)`
 	var available int

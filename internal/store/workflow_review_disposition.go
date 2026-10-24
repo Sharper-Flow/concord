@@ -56,7 +56,7 @@ func validateRefineReviewEvidenceAttempt(ctx context.Context, q queryer, workID 
 	if attemptID == "" || requestedAttempt != attemptID {
 		return newFailure(KindIllegalLifecycleTransition, subject, "review evidence acceptance requires the current undispositioned completed review", false, "accept the exact current review attempt")
 	}
-	_, epoch, started, err := latestWorkflowActionStartAt(ctx, q, workID, step, 0)
+	_, epoch, started, err := latestWorkflowActionStart(ctx, q, workID, step)
 	if err != nil {
 		return err
 	}

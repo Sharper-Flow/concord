@@ -1082,7 +1082,7 @@ func readAuthorizedDispatchWindowBefore(ctx context.Context, q queryer, workID, 
 	var completionEpoch, startEpoch int64
 	window.WorkID = workID
 	window.AttemptID = attemptID
-	if err := q.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),COALESCE(json_extract(payload,'$.attempt_epoch'),0),COALESCE(json_extract(payload,'$.worker_packet_digest'),''),COALESCE(json_extract(payload,'$.worker_worktree_identity'),''),COALESCE(json_extract(payload,'$.worker_subject_commit'),''),json_extract(payload,'$.worker_context_frontier') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.worker_attempt_id')=? AND (?=0 OR seq<?) ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", attemptID, beforeSeq, beforeSeq).Scan(&window.StartSeq, &window.StepID, &completionEpoch, &window.PacketDigest, &window.WorktreeIdentity, &window.SubjectCommit, &frontier); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),COALESCE(json_extract(payload,'$.attempt_epoch'),0),COALESCE(json_extract(payload,'$.worker_packet_digest'),''),COALESCE(json_extract(payload,'$.worker_worktree_identity'),''),COALESCE(json_extract(payload,'$.worker_subject_commit'),''),json_extract(payload,'$.worker_context_frontier') FROM worker_authorizations WHERE work_id=? AND attempt_id=? AND (?=0 OR seq<?)`, workID, attemptID, beforeSeq, beforeSeq).Scan(&window.StartSeq, &window.StepID, &completionEpoch, &window.PacketDigest, &window.WorktreeIdentity, &window.SubjectCommit, &frontier); err != nil {
 		if err == sql.ErrNoRows {
 			return window, 0, newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "no authorized dispatch window exists for this work item bound to this attempt", false, "open a dispatch_worker authorization for this attempt before recording worker evidence")
 		}
@@ -1091,7 +1091,7 @@ func readAuthorizedDispatchWindowBefore(ctx context.Context, q queryer, workID, 
 	window.ContextFrontier, window.ContextFrontierPresent = frontier.Int64, frontier.Valid
 	// The start anchors the single-use consumption read and carries the step
 	// epoch the completion authorized against.
-	if err := q.QueryRowContext(ctx, `SELECT seq,COALESCE(json_extract(payload,'$.attempt_epoch'),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? AND seq<? AND (?=0 OR seq<?) ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionStarted, "dispatch_worker", window.StepID, window.StartSeq, beforeSeq, beforeSeq).Scan(&window.StartSeq, &startEpoch); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT start_seq,COALESCE(json_extract(start_payload,'$.attempt_epoch'),0) FROM worker_authorizations WHERE work_id=? AND attempt_id=? AND start_seq>0 AND start_seq<seq AND json_extract(start_payload,'$.action_id')='dispatch_worker' AND json_extract(start_payload,'$.step_id')=?`, workID, attemptID, window.StepID).Scan(&window.StartSeq, &startEpoch); err != nil {
 		if err == sql.ErrNoRows {
 			return window, 0, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker completed without a starting authorization event", false, "reopen the workflow action against a fresh step epoch")
 		}
@@ -1127,7 +1127,7 @@ func findAuthorizedDispatchWindowCore(ctx context.Context, q queryer, workID, at
 // The check is single-use: one authorization admits exactly one attempt.
 func WorkerDispatchWindowIsOpenTx(ctx context.Context, tx *sql.Tx, window WorkerDispatchWindow) (bool, error) {
 	var consumed int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? AND seq > ?`, string(SubjectWorkItem), window.WorkID, WorkerDispatched, window.AttemptID, window.StartSeq).Scan(&consumed); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id=? AND dispatch_seq>?`, window.WorkID, window.AttemptID, window.StartSeq).Scan(&consumed); err != nil {
 		return false, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot inspect the dispatch window consumption", true, "retry once the database is readable", err)
 	}
 	return consumed == 0, nil
